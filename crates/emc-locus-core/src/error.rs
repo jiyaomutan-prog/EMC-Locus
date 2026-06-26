@@ -28,6 +28,11 @@ pub enum DomainError {
         expected: String,
         actual: String,
     },
+    EmptyTransportEndpointAddress,
+    TransportAdapterMismatch {
+        expected: String,
+        actual: String,
+    },
     InvalidInstrumentSafetyLimit {
         quantity: String,
         minimum: i64,

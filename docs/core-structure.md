@@ -19,7 +19,7 @@ crates/emc-locus-core/src/
   measurement.rs   Measurement-run planning and pre-run readiness gate
   repositories.rs  Connectivity, repository domains, snapshots, and sync policy
   instrument.rs    Instrument transports and update policy
-  instrument_runtime.rs Simulated commands, responses, and observation log
+  instrument_runtime.rs Commands, transport adapters, runtime, and observations
   signal.rs        DAQ, synchronized datasets, simulated source, and signal graph
   updates.rs       Signed update bundles, compatibility, and install gates
   traceability.rs  Baseline traceability requirements

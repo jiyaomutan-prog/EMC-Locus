@@ -654,6 +654,125 @@ fn instrument_command_message_rejects_empty_values() {
 }
 
 #[test]
+fn transport_endpoint_rejects_empty_addresses() {
+    let error = InstrumentTransportEndpoint::new(InstrumentTransport::TcpIp, " ").unwrap_err();
+
+    assert_eq!(error, DomainError::EmptyTransportEndpointAddress);
+
+    let endpoint =
+        InstrumentTransportEndpoint::new(InstrumentTransport::TcpIp, "TCPIP::192.0.2.10").unwrap();
+    assert_eq!(endpoint.transport(), InstrumentTransport::TcpIp);
+    assert_eq!(endpoint.address(), "TCPIP::192.0.2.10");
+}
+
+#[test]
+fn simulated_transport_adapter_returns_deterministic_exchange() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let endpoint =
+        InstrumentTransportEndpoint::new(InstrumentTransport::Simulated, "SIM::RX-001").unwrap();
+    let mut adapter = SimulatedTransportAdapter::new(endpoint);
+
+    let response = adapter
+        .exchange(&InstrumentCommand::new(
+            code,
+            InstrumentTransport::Simulated,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap();
+
+    assert_eq!(adapter.transport(), InstrumentTransport::Simulated);
+    assert_eq!(adapter.endpoint().address(), "SIM::RX-001");
+    assert_eq!(response.as_str(), "SIM:*IDN?=0");
+}
+
+#[test]
+fn transport_adapter_runtime_records_observations() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let endpoint =
+        InstrumentTransportEndpoint::new(InstrumentTransport::TcpIp, "TCPIP::192.0.2.10").unwrap();
+    let adapter = SimulatedTransportAdapter::new(endpoint);
+    let mut runtime = TransportAdapterRuntime::new(code.clone(), adapter);
+
+    let observation = runtime
+        .execute(InstrumentCommand::new(
+            code.clone(),
+            InstrumentTransport::TcpIp,
+            InstrumentCommandMessage::parse("FREQ 1000000").unwrap(),
+        ))
+        .unwrap()
+        .clone();
+
+    assert_eq!(runtime.instrument(), &code);
+    assert_eq!(runtime.adapter().endpoint().address(), "TCPIP::192.0.2.10");
+    assert_eq!(runtime.observations().len(), 1);
+    assert_eq!(observation.sequence(), 1);
+    assert_eq!(
+        observation.command().transport(),
+        InstrumentTransport::TcpIp
+    );
+    assert_eq!(observation.response().as_str(), "OK:FREQ 1000000");
+}
+
+#[test]
+fn transport_adapter_runtime_rejects_transport_mismatch() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let endpoint =
+        InstrumentTransportEndpoint::new(InstrumentTransport::Simulated, "SIM::RX-001").unwrap();
+    let adapter = SimulatedTransportAdapter::new(endpoint);
+    let mut runtime = TransportAdapterRuntime::new(code.clone(), adapter);
+
+    let error = runtime
+        .execute(InstrumentCommand::new(
+            code,
+            InstrumentTransport::TcpIp,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::TransportAdapterMismatch {
+            expected: "simulated".to_owned(),
+            actual: "tcp_ip".to_owned(),
+        }
+    );
+    assert!(runtime.observations().is_empty());
+}
+
+#[test]
+fn transport_adapter_runtime_applies_safety_limits_before_exchange() {
+    let code = InstrumentCode::parse("GEN-001").unwrap();
+    let endpoint =
+        InstrumentTransportEndpoint::new(InstrumentTransport::TcpIp, "TCPIP::192.0.2.20").unwrap();
+    let adapter = SimulatedTransportAdapter::new(endpoint);
+    let mut runtime = TransportAdapterRuntime::new(code.clone(), adapter);
+    runtime.add_safety_limit(
+        InstrumentSafetyLimit::new(InstrumentQuantity::LevelDbm, -120, 10).unwrap(),
+    );
+
+    let error = runtime
+        .execute(InstrumentCommand::with_setpoint(
+            code,
+            InstrumentTransport::TcpIp,
+            InstrumentCommandMessage::parse("POW 20").unwrap(),
+            InstrumentSetpoint::new(InstrumentQuantity::LevelDbm, 20),
+        ))
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::InstrumentSetpointOutOfRange {
+            quantity: "level_dbm".to_owned(),
+            value: 20,
+            minimum: -120,
+            maximum: 10,
+        }
+    );
+    assert_eq!(runtime.safety_limits().len(), 1);
+    assert!(runtime.observations().is_empty());
+}
+
+#[test]
 fn simulated_instrument_runtime_records_ordered_observations() {
     let code = InstrumentCode::parse("RX-001").unwrap();
     let mut runtime = SimulatedInstrumentRuntime::new(

@@ -31,19 +31,6 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Transport adapter spike",
-            objective=(
-                "Create the first real transport-adapter spike behind the "
-                "simulated instrument runtime boundary."
-            ),
-            workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.QUALITY),
-            expected_outputs=(
-                "transport trait",
-                "adapter fixture",
-                "simulated conformance test",
-            ),
-        ),
-        SessionPlan(
             title="Sync application services",
             objective=(
                 "Add application-service primitives around split-repository "
@@ -54,6 +41,19 @@ def default_backlog() -> list[SessionPlan]:
                 "sync service model",
                 "conflict action plan",
                 "audit-oriented tests",
+            ),
+        ),
+        SessionPlan(
+            title="Concrete transport adapters",
+            objective=(
+                "Add the first concrete VISA, TCP/IP, or serial transport "
+                "adapter behind the tested transport boundary."
+            ),
+            workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.QUALITY),
+            expected_outputs=(
+                "hardware-adapter skeleton",
+                "timeout policy",
+                "simulated conformance reuse",
             ),
         ),
     ]

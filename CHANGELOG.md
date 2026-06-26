@@ -68,14 +68,17 @@ change should remain traceable through Git history, session logs, and this file.
 - Rust signal windowing and deterministic downsampling execution primitives.
 - Rust update bundle workflow with signed-package checks, compatibility ranges,
   rollback references, offline-install rules, and live-measurement blocking.
+- Rust transport adapter boundary with endpoints, simulated adapter fixture,
+  adapter-backed runtime observations, transport mismatch checks, and shared
+  safety-limit enforcement.
 
 ### Planned
 
 - Add sync application services around conflict records.
 - Add broader SQLite write/update APIs.
 - Add optimized FFT and interpolation-based resampling.
-- Add real transport adapter spikes behind the simulated baseline.
 - Add update-catalog persistence APIs for signed bundles and install records.
+- Add concrete VISA/TCP/IP/serial adapters behind the transport boundary.
 
 ## [0.1.0] - 2026-06-26
 

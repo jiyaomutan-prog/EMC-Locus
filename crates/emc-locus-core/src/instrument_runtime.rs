@@ -34,6 +34,77 @@ impl InstrumentResponse {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstrumentTransportEndpoint {
+    transport: InstrumentTransport,
+    address: String,
+}
+
+impl InstrumentTransportEndpoint {
+    pub fn new(
+        transport: InstrumentTransport,
+        address: impl Into<String>,
+    ) -> Result<Self, DomainError> {
+        let address = address.into();
+        let trimmed = address.trim();
+
+        if trimmed.is_empty() {
+            return Err(DomainError::EmptyTransportEndpointAddress);
+        }
+
+        Ok(Self {
+            transport,
+            address: trimmed.to_owned(),
+        })
+    }
+
+    pub fn transport(&self) -> InstrumentTransport {
+        self.transport
+    }
+
+    pub fn address(&self) -> &str {
+        &self.address
+    }
+}
+
+pub trait InstrumentTransportAdapter {
+    fn endpoint(&self) -> &InstrumentTransportEndpoint;
+
+    fn exchange(&mut self, command: &InstrumentCommand) -> Result<InstrumentResponse, DomainError>;
+
+    fn transport(&self) -> InstrumentTransport {
+        self.endpoint().transport()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SimulatedTransportAdapter {
+    endpoint: InstrumentTransportEndpoint,
+}
+
+impl SimulatedTransportAdapter {
+    pub fn new(endpoint: InstrumentTransportEndpoint) -> Self {
+        Self { endpoint }
+    }
+}
+
+impl InstrumentTransportAdapter for SimulatedTransportAdapter {
+    fn endpoint(&self) -> &InstrumentTransportEndpoint {
+        &self.endpoint
+    }
+
+    fn exchange(&mut self, command: &InstrumentCommand) -> Result<InstrumentResponse, DomainError> {
+        if command.transport() != self.transport() {
+            return Err(DomainError::TransportAdapterMismatch {
+                expected: self.transport().as_str().to_owned(),
+                actual: command.transport().as_str().to_owned(),
+            });
+        }
+
+        Ok(deterministic_response(command.message()))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstrumentCommand {
     target: InstrumentCode,
     transport: InstrumentTransport,
@@ -213,6 +284,86 @@ impl InstrumentObservation {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TransportAdapterRuntime<A>
+where
+    A: InstrumentTransportAdapter,
+{
+    instrument: InstrumentCode,
+    adapter: A,
+    safety_limits: Vec<InstrumentSafetyLimit>,
+    observations: Vec<InstrumentObservation>,
+    next_sequence: u64,
+}
+
+impl<A> TransportAdapterRuntime<A>
+where
+    A: InstrumentTransportAdapter,
+{
+    pub fn new(instrument: InstrumentCode, adapter: A) -> Self {
+        Self {
+            instrument,
+            adapter,
+            safety_limits: Vec::new(),
+            observations: Vec::new(),
+            next_sequence: 1,
+        }
+    }
+
+    pub fn instrument(&self) -> &InstrumentCode {
+        &self.instrument
+    }
+
+    pub fn adapter(&self) -> &A {
+        &self.adapter
+    }
+
+    pub fn safety_limits(&self) -> &[InstrumentSafetyLimit] {
+        &self.safety_limits
+    }
+
+    pub fn observations(&self) -> &[InstrumentObservation] {
+        &self.observations
+    }
+
+    pub fn add_safety_limit(&mut self, limit: InstrumentSafetyLimit) {
+        self.safety_limits.push(limit);
+    }
+
+    pub fn execute(
+        &mut self,
+        command: InstrumentCommand,
+    ) -> Result<&InstrumentObservation, DomainError> {
+        if command.target() != &self.instrument {
+            return Err(DomainError::InstrumentCommandTargetMismatch {
+                expected: self.instrument.as_str().to_owned(),
+                actual: command.target().as_str().to_owned(),
+            });
+        }
+
+        if command.transport() != self.adapter.transport() {
+            return Err(DomainError::TransportAdapterMismatch {
+                expected: self.adapter.transport().as_str().to_owned(),
+                actual: command.transport().as_str().to_owned(),
+            });
+        }
+
+        if let Some(setpoint) = command.setpoint() {
+            validate_setpoint_against_limits(&self.safety_limits, setpoint)?;
+        }
+
+        let response = self.adapter.exchange(&command)?;
+        let observation = InstrumentObservation::new(self.next_sequence, command, response, true);
+        self.next_sequence += 1;
+        self.observations.push(observation);
+
+        Ok(self
+            .observations
+            .last()
+            .expect("observation was just appended"))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SimulatedInstrumentRuntime {
     instrument: InstrumentCode,
     supported_transports: Vec<InstrumentTransport>,
@@ -270,7 +421,7 @@ impl SimulatedInstrumentRuntime {
         }
 
         if let Some(setpoint) = command.setpoint() {
-            self.validate_setpoint(setpoint)?;
+            validate_setpoint_against_limits(&self.safety_limits, setpoint)?;
         }
 
         let response = deterministic_response(command.message());
@@ -283,27 +434,29 @@ impl SimulatedInstrumentRuntime {
             .last()
             .expect("observation was just appended"))
     }
+}
 
-    fn validate_setpoint(&self, setpoint: InstrumentSetpoint) -> Result<(), DomainError> {
-        let Some(limit) = self
-            .safety_limits
-            .iter()
-            .find(|limit| limit.quantity() == setpoint.quantity())
-        else {
-            return Ok(());
-        };
+fn validate_setpoint_against_limits(
+    limits: &[InstrumentSafetyLimit],
+    setpoint: InstrumentSetpoint,
+) -> Result<(), DomainError> {
+    let Some(limit) = limits
+        .iter()
+        .find(|limit| limit.quantity() == setpoint.quantity())
+    else {
+        return Ok(());
+    };
 
-        if !limit.contains(setpoint) {
-            return Err(DomainError::InstrumentSetpointOutOfRange {
-                quantity: setpoint.quantity().as_str().to_owned(),
-                value: setpoint.value(),
-                minimum: limit.minimum(),
-                maximum: limit.maximum(),
-            });
-        }
-
-        Ok(())
+    if !limit.contains(setpoint) {
+        return Err(DomainError::InstrumentSetpointOutOfRange {
+            quantity: setpoint.quantity().as_str().to_owned(),
+            value: setpoint.value(),
+            minimum: limit.minimum(),
+            maximum: limit.maximum(),
+        });
     }
+
+    Ok(())
 }
 
 fn deterministic_response(message: &InstrumentCommandMessage) -> InstrumentResponse {

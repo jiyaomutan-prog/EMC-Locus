@@ -45,7 +45,8 @@ SQLite migrations live under `storage/sqlite/`. See
 Instrument control should be built around explicit commands and observations:
 
 - simulated driver first;
-- transport adapters later, for example VISA, serial, TCP/IP, or vendor SDKs;
+- transport adapter boundary first, then concrete VISA, serial, TCP/IP, or
+  vendor SDK implementations;
 - command logs linked to measurement runs;
 - safety interlocks and manual validation steps where needed.
 

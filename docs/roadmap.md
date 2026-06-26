@@ -96,7 +96,8 @@ Goal: connect selected real instruments safely.
 
 Deliverables:
 
-- first transport adapter;
+- transport adapter boundary; initial Rust trait and simulated fixture added;
+- first concrete hardware transport adapter;
 - instrument capability declarations;
 - command templates;
 - validation against simulated baseline;
@@ -118,8 +119,8 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should add real transport adapter spikes behind the
-simulated baseline.
+The next productive session should add sync application services around split
+repository conflict records.
 
-The parallel storage stream should add sync application services around conflict
-records.
+The parallel runtime stream should add concrete VISA, TCP/IP, and serial
+adapters behind the transport boundary.

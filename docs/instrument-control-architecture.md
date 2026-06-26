@@ -106,12 +106,15 @@ Implemented in the Rust core:
 5. ordered command and observation log;
 6. target-instrument and supported-transport validation;
 7. typed setpoints and safety limits;
-8. blocking of commands outside known limits.
+8. blocking of commands outside known limits;
+9. transport endpoint model;
+10. transport adapter trait;
+11. simulated adapter conformance fixture;
+12. adapter-backed runtime that preserves observation logs and safety checks.
 
 Not yet implemented:
 
 - typed SCPI command model;
 - timeout/retry policy;
 - automatic parsing of string commands into typed setpoints;
-- measurement-run execution binding;
-- real transport adapters.
+- concrete VISA, TCP/IP, serial, and vendor SDK adapters.
