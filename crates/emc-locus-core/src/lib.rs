@@ -4,6 +4,7 @@
 //! It captures business rules that must remain stable across adapters.
 
 pub mod audit;
+pub mod datasets;
 pub mod error;
 pub mod identifiers;
 pub mod instrument;
@@ -17,6 +18,7 @@ pub mod signal;
 pub mod traceability;
 
 pub use audit::*;
+pub use datasets::*;
 pub use error::*;
 pub use identifiers::*;
 pub use instrument::*;

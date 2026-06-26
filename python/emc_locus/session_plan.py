@@ -31,19 +31,6 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Measurement data records",
-            objective=(
-                "Connect accepted measurement-run plans to raw dataset records, "
-                "checksums, and command-observation evidence."
-            ),
-            workstreams=(Workstream.DOMAIN, Workstream.INSTRUMENT_CONTROL, Workstream.STORAGE),
-            expected_outputs=(
-                "raw dataset record",
-                "checksum value object",
-                "run evidence linkage",
-            ),
-        ),
-        SessionPlan(
             title="Signal execution engine",
             objective=(
                 "Start executing approved signal-processing graph nodes for "

@@ -1057,6 +1057,117 @@ fn accredited_measurement_run_plan_accepts_valid_calibrated_equipment() {
 }
 
 #[test]
+fn dataset_references_and_checksums_validate_values() {
+    assert_eq!(
+        DatasetReference::parse(" ").unwrap_err(),
+        DomainError::EmptyDatasetReference
+    );
+    assert_eq!(
+        DatasetReference::parse("raw signal 1").unwrap_err(),
+        DomainError::InvalidDatasetReference("raw signal 1".to_owned())
+    );
+    assert_eq!(
+        DatasetFileReference::parse("").unwrap_err(),
+        DomainError::EmptyDatasetFileReference
+    );
+    assert_eq!(
+        DatasetChecksum::parse("").unwrap_err(),
+        DomainError::EmptyDatasetChecksum
+    );
+    assert_eq!(
+        DatasetChecksum::parse("abc123").unwrap_err(),
+        DomainError::InvalidDatasetChecksum("abc123".to_owned())
+    );
+
+    assert_eq!(
+        DatasetReference::parse("raw-signal-001").unwrap().as_str(),
+        "raw-signal-001"
+    );
+    assert_eq!(
+        DatasetChecksum::parse("sha256:abc123").unwrap().as_str(),
+        "sha256:abc123"
+    );
+}
+
+#[test]
+fn raw_dataset_record_is_immutable_and_linked_to_a_run() {
+    let run = MeasurementRunReference::parse("RUN-001").unwrap();
+    let record = RawDatasetRecord::new(
+        run.clone(),
+        DatasetReference::parse("raw-signal-001").unwrap(),
+        DatasetKind::RawSignal,
+        DatasetFileReference::parse("data/RUN-001/raw-signal-001.opendata").unwrap(),
+        DatasetChecksum::parse("sha256:abc123").unwrap(),
+    );
+
+    assert_eq!(record.run(), &run);
+    assert_eq!(record.reference().as_str(), "raw-signal-001");
+    assert_eq!(record.kind(), DatasetKind::RawSignal);
+    assert_eq!(
+        record.file_reference().as_str(),
+        "data/RUN-001/raw-signal-001.opendata"
+    );
+    assert_eq!(record.checksum().as_str(), "sha256:abc123");
+    assert!(record.immutable());
+}
+
+#[test]
+fn measurement_run_evidence_records_observations_and_raw_datasets() {
+    let plan = accepted_measurement_plan("RUN-001");
+    let instrument = plan.equipment()[0].clone();
+    let mut runtime =
+        SimulatedInstrumentRuntime::new(instrument.clone(), vec![InstrumentTransport::Simulated]);
+    let observation = runtime
+        .execute(InstrumentCommand::new(
+            instrument,
+            InstrumentTransport::Simulated,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap()
+        .clone();
+    let mut evidence = MeasurementRunEvidence::new(plan);
+
+    evidence.record_observation(observation);
+    evidence
+        .record_raw_dataset(RawDatasetRecord::new(
+            MeasurementRunReference::parse("RUN-001").unwrap(),
+            DatasetReference::parse("raw-signal-001").unwrap(),
+            DatasetKind::RawSignal,
+            DatasetFileReference::parse("data/RUN-001/raw-signal-001.opendata").unwrap(),
+            DatasetChecksum::parse("sha256:abc123").unwrap(),
+        ))
+        .unwrap();
+
+    assert_eq!(evidence.observations().len(), 1);
+    assert_eq!(evidence.raw_datasets().len(), 1);
+    assert!(evidence.has_raw_data());
+}
+
+#[test]
+fn measurement_run_evidence_rejects_dataset_from_another_run() {
+    let plan = accepted_measurement_plan("RUN-001");
+    let mut evidence = MeasurementRunEvidence::new(plan);
+    let dataset = RawDatasetRecord::new(
+        MeasurementRunReference::parse("RUN-002").unwrap(),
+        DatasetReference::parse("raw-signal-001").unwrap(),
+        DatasetKind::RawSignal,
+        DatasetFileReference::parse("data/RUN-002/raw-signal-001.opendata").unwrap(),
+        DatasetChecksum::parse("sha256:abc123").unwrap(),
+    );
+
+    let error = evidence.record_raw_dataset(dataset).unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::DatasetRunMismatch {
+            expected: "RUN-001".to_owned(),
+            actual: "RUN-002".to_owned(),
+        }
+    );
+    assert!(!evidence.has_raw_data());
+}
+
+#[test]
 fn cem_time_domain_workflow_prefers_opendaq_and_mixed_signal_processing() {
     let profile = SignalWorkflowProfile::cem_time_domain_default();
 
@@ -1326,6 +1437,38 @@ fn snapshot_with_signature(domain: RepositoryDomain, signed: bool) -> Repository
         1,
         SnapshotChecksum::parse(format!("sha256:{}", domain.as_str())).unwrap(),
         signed,
+    )
+    .unwrap()
+}
+
+fn accepted_measurement_plan(run_reference: &str) -> MeasurementRunPlan {
+    let project = ProjectCode::parse("CEM-2026-001").unwrap();
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let mut registry = MetrologyRegistry::new();
+    registry
+        .register_instrument(reference_receiver(code.clone()))
+        .unwrap();
+    registry
+        .record_calibration(
+            CalibrationRecord::new(
+                code.clone(),
+                "CERT-2026-001",
+                MetrologyDate::new(2026, 1, 1).unwrap(),
+                MetrologyDate::new(2027, 1, 1).unwrap(),
+                "Accredited Provider",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    MeasurementRunPlan::plan(
+        project,
+        MeasurementRunReference::parse(run_reference).unwrap(),
+        TestMethodReference::parse("EN61000-4-6").unwrap(),
+        ExecutionMode::Accredited,
+        vec![code],
+        &registry,
+        MetrologyDate::new(2026, 6, 27).unwrap(),
     )
     .unwrap()
 }

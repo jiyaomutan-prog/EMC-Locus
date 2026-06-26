@@ -227,3 +227,19 @@ as non-blocking evidence. Empty equipment selections are rejected.
 
 This model does not execute acquisition yet. It prepares the controlled handoff
 between campaign planning, metrology, and the future instrument runtime.
+
+## Measurement Run Evidence
+
+The Rust core now links an accepted measurement-run plan to evidence generated
+around execution:
+
+- instrument command observations;
+- raw dataset records;
+- dataset references;
+- file references;
+- SHA-256 checksum references;
+- immutable raw-data flag.
+
+A raw dataset record must belong to the same run reference as the plan. This
+keeps the evidence chain coherent before persistence or report generation is
+introduced.

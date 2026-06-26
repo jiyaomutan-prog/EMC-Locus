@@ -56,7 +56,7 @@ Deliverables:
 - simulated instrument driver; initial Rust runtime added;
 - command and observation log; initial Rust observation log added;
 - measurement-run execution model;
-- raw dataset checksum;
+- raw dataset checksum; initial Rust dataset evidence model added;
 - data-retention policy hooks.
 
 ## Phase 4: Reporting Pipeline
@@ -113,8 +113,8 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should connect planned measurement runs to raw
-dataset records and checksums.
-
-The parallel signal stream should start numeric signal-processing execution for
+The next productive session should start numeric signal-processing execution for
 FFT and temporal analysis fixtures.
+
+The parallel quality stream should add report approval gates for accredited
+workflows.

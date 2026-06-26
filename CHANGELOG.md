@@ -47,13 +47,15 @@ change should remain traceable through Git history, session logs, and this file.
 - Rust simulated instrument runtime with command messages, deterministic
   responses, supported-transport checks, target checks, and ordered observation
   logs.
+- Rust dataset evidence model linking accepted measurement-run plans to command
+  observations, immutable raw dataset records, file references, and checksums.
 
 ### Planned
 
 - Connect execution modes to stage gates and report approval rules.
 - Add numeric signal-processing execution for FFT and temporal analysis.
-- Connect measurement-run plans to raw dataset records and checksums.
 - Add typed safety limits for instrument commands.
+- Add persistent adapters for metrology and project repositories.
 
 ## [0.1.0] - 2026-06-26
 

@@ -10,6 +10,7 @@ crates/emc-locus-core/src/
   lib.rs           Public module declarations and re-exports
   identifiers.rs   Value objects such as project codes and audit identities
   audit.rs         Audit actions and audit events
+  datasets.rs      Dataset references, checksums, and run evidence linkage
   project.rs       Project lifecycle and project audit record
   quality.rs       Contract review, deviations, and execution modes
   metrology.rs     Instrument registry, calibration records, and readiness checks
