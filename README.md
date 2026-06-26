@@ -43,7 +43,10 @@ docs/
   iso-17025-alignment.md Traceability and quality-system mapping
   revision-control.md    Versioning, changelog, tags, and release evidence
   storage-schema.md      First SQLite persistence sketch
+  offline-first-architecture.md Local work, split stores, and sync direction
+  instrument-control-architecture.md Transport-neutral instrument runtime
   session-logs/          Dated development session records
+  competitive-analysis/  Public feature baselines and product positioning
   roadmap.md             Incremental delivery plan
 python/
   emc_locus/             Python helper package for planning and automation

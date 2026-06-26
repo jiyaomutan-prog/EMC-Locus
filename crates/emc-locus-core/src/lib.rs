@@ -199,16 +199,13 @@ impl ProjectRecord {
 
         let missing_items = checklist.missing_items();
         if !missing_items.is_empty() {
-            let deviation =
-                deviation.ok_or_else(|| DomainError::IncompleteContractReview {
-                    missing_items: missing_items.clone(),
-                })?;
+            let deviation = deviation.ok_or_else(|| DomainError::IncompleteContractReview {
+                missing_items: missing_items.clone(),
+            })?;
 
             self.append_audit_event(
                 deviation.authorized_by,
-                AuditAction::ContractReviewDeviationAuthorized {
-                    missing_items,
-                },
+                AuditAction::ContractReviewDeviationAuthorized { missing_items },
                 Some(deviation.reason),
             );
         }
@@ -417,6 +414,247 @@ impl AuthorizedDeviation {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExecutionMode {
+    Accredited,
+    NonAccredited,
+    Investigation,
+}
+
+impl ExecutionMode {
+    pub fn constraint_profile(self) -> QualityConstraintProfile {
+        match self {
+            Self::Accredited => QualityConstraintProfile {
+                mode: self,
+                stage_gates_required: true,
+                valid_calibration_required: true,
+                controlled_method_required: true,
+                report_approval_required: true,
+                deviations_allowed: true,
+                exploratory_steps_allowed: false,
+            },
+            Self::NonAccredited => QualityConstraintProfile {
+                mode: self,
+                stage_gates_required: true,
+                valid_calibration_required: false,
+                controlled_method_required: true,
+                report_approval_required: false,
+                deviations_allowed: true,
+                exploratory_steps_allowed: false,
+            },
+            Self::Investigation => QualityConstraintProfile {
+                mode: self,
+                stage_gates_required: false,
+                valid_calibration_required: false,
+                controlled_method_required: false,
+                report_approval_required: false,
+                deviations_allowed: true,
+                exploratory_steps_allowed: true,
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QualityConstraintProfile {
+    mode: ExecutionMode,
+    stage_gates_required: bool,
+    valid_calibration_required: bool,
+    controlled_method_required: bool,
+    report_approval_required: bool,
+    deviations_allowed: bool,
+    exploratory_steps_allowed: bool,
+}
+
+impl QualityConstraintProfile {
+    pub fn mode(&self) -> ExecutionMode {
+        self.mode
+    }
+
+    pub fn stage_gates_required(&self) -> bool {
+        self.stage_gates_required
+    }
+
+    pub fn valid_calibration_required(&self) -> bool {
+        self.valid_calibration_required
+    }
+
+    pub fn controlled_method_required(&self) -> bool {
+        self.controlled_method_required
+    }
+
+    pub fn report_approval_required(&self) -> bool {
+        self.report_approval_required
+    }
+
+    pub fn deviations_allowed(&self) -> bool {
+        self.deviations_allowed
+    }
+
+    pub fn exploratory_steps_allowed(&self) -> bool {
+        self.exploratory_steps_allowed
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConnectivityMode {
+    Connected,
+    OfflineField,
+}
+
+impl ConnectivityMode {
+    pub fn requires_local_references(self) -> bool {
+        matches!(self, Self::OfflineField)
+    }
+
+    pub fn allows_measurement_acquisition(self) -> bool {
+        true
+    }
+
+    pub fn can_require_remote_login(self) -> bool {
+        matches!(self, Self::Connected)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RepositoryDomain {
+    Metrology,
+    TestDefinitions,
+    InstrumentDrivers,
+    ProjectRecords,
+    MeasurementData,
+    ReportTemplates,
+    UpdateCatalog,
+}
+
+pub fn baseline_repository_domains() -> Vec<RepositoryDomain> {
+    use RepositoryDomain::*;
+
+    vec![
+        Metrology,
+        TestDefinitions,
+        InstrumentDrivers,
+        ProjectRecords,
+        MeasurementData,
+        ReportTemplates,
+        UpdateCatalog,
+    ]
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyncDirection {
+    LocalOnly,
+    PullFromReference,
+    PushToReference,
+    Bidirectional,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RepositoryPolicy {
+    domain: RepositoryDomain,
+    sync_direction: SyncDirection,
+    local_snapshot_required: bool,
+}
+
+impl RepositoryPolicy {
+    pub fn new(domain: RepositoryDomain, connectivity: ConnectivityMode) -> Self {
+        let local_snapshot_required = connectivity.requires_local_references()
+            || matches!(
+                domain,
+                RepositoryDomain::Metrology
+                    | RepositoryDomain::TestDefinitions
+                    | RepositoryDomain::InstrumentDrivers
+                    | RepositoryDomain::ProjectRecords
+                    | RepositoryDomain::MeasurementData
+            );
+
+        let sync_direction = match domain {
+            RepositoryDomain::MeasurementData | RepositoryDomain::ProjectRecords => {
+                SyncDirection::Bidirectional
+            }
+            RepositoryDomain::Metrology
+            | RepositoryDomain::TestDefinitions
+            | RepositoryDomain::InstrumentDrivers
+            | RepositoryDomain::ReportTemplates
+            | RepositoryDomain::UpdateCatalog => SyncDirection::PullFromReference,
+        };
+
+        Self {
+            domain,
+            sync_direction,
+            local_snapshot_required,
+        }
+    }
+
+    pub fn domain(&self) -> RepositoryDomain {
+        self.domain
+    }
+
+    pub fn sync_direction(&self) -> SyncDirection {
+        self.sync_direction
+    }
+
+    pub fn local_snapshot_required(&self) -> bool {
+        self.local_snapshot_required
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstrumentTransport {
+    Visa,
+    Gpib,
+    Serial,
+    TcpIp,
+    Udp,
+    UsbTmc,
+    Can,
+    Lin,
+    ModbusTcp,
+    ModbusRtu,
+    Rest,
+    VendorSdk,
+    Manual,
+    Simulated,
+}
+
+pub fn baseline_instrument_transports() -> Vec<InstrumentTransport> {
+    use InstrumentTransport::*;
+
+    vec![
+        Visa, Gpib, Serial, TcpIp, Udp, UsbTmc, Can, Lin, ModbusTcp, ModbusRtu, Rest, VendorSdk,
+        Manual, Simulated,
+    ]
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UpdatePolicy {
+    signed_packages_required: bool,
+    offline_install_allowed: bool,
+    apply_during_measurement_allowed: bool,
+}
+
+impl UpdatePolicy {
+    pub fn laboratory_default() -> Self {
+        Self {
+            signed_packages_required: true,
+            offline_install_allowed: true,
+            apply_during_measurement_allowed: false,
+        }
+    }
+
+    pub fn signed_packages_required(&self) -> bool {
+        self.signed_packages_required
+    }
+
+    pub fn offline_install_allowed(&self) -> bool {
+        self.offline_install_allowed
+    }
+
+    pub fn apply_during_measurement_allowed(&self) -> bool {
+        self.apply_during_measurement_allowed
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TraceabilityRequirement {
     CustomerRequest,
     ContractReview,
@@ -609,7 +847,9 @@ mod tests {
         let reason = AuditReason::parse("Operator tried to skip planning").unwrap();
         let mut record = ProjectRecord::open(project, actor.clone());
 
-        let error = record.advance_to(ProjectStage::Measuring, actor, reason).unwrap_err();
+        let error = record
+            .advance_to(ProjectStage::Measuring, actor, reason)
+            .unwrap_err();
 
         assert_eq!(
             error,
@@ -629,10 +869,7 @@ mod tests {
 
         assert_eq!(checklist.project(), &code);
         assert!(!checklist.is_complete());
-        assert_eq!(
-            checklist.missing_items(),
-            baseline_contract_review_items()
-        );
+        assert_eq!(checklist.missing_items(), baseline_contract_review_items());
     }
 
     #[test]
@@ -844,6 +1081,95 @@ mod tests {
         );
         assert_eq!(record.project().stage(), ProjectStage::Quotation);
         assert_eq!(record.audit_events().len(), 1);
+    }
+
+    #[test]
+    fn accredited_mode_keeps_strict_quality_constraints() {
+        let profile = ExecutionMode::Accredited.constraint_profile();
+
+        assert_eq!(profile.mode(), ExecutionMode::Accredited);
+        assert!(profile.stage_gates_required());
+        assert!(profile.valid_calibration_required());
+        assert!(profile.controlled_method_required());
+        assert!(profile.report_approval_required());
+        assert!(profile.deviations_allowed());
+        assert!(!profile.exploratory_steps_allowed());
+    }
+
+    #[test]
+    fn non_accredited_mode_relaxes_metrology_and_report_constraints() {
+        let profile = ExecutionMode::NonAccredited.constraint_profile();
+
+        assert_eq!(profile.mode(), ExecutionMode::NonAccredited);
+        assert!(profile.stage_gates_required());
+        assert!(!profile.valid_calibration_required());
+        assert!(profile.controlled_method_required());
+        assert!(!profile.report_approval_required());
+        assert!(profile.deviations_allowed());
+        assert!(!profile.exploratory_steps_allowed());
+    }
+
+    #[test]
+    fn investigation_mode_allows_exploratory_work() {
+        let profile = ExecutionMode::Investigation.constraint_profile();
+
+        assert_eq!(profile.mode(), ExecutionMode::Investigation);
+        assert!(!profile.stage_gates_required());
+        assert!(!profile.valid_calibration_required());
+        assert!(!profile.controlled_method_required());
+        assert!(!profile.report_approval_required());
+        assert!(profile.deviations_allowed());
+        assert!(profile.exploratory_steps_allowed());
+    }
+
+    #[test]
+    fn offline_field_mode_requires_local_references_but_allows_acquisition() {
+        let mode = ConnectivityMode::OfflineField;
+
+        assert!(mode.requires_local_references());
+        assert!(mode.allows_measurement_acquisition());
+        assert!(!mode.can_require_remote_login());
+    }
+
+    #[test]
+    fn repository_policy_keeps_core_references_available_offline() {
+        let domains = baseline_repository_domains();
+
+        assert!(domains.contains(&RepositoryDomain::Metrology));
+        assert!(domains.contains(&RepositoryDomain::TestDefinitions));
+        assert!(domains.contains(&RepositoryDomain::InstrumentDrivers));
+        assert!(domains.contains(&RepositoryDomain::ProjectRecords));
+        assert!(domains.contains(&RepositoryDomain::MeasurementData));
+
+        let policy =
+            RepositoryPolicy::new(RepositoryDomain::Metrology, ConnectivityMode::OfflineField);
+        assert_eq!(policy.domain(), RepositoryDomain::Metrology);
+        assert_eq!(policy.sync_direction(), SyncDirection::PullFromReference);
+        assert!(policy.local_snapshot_required());
+    }
+
+    #[test]
+    fn instrument_transport_baseline_covers_common_lab_communications() {
+        let transports = baseline_instrument_transports();
+
+        assert!(transports.contains(&InstrumentTransport::Visa));
+        assert!(transports.contains(&InstrumentTransport::Gpib));
+        assert!(transports.contains(&InstrumentTransport::Serial));
+        assert!(transports.contains(&InstrumentTransport::TcpIp));
+        assert!(transports.contains(&InstrumentTransport::UsbTmc));
+        assert!(transports.contains(&InstrumentTransport::Can));
+        assert!(transports.contains(&InstrumentTransport::Rest));
+        assert!(transports.contains(&InstrumentTransport::VendorSdk));
+        assert!(transports.contains(&InstrumentTransport::Simulated));
+    }
+
+    #[test]
+    fn update_policy_requires_signed_packages_and_blocks_live_measurement_updates() {
+        let policy = UpdatePolicy::laboratory_default();
+
+        assert!(policy.signed_packages_required());
+        assert!(policy.offline_install_allowed());
+        assert!(!policy.apply_during_measurement_allowed());
     }
 
     #[test]

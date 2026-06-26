@@ -31,8 +31,11 @@ The storage layer should preserve:
 - user actions and system actions;
 - report package history.
 
-A practical first target is SQLite for a single workstation. PostgreSQL can be
-introduced when multi-user coordination becomes necessary.
+EMC Locus should not depend on a single remote repository during acquisition.
+The first architecture target is a set of local SQLite repositories split by
+domain, with signed snapshots and synchronization flows. See
+`offline-first-architecture.md` for the repository split and offline-field
+direction.
 
 ### 3. Instrument Runtime
 
@@ -42,6 +45,11 @@ Instrument control should be built around explicit commands and observations:
 - transport adapters later, for example VISA, serial, TCP/IP, or vendor SDKs;
 - command logs linked to measurement runs;
 - safety interlocks and manual validation steps where needed.
+
+The runtime must be transport-neutral and support common laboratory links such
+as VISA, GPIB, serial, TCP/IP, UDP, USBTMC, CAN/LIN, Modbus, REST, vendor SDKs,
+manual steps, and simulation. See `instrument-control-architecture.md` for the
+driver boundary.
 
 ### 4. Python Automation
 
@@ -81,6 +89,10 @@ User/UI
 - Treat audit events as a core concept, not a later logging feature.
 - Treat raw data as immutable once acquired.
 - Support simulation before real hardware.
+- Support offline field execution from local reference snapshots.
+- Support separate quality modes for accredited, non-accredited, and
+  investigation work.
+- Require signed update packages and block live updates during measurement.
 - Keep EN ISO/IEC 17025 alignment as a design checklist, not as a legal claim.
 
 ## Open Questions

@@ -14,11 +14,17 @@ change should remain traceable through Git history, session logs, and this file.
 - Authorized contract-review deviation event for incomplete checklists.
 - Rust tests for complete checklist, incomplete checklist, authorized deviation,
   project mismatch, and invalid-stage behavior.
+- Public BAT-EMC/Nexio feature baseline for product positioning.
+- Offline-first architecture direction with split, synchronizable repositories.
+- Instrument-control architecture direction for transport-neutral drivers.
+- Rust policy models for execution mode, connectivity, repository domains,
+  instrument transports, and update policy.
 
 ### Planned
 
 - Start the metrology registry with instruments and calibration records.
 - Introduce persistent migrations from the storage schema draft.
+- Connect execution modes to stage gates and report approval rules.
 
 ## [0.1.0] - 2026-06-26
 

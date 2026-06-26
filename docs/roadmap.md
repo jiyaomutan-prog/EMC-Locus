@@ -24,7 +24,10 @@ Deliverables:
 - audit events; initial Rust project audit log added;
 - contract-review checklist; initial Rust checklist added;
 - contract-review stage gate; initial Rust gate added;
+- public BAT-EMC feature baseline; initial analysis added;
+- quality modes and offline policy primitives; initial Rust model added;
 - first storage schema draft; initial SQLite sketch added.
+
 
 ## Phase 2: Metrology Database
 
@@ -74,8 +77,20 @@ Deliverables:
 - validation against simulated baseline;
 - operational safety checklist.
 
+## Phase 6: Offline, Sync, and Updates
+
+Goal: make EMC Locus robust outside the laboratory network.
+
+Deliverables:
+
+- split local repositories;
+- signed reference snapshots;
+- synchronization conflict workflow;
+- offline update bundles;
+- rollback and compatibility checks.
+
 ## Near-Term Next Session
 
-The next productive session should start the metrology registry with instrument
-identity, calibration validity, and out-of-service status. Keep the same
-discipline: domain rule, tests, documentation, changelog, session log, commit.
+The next productive session should start the metrology registry while preserving
+the new product constraints: split repository, offline snapshot support, and
+execution modes for accredited, non-accredited, and investigation work.
