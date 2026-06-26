@@ -59,11 +59,11 @@ storage/
 
 ## First Useful Milestones
 
-1. Connect measurement-run execution to the simulated instrument runtime.
-2. Add synchronization conflict records for split repositories.
+1. Add synchronization conflict records for split repositories.
+2. Add report export bundle evidence.
 3. Add optimized FFT/windowing and resampling execution.
-4. Add report export bundle evidence.
-5. Expand SQLite adapters beyond smoke operations.
+4. Expand SQLite adapters beyond smoke operations.
+5. Add real transport adapter spikes behind the simulated baseline.
 
 ## Development Status
 

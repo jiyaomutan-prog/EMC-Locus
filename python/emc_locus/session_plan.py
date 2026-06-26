@@ -31,19 +31,6 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Measurement execution binding",
-            objective=(
-                "Connect accepted measurement-run plans to simulated runtime "
-                "execution and dataset evidence."
-            ),
-            workstreams=(Workstream.DOMAIN, Workstream.INSTRUMENT_CONTROL, Workstream.STORAGE),
-            expected_outputs=(
-                "execution fixture",
-                "runtime-to-evidence link",
-                "blocked execution tests",
-            ),
-        ),
-        SessionPlan(
             title="Sync conflict records",
             objective=(
                 "Model synchronization conflict records for split repository "
@@ -54,6 +41,19 @@ def default_backlog() -> list[SessionPlan]:
                 "conflict record model",
                 "resolution status rules",
                 "offline sync tests",
+            ),
+        ),
+        SessionPlan(
+            title="Report export bundle",
+            objective=(
+                "Model report export bundles with file references, checksums, "
+                "and approval evidence."
+            ),
+            workstreams=(Workstream.REPORTING, Workstream.STORAGE, Workstream.QUALITY),
+            expected_outputs=(
+                "export bundle model",
+                "checksum linkage",
+                "approval evidence tests",
             ),
         ),
     ]

@@ -56,7 +56,7 @@ Deliverables:
 - measurement-run planning model; initial Rust pre-run gate added;
 - simulated instrument driver; initial Rust runtime added;
 - command and observation log; initial Rust observation log added;
-- measurement-run execution model;
+- measurement-run execution model; initial Rust execution binding added;
 - raw dataset checksum; initial Rust dataset evidence model added;
 - data-retention policy hooks.
 
@@ -115,8 +115,7 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should connect measurement-run execution to the
-simulated instrument runtime and dataset evidence.
-
-The parallel storage stream should add synchronization conflict records for
+The next productive session should add synchronization conflict records for
 split repositories.
+
+The parallel reporting stream should add report export bundle evidence.

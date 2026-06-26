@@ -244,6 +244,18 @@ A raw dataset record must belong to the same run reference as the plan. This
 keeps the evidence chain coherent before persistence or report generation is
 introduced.
 
+## Measurement Execution Session
+
+The Rust core now binds accepted measurement-run plans to simulated execution:
+
+- the runtime instrument must belong to the planned equipment selection;
+- executed commands are recorded as instrument observations;
+- raw datasets are attached to the same run reference;
+- finishing execution requires at least one raw dataset.
+
+This creates the first controlled bridge from pre-run validation to executable
+runtime evidence.
+
 ## Report Package Workflow
 
 The Rust core now models the first result-to-report gate:

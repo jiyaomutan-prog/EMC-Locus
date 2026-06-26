@@ -11,6 +11,7 @@ crates/emc-locus-core/src/
   identifiers.rs   Value objects such as project codes and audit identities
   audit.rs         Audit actions and audit events
   datasets.rs      Dataset references, checksums, and run evidence linkage
+  execution.rs     Measurement execution session binding runtime and evidence
   project.rs       Project lifecycle and project audit record
   quality.rs       Contract review, deviations, and execution modes
   reporting.rs     Report package workflow, review, approval, and issue gates

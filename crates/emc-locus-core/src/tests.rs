@@ -1236,6 +1236,82 @@ fn measurement_run_evidence_rejects_dataset_from_another_run() {
 }
 
 #[test]
+fn measurement_execution_session_rejects_unplanned_runtime_instrument() {
+    let plan = accepted_measurement_plan("RUN-001");
+    let runtime = SimulatedInstrumentRuntime::new(
+        InstrumentCode::parse("GEN-001").unwrap(),
+        vec![InstrumentTransport::Simulated],
+    );
+
+    let error = MeasurementExecutionSession::new(plan, runtime).unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::ExecutionInstrumentNotPlanned("GEN-001".to_owned())
+    );
+}
+
+#[test]
+fn measurement_execution_session_records_runtime_observations() {
+    let plan = accepted_measurement_plan("RUN-001");
+    let instrument = plan.equipment()[0].clone();
+    let runtime =
+        SimulatedInstrumentRuntime::new(instrument.clone(), vec![InstrumentTransport::Simulated]);
+    let mut session = MeasurementExecutionSession::new(plan, runtime).unwrap();
+
+    let observation = session
+        .execute_command(InstrumentCommand::new(
+            instrument,
+            InstrumentTransport::Simulated,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap()
+        .clone();
+
+    assert_eq!(observation.sequence(), 1);
+    assert_eq!(session.runtime().observations().len(), 1);
+    assert_eq!(session.evidence().observations().len(), 1);
+}
+
+#[test]
+fn measurement_execution_finish_requires_raw_data() {
+    let plan = accepted_measurement_plan("RUN-001");
+    let instrument = plan.equipment()[0].clone();
+    let runtime = SimulatedInstrumentRuntime::new(instrument, vec![InstrumentTransport::Simulated]);
+    let session = MeasurementExecutionSession::new(plan, runtime).unwrap();
+
+    let error = session.finish().unwrap_err();
+
+    assert_eq!(error, DomainError::MeasurementRunMissingRawData);
+}
+
+#[test]
+fn measurement_execution_finish_returns_complete_evidence() {
+    let plan = accepted_measurement_plan("RUN-001");
+    let instrument = plan.equipment()[0].clone();
+    let runtime =
+        SimulatedInstrumentRuntime::new(instrument.clone(), vec![InstrumentTransport::Simulated]);
+    let mut session = MeasurementExecutionSession::new(plan, runtime).unwrap();
+
+    session
+        .execute_command(InstrumentCommand::new(
+            instrument,
+            InstrumentTransport::Simulated,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap();
+    session
+        .record_raw_dataset(raw_dataset_for_run("RUN-001"))
+        .unwrap();
+
+    let evidence = session.finish().unwrap();
+
+    assert_eq!(evidence.observations().len(), 1);
+    assert_eq!(evidence.raw_datasets().len(), 1);
+    assert!(evidence.has_raw_data());
+}
+
+#[test]
 fn report_number_and_revision_reject_empty_values() {
     assert_eq!(
         ReportNumber::parse(" ").unwrap_err(),
@@ -1787,4 +1863,14 @@ fn accepted_measurement_plan(run_reference: &str) -> MeasurementRunPlan {
         MetrologyDate::new(2026, 6, 27).unwrap(),
     )
     .unwrap()
+}
+
+fn raw_dataset_for_run(run_reference: &str) -> RawDatasetRecord {
+    RawDatasetRecord::new(
+        MeasurementRunReference::parse(run_reference).unwrap(),
+        DatasetReference::parse("raw-signal-001").unwrap(),
+        DatasetKind::RawSignal,
+        DatasetFileReference::parse("data/RUN-001/raw-signal-001.opendata").unwrap(),
+        DatasetChecksum::parse("sha256:abc123").unwrap(),
+    )
 }

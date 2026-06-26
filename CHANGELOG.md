@@ -57,13 +57,15 @@ change should remain traceable through Git history, session logs, and this file.
   blocking for commands outside known ranges.
 - Python SQLite repository adapters for metrology and project records, backed by
   the versioned migration domains.
+- Rust measurement execution session binding accepted plans to simulated runtime
+  observations and raw dataset evidence.
 
 ### Planned
 
 - Add optimized FFT/windowing and resampling execution.
 - Add report export bundle evidence.
-- Connect measurement-run execution to simulated instrument runtime and dataset
-  evidence.
+- Add synchronization conflict records for split repositories.
+- Expand SQLite adapters beyond smoke operations.
 - Add synchronization conflict records for split repositories.
 
 ## [0.1.0] - 2026-06-26

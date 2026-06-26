@@ -48,6 +48,8 @@ pub enum DomainError {
         expected: String,
         actual: String,
     },
+    ExecutionInstrumentNotPlanned(String),
+    MeasurementRunMissingRawData,
     EmptySignalReference,
     InvalidSignalReference(String),
     EmptySignalUnit,

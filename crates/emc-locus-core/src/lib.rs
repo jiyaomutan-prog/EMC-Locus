@@ -6,6 +6,7 @@
 pub mod audit;
 pub mod datasets;
 pub mod error;
+pub mod execution;
 pub mod identifiers;
 pub mod instrument;
 pub mod instrument_runtime;
@@ -21,6 +22,7 @@ pub mod traceability;
 pub use audit::*;
 pub use datasets::*;
 pub use error::*;
+pub use execution::*;
 pub use identifiers::*;
 pub use instrument::*;
 pub use instrument_runtime::*;
