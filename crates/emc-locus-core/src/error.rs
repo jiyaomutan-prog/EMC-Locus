@@ -38,6 +38,18 @@ pub enum DomainError {
     EquipmentReadinessBlocked {
         blocking_issue_count: usize,
     },
+    EmptyRepositorySnapshotId,
+    InvalidRepositorySnapshotId(String),
+    EmptySnapshotChecksum,
+    InvalidRepositorySchemaVersion(u32),
+    DuplicateRepositorySnapshot(String),
+    MissingRepositorySnapshot(String),
+    UnsignedRepositorySnapshot(String),
+    IncompatibleRepositorySnapshot {
+        domain: String,
+        minimum_schema_version: u32,
+        actual_schema_version: u32,
+    },
     InvalidProjectTransition {
         from: ProjectStage,
         to: ProjectStage,

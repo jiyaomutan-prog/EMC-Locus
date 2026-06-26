@@ -105,18 +105,19 @@ Goal: make EMC Locus robust outside the laboratory network.
 Deliverables:
 
 - split local repositories;
-- signed reference snapshots;
+- signed reference snapshots; initial Rust field-package model added;
+- snapshot schema compatibility checks; initial Rust validation added;
 - synchronization conflict workflow;
 - offline update bundles;
 - rollback and compatibility checks.
 
 ## Near-Term Next Session
 
-The next productive session should add local snapshot metadata and compatibility
-checks around the split SQLite repositories.
-
-The parallel runtime stream should start the simulated instrument driver with a
+The next productive session should start the simulated instrument driver with a
 command and observation log.
 
-After the simulated runtime exists, connect measurement-run planning to command
-execution and raw dataset records.
+The parallel data stream should connect planned measurement runs to raw dataset
+records and checksums.
+
+After the simulated runtime exists, start numeric signal-processing execution
+for FFT and temporal analysis fixtures.

@@ -59,11 +59,11 @@ storage/
 
 ## First Useful Milestones
 
-1. Add local repository snapshots for offline field work.
-2. Add compatibility checks for split repositories and offline bundles.
-3. Add a simulated instrument runtime with command and observation logs.
-4. Start numeric signal-processing execution for FFT and temporal analysis.
-5. Connect measurement-run plans to raw dataset records.
+1. Add a simulated instrument runtime with command and observation logs.
+2. Connect measurement-run plans to raw dataset records and checksums.
+3. Start numeric signal-processing execution for FFT and temporal analysis.
+4. Add synchronization conflict records for split repositories.
+5. Add report approval gates for accredited workflows.
 
 ## Development Status
 

@@ -31,19 +31,6 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Local repository snapshots",
-            objective=(
-                "Define local snapshot metadata, compatibility checks, and "
-                "offline validation rules for split repositories."
-            ),
-            workstreams=(Workstream.STORAGE, Workstream.QUALITY),
-            expected_outputs=(
-                "snapshot metadata model",
-                "compatibility rule set",
-                "offline validation checklist",
-            ),
-        ),
-        SessionPlan(
             title="Simulated instrument runtime",
             objective=(
                 "Create a simulated instrument adapter so measurement workflows "

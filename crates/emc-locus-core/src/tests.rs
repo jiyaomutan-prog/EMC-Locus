@@ -407,6 +407,137 @@ fn repository_policy_keeps_core_references_available_offline() {
 }
 
 #[test]
+fn offline_field_snapshot_requirements_cover_every_repository_domain() {
+    let requirements = offline_field_snapshot_requirements();
+
+    assert_eq!(requirements.len(), baseline_repository_domains().len());
+    assert!(requirements
+        .iter()
+        .any(|requirement| requirement.domain() == RepositoryDomain::Metrology));
+    assert!(requirements
+        .iter()
+        .any(|requirement| requirement.domain() == RepositoryDomain::MeasurementData));
+    assert!(requirements
+        .iter()
+        .all(RepositorySnapshotRequirement::signature_required));
+    assert!(requirements
+        .iter()
+        .all(|requirement| requirement.minimum_schema_version() == 1));
+}
+
+#[test]
+fn repository_snapshot_identity_and_schema_are_validated() {
+    assert_eq!(
+        RepositorySnapshotId::parse(" ").unwrap_err(),
+        DomainError::EmptyRepositorySnapshotId
+    );
+    assert_eq!(
+        RepositorySnapshotId::parse("metrology v1").unwrap_err(),
+        DomainError::InvalidRepositorySnapshotId("metrology v1".to_owned())
+    );
+    assert_eq!(
+        SnapshotChecksum::parse("").unwrap_err(),
+        DomainError::EmptySnapshotChecksum
+    );
+    assert_eq!(
+        RepositorySnapshot::new(
+            RepositoryDomain::Metrology,
+            RepositorySnapshotId::parse("metrology-v0").unwrap(),
+            0,
+            SnapshotChecksum::parse("sha256:metrology").unwrap(),
+            true,
+        )
+        .unwrap_err(),
+        DomainError::InvalidRepositorySchemaVersion(0)
+    );
+}
+
+#[test]
+fn field_repository_package_rejects_duplicate_domain_snapshots() {
+    let snapshot = signed_snapshot(RepositoryDomain::Metrology);
+
+    let error = FieldRepositoryPackage::new(vec![snapshot.clone(), snapshot]).unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::DuplicateRepositorySnapshot("metrology".to_owned())
+    );
+}
+
+#[test]
+fn field_repository_package_validation_rejects_missing_snapshots() {
+    let package =
+        FieldRepositoryPackage::new(vec![signed_snapshot(RepositoryDomain::Metrology)]).unwrap();
+
+    let error = package
+        .validate(&offline_field_snapshot_requirements())
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::MissingRepositorySnapshot("test_definitions".to_owned())
+    );
+}
+
+#[test]
+fn field_repository_package_validation_rejects_unsigned_snapshots() {
+    let snapshots: Vec<_> = baseline_repository_domains()
+        .into_iter()
+        .map(|domain| snapshot_with_signature(domain, domain != RepositoryDomain::UpdateCatalog))
+        .collect();
+    let package = FieldRepositoryPackage::new(snapshots).unwrap();
+
+    let error = package
+        .validate(&offline_field_snapshot_requirements())
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::UnsignedRepositorySnapshot("update_catalog".to_owned())
+    );
+}
+
+#[test]
+fn field_repository_package_validation_rejects_incompatible_schema() {
+    let package =
+        FieldRepositoryPackage::new(vec![signed_snapshot(RepositoryDomain::Metrology)]).unwrap();
+    let requirements =
+        vec![RepositorySnapshotRequirement::new(RepositoryDomain::Metrology, 2, true).unwrap()];
+
+    let error = package.validate(&requirements).unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::IncompatibleRepositorySnapshot {
+            domain: "metrology".to_owned(),
+            minimum_schema_version: 2,
+            actual_schema_version: 1,
+        }
+    );
+}
+
+#[test]
+fn signed_field_repository_package_validates_for_offline_work() {
+    let snapshots = baseline_repository_domains()
+        .into_iter()
+        .map(signed_snapshot)
+        .collect();
+    let package = FieldRepositoryPackage::new(snapshots).unwrap();
+
+    package
+        .validate(&offline_field_snapshot_requirements())
+        .unwrap();
+
+    assert_eq!(
+        package
+            .snapshot_for(RepositoryDomain::MeasurementData)
+            .unwrap()
+            .domain(),
+        RepositoryDomain::MeasurementData
+    );
+}
+
+#[test]
 fn instrument_transport_baseline_covers_common_lab_communications() {
     let transports = baseline_instrument_transports();
 
@@ -1078,6 +1209,21 @@ fn reference_receiver(code: InstrumentCode) -> InstrumentRecord {
         "Reference Receiver",
         "SN-001",
         CalibrationRequirement::Required,
+    )
+    .unwrap()
+}
+
+fn signed_snapshot(domain: RepositoryDomain) -> RepositorySnapshot {
+    snapshot_with_signature(domain, true)
+}
+
+fn snapshot_with_signature(domain: RepositoryDomain, signed: bool) -> RepositorySnapshot {
+    RepositorySnapshot::new(
+        domain,
+        RepositorySnapshotId::parse(format!("{}-v1", domain.as_str())).unwrap(),
+        1,
+        SnapshotChecksum::parse(format!("sha256:{}", domain.as_str())).unwrap(),
+        signed,
     )
     .unwrap()
 }

@@ -121,6 +121,31 @@ Synchronization should be explicit and reviewable:
 5. Synchronize when connectivity returns.
 6. Resolve conflicts and produce final report packages.
 
+## Field Repository Package
+
+The Rust core now models a field package as one signed snapshot per repository
+domain. Offline-field requirements currently expect:
+
+- metrology;
+- test definitions;
+- instrument drivers;
+- project records;
+- measurement data;
+- report templates;
+- update catalog.
+
+Each snapshot carries:
+
+- repository domain;
+- snapshot id;
+- schema version;
+- checksum;
+- signature flag.
+
+Validation rejects missing domains, duplicate domains, unsigned snapshots, and
+snapshots below the required schema version. This is the first domain-level
+control for switching from a remote reference to a local field package.
+
 ## Technology Direction
 
 Early implementation can use SQLite per domain plus exported signed bundles.
