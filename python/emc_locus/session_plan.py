@@ -44,16 +44,16 @@ def default_backlog() -> list[SessionPlan]:
             ),
         ),
         SessionPlan(
-            title="Instrument safety limits",
+            title="Measurement execution binding",
             objective=(
-                "Add typed safety limits for instrument commands before real "
-                "transport adapters are introduced."
+                "Connect accepted measurement-run plans to simulated runtime "
+                "execution and dataset evidence."
             ),
-            workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.QUALITY),
+            workstreams=(Workstream.DOMAIN, Workstream.INSTRUMENT_CONTROL, Workstream.STORAGE),
             expected_outputs=(
-                "limit model",
-                "command safety checks",
-                "blocked-command tests",
+                "execution fixture",
+                "runtime-to-evidence link",
+                "blocked execution tests",
             ),
         ),
     ]

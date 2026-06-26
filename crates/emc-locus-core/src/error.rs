@@ -28,6 +28,17 @@ pub enum DomainError {
         expected: String,
         actual: String,
     },
+    InvalidInstrumentSafetyLimit {
+        quantity: String,
+        minimum: i64,
+        maximum: i64,
+    },
+    InstrumentSetpointOutOfRange {
+        quantity: String,
+        value: i64,
+        minimum: i64,
+        maximum: i64,
+    },
     EmptyDatasetReference,
     InvalidDatasetReference(String),
     EmptyDatasetFileReference,

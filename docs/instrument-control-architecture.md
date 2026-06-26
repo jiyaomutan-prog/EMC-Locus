@@ -104,12 +104,14 @@ Implemented in the Rust core:
 3. simulated instrument runtime;
 4. deterministic responses for query and set commands;
 5. ordered command and observation log;
-6. target-instrument and supported-transport validation.
+6. target-instrument and supported-transport validation;
+7. typed setpoints and safety limits;
+8. blocking of commands outside known limits.
 
 Not yet implemented:
 
 - typed SCPI command model;
 - timeout/retry policy;
-- safety limits;
+- automatic parsing of string commands into typed setpoints;
 - measurement-run execution binding;
 - real transport adapters.

@@ -53,13 +53,16 @@ change should remain traceable through Git history, session logs, and this file.
   extraction, and DFT magnitude fixtures.
 - Rust report package workflow with accredited technical review, approval, and
   issue gates.
+- Rust typed instrument setpoints and safety limits, with simulated-runtime
+  blocking for commands outside known ranges.
 
 ### Planned
 
-- Add typed safety limits for instrument commands.
 - Add persistent adapters for metrology and project repositories.
 - Add optimized FFT/windowing and resampling execution.
 - Add report export bundle evidence.
+- Connect measurement-run execution to simulated instrument runtime and dataset
+  evidence.
 
 ## [0.1.0] - 2026-06-26
 

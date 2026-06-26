@@ -97,7 +97,7 @@ Deliverables:
 - instrument capability declarations;
 - command templates;
 - validation against simulated baseline;
-- operational safety checklist.
+- operational safety checklist; initial typed safety-limit model added.
 
 ## Phase 6: Offline, Sync, and Updates
 
@@ -117,5 +117,5 @@ Deliverables:
 The next productive session should add persistent adapters for metrology and
 project repositories.
 
-The parallel quality stream should add typed safety limits for instrument
-commands.
+The parallel runtime stream should connect measurement-run execution to the
+simulated instrument runtime and dataset evidence.

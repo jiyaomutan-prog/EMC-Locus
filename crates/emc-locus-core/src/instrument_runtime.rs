@@ -38,6 +38,7 @@ pub struct InstrumentCommand {
     target: InstrumentCode,
     transport: InstrumentTransport,
     message: InstrumentCommandMessage,
+    setpoint: Option<InstrumentSetpoint>,
 }
 
 impl InstrumentCommand {
@@ -50,6 +51,21 @@ impl InstrumentCommand {
             target,
             transport,
             message,
+            setpoint: None,
+        }
+    }
+
+    pub fn with_setpoint(
+        target: InstrumentCode,
+        transport: InstrumentTransport,
+        message: InstrumentCommandMessage,
+        setpoint: InstrumentSetpoint,
+    ) -> Self {
+        Self {
+            target,
+            transport,
+            message,
+            setpoint: Some(setpoint),
         }
     }
 
@@ -63,6 +79,96 @@ impl InstrumentCommand {
 
     pub fn message(&self) -> &InstrumentCommandMessage {
         &self.message
+    }
+
+    pub fn setpoint(&self) -> Option<InstrumentSetpoint> {
+        self.setpoint
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstrumentQuantity {
+    FrequencyHz,
+    LevelDbm,
+    VoltageMv,
+    CurrentMa,
+}
+
+impl InstrumentQuantity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::FrequencyHz => "frequency_hz",
+            Self::LevelDbm => "level_dbm",
+            Self::VoltageMv => "voltage_mv",
+            Self::CurrentMa => "current_ma",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InstrumentSetpoint {
+    quantity: InstrumentQuantity,
+    value: i64,
+}
+
+impl InstrumentSetpoint {
+    pub fn new(quantity: InstrumentQuantity, value: i64) -> Self {
+        Self { quantity, value }
+    }
+
+    pub fn quantity(&self) -> InstrumentQuantity {
+        self.quantity
+    }
+
+    pub fn value(&self) -> i64 {
+        self.value
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InstrumentSafetyLimit {
+    quantity: InstrumentQuantity,
+    minimum: i64,
+    maximum: i64,
+}
+
+impl InstrumentSafetyLimit {
+    pub fn new(
+        quantity: InstrumentQuantity,
+        minimum: i64,
+        maximum: i64,
+    ) -> Result<Self, DomainError> {
+        if minimum > maximum {
+            return Err(DomainError::InvalidInstrumentSafetyLimit {
+                quantity: quantity.as_str().to_owned(),
+                minimum,
+                maximum,
+            });
+        }
+
+        Ok(Self {
+            quantity,
+            minimum,
+            maximum,
+        })
+    }
+
+    pub fn quantity(&self) -> InstrumentQuantity {
+        self.quantity
+    }
+
+    pub fn minimum(&self) -> i64 {
+        self.minimum
+    }
+
+    pub fn maximum(&self) -> i64 {
+        self.maximum
+    }
+
+    pub fn contains(&self, setpoint: InstrumentSetpoint) -> bool {
+        self.quantity == setpoint.quantity()
+            && setpoint.value() >= self.minimum
+            && setpoint.value() <= self.maximum
     }
 }
 
@@ -110,6 +216,7 @@ impl InstrumentObservation {
 pub struct SimulatedInstrumentRuntime {
     instrument: InstrumentCode,
     supported_transports: Vec<InstrumentTransport>,
+    safety_limits: Vec<InstrumentSafetyLimit>,
     observations: Vec<InstrumentObservation>,
     next_sequence: u64,
 }
@@ -119,6 +226,7 @@ impl SimulatedInstrumentRuntime {
         Self {
             instrument,
             supported_transports,
+            safety_limits: Vec::new(),
             observations: Vec::new(),
             next_sequence: 1,
         }
@@ -132,8 +240,16 @@ impl SimulatedInstrumentRuntime {
         &self.supported_transports
     }
 
+    pub fn safety_limits(&self) -> &[InstrumentSafetyLimit] {
+        &self.safety_limits
+    }
+
     pub fn observations(&self) -> &[InstrumentObservation] {
         &self.observations
+    }
+
+    pub fn add_safety_limit(&mut self, limit: InstrumentSafetyLimit) {
+        self.safety_limits.push(limit);
     }
 
     pub fn execute(
@@ -153,6 +269,10 @@ impl SimulatedInstrumentRuntime {
             ));
         }
 
+        if let Some(setpoint) = command.setpoint() {
+            self.validate_setpoint(setpoint)?;
+        }
+
         let response = deterministic_response(command.message());
         let observation = InstrumentObservation::new(self.next_sequence, command, response, true);
         self.next_sequence += 1;
@@ -162,6 +282,27 @@ impl SimulatedInstrumentRuntime {
             .observations
             .last()
             .expect("observation was just appended"))
+    }
+
+    fn validate_setpoint(&self, setpoint: InstrumentSetpoint) -> Result<(), DomainError> {
+        let Some(limit) = self
+            .safety_limits
+            .iter()
+            .find(|limit| limit.quantity() == setpoint.quantity())
+        else {
+            return Ok(());
+        };
+
+        if !limit.contains(setpoint) {
+            return Err(DomainError::InstrumentSetpointOutOfRange {
+                quantity: setpoint.quantity().as_str().to_owned(),
+                value: setpoint.value(),
+                minimum: limit.minimum(),
+                maximum: limit.maximum(),
+            });
+        }
+
+        Ok(())
     }
 }
 

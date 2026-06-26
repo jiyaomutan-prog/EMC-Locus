@@ -655,6 +655,74 @@ fn simulated_instrument_runtime_rejects_unsupported_transport() {
 }
 
 #[test]
+fn instrument_safety_limit_rejects_inverted_ranges() {
+    let error = InstrumentSafetyLimit::new(InstrumentQuantity::LevelDbm, 10, -10).unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::InvalidInstrumentSafetyLimit {
+            quantity: "level_dbm".to_owned(),
+            minimum: 10,
+            maximum: -10,
+        }
+    );
+}
+
+#[test]
+fn simulated_instrument_runtime_allows_setpoints_inside_known_limits() {
+    let code = InstrumentCode::parse("GEN-001").unwrap();
+    let mut runtime =
+        SimulatedInstrumentRuntime::new(code.clone(), vec![InstrumentTransport::Simulated]);
+    runtime.add_safety_limit(
+        InstrumentSafetyLimit::new(InstrumentQuantity::LevelDbm, -120, 10).unwrap(),
+    );
+
+    let observation = runtime
+        .execute(InstrumentCommand::with_setpoint(
+            code,
+            InstrumentTransport::Simulated,
+            InstrumentCommandMessage::parse("POW -20").unwrap(),
+            InstrumentSetpoint::new(InstrumentQuantity::LevelDbm, -20),
+        ))
+        .unwrap()
+        .clone();
+
+    assert_eq!(runtime.safety_limits().len(), 1);
+    assert_eq!(observation.response().as_str(), "OK:POW -20");
+    assert_eq!(runtime.observations().len(), 1);
+}
+
+#[test]
+fn simulated_instrument_runtime_blocks_setpoints_outside_known_limits() {
+    let code = InstrumentCode::parse("GEN-001").unwrap();
+    let mut runtime =
+        SimulatedInstrumentRuntime::new(code.clone(), vec![InstrumentTransport::Simulated]);
+    runtime.add_safety_limit(
+        InstrumentSafetyLimit::new(InstrumentQuantity::LevelDbm, -120, 10).unwrap(),
+    );
+
+    let error = runtime
+        .execute(InstrumentCommand::with_setpoint(
+            code,
+            InstrumentTransport::Simulated,
+            InstrumentCommandMessage::parse("POW 20").unwrap(),
+            InstrumentSetpoint::new(InstrumentQuantity::LevelDbm, 20),
+        ))
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::InstrumentSetpointOutOfRange {
+            quantity: "level_dbm".to_owned(),
+            value: 20,
+            minimum: -120,
+            maximum: 10,
+        }
+    );
+    assert!(runtime.observations().is_empty());
+}
+
+#[test]
 fn update_policy_requires_signed_packages_and_blocks_live_measurement_updates() {
     let policy = UpdatePolicy::laboratory_default();
 
