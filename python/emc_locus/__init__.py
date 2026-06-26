@@ -6,6 +6,7 @@ from .sqlite_repositories import (
     MetrologyRepository,
     ProjectRepository,
     SQLiteDomainRepository,
+    UpdateCatalogRepository,
 )
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     "ProjectRepository",
     "SessionPlan",
     "SQLiteDomainRepository",
+    "UpdateCatalogRepository",
     "Workstream",
     "discover_migrations",
     "default_backlog",

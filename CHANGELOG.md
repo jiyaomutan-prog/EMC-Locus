@@ -76,14 +76,16 @@ change should remain traceable through Git history, session logs, and this file.
 - Python SQLite write APIs for instrument availability/capabilities,
   calibration attachments, project stage changes with audit events, and
   contract-review item completion.
+- Python SQLite update-catalog adapter for signed package metadata and install
+  records.
 
 ### Planned
 
 - Add optimized FFT and interpolation-based resampling.
-- Add update-catalog persistence APIs for signed bundles and install records.
 - Add concrete VISA/TCP/IP/serial adapters behind the transport boundary.
 - Add sync persistence adapters around conflict action plans.
 - Add SQLite adapters for measurement data and test-definition domains.
+- Add update bundle/domain validation mapping between Rust and SQLite.
 
 ## [0.1.0] - 2026-06-26
 

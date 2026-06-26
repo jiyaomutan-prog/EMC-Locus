@@ -456,6 +456,167 @@ class ProjectRepository(SQLiteDomainRepository):
         return [dict(row) for row in rows]
 
 
+class UpdateCatalogRepository(SQLiteDomainRepository):
+    """SQLite adapter for signed update package and install metadata."""
+
+    def __init__(self, database_path: Path | str, migrations_root: Path | str) -> None:
+        super().__init__(Path(database_path), Path(migrations_root), "update_catalog")
+
+    def add_update_package(
+        self,
+        *,
+        package_name: str,
+        package_version: str,
+        component: str,
+        compatibility_range: str,
+        signed_checksum: str,
+        offline_install_allowed: bool = True,
+    ) -> None:
+        with closing(self.connect()) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO update_packages (
+                        package_name,
+                        package_version,
+                        component,
+                        compatibility_range,
+                        signed_checksum,
+                        offline_install_allowed,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        package_name,
+                        package_version,
+                        component,
+                        compatibility_range,
+                        signed_checksum,
+                        int(offline_install_allowed),
+                        utc_timestamp(),
+                    ),
+                )
+
+    def update_package_count(self) -> int:
+        with closing(self.connect()) as connection:
+            row = connection.execute("SELECT COUNT(*) AS count FROM update_packages").fetchone()
+        return int(row["count"])
+
+    def get_update_package(
+        self,
+        *,
+        package_name: str,
+        package_version: str,
+        component: str,
+    ) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT *
+                FROM update_packages
+                WHERE package_name = ? AND package_version = ? AND component = ?
+                """,
+                (package_name, package_version, component),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def list_update_packages(self, component: str | None = None) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            if component is None:
+                rows = connection.execute(
+                    """
+                    SELECT *
+                    FROM update_packages
+                    ORDER BY component, package_name, package_version
+                    """
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT *
+                    FROM update_packages
+                    WHERE component = ?
+                    ORDER BY package_name, package_version
+                    """,
+                    (component,),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    def record_install(
+        self,
+        *,
+        package_name: str,
+        package_version: str,
+        component: str,
+        installed_by: str,
+        source: str,
+        rollback_reference: str | None = None,
+    ) -> int:
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO update_install_records (
+                        package_name,
+                        package_version,
+                        component,
+                        installed_by,
+                        installed_at,
+                        source,
+                        rollback_reference
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        package_name,
+                        package_version,
+                        component,
+                        installed_by,
+                        utc_timestamp(),
+                        source,
+                        rollback_reference,
+                    ),
+                )
+        return int(cursor.lastrowid)
+
+    def install_record_count(self) -> int:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS count FROM update_install_records"
+            ).fetchone()
+        return int(row["count"])
+
+    def list_install_records(self) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM update_install_records
+                ORDER BY installed_at, id
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def install_records_for_package(
+        self,
+        *,
+        package_name: str,
+        component: str,
+    ) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM update_install_records
+                WHERE package_name = ? AND component = ?
+                ORDER BY installed_at, id
+                """,
+                (package_name, component),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+
 def row_to_dict(row: sqlite3.Row | None) -> dict[str, object] | None:
     if row is None:
         return None

@@ -31,19 +31,6 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Update catalog persistence",
-            objective=(
-                "Persist signed update bundles and install records in the "
-                "update catalog repository."
-            ),
-            workstreams=(Workstream.STORAGE, Workstream.QUALITY),
-            expected_outputs=(
-                "update catalog adapter",
-                "bundle insert/query APIs",
-                "install record smoke test",
-            ),
-        ),
-        SessionPlan(
             title="Optimized signal resampling",
             objective=(
                 "Add optimized FFT and interpolation-based resampling behind "
@@ -54,6 +41,19 @@ def default_backlog() -> list[SessionPlan]:
                 "FFT backend boundary",
                 "interpolation resampling fixture",
                 "comparison tests",
+            ),
+        ),
+        SessionPlan(
+            title="Concrete transport adapters",
+            objective=(
+                "Add the first concrete VISA, TCP/IP, or serial adapter behind "
+                "the tested transport boundary."
+            ),
+            workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.QUALITY),
+            expected_outputs=(
+                "hardware adapter skeleton",
+                "timeout policy",
+                "simulated conformance reuse",
             ),
         ),
     ]

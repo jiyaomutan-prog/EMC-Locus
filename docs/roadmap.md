@@ -118,12 +118,13 @@ Deliverables:
 - synchronization conflict workflow; initial Rust action-plan service added;
 - synchronization conflict records; initial Rust model added;
 - offline update bundles; initial Rust model added;
+- update-catalog persistence APIs; initial Python adapter added;
 - rollback and compatibility checks; initial Rust validation added.
 
 ## Near-Term Next Session
 
-The next productive session should add update-catalog persistence APIs for
-signed bundles and install records.
-
-The parallel signal stream should add optimized FFT and interpolation-based
+The next productive session should add optimized FFT and interpolation-based
 resampling.
+
+The parallel runtime stream should add concrete VISA, TCP/IP, and serial
+adapters behind the transport boundary.
