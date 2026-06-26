@@ -61,13 +61,15 @@ change should remain traceable through Git history, session logs, and this file.
   observations and raw dataset evidence.
 - Rust synchronization conflict records for split repository snapshots,
   including conflict status and resolution.
+- Rust report export bundle evidence linking issued reports to exported files,
+  checksums, and review/approval identities.
 
 ### Planned
 
 - Add optimized FFT/windowing and resampling execution.
-- Add report export bundle evidence.
 - Expand SQLite adapters beyond smoke operations.
 - Add sync application services around conflict records.
+- Add signed update bundle workflow.
 - Add synchronization conflict records for split repositories.
 
 ## [0.1.0] - 2026-06-26

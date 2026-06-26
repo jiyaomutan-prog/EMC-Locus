@@ -1504,6 +1504,75 @@ fn report_workflow_rejects_invalid_review_transition() {
 }
 
 #[test]
+fn report_export_bundle_requires_issued_report() {
+    let project = ProjectCode::parse("CEM-2026-001").unwrap();
+    let report = ReportPackage::new(
+        project,
+        ReportNumber::parse("RPT-001").unwrap(),
+        ReportRevision::parse("A").unwrap(),
+        ExecutionMode::Accredited,
+    );
+
+    let error = ReportExportBundle::from_issued_report(
+        &report,
+        ReportExportFormat::Pdf,
+        DatasetFileReference::parse("reports/RPT-001-A.pdf").unwrap(),
+        DatasetChecksum::parse("sha256:report123").unwrap(),
+    )
+    .unwrap_err();
+
+    assert_eq!(error, DomainError::ReportMustBeIssuedBeforeExport);
+}
+
+#[test]
+fn report_export_bundle_preserves_accredited_review_and_approval_evidence() {
+    let project = ProjectCode::parse("CEM-2026-001").unwrap();
+    let reviewer = AuditActor::parse("technical.reviewer").unwrap();
+    let approver = AuditActor::parse("quality.manager").unwrap();
+    let report = issued_accredited_report(project.clone(), reviewer.clone(), approver.clone());
+
+    let bundle = ReportExportBundle::from_issued_report(
+        &report,
+        ReportExportFormat::Pdf,
+        DatasetFileReference::parse("reports/RPT-001-A.pdf").unwrap(),
+        DatasetChecksum::parse("sha256:report123").unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(bundle.project(), &project);
+    assert_eq!(bundle.number().as_str(), "RPT-001");
+    assert_eq!(bundle.revision().as_str(), "A");
+    assert_eq!(bundle.format(), ReportExportFormat::Pdf);
+    assert_eq!(bundle.file_reference().as_str(), "reports/RPT-001-A.pdf");
+    assert_eq!(bundle.checksum().as_str(), "sha256:report123");
+    assert_eq!(bundle.reviewed_by(), Some(&reviewer));
+    assert_eq!(bundle.approved_by(), Some(&approver));
+}
+
+#[test]
+fn report_export_bundle_allows_non_accredited_issue_without_approval() {
+    let project = ProjectCode::parse("CEM-2026-001").unwrap();
+    let mut report = ReportPackage::new(
+        project,
+        ReportNumber::parse("RPT-001").unwrap(),
+        ReportRevision::parse("A").unwrap(),
+        ExecutionMode::NonAccredited,
+    );
+    report.issue().unwrap();
+
+    let bundle = ReportExportBundle::from_issued_report(
+        &report,
+        ReportExportFormat::Zip,
+        DatasetFileReference::parse("reports/RPT-001-A.zip").unwrap(),
+        DatasetChecksum::parse("sha256:reportzip").unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(bundle.format(), ReportExportFormat::Zip);
+    assert_eq!(bundle.approved_by(), None);
+}
+
+#[test]
 fn cem_time_domain_workflow_prefers_opendaq_and_mixed_signal_processing() {
     let profile = SignalWorkflowProfile::cem_time_domain_default();
 
@@ -1953,4 +2022,22 @@ fn raw_dataset_for_run(run_reference: &str) -> RawDatasetRecord {
         DatasetFileReference::parse("data/RUN-001/raw-signal-001.opendata").unwrap(),
         DatasetChecksum::parse("sha256:abc123").unwrap(),
     )
+}
+
+fn issued_accredited_report(
+    project: ProjectCode,
+    reviewer: AuditActor,
+    approver: AuditActor,
+) -> ReportPackage {
+    let mut report = ReportPackage::new(
+        project,
+        ReportNumber::parse("RPT-001").unwrap(),
+        ReportRevision::parse("A").unwrap(),
+        ExecutionMode::Accredited,
+    );
+    report.submit_for_technical_review().unwrap();
+    report.complete_technical_review(reviewer).unwrap();
+    report.approve(approver).unwrap();
+    report.issue().unwrap();
+    report
 }

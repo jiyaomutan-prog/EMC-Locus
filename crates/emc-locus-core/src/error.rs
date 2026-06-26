@@ -79,6 +79,7 @@ pub enum DomainError {
     EmptyReportRevision,
     ReportTechnicalReviewRequired,
     ReportApprovalRequired,
+    ReportMustBeIssuedBeforeExport,
     InvalidReportTransition {
         from: String,
         to: String,

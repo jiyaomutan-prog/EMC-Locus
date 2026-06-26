@@ -31,19 +31,6 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Report export bundle",
-            objective=(
-                "Model report export bundles with file references, checksums, "
-                "and approval evidence."
-            ),
-            workstreams=(Workstream.REPORTING, Workstream.STORAGE, Workstream.QUALITY),
-            expected_outputs=(
-                "export bundle model",
-                "checksum linkage",
-                "approval evidence tests",
-            ),
-        ),
-        SessionPlan(
             title="Adapter query APIs",
             objective=(
                 "Expand SQLite adapters beyond smoke writes with read/query "
@@ -54,6 +41,19 @@ def default_backlog() -> list[SessionPlan]:
                 "instrument lookup",
                 "project lookup",
                 "adapter smoke tests",
+            ),
+        ),
+        SessionPlan(
+            title="Optimized signal ops",
+            objective=(
+                "Add optimized FFT/windowing and resampling execution behind "
+                "the deterministic signal fixtures."
+            ),
+            workstreams=(Workstream.SIGNAL, Workstream.STORAGE),
+            expected_outputs=(
+                "window function model",
+                "resampling fixture",
+                "FFT comparison tests",
             ),
         ),
     ]

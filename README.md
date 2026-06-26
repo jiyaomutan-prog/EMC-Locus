@@ -59,11 +59,11 @@ storage/
 
 ## First Useful Milestones
 
-1. Add report export bundle evidence.
-2. Expand SQLite adapters beyond smoke operations.
-3. Add optimized FFT/windowing and resampling execution.
-4. Add real transport adapter spikes behind the simulated baseline.
-5. Add sync application services around conflict records.
+1. Expand SQLite adapters beyond smoke operations.
+2. Add optimized FFT/windowing and resampling execution.
+3. Add real transport adapter spikes behind the simulated baseline.
+4. Add sync application services around conflict records.
+5. Add signed update bundle workflow.
 
 ## Development Status
 

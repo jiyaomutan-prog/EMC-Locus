@@ -272,3 +272,20 @@ same formal approval gate, while still retaining the option to review or approve
 when the laboratory wants it.
 
 Invalid workflow transitions are rejected without changing the report status.
+
+## Report Export Bundle
+
+The Rust core now models report export evidence. An export bundle can be created
+only from an issued report and records:
+
+- project code;
+- report number;
+- report revision;
+- export format;
+- exported file reference;
+- checksum;
+- reviewer identity when available;
+- approver identity when available.
+
+This keeps customer-facing files linked to the controlled report workflow rather
+than treating exports as loose files.

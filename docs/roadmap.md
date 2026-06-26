@@ -69,7 +69,7 @@ Deliverables:
 - report package model; initial Rust model added;
 - technical review workflow; initial Rust gate added;
 - approval workflow; initial Rust gate added;
-- export bundle;
+- export bundle; initial Rust evidence model added;
 - traceability report for audit.
 
 ## Phase 4b: Signal Acquisition and Analysis
@@ -116,7 +116,8 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should add report export bundle evidence.
-
-The parallel storage stream should expand SQLite adapters beyond smoke
+The next productive session should expand SQLite adapters beyond smoke
 operations.
+
+The parallel signal stream should add optimized FFT/windowing and resampling
+execution.

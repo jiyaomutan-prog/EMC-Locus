@@ -1,4 +1,5 @@
 use crate::{
+    datasets::{DatasetChecksum, DatasetFileReference},
     identifiers::{AuditActor, ProjectCode},
     quality::ExecutionMode,
     DomainError,
@@ -76,6 +77,82 @@ pub struct ReportPackage {
     status: ReportStatus,
     reviewed_by: Option<AuditActor>,
     approved_by: Option<AuditActor>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReportExportFormat {
+    Pdf,
+    Docx,
+    Zip,
+    Json,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReportExportBundle {
+    project: ProjectCode,
+    number: ReportNumber,
+    revision: ReportRevision,
+    format: ReportExportFormat,
+    file_reference: DatasetFileReference,
+    checksum: DatasetChecksum,
+    reviewed_by: Option<AuditActor>,
+    approved_by: Option<AuditActor>,
+}
+
+impl ReportExportBundle {
+    pub fn from_issued_report(
+        report: &ReportPackage,
+        format: ReportExportFormat,
+        file_reference: DatasetFileReference,
+        checksum: DatasetChecksum,
+    ) -> Result<Self, DomainError> {
+        if report.status() != ReportStatus::Issued {
+            return Err(DomainError::ReportMustBeIssuedBeforeExport);
+        }
+
+        Ok(Self {
+            project: report.project().clone(),
+            number: report.number().clone(),
+            revision: report.revision().clone(),
+            format,
+            file_reference,
+            checksum,
+            reviewed_by: report.reviewed_by().cloned(),
+            approved_by: report.approved_by().cloned(),
+        })
+    }
+
+    pub fn project(&self) -> &ProjectCode {
+        &self.project
+    }
+
+    pub fn number(&self) -> &ReportNumber {
+        &self.number
+    }
+
+    pub fn revision(&self) -> &ReportRevision {
+        &self.revision
+    }
+
+    pub fn format(&self) -> ReportExportFormat {
+        self.format
+    }
+
+    pub fn file_reference(&self) -> &DatasetFileReference {
+        &self.file_reference
+    }
+
+    pub fn checksum(&self) -> &DatasetChecksum {
+        &self.checksum
+    }
+
+    pub fn reviewed_by(&self) -> Option<&AuditActor> {
+        self.reviewed_by.as_ref()
+    }
+
+    pub fn approved_by(&self) -> Option<&AuditActor> {
+        self.approved_by.as_ref()
+    }
 }
 
 impl ReportPackage {
