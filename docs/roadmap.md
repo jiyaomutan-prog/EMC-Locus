@@ -23,6 +23,7 @@ Deliverables:
 - lifecycle state machine; initial Rust model added;
 - audit events; initial Rust project audit log added;
 - contract-review checklist; initial Rust checklist added;
+- contract-review stage gate; initial Rust gate added;
 - first storage schema draft; initial SQLite sketch added.
 
 ## Phase 2: Metrology Database
@@ -75,7 +76,6 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should connect the contract-review checklist to a
-stage gate, so a project cannot move from contract review to test planning until
-the checklist is complete or an authorized deviation is recorded. After that,
-start the metrology registry with instruments and calibration records.
+The next productive session should start the metrology registry with instrument
+identity, calibration validity, and out-of-service status. Keep the same
+discipline: domain rule, tests, documentation, changelog, session log, commit.

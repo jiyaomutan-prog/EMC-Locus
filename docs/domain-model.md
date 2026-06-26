@@ -169,3 +169,19 @@ controlled before detailed planning and acquisition work:
 
 The Rust core can mark each item complete, report missing items, and avoid
 duplicate completions.
+
+## Contract Review Stage Gate
+
+The Rust core now provides a specific transition helper for moving from contract
+review to test planning. This gate rejects the transition unless:
+
+- the checklist belongs to the same project;
+- the current project stage is `ContractReview`;
+- the checklist is complete, or an authorized deviation is recorded.
+
+When an authorized deviation is used, EMC Locus records a dedicated audit event
+with the missing checklist items and the deviation reason before recording the
+stage transition to `TestPlanning`.
+
+Rejected gate checks are side-effect free: the project stage remains unchanged
+and no audit event is appended.

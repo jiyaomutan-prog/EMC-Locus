@@ -168,21 +168,73 @@ impl ProjectRecord {
         let from = self.project.stage();
         self.project.advance_to(next)?;
 
+        Ok(self.append_audit_event(
+            actor,
+            AuditAction::ProjectStageAdvanced { from, to: next },
+            Some(reason),
+        ))
+    }
+
+    pub fn advance_to_test_planning(
+        &mut self,
+        checklist: &ContractReviewChecklist,
+        actor: AuditActor,
+        reason: AuditReason,
+        deviation: Option<AuthorizedDeviation>,
+    ) -> Result<&AuditEvent, DomainError> {
+        if checklist.project() != self.project.code() {
+            return Err(DomainError::ChecklistProjectMismatch {
+                project: self.project.code().clone(),
+                checklist_project: checklist.project().clone(),
+            });
+        }
+
+        let from = self.project.stage();
+        if !can_transition(from, ProjectStage::TestPlanning) {
+            return Err(DomainError::InvalidProjectTransition {
+                from,
+                to: ProjectStage::TestPlanning,
+            });
+        }
+
+        let missing_items = checklist.missing_items();
+        if !missing_items.is_empty() {
+            let deviation =
+                deviation.ok_or_else(|| DomainError::IncompleteContractReview {
+                    missing_items: missing_items.clone(),
+                })?;
+
+            self.append_audit_event(
+                deviation.authorized_by,
+                AuditAction::ContractReviewDeviationAuthorized {
+                    missing_items,
+                },
+                Some(deviation.reason),
+            );
+        }
+
+        self.advance_to(ProjectStage::TestPlanning, actor, reason)
+    }
+
+    fn append_audit_event(
+        &mut self,
+        actor: AuditActor,
+        action: AuditAction,
+        reason: Option<AuditReason>,
+    ) -> &AuditEvent {
         let event = AuditEvent::new(
             self.next_audit_sequence,
             actor,
             self.project.code.clone(),
-            AuditAction::ProjectStageAdvanced { from, to: next },
-            Some(reason),
+            action,
+            reason,
         );
-
         self.next_audit_sequence += 1;
         self.audit_events.push(event);
 
-        Ok(self
-            .audit_events
+        self.audit_events
             .last()
-            .expect("audit event was just appended"))
+            .expect("audit event was just appended")
     }
 }
 
@@ -192,6 +244,9 @@ pub enum AuditAction {
     ProjectStageAdvanced {
         from: ProjectStage,
         to: ProjectStage,
+    },
+    ContractReviewDeviationAuthorized {
+        missing_items: Vec<ContractReviewItem>,
     },
 }
 
@@ -338,6 +393,29 @@ impl ContractReviewChecklist {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthorizedDeviation {
+    authorized_by: AuditActor,
+    reason: AuditReason,
+}
+
+impl AuthorizedDeviation {
+    pub fn new(authorized_by: AuditActor, reason: AuditReason) -> Self {
+        Self {
+            authorized_by,
+            reason,
+        }
+    }
+
+    pub fn authorized_by(&self) -> &AuditActor {
+        &self.authorized_by
+    }
+
+    pub fn reason(&self) -> &AuditReason {
+        &self.reason
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TraceabilityRequirement {
     CustomerRequest,
@@ -411,6 +489,13 @@ pub enum DomainError {
     InvalidProjectTransition {
         from: ProjectStage,
         to: ProjectStage,
+    },
+    ChecklistProjectMismatch {
+        project: ProjectCode,
+        checklist_project: ProjectCode,
+    },
+    IncompleteContractReview {
+        missing_items: Vec<ContractReviewItem>,
     },
 }
 
@@ -572,6 +657,193 @@ mod tests {
 
         assert!(checklist.is_complete());
         assert!(checklist.missing_items().is_empty());
+    }
+
+    #[test]
+    fn test_planning_requires_complete_contract_review() {
+        let code = ProjectCode::parse("CEM-2026-001").unwrap();
+        let project = Project::new(code.clone(), "Example Customer").unwrap();
+        let actor = AuditActor::parse("quality.manager").unwrap();
+        let mut record = ProjectRecord::open(project, actor.clone());
+        record
+            .advance_to(
+                ProjectStage::ContractReview,
+                actor.clone(),
+                AuditReason::parse("Quote accepted").unwrap(),
+            )
+            .unwrap();
+        let checklist = ContractReviewChecklist::new(code);
+        let audit_count_before = record.audit_events().len();
+
+        let error = record
+            .advance_to_test_planning(
+                &checklist,
+                actor,
+                AuditReason::parse("Planning requested").unwrap(),
+                None,
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            DomainError::IncompleteContractReview {
+                missing_items: baseline_contract_review_items(),
+            }
+        );
+        assert_eq!(record.project().stage(), ProjectStage::ContractReview);
+        assert_eq!(record.audit_events().len(), audit_count_before);
+    }
+
+    #[test]
+    fn complete_contract_review_allows_test_planning() {
+        let code = ProjectCode::parse("CEM-2026-001").unwrap();
+        let project = Project::new(code.clone(), "Example Customer").unwrap();
+        let actor = AuditActor::parse("quality.manager").unwrap();
+        let mut record = ProjectRecord::open(project, actor.clone());
+        record
+            .advance_to(
+                ProjectStage::ContractReview,
+                actor.clone(),
+                AuditReason::parse("Quote accepted").unwrap(),
+            )
+            .unwrap();
+        let mut checklist = ContractReviewChecklist::new(code.clone());
+        for item in baseline_contract_review_items() {
+            checklist.mark_complete(item);
+        }
+
+        let event = record
+            .advance_to_test_planning(
+                &checklist,
+                actor.clone(),
+                AuditReason::parse("Contract review complete").unwrap(),
+                None,
+            )
+            .unwrap()
+            .clone();
+
+        assert_eq!(record.project().stage(), ProjectStage::TestPlanning);
+        assert_eq!(record.audit_events().len(), 3);
+        assert_eq!(
+            event.action(),
+            &AuditAction::ProjectStageAdvanced {
+                from: ProjectStage::ContractReview,
+                to: ProjectStage::TestPlanning,
+            }
+        );
+        assert_eq!(event.project(), &code);
+        assert_eq!(event.actor(), &actor);
+    }
+
+    #[test]
+    fn authorized_deviation_allows_incomplete_contract_review_to_reach_planning() {
+        let code = ProjectCode::parse("CEM-2026-001").unwrap();
+        let project = Project::new(code.clone(), "Example Customer").unwrap();
+        let actor = AuditActor::parse("quality.manager").unwrap();
+        let mut record = ProjectRecord::open(project, actor.clone());
+        record
+            .advance_to(
+                ProjectStage::ContractReview,
+                actor.clone(),
+                AuditReason::parse("Quote accepted").unwrap(),
+            )
+            .unwrap();
+        let checklist = ContractReviewChecklist::new(code.clone());
+        let deviation_reason =
+            AuditReason::parse("Quality manager accepted documented planning risk").unwrap();
+        let deviation = AuthorizedDeviation::new(actor.clone(), deviation_reason.clone());
+
+        let event = record
+            .advance_to_test_planning(
+                &checklist,
+                actor.clone(),
+                AuditReason::parse("Planning authorized with deviation").unwrap(),
+                Some(deviation),
+            )
+            .unwrap()
+            .clone();
+
+        assert_eq!(record.project().stage(), ProjectStage::TestPlanning);
+        assert_eq!(record.audit_events().len(), 4);
+
+        let deviation_event = &record.audit_events()[2];
+        assert_eq!(deviation_event.actor(), &actor);
+        assert_eq!(deviation_event.reason(), Some(&deviation_reason));
+        assert_eq!(
+            deviation_event.action(),
+            &AuditAction::ContractReviewDeviationAuthorized {
+                missing_items: baseline_contract_review_items(),
+            }
+        );
+        assert_eq!(
+            event.action(),
+            &AuditAction::ProjectStageAdvanced {
+                from: ProjectStage::ContractReview,
+                to: ProjectStage::TestPlanning,
+            }
+        );
+    }
+
+    #[test]
+    fn contract_review_gate_rejects_checklists_for_another_project() {
+        let code = ProjectCode::parse("CEM-2026-001").unwrap();
+        let other_code = ProjectCode::parse("CEM-2026-002").unwrap();
+        let project = Project::new(code.clone(), "Example Customer").unwrap();
+        let actor = AuditActor::parse("quality.manager").unwrap();
+        let mut record = ProjectRecord::open(project, actor.clone());
+        record
+            .advance_to(
+                ProjectStage::ContractReview,
+                actor.clone(),
+                AuditReason::parse("Quote accepted").unwrap(),
+            )
+            .unwrap();
+        let checklist = ContractReviewChecklist::new(other_code.clone());
+
+        let error = record
+            .advance_to_test_planning(
+                &checklist,
+                actor,
+                AuditReason::parse("Planning requested").unwrap(),
+                None,
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            DomainError::ChecklistProjectMismatch {
+                project: code,
+                checklist_project: other_code,
+            }
+        );
+    }
+
+    #[test]
+    fn contract_review_gate_rejects_invalid_source_stage_before_checklist_checks() {
+        let code = ProjectCode::parse("CEM-2026-001").unwrap();
+        let project = Project::new(code.clone(), "Example Customer").unwrap();
+        let actor = AuditActor::parse("quality.manager").unwrap();
+        let mut record = ProjectRecord::open(project, actor.clone());
+        let checklist = ContractReviewChecklist::new(code);
+
+        let error = record
+            .advance_to_test_planning(
+                &checklist,
+                actor,
+                AuditReason::parse("Planning requested").unwrap(),
+                None,
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            DomainError::InvalidProjectTransition {
+                from: ProjectStage::Quotation,
+                to: ProjectStage::TestPlanning,
+            }
+        );
+        assert_eq!(record.project().stage(), ProjectStage::Quotation);
+        assert_eq!(record.audit_events().len(), 1);
     }
 
     #[test]
