@@ -15,7 +15,7 @@ crates/emc-locus-core/src/
   metrology.rs     Instrument registry, calibration records, and readiness checks
   repositories.rs  Connectivity, repository domains, and sync policy
   instrument.rs    Instrument transports and update policy
-  signal.rs        DAQ, synchronization, and signal-processing primitives
+  signal.rs        DAQ, synchronized datasets, simulated source, and signal graph
   traceability.rs  Baseline traceability requirements
   error.rs         Domain errors shared by the modules
   tests.rs         Public behavior tests across module boundaries

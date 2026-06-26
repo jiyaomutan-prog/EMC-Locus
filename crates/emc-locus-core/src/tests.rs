@@ -690,6 +690,179 @@ fn cem_time_domain_workflow_prefers_opendaq_and_mixed_signal_processing() {
 }
 
 #[test]
+fn signal_reference_and_sample_rate_reject_invalid_values() {
+    assert_eq!(
+        SignalReference::parse(" ").unwrap_err(),
+        DomainError::EmptySignalReference
+    );
+    assert_eq!(
+        SignalReference::parse("current l1").unwrap_err(),
+        DomainError::InvalidSignalReference("current l1".to_owned())
+    );
+    assert_eq!(
+        SampleRateHz::new(0).unwrap_err(),
+        DomainError::InvalidSampleRateHz(0)
+    );
+
+    let reference = SignalReference::parse("current_l1").unwrap();
+    let sample_rate = SampleRateHz::new(10_000).unwrap();
+
+    assert_eq!(reference.as_str(), "current_l1");
+    assert_eq!(sample_rate.value(), 10_000);
+}
+
+#[test]
+fn simulated_daq_inrush_fixture_produces_synchronized_channels() {
+    let source = SimulatedDaqSource::open_daq();
+    let dataset = source.acquire_inrush_fixture().unwrap();
+    let voltage = SignalReference::parse("voltage_l1").unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+
+    assert_eq!(source.interface(), DaqInterface::OpenDaq);
+    assert_eq!(
+        source.synchronization_method(),
+        SynchronizationMethod::SharedSampleClock
+    );
+    assert_eq!(dataset.daq_interface(), DaqInterface::OpenDaq);
+    assert_eq!(
+        dataset.synchronization_method(),
+        SynchronizationMethod::SharedSampleClock
+    );
+    assert_eq!(dataset.channels().len(), 2);
+    assert_eq!(dataset.channel(&voltage).unwrap().samples()[3], 520);
+    assert_eq!(dataset.channel(&current).unwrap().samples()[3], 180);
+    assert_eq!(
+        dataset.channel(&current).unwrap().sample_rate(),
+        SampleRateHz::new(10_000).unwrap()
+    );
+}
+
+#[test]
+fn empty_signal_dataset_is_rejected() {
+    let error = SignalDataset::new(
+        DaqInterface::Simulated,
+        SynchronizationMethod::SoftwareTimestamp,
+        Vec::new(),
+    )
+    .unwrap_err();
+
+    assert_eq!(error, DomainError::EmptySignalDataset);
+}
+
+#[test]
+fn signal_processing_graph_tracks_fft_and_channel_math_lineage() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+    let voltage = SignalReference::parse("voltage_l1").unwrap();
+    let current_fft = SignalReference::parse("current_l1_fft").unwrap();
+    let apparent_power = SignalReference::parse("apparent_power").unwrap();
+    let mut graph = SignalProcessingGraph::from_dataset(&dataset);
+
+    graph
+        .add_node(
+            SignalProcessingNode::new(
+                SignalReference::parse("fft_current").unwrap(),
+                SignalProcessingOperation::Fft,
+                vec![current.clone()],
+                current_fft.clone(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    graph
+        .add_node(
+            SignalProcessingNode::new(
+                SignalReference::parse("math_power").unwrap(),
+                SignalProcessingOperation::ChannelArithmetic,
+                vec![voltage.clone(), current.clone()],
+                apparent_power.clone(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    assert_eq!(graph.source_signals().len(), 2);
+    assert_eq!(graph.nodes().len(), 2);
+    assert!(graph.contains_operation(SignalProcessingOperation::Fft));
+    assert!(graph.contains_operation(SignalProcessingOperation::ChannelArithmetic));
+    assert_eq!(graph.raw_lineage_for(&current_fft).unwrap(), vec![current]);
+    assert_eq!(
+        graph.raw_lineage_for(&apparent_power).unwrap(),
+        vec![voltage, SignalReference::parse("current_l1").unwrap()]
+    );
+}
+
+#[test]
+fn signal_processing_graph_rejects_unknown_inputs_and_duplicate_nodes() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let mut graph = SignalProcessingGraph::from_dataset(&dataset);
+    let unknown = SignalReference::parse("unknown_channel").unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+
+    let error = graph
+        .add_node(
+            SignalProcessingNode::new(
+                SignalReference::parse("fft_current").unwrap(),
+                SignalProcessingOperation::Fft,
+                vec![unknown.clone()],
+                SignalReference::parse("current_l1_fft").unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::UnknownSignalReference(unknown.as_str().to_owned())
+    );
+
+    graph
+        .add_node(
+            SignalProcessingNode::new(
+                SignalReference::parse("fft_current").unwrap(),
+                SignalProcessingOperation::Fft,
+                vec![current.clone()],
+                SignalReference::parse("current_l1_fft").unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let duplicate_error = graph
+        .add_node(
+            SignalProcessingNode::new(
+                SignalReference::parse("fft_current").unwrap(),
+                SignalProcessingOperation::WindowedFft,
+                vec![current],
+                SignalReference::parse("current_l1_windowed_fft").unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        duplicate_error,
+        DomainError::DuplicateProcessingNode("fft_current".to_owned())
+    );
+}
+
+#[test]
+fn signal_processing_node_requires_inputs() {
+    let error = SignalProcessingNode::new(
+        SignalReference::parse("fft_current").unwrap(),
+        SignalProcessingOperation::Fft,
+        Vec::new(),
+        SignalReference::parse("current_l1_fft").unwrap(),
+    )
+    .unwrap_err();
+
+    assert_eq!(error, DomainError::EmptyProcessingNodeInputs);
+}
+
+#[test]
 fn synchronization_baseline_covers_multi_daq_alignment_methods() {
     let methods = baseline_synchronization_methods();
 

@@ -59,11 +59,11 @@ storage/
 
 ## First Useful Milestones
 
-1. Connect the metrology registry to versioned persistence migrations.
-2. Add a simulated DAQ source and deterministic signal fixtures.
-3. Add the first signal-processing graph with raw-to-result lineage.
-4. Add a measurement-run model consuming equipment readiness checks.
-5. Add local metrology snapshots for offline field work.
+1. Add a measurement-run model consuming equipment readiness checks.
+2. Add local repository snapshots for offline field work.
+3. Add compatibility checks for split repositories and offline bundles.
+4. Start numeric signal-processing execution for FFT and temporal analysis.
+5. Add a simulated instrument runtime with command and observation logs.
 
 ## Development Status
 

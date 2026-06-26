@@ -132,8 +132,18 @@ Processed results are not enough. The system must retain:
 
 ## First Implementation Slice
 
-1. Add a simulated DAQ source.
-2. Generate deterministic time-series fixtures.
-3. Add a minimal processing graph.
-4. Produce FFT and channel-arithmetic outputs.
-5. Record lineage from output datasets to raw inputs.
+Implemented in the Rust core:
+
+1. simulated openDAQ-style DAQ source;
+2. deterministic inrush time-series fixture;
+3. synchronized signal dataset with channel metadata;
+4. processing graph nodes for FFT and channel arithmetic vocabulary;
+5. raw lineage lookup from derived outputs back to acquired inputs.
+
+Not yet implemented:
+
+- numeric FFT execution;
+- window functions;
+- resampling;
+- persistence of graph instances;
+- real DAQ adapters.

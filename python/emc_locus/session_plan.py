@@ -57,17 +57,16 @@ def default_backlog() -> list[SessionPlan]:
             ),
         ),
         SessionPlan(
-            title="Simulated DAQ and signal graph",
+            title="Signal execution engine",
             objective=(
-                "Create deterministic time-series fixtures and a minimal "
-                "processing graph for FFT, channel math, event timing, and "
-                "raw-to-result lineage."
+                "Start executing approved signal-processing graph nodes for "
+                "FFT, channel math, event timing, and raw-to-result lineage."
             ),
             workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.SIGNAL, Workstream.STORAGE),
             expected_outputs=(
-                "simulated DAQ source",
-                "signal-processing graph model",
-                "lineage fixture",
+                "deterministic FFT fixture",
+                "channel math execution",
+                "result artifact model",
             ),
         ),
         SessionPlan(

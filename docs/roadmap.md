@@ -79,9 +79,9 @@ Deliverables:
 
 - openDAQ-preferred DAQ integration boundary;
 - simulated DAQ source;
-- synchronized multi-DAQ acquisition model;
-- FFT and temporal-processing pipeline model;
-- channel math and signal lineage;
+- synchronized acquisition dataset model; initial Rust model added;
+- FFT and temporal-processing pipeline model; initial graph model added;
+- channel math and signal lineage; initial Rust lineage model added;
 - CEM time-domain test families such as railway harmonics, axle counters, and
   inrush measurements.
 
@@ -111,11 +111,11 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should create the simulated DAQ source and minimal
-signal-processing graph fixture.
+The next productive session should connect pre-run readiness to a measurement
+run planning model.
 
 The parallel storage stream should add local snapshot metadata and compatibility
 checks around the split SQLite repositories.
 
-After the registry and DAQ fixture exist together, connect pre-run readiness to a
-measurement-run model.
+After measurement-run planning exists, add local snapshot metadata and start the
+numeric signal-processing execution layer.

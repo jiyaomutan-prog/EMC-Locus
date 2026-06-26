@@ -37,12 +37,16 @@ change should remain traceable through Git history, session logs, and this file.
   measurement data, and update catalog repositories.
 - Python migration validation helper for filename, version, and executable SQL
   checks.
+- Rust simulated DAQ source with deterministic inrush time-series fixture.
+- Rust signal dataset, sample-rate, channel metadata, processing graph, and
+  raw-lineage primitives for FFT/channel-math workflows.
 
 ### Planned
 
 - Connect execution modes to stage gates and report approval rules.
-- Implement a simulated DAQ source and signal-processing pipeline fixtures.
 - Add local snapshot metadata and compatibility checks for split repositories.
+- Add measurement-run planning with equipment readiness checks.
+- Add numeric signal-processing execution for FFT and temporal analysis.
 
 ## [0.1.0] - 2026-06-26
 
