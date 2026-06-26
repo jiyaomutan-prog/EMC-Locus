@@ -112,15 +112,14 @@ Deliverables:
 - split local repositories;
 - signed reference snapshots; initial Rust field-package model added;
 - snapshot schema compatibility checks; initial Rust validation added;
-- synchronization conflict workflow;
+- synchronization conflict workflow; initial Rust action-plan service added;
 - synchronization conflict records; initial Rust model added;
 - offline update bundles; initial Rust model added;
 - rollback and compatibility checks; initial Rust validation added.
 
 ## Near-Term Next Session
 
-The next productive session should add sync application services around split
-repository conflict records.
+The next productive session should add broader SQLite write/update APIs.
 
-The parallel runtime stream should add concrete VISA, TCP/IP, and serial
-adapters behind the transport boundary.
+The parallel storage stream should add update-catalog persistence APIs for
+signed bundles and install records.

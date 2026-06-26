@@ -31,29 +31,29 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Sync application services",
+            title="SQLite write APIs",
             objective=(
-                "Add application-service primitives around split-repository "
-                "synchronization conflicts."
+                "Broaden the SQLite adapters with update/delete operations "
+                "for existing metrology and project repositories."
             ),
             workstreams=(Workstream.STORAGE, Workstream.QUALITY),
             expected_outputs=(
-                "sync service model",
-                "conflict action plan",
-                "audit-oriented tests",
+                "write API methods",
+                "transaction tests",
+                "audit side-effect checks",
             ),
         ),
         SessionPlan(
-            title="Concrete transport adapters",
+            title="Update catalog persistence",
             objective=(
-                "Add the first concrete VISA, TCP/IP, or serial transport "
-                "adapter behind the tested transport boundary."
+                "Persist signed update bundles and install records in the "
+                "update catalog repository."
             ),
-            workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.QUALITY),
+            workstreams=(Workstream.STORAGE, Workstream.QUALITY),
             expected_outputs=(
-                "hardware-adapter skeleton",
-                "timeout policy",
-                "simulated conformance reuse",
+                "update catalog adapter",
+                "bundle insert/query APIs",
+                "install record smoke test",
             ),
         ),
     ]

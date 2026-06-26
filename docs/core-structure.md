@@ -17,7 +17,7 @@ crates/emc-locus-core/src/
   reporting.rs     Report package workflow, review, approval, and issue gates
   metrology.rs     Instrument registry, calibration records, and readiness checks
   measurement.rs   Measurement-run planning and pre-run readiness gate
-  repositories.rs  Connectivity, repository domains, snapshots, and sync policy
+  repositories.rs  Connectivity, snapshots, sync policy, and conflict services
   instrument.rs    Instrument transports and update policy
   instrument_runtime.rs Commands, transport adapters, runtime, and observations
   signal.rs        DAQ, synchronized datasets, simulated source, and signal graph

@@ -618,6 +618,102 @@ fn sync_conflict_record_can_be_deferred_for_later_review() {
 }
 
 #[test]
+fn sync_conflict_action_plan_maps_resolution_to_action() {
+    let conflict = sync_conflict("conflict-001", SyncConflictKind::ConcurrentUpdate);
+
+    let plan = SyncConflictActionPlan::new(&conflict, SyncConflictResolution::ManualMerge).unwrap();
+
+    assert_eq!(plan.conflict_id().as_str(), "conflict-001");
+    assert_eq!(plan.domain(), RepositoryDomain::ProjectRecords);
+    assert_eq!(plan.kind(), SyncConflictKind::ConcurrentUpdate);
+    assert_eq!(plan.resolution(), SyncConflictResolution::ManualMerge);
+    assert_eq!(plan.action(), SyncAction::ManualMerge);
+    assert_eq!(plan.action().as_str(), "manual_merge");
+    assert_eq!(plan.local_snapshot().as_str(), "local-v1");
+    assert_eq!(plan.reference_snapshot().as_str(), "reference-v2");
+    assert!(plan.requires_audit_event());
+}
+
+#[test]
+fn sync_conflict_service_applies_resolution_and_updates_record() {
+    let conflict_id = SyncConflictId::parse("conflict-001").unwrap();
+    let mut service = SyncConflictService::new(vec![sync_conflict(
+        conflict_id.as_str(),
+        SyncConflictKind::ChecksumMismatch,
+    )]);
+
+    let plan = service
+        .apply_resolution(&conflict_id, SyncConflictResolution::KeepReference)
+        .unwrap();
+
+    assert_eq!(plan.action(), SyncAction::PullReferenceSnapshot);
+    assert_eq!(
+        service.conflicts()[0].status(),
+        SyncConflictStatus::Resolved
+    );
+    assert_eq!(
+        service.conflicts()[0].resolution(),
+        Some(SyncConflictResolution::KeepReference)
+    );
+    assert!(service.pending_conflicts().is_empty());
+}
+
+#[test]
+fn sync_conflict_service_can_defer_conflicts_for_review() {
+    let conflict_id = SyncConflictId::parse("conflict-001").unwrap();
+    let mut service = SyncConflictService::new(vec![sync_conflict(
+        conflict_id.as_str(),
+        SyncConflictKind::SchemaMismatch,
+    )]);
+
+    let plan = service
+        .apply_resolution(&conflict_id, SyncConflictResolution::Defer)
+        .unwrap();
+
+    assert_eq!(plan.action(), SyncAction::DeferForReview);
+    assert_eq!(
+        service.conflicts()[0].status(),
+        SyncConflictStatus::Deferred
+    );
+    assert_eq!(service.pending_conflicts().len(), 1);
+}
+
+#[test]
+fn sync_conflict_service_rejects_unknown_conflict() {
+    let service = SyncConflictService::new(vec![sync_conflict(
+        "conflict-001",
+        SyncConflictKind::ChecksumMismatch,
+    )]);
+    let missing = SyncConflictId::parse("missing-conflict").unwrap();
+
+    let error = service
+        .plan_resolution(&missing, SyncConflictResolution::KeepLocal)
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::UnknownSyncConflict("missing-conflict".to_owned())
+    );
+}
+
+#[test]
+fn sync_conflict_action_plan_rejects_invalid_resolution_for_kind() {
+    let conflict = sync_conflict("conflict-001", SyncConflictKind::ConcurrentUpdate);
+
+    let error =
+        SyncConflictActionPlan::new(&conflict, SyncConflictResolution::AcceptDeletion).unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::InvalidSyncConflictResolution {
+            conflict: "conflict-001".to_owned(),
+            kind: "concurrent_update".to_owned(),
+            resolution: "accept_deletion".to_owned(),
+        }
+    );
+}
+
+#[test]
 fn instrument_transport_baseline_covers_common_lab_communications() {
     let transports = baseline_instrument_transports();
 
@@ -2323,6 +2419,16 @@ fn snapshot_with_signature(domain: RepositoryDomain, signed: bool) -> Repository
         signed,
     )
     .unwrap()
+}
+
+fn sync_conflict(id: &str, kind: SyncConflictKind) -> SyncConflictRecord {
+    SyncConflictRecord::new(
+        SyncConflictId::parse(id).unwrap(),
+        RepositoryDomain::ProjectRecords,
+        kind,
+        RepositorySnapshotId::parse("local-v1").unwrap(),
+        RepositorySnapshotId::parse("reference-v2").unwrap(),
+    )
 }
 
 fn sample_update_bundle(

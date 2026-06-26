@@ -59,11 +59,11 @@ storage/
 
 ## First Useful Milestones
 
-1. Add sync application services around conflict records.
-2. Add broader SQLite write/update APIs.
+1. Add broader SQLite write/update APIs.
+2. Add update-catalog persistence APIs for signed bundles and install records.
 3. Add optimized FFT and interpolation-based resampling.
-4. Add update-catalog persistence APIs for signed bundles and install records.
-5. Add concrete VISA/TCP/IP/serial adapters behind the transport boundary.
+4. Add concrete VISA/TCP/IP/serial adapters behind the transport boundary.
+5. Add sync persistence adapters around conflict action plans.
 
 ## Development Status
 

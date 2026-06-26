@@ -71,14 +71,16 @@ change should remain traceable through Git history, session logs, and this file.
 - Rust transport adapter boundary with endpoints, simulated adapter fixture,
   adapter-backed runtime observations, transport mismatch checks, and shared
   safety-limit enforcement.
+- Rust synchronization conflict service that turns conflict resolutions into
+  audit-required action plans and applies/deferred resolutions safely.
 
 ### Planned
 
-- Add sync application services around conflict records.
 - Add broader SQLite write/update APIs.
 - Add optimized FFT and interpolation-based resampling.
 - Add update-catalog persistence APIs for signed bundles and install records.
 - Add concrete VISA/TCP/IP/serial adapters behind the transport boundary.
+- Add sync persistence adapters around conflict action plans.
 
 ## [0.1.0] - 2026-06-26
 

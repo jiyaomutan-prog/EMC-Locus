@@ -134,6 +134,13 @@ Supported first conflict kinds include concurrent update, local/reference
 deletion, checksum mismatch, and schema mismatch. A conflict can be resolved or
 deferred for later review, but a resolved conflict cannot be resolved again.
 
+The Rust core now also provides a synchronization conflict service. It can
+produce action plans from operator resolutions, apply those resolutions to
+conflict records, keep deferred conflicts pending, reject unknown conflict ids,
+and reject invalid resolution choices for the conflict kind. Every generated
+plan requires an audit event and records the local/reference snapshot ids that
+will be pushed, pulled, merged, deleted, or deferred.
+
 ## Field Workflow
 
 1. Prepare a signed field package in the laboratory.

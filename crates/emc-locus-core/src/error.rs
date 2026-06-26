@@ -112,6 +112,12 @@ pub enum DomainError {
     EmptySyncConflictId,
     InvalidSyncConflictId(String),
     SyncConflictAlreadyResolved(String),
+    UnknownSyncConflict(String),
+    InvalidSyncConflictResolution {
+        conflict: String,
+        kind: String,
+        resolution: String,
+    },
     EmptySnapshotChecksum,
     InvalidRepositorySchemaVersion(u32),
     DuplicateRepositorySnapshot(String),

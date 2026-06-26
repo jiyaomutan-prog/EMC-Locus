@@ -180,6 +180,18 @@ pub enum SyncConflictKind {
     SchemaMismatch,
 }
 
+impl SyncConflictKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ConcurrentUpdate => "concurrent_update",
+            Self::DeletedInReference => "deleted_in_reference",
+            Self::DeletedLocally => "deleted_locally",
+            Self::ChecksumMismatch => "checksum_mismatch",
+            Self::SchemaMismatch => "schema_mismatch",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SyncConflictStatus {
     Open,
@@ -194,6 +206,18 @@ pub enum SyncConflictResolution {
     ManualMerge,
     AcceptDeletion,
     Defer,
+}
+
+impl SyncConflictResolution {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::KeepLocal => "keep_local",
+            Self::KeepReference => "keep_reference",
+            Self::ManualMerge => "manual_merge",
+            Self::AcceptDeletion => "accept_deletion",
+            Self::Defer => "defer",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -268,6 +292,196 @@ impl SyncConflictRecord {
         self.resolution = Some(resolution);
         Ok(())
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyncAction {
+    PushLocalSnapshot,
+    PullReferenceSnapshot,
+    ManualMerge,
+    ApplyDeletion,
+    DeferForReview,
+}
+
+impl SyncAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PushLocalSnapshot => "push_local_snapshot",
+            Self::PullReferenceSnapshot => "pull_reference_snapshot",
+            Self::ManualMerge => "manual_merge",
+            Self::ApplyDeletion => "apply_deletion",
+            Self::DeferForReview => "defer_for_review",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SyncConflictActionPlan {
+    conflict_id: SyncConflictId,
+    domain: RepositoryDomain,
+    kind: SyncConflictKind,
+    resolution: SyncConflictResolution,
+    action: SyncAction,
+    local_snapshot: RepositorySnapshotId,
+    reference_snapshot: RepositorySnapshotId,
+}
+
+impl SyncConflictActionPlan {
+    pub fn new(
+        conflict: &SyncConflictRecord,
+        resolution: SyncConflictResolution,
+    ) -> Result<Self, DomainError> {
+        if conflict.status() == SyncConflictStatus::Resolved {
+            return Err(DomainError::SyncConflictAlreadyResolved(
+                conflict.id().as_str().to_owned(),
+            ));
+        }
+
+        let action = sync_action_for_resolution(conflict, resolution)?;
+
+        Ok(Self {
+            conflict_id: conflict.id().clone(),
+            domain: conflict.domain(),
+            kind: conflict.kind(),
+            resolution,
+            action,
+            local_snapshot: conflict.local_snapshot().clone(),
+            reference_snapshot: conflict.reference_snapshot().clone(),
+        })
+    }
+
+    pub fn conflict_id(&self) -> &SyncConflictId {
+        &self.conflict_id
+    }
+
+    pub fn domain(&self) -> RepositoryDomain {
+        self.domain
+    }
+
+    pub fn kind(&self) -> SyncConflictKind {
+        self.kind
+    }
+
+    pub fn resolution(&self) -> SyncConflictResolution {
+        self.resolution
+    }
+
+    pub fn action(&self) -> SyncAction {
+        self.action
+    }
+
+    pub fn local_snapshot(&self) -> &RepositorySnapshotId {
+        &self.local_snapshot
+    }
+
+    pub fn reference_snapshot(&self) -> &RepositorySnapshotId {
+        &self.reference_snapshot
+    }
+
+    pub fn requires_audit_event(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SyncConflictService {
+    conflicts: Vec<SyncConflictRecord>,
+}
+
+impl SyncConflictService {
+    pub fn new(conflicts: Vec<SyncConflictRecord>) -> Self {
+        Self { conflicts }
+    }
+
+    pub fn conflicts(&self) -> &[SyncConflictRecord] {
+        &self.conflicts
+    }
+
+    pub fn pending_conflicts(&self) -> Vec<&SyncConflictRecord> {
+        self.conflicts
+            .iter()
+            .filter(|conflict| conflict.status() != SyncConflictStatus::Resolved)
+            .collect()
+    }
+
+    pub fn plan_resolution(
+        &self,
+        conflict_id: &SyncConflictId,
+        resolution: SyncConflictResolution,
+    ) -> Result<SyncConflictActionPlan, DomainError> {
+        let conflict = self
+            .conflicts
+            .iter()
+            .find(|conflict| conflict.id() == conflict_id)
+            .ok_or_else(|| DomainError::UnknownSyncConflict(conflict_id.as_str().to_owned()))?;
+
+        SyncConflictActionPlan::new(conflict, resolution)
+    }
+
+    pub fn apply_resolution(
+        &mut self,
+        conflict_id: &SyncConflictId,
+        resolution: SyncConflictResolution,
+    ) -> Result<SyncConflictActionPlan, DomainError> {
+        let conflict = self
+            .conflicts
+            .iter_mut()
+            .find(|conflict| conflict.id() == conflict_id)
+            .ok_or_else(|| DomainError::UnknownSyncConflict(conflict_id.as_str().to_owned()))?;
+        let plan = SyncConflictActionPlan::new(conflict, resolution)?;
+        conflict.resolve(resolution)?;
+
+        Ok(plan)
+    }
+}
+
+fn sync_action_for_resolution(
+    conflict: &SyncConflictRecord,
+    resolution: SyncConflictResolution,
+) -> Result<SyncAction, DomainError> {
+    let allowed = match conflict.kind() {
+        SyncConflictKind::ConcurrentUpdate | SyncConflictKind::ChecksumMismatch => matches!(
+            resolution,
+            SyncConflictResolution::KeepLocal
+                | SyncConflictResolution::KeepReference
+                | SyncConflictResolution::ManualMerge
+                | SyncConflictResolution::Defer
+        ),
+        SyncConflictKind::DeletedInReference => matches!(
+            resolution,
+            SyncConflictResolution::KeepLocal
+                | SyncConflictResolution::AcceptDeletion
+                | SyncConflictResolution::Defer
+        ),
+        SyncConflictKind::DeletedLocally => matches!(
+            resolution,
+            SyncConflictResolution::KeepReference
+                | SyncConflictResolution::AcceptDeletion
+                | SyncConflictResolution::Defer
+        ),
+        SyncConflictKind::SchemaMismatch => matches!(
+            resolution,
+            SyncConflictResolution::KeepReference
+                | SyncConflictResolution::ManualMerge
+                | SyncConflictResolution::Defer
+        ),
+    };
+
+    if !allowed {
+        return Err(DomainError::InvalidSyncConflictResolution {
+            conflict: conflict.id().as_str().to_owned(),
+            kind: conflict.kind().as_str().to_owned(),
+            resolution: resolution.as_str().to_owned(),
+        });
+    }
+
+    Ok(match resolution {
+        SyncConflictResolution::KeepLocal => SyncAction::PushLocalSnapshot,
+        SyncConflictResolution::KeepReference => SyncAction::PullReferenceSnapshot,
+        SyncConflictResolution::ManualMerge => SyncAction::ManualMerge,
+        SyncConflictResolution::AcceptDeletion => SyncAction::ApplyDeletion,
+        SyncConflictResolution::Defer => SyncAction::DeferForReview,
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
