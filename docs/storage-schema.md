@@ -1,0 +1,170 @@
+# Storage Schema Draft
+
+This draft targets SQLite for an early single-workstation implementation. It is
+a persistence sketch, not a final migration file.
+
+## Principles
+
+- Raw data is immutable after acquisition.
+- Controlled metadata changes create audit events.
+- Report output is linked back to datasets and review decisions.
+- Instruments and calibration records are versioned enough to reconstruct the
+  measurement context of a campaign.
+- Application code should enforce domain invariants before writing rows.
+
+## Tables
+
+### projects
+
+```sql
+CREATE TABLE projects (
+    code TEXT PRIMARY KEY,
+    customer_name TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    archived_at TEXT
+);
+```
+
+### project_audit_events
+
+```sql
+CREATE TABLE project_audit_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_code TEXT NOT NULL REFERENCES projects(code),
+    sequence INTEGER NOT NULL,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    reason TEXT,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    occurred_at TEXT NOT NULL,
+    UNIQUE(project_code, sequence)
+);
+```
+
+### contract_review_items
+
+```sql
+CREATE TABLE contract_review_items (
+    project_code TEXT NOT NULL REFERENCES projects(code),
+    item TEXT NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0,
+    completed_by TEXT,
+    completed_at TEXT,
+    comment TEXT,
+    PRIMARY KEY (project_code, item)
+);
+```
+
+### instruments
+
+```sql
+CREATE TABLE instruments (
+    asset_id TEXT PRIMARY KEY,
+    manufacturer TEXT NOT NULL,
+    model TEXT NOT NULL,
+    serial_number TEXT NOT NULL,
+    status TEXT NOT NULL,
+    capabilities_json TEXT NOT NULL DEFAULT '[]',
+    UNIQUE(manufacturer, model, serial_number)
+);
+```
+
+### calibration_records
+
+```sql
+CREATE TABLE calibration_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id TEXT NOT NULL REFERENCES instruments(asset_id),
+    certificate_reference TEXT NOT NULL,
+    calibrated_at TEXT NOT NULL,
+    due_at TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    uncertainty_json TEXT NOT NULL DEFAULT '{}',
+    file_reference TEXT,
+    checksum TEXT,
+    UNIQUE(asset_id, certificate_reference)
+);
+```
+
+### campaigns
+
+```sql
+CREATE TABLE campaigns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_code TEXT NOT NULL REFERENCES projects(code),
+    name TEXT NOT NULL,
+    standard_reference TEXT NOT NULL,
+    equipment_under_test TEXT NOT NULL,
+    planned_at TEXT,
+    started_at TEXT,
+    completed_at TEXT
+);
+```
+
+### measurement_runs
+
+```sql
+CREATE TABLE measurement_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campaign_id INTEGER NOT NULL REFERENCES campaigns(id),
+    operator TEXT NOT NULL,
+    method_reference TEXT NOT NULL,
+    software_version TEXT NOT NULL,
+    environment_json TEXT NOT NULL DEFAULT '{}',
+    started_at TEXT NOT NULL,
+    completed_at TEXT
+);
+```
+
+### measurement_run_instruments
+
+```sql
+CREATE TABLE measurement_run_instruments (
+    measurement_run_id INTEGER NOT NULL REFERENCES measurement_runs(id),
+    asset_id TEXT NOT NULL REFERENCES instruments(asset_id),
+    calibration_record_id INTEGER NOT NULL REFERENCES calibration_records(id),
+    role TEXT NOT NULL,
+    PRIMARY KEY (measurement_run_id, asset_id, role)
+);
+```
+
+### datasets
+
+```sql
+CREATE TABLE datasets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    measurement_run_id INTEGER NOT NULL REFERENCES measurement_runs(id),
+    kind TEXT NOT NULL,
+    file_reference TEXT NOT NULL,
+    checksum TEXT NOT NULL,
+    acquired_at TEXT NOT NULL,
+    immutable INTEGER NOT NULL DEFAULT 1
+);
+```
+
+### reports
+
+```sql
+CREATE TABLE reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_code TEXT NOT NULL REFERENCES projects(code),
+    report_number TEXT NOT NULL,
+    revision TEXT NOT NULL,
+    status TEXT NOT NULL,
+    reviewed_by TEXT,
+    approved_by TEXT,
+    issued_at TEXT,
+    file_reference TEXT,
+    checksum TEXT,
+    UNIQUE(report_number, revision)
+);
+```
+
+## Next Schema Questions
+
+- Should timestamps be local laboratory time plus UTC offset, or UTC only?
+- Which file storage convention should be used for raw data and reports?
+- Should audit events use JSON payloads first, or strongly typed event tables?
+- Which user and authorization model should be introduced before technical
+  review and report approval?

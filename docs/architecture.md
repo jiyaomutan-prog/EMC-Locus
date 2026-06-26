@@ -1,0 +1,91 @@
+# EMC Locus Architecture
+
+## Design Intent
+
+EMC Locus should become a laboratory platform, not a single monolithic script.
+The architecture should keep regulated laboratory records stable while allowing
+instrument drivers, data analysis, and UI workflows to evolve independently.
+
+## Proposed Layers
+
+### 1. Domain Core
+
+The Rust core owns business invariants:
+
+- project and campaign lifecycle states;
+- traceability requirements;
+- metrology records and calibration validity;
+- audit-event creation rules;
+- immutable dataset references;
+- report approval gates.
+
+This layer should not depend on a database, UI framework, or hardware driver.
+
+### 2. Storage and Audit
+
+The storage layer should preserve:
+
+- immutable raw measurement data;
+- versioned metadata;
+- instrument identity and calibration records;
+- user actions and system actions;
+- report package history.
+
+A practical first target is SQLite for a single workstation. PostgreSQL can be
+introduced when multi-user coordination becomes necessary.
+
+### 3. Instrument Runtime
+
+Instrument control should be built around explicit commands and observations:
+
+- simulated driver first;
+- transport adapters later, for example VISA, serial, TCP/IP, or vendor SDKs;
+- command logs linked to measurement runs;
+- safety interlocks and manual validation steps where needed.
+
+### 4. Python Automation
+
+Python is useful for:
+
+- quick laboratory scripts;
+- data import/export;
+- numeric processing;
+- report preparation;
+- driver prototyping before hardening critical paths.
+
+Python code should call stable APIs rather than duplicate domain rules.
+
+### 5. Application API and UI
+
+The UI should arrive after the domain model and workflow vocabulary are clear.
+Candidate directions:
+
+- desktop application for local laboratory stations;
+- web UI for multi-user project tracking;
+- hybrid approach with local instrument agents and a central database.
+
+## Key Boundaries
+
+```text
+User/UI
+  -> Application services
+    -> Rust domain core
+    -> Storage adapters
+    -> Instrument runtime
+    -> Python automation pipelines
+```
+
+## Early Technical Decisions
+
+- Start with no external runtime dependencies in the Rust core.
+- Treat audit events as a core concept, not a later logging feature.
+- Treat raw data as immutable once acquired.
+- Support simulation before real hardware.
+- Keep EN ISO/IEC 17025 alignment as a design checklist, not as a legal claim.
+
+## Open Questions
+
+- Which instruments must be supported first?
+- Should the first UI be desktop, web, or command line?
+- What data formats are already used by the lab?
+- What report template and approval process should be modeled first?
