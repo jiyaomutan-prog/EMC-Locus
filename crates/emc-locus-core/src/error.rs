@@ -64,6 +64,7 @@ pub enum DomainError {
         left_count: usize,
         right_count: usize,
     },
+    InvalidResamplingFactor(usize),
     EmptyProcessingNodeInputs,
     DuplicateProcessingNode(String),
     UnknownSignalReference(String),

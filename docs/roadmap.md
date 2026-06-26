@@ -85,6 +85,7 @@ Deliverables:
 - synchronized acquisition dataset model; initial Rust model added;
 - FFT and temporal-processing pipeline model; initial graph model added;
 - numeric DFT/peak/channel arithmetic fixture; initial Rust execution added;
+- windowing and deterministic downsampling; initial Rust execution added;
 - channel math and signal lineage; initial Rust lineage model added;
 - CEM time-domain test families such as railway harmonics, axle counters, and
   inrush measurements.
@@ -117,7 +118,7 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should add optimized FFT/windowing and resampling
-execution.
+The next productive session should add signed update bundle workflow.
 
-The parallel update stream should add signed update bundle workflow.
+The parallel runtime stream should add real transport adapter spikes behind the
+simulated baseline.

@@ -1906,6 +1906,68 @@ fn signal_execution_engine_rejects_sample_count_mismatch() {
 }
 
 #[test]
+fn signal_execution_engine_applies_hann_window() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let voltage = SignalReference::parse("voltage_l1").unwrap();
+    let output = SignalReference::parse("voltage_l1_hann").unwrap();
+
+    let result = SignalExecutionEngine::apply_window(
+        &dataset,
+        &voltage,
+        output.clone(),
+        WindowFunction::Hann,
+    )
+    .unwrap();
+
+    assert_eq!(result.output(), &output);
+    assert_eq!(
+        result.operation(),
+        SignalProcessingOperation::TimeDomainFilter
+    );
+    assert_eq!(result.unit().as_str(), "mV");
+    assert_eq!(result.samples().len(), 8);
+    assert!(result.samples()[0].abs() < 1e-9);
+    assert!(result.samples()[7].abs() < 1e-9);
+    assert_eq!(result.raw_lineage(), &[voltage]);
+}
+
+#[test]
+fn signal_execution_engine_downsamples_deterministically() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+    let output = SignalReference::parse("current_l1_downsampled").unwrap();
+
+    let result = SignalExecutionEngine::downsample(&dataset, &current, output.clone(), 2).unwrap();
+
+    assert_eq!(result.output(), &output);
+    assert_eq!(result.operation(), SignalProcessingOperation::Resampling);
+    assert_eq!(result.unit().as_str(), "mA");
+    assert_eq!(result.samples(), &[0, 60, 120, 5]);
+    assert_eq!(result.raw_lineage(), &[current]);
+}
+
+#[test]
+fn signal_execution_engine_rejects_invalid_resampling_factor() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+
+    let error = SignalExecutionEngine::downsample(
+        &dataset,
+        &SignalReference::parse("current_l1").unwrap(),
+        SignalReference::parse("downsampled").unwrap(),
+        0,
+    )
+    .unwrap_err();
+
+    assert_eq!(error, DomainError::InvalidResamplingFactor(0));
+}
+
+#[test]
 fn synchronization_baseline_covers_multi_daq_alignment_methods() {
     let methods = baseline_synchronization_methods();
 

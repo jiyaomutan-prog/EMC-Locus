@@ -65,13 +65,14 @@ change should remain traceable through Git history, session logs, and this file.
   checksums, and review/approval identities.
 - Python SQLite adapter query APIs for instrument, calibration, project, and
   audit-event records.
+- Rust signal windowing and deterministic downsampling execution primitives.
 
 ### Planned
 
-- Add optimized FFT/windowing and resampling execution.
 - Add sync application services around conflict records.
 - Add signed update bundle workflow.
 - Add broader SQLite write/update APIs.
+- Add optimized FFT and interpolation-based resampling.
 - Add synchronization conflict records for split repositories.
 
 ## [0.1.0] - 2026-06-26

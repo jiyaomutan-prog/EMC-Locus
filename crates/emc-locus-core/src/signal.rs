@@ -464,6 +464,53 @@ pub struct SignalSeriesResult {
     raw_lineage: Vec<SignalReference>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SignalFloatSeriesResult {
+    output: SignalReference,
+    operation: SignalProcessingOperation,
+    unit: SignalUnit,
+    samples: Vec<f64>,
+    raw_lineage: Vec<SignalReference>,
+}
+
+impl SignalFloatSeriesResult {
+    fn new(
+        output: SignalReference,
+        operation: SignalProcessingOperation,
+        unit: SignalUnit,
+        samples: Vec<f64>,
+        raw_lineage: Vec<SignalReference>,
+    ) -> Self {
+        Self {
+            output,
+            operation,
+            unit,
+            samples,
+            raw_lineage,
+        }
+    }
+
+    pub fn output(&self) -> &SignalReference {
+        &self.output
+    }
+
+    pub fn operation(&self) -> SignalProcessingOperation {
+        self.operation
+    }
+
+    pub fn unit(&self) -> &SignalUnit {
+        &self.unit
+    }
+
+    pub fn samples(&self) -> &[f64] {
+        &self.samples
+    }
+
+    pub fn raw_lineage(&self) -> &[SignalReference] {
+        &self.raw_lineage
+    }
+}
+
 impl SignalSeriesResult {
     fn new(
         output: SignalReference,
@@ -589,6 +636,22 @@ impl SignalSpectrumResult {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowFunction {
+    Rectangular,
+    Hann,
+}
+
+impl WindowFunction {
+    pub fn coefficient(self, index: usize, sample_count: usize) -> f64 {
+        match self {
+            Self::Rectangular => 1.0,
+            Self::Hann if sample_count <= 1 => 1.0,
+            Self::Hann => 0.5 - 0.5 * (2.0 * PI * index as f64 / (sample_count - 1) as f64).cos(),
+        }
+    }
+}
+
 pub struct SignalExecutionEngine;
 
 impl SignalExecutionEngine {
@@ -617,6 +680,60 @@ impl SignalExecutionEngine {
             output_unit,
             samples,
             raw_lineage(vec![left.clone(), right.clone()]),
+        ))
+    }
+
+    pub fn apply_window(
+        dataset: &SignalDataset,
+        source: &SignalReference,
+        output: SignalReference,
+        window: WindowFunction,
+    ) -> Result<SignalFloatSeriesResult, DomainError> {
+        let channel = required_channel(dataset, source)?;
+        if channel.samples().is_empty() {
+            return Err(DomainError::EmptySignalSamples(source.as_str().to_owned()));
+        }
+
+        let sample_count = channel.samples().len();
+        let samples = channel
+            .samples()
+            .iter()
+            .enumerate()
+            .map(|(index, sample)| *sample as f64 * window.coefficient(index, sample_count))
+            .collect();
+
+        Ok(SignalFloatSeriesResult::new(
+            output,
+            SignalProcessingOperation::TimeDomainFilter,
+            channel.unit().clone(),
+            samples,
+            vec![source.clone()],
+        ))
+    }
+
+    pub fn downsample(
+        dataset: &SignalDataset,
+        source: &SignalReference,
+        output: SignalReference,
+        factor: usize,
+    ) -> Result<SignalSeriesResult, DomainError> {
+        if factor == 0 {
+            return Err(DomainError::InvalidResamplingFactor(factor));
+        }
+
+        let channel = required_channel(dataset, source)?;
+        if channel.samples().is_empty() {
+            return Err(DomainError::EmptySignalSamples(source.as_str().to_owned()));
+        }
+
+        let samples = channel.samples().iter().step_by(factor).copied().collect();
+
+        Ok(SignalSeriesResult::new(
+            output,
+            SignalProcessingOperation::Resampling,
+            channel.unit().clone(),
+            samples,
+            vec![source.clone()],
         ))
     }
 

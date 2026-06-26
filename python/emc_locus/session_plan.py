@@ -31,19 +31,6 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Optimized signal ops",
-            objective=(
-                "Add optimized FFT/windowing and resampling execution behind "
-                "the deterministic signal fixtures."
-            ),
-            workstreams=(Workstream.SIGNAL, Workstream.STORAGE),
-            expected_outputs=(
-                "window function model",
-                "resampling fixture",
-                "FFT comparison tests",
-            ),
-        ),
-        SessionPlan(
             title="Signed update bundles",
             objective=(
                 "Model signed offline update bundles with compatibility and "
@@ -54,6 +41,19 @@ def default_backlog() -> list[SessionPlan]:
                 "update bundle model",
                 "compatibility checks",
                 "rollback metadata",
+            ),
+        ),
+        SessionPlan(
+            title="Transport adapter spike",
+            objective=(
+                "Create the first real transport-adapter spike behind the "
+                "simulated instrument runtime boundary."
+            ),
+            workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.QUALITY),
+            expected_outputs=(
+                "transport trait",
+                "adapter fixture",
+                "simulated conformance test",
             ),
         ),
     ]

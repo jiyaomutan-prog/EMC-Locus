@@ -141,12 +141,14 @@ Implemented in the Rust core:
 5. raw lineage lookup from derived outputs back to acquired inputs;
 6. deterministic channel-sum execution;
 7. temporal peak extraction;
-8. deterministic DFT magnitude fixture for FFT-oriented workflows.
+8. deterministic DFT magnitude fixture for FFT-oriented workflows;
+9. Hann and rectangular windowing;
+10. deterministic downsampling.
 
 Not yet implemented:
 
 - optimized FFT execution;
-- window functions;
-- resampling;
+- richer window families;
+- interpolation-based resampling;
 - persistence of graph instances;
 - real DAQ adapters.
