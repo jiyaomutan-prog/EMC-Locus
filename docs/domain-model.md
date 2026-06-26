@@ -243,3 +243,20 @@ around execution:
 A raw dataset record must belong to the same run reference as the plan. This
 keeps the evidence chain coherent before persistence or report generation is
 introduced.
+
+## Report Package Workflow
+
+The Rust core now models the first result-to-report gate:
+
+- draft report package;
+- technical review submission;
+- completed technical review with reviewer;
+- approval with approver;
+- issue.
+
+For accredited work, approval requires completed technical review, and issue
+requires approval. For non-accredited work, the report can be issued without the
+same formal approval gate, while still retaining the option to review or approve
+when the laboratory wants it.
+
+Invalid workflow transitions are rejected without changing the report status.

@@ -62,6 +62,14 @@ pub enum DomainError {
     EquipmentReadinessBlocked {
         blocking_issue_count: usize,
     },
+    EmptyReportNumber,
+    EmptyReportRevision,
+    ReportTechnicalReviewRequired,
+    ReportApprovalRequired,
+    InvalidReportTransition {
+        from: String,
+        to: String,
+    },
     EmptyRepositorySnapshotId,
     InvalidRepositorySnapshotId(String),
     EmptySnapshotChecksum,

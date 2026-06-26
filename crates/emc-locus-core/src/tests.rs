@@ -1168,6 +1168,118 @@ fn measurement_run_evidence_rejects_dataset_from_another_run() {
 }
 
 #[test]
+fn report_number_and_revision_reject_empty_values() {
+    assert_eq!(
+        ReportNumber::parse(" ").unwrap_err(),
+        DomainError::EmptyReportNumber
+    );
+    assert_eq!(
+        ReportRevision::parse("").unwrap_err(),
+        DomainError::EmptyReportRevision
+    );
+
+    assert_eq!(ReportNumber::parse("RPT-001").unwrap().as_str(), "RPT-001");
+    assert_eq!(ReportRevision::parse("A").unwrap().as_str(), "A");
+}
+
+#[test]
+fn accredited_report_requires_technical_review_before_approval() {
+    let project = ProjectCode::parse("CEM-2026-001").unwrap();
+    let approver = AuditActor::parse("quality.manager").unwrap();
+    let mut report = ReportPackage::new(
+        project,
+        ReportNumber::parse("RPT-001").unwrap(),
+        ReportRevision::parse("A").unwrap(),
+        ExecutionMode::Accredited,
+    );
+
+    let error = report.approve(approver).unwrap_err();
+
+    assert_eq!(error, DomainError::ReportTechnicalReviewRequired);
+    assert_eq!(report.status(), ReportStatus::Draft);
+}
+
+#[test]
+fn accredited_report_requires_approval_before_issue() {
+    let project = ProjectCode::parse("CEM-2026-001").unwrap();
+    let mut report = ReportPackage::new(
+        project,
+        ReportNumber::parse("RPT-001").unwrap(),
+        ReportRevision::parse("A").unwrap(),
+        ExecutionMode::Accredited,
+    );
+
+    let error = report.issue().unwrap_err();
+
+    assert_eq!(error, DomainError::ReportApprovalRequired);
+    assert_eq!(report.status(), ReportStatus::Draft);
+}
+
+#[test]
+fn accredited_report_follows_review_approval_issue_flow() {
+    let project = ProjectCode::parse("CEM-2026-001").unwrap();
+    let reviewer = AuditActor::parse("technical.reviewer").unwrap();
+    let approver = AuditActor::parse("quality.manager").unwrap();
+    let mut report = ReportPackage::new(
+        project.clone(),
+        ReportNumber::parse("RPT-001").unwrap(),
+        ReportRevision::parse("A").unwrap(),
+        ExecutionMode::Accredited,
+    );
+
+    report.submit_for_technical_review().unwrap();
+    report.complete_technical_review(reviewer.clone()).unwrap();
+    report.approve(approver.clone()).unwrap();
+    report.issue().unwrap();
+
+    assert_eq!(report.project(), &project);
+    assert_eq!(report.number().as_str(), "RPT-001");
+    assert_eq!(report.revision().as_str(), "A");
+    assert_eq!(report.mode(), ExecutionMode::Accredited);
+    assert_eq!(report.status(), ReportStatus::Issued);
+    assert_eq!(report.reviewed_by(), Some(&reviewer));
+    assert_eq!(report.approved_by(), Some(&approver));
+}
+
+#[test]
+fn non_accredited_report_can_be_issued_without_formal_approval() {
+    let project = ProjectCode::parse("CEM-2026-001").unwrap();
+    let mut report = ReportPackage::new(
+        project,
+        ReportNumber::parse("RPT-001").unwrap(),
+        ReportRevision::parse("A").unwrap(),
+        ExecutionMode::NonAccredited,
+    );
+
+    report.issue().unwrap();
+
+    assert_eq!(report.status(), ReportStatus::Issued);
+    assert_eq!(report.approved_by(), None);
+}
+
+#[test]
+fn report_workflow_rejects_invalid_review_transition() {
+    let project = ProjectCode::parse("CEM-2026-001").unwrap();
+    let reviewer = AuditActor::parse("technical.reviewer").unwrap();
+    let mut report = ReportPackage::new(
+        project,
+        ReportNumber::parse("RPT-001").unwrap(),
+        ReportRevision::parse("A").unwrap(),
+        ExecutionMode::Accredited,
+    );
+
+    let error = report.complete_technical_review(reviewer).unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::InvalidReportTransition {
+            from: "draft".to_owned(),
+            to: "technically_reviewed".to_owned(),
+        }
+    );
+}
+
+#[test]
 fn cem_time_domain_workflow_prefers_opendaq_and_mixed_signal_processing() {
     let profile = SignalWorkflowProfile::cem_time_domain_default();
 

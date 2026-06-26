@@ -65,9 +65,9 @@ Goal: build a controlled result-to-report path.
 
 Deliverables:
 
-- report package model;
-- technical review workflow;
-- approval workflow;
+- report package model; initial Rust model added;
+- technical review workflow; initial Rust gate added;
+- approval workflow; initial Rust gate added;
 - export bundle;
 - traceability report for audit.
 
@@ -114,8 +114,8 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should add report approval gates for accredited
-workflows.
-
-The parallel storage stream should add persistent adapters for metrology and
+The next productive session should add persistent adapters for metrology and
 project repositories.
+
+The parallel quality stream should add typed safety limits for instrument
+commands.

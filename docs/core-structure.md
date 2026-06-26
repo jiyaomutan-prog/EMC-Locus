@@ -13,6 +13,7 @@ crates/emc-locus-core/src/
   datasets.rs      Dataset references, checksums, and run evidence linkage
   project.rs       Project lifecycle and project audit record
   quality.rs       Contract review, deviations, and execution modes
+  reporting.rs     Report package workflow, review, approval, and issue gates
   metrology.rs     Instrument registry, calibration records, and readiness checks
   measurement.rs   Measurement-run planning and pre-run readiness gate
   repositories.rs  Connectivity, repository domains, snapshots, and sync policy

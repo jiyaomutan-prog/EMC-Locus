@@ -31,19 +31,6 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Report approval gates",
-            objective=(
-                "Add technical review and report approval gates for "
-                "accredited workflows."
-            ),
-            workstreams=(Workstream.DOMAIN, Workstream.REPORTING, Workstream.QUALITY),
-            expected_outputs=(
-                "report package model",
-                "technical review gate",
-                "approval tests",
-            ),
-        ),
-        SessionPlan(
             title="Persistent repository adapters",
             objective=(
                 "Create the first SQLite-backed adapters for metrology and "
@@ -54,6 +41,19 @@ def default_backlog() -> list[SessionPlan]:
                 "metrology adapter skeleton",
                 "project adapter skeleton",
                 "migration-backed smoke test",
+            ),
+        ),
+        SessionPlan(
+            title="Instrument safety limits",
+            objective=(
+                "Add typed safety limits for instrument commands before real "
+                "transport adapters are introduced."
+            ),
+            workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.QUALITY),
+            expected_outputs=(
+                "limit model",
+                "command safety checks",
+                "blocked-command tests",
             ),
         ),
     ]
