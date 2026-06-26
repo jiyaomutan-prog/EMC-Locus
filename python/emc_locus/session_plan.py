@@ -31,19 +31,6 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Concrete transport adapters",
-            objective=(
-                "Add the first concrete VISA, TCP/IP, or serial adapter behind "
-                "the tested transport boundary."
-            ),
-            workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.QUALITY),
-            expected_outputs=(
-                "hardware adapter skeleton",
-                "timeout policy",
-                "simulated conformance reuse",
-            ),
-        ),
-        SessionPlan(
             title="Sync persistence adapters",
             objective=(
                 "Persist synchronization conflict action plans and resolution "
@@ -54,6 +41,19 @@ def default_backlog() -> list[SessionPlan]:
                 "sync persistence adapter",
                 "resolution record APIs",
                 "audit evidence smoke test",
+            ),
+        ),
+        SessionPlan(
+            title="Measurement data SQLite",
+            objective=(
+                "Add a first SQLite adapter for immutable measurement data and "
+                "processed dataset metadata."
+            ),
+            workstreams=(Workstream.STORAGE, Workstream.SIGNAL),
+            expected_outputs=(
+                "measurement data adapter",
+                "raw dataset insert/query APIs",
+                "checksum smoke test",
             ),
         ),
     ]

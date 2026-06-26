@@ -76,6 +76,157 @@ pub trait InstrumentTransportAdapter {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TransportTimeoutPolicy {
+    connect_timeout_ms: u32,
+    response_timeout_ms: u32,
+    max_retries: u8,
+}
+
+impl TransportTimeoutPolicy {
+    pub fn new(
+        connect_timeout_ms: u32,
+        response_timeout_ms: u32,
+        max_retries: u8,
+    ) -> Result<Self, DomainError> {
+        if connect_timeout_ms == 0 || response_timeout_ms == 0 {
+            return Err(DomainError::InvalidTransportTimeoutPolicy {
+                connect_timeout_ms,
+                response_timeout_ms,
+                max_retries,
+            });
+        }
+
+        Ok(Self {
+            connect_timeout_ms,
+            response_timeout_ms,
+            max_retries,
+        })
+    }
+
+    pub fn laboratory_default() -> Self {
+        Self {
+            connect_timeout_ms: 2_000,
+            response_timeout_ms: 5_000,
+            max_retries: 1,
+        }
+    }
+
+    pub fn connect_timeout_ms(&self) -> u32 {
+        self.connect_timeout_ms
+    }
+
+    pub fn response_timeout_ms(&self) -> u32 {
+        self.response_timeout_ms
+    }
+
+    pub fn max_retries(&self) -> u8 {
+        self.max_retries
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VisaTransportAdapter {
+    endpoint: InstrumentTransportEndpoint,
+    timeout_policy: TransportTimeoutPolicy,
+}
+
+impl VisaTransportAdapter {
+    pub fn new(
+        endpoint: InstrumentTransportEndpoint,
+        timeout_policy: TransportTimeoutPolicy,
+    ) -> Result<Self, DomainError> {
+        validate_adapter_endpoint(&endpoint, InstrumentTransport::Visa)?;
+        Ok(Self {
+            endpoint,
+            timeout_policy,
+        })
+    }
+
+    pub fn timeout_policy(&self) -> TransportTimeoutPolicy {
+        self.timeout_policy
+    }
+}
+
+impl InstrumentTransportAdapter for VisaTransportAdapter {
+    fn endpoint(&self) -> &InstrumentTransportEndpoint {
+        &self.endpoint
+    }
+
+    fn exchange(&mut self, command: &InstrumentCommand) -> Result<InstrumentResponse, DomainError> {
+        validate_command_transport(self.endpoint(), command)?;
+        Err(external_exchange_unavailable(self.endpoint()))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TcpIpTransportAdapter {
+    endpoint: InstrumentTransportEndpoint,
+    timeout_policy: TransportTimeoutPolicy,
+}
+
+impl TcpIpTransportAdapter {
+    pub fn new(
+        endpoint: InstrumentTransportEndpoint,
+        timeout_policy: TransportTimeoutPolicy,
+    ) -> Result<Self, DomainError> {
+        validate_adapter_endpoint(&endpoint, InstrumentTransport::TcpIp)?;
+        Ok(Self {
+            endpoint,
+            timeout_policy,
+        })
+    }
+
+    pub fn timeout_policy(&self) -> TransportTimeoutPolicy {
+        self.timeout_policy
+    }
+}
+
+impl InstrumentTransportAdapter for TcpIpTransportAdapter {
+    fn endpoint(&self) -> &InstrumentTransportEndpoint {
+        &self.endpoint
+    }
+
+    fn exchange(&mut self, command: &InstrumentCommand) -> Result<InstrumentResponse, DomainError> {
+        validate_command_transport(self.endpoint(), command)?;
+        Err(external_exchange_unavailable(self.endpoint()))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SerialTransportAdapter {
+    endpoint: InstrumentTransportEndpoint,
+    timeout_policy: TransportTimeoutPolicy,
+}
+
+impl SerialTransportAdapter {
+    pub fn new(
+        endpoint: InstrumentTransportEndpoint,
+        timeout_policy: TransportTimeoutPolicy,
+    ) -> Result<Self, DomainError> {
+        validate_adapter_endpoint(&endpoint, InstrumentTransport::Serial)?;
+        Ok(Self {
+            endpoint,
+            timeout_policy,
+        })
+    }
+
+    pub fn timeout_policy(&self) -> TransportTimeoutPolicy {
+        self.timeout_policy
+    }
+}
+
+impl InstrumentTransportAdapter for SerialTransportAdapter {
+    fn endpoint(&self) -> &InstrumentTransportEndpoint {
+        &self.endpoint
+    }
+
+    fn exchange(&mut self, command: &InstrumentCommand) -> Result<InstrumentResponse, DomainError> {
+        validate_command_transport(self.endpoint(), command)?;
+        Err(external_exchange_unavailable(self.endpoint()))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SimulatedTransportAdapter {
     endpoint: InstrumentTransportEndpoint,
@@ -93,12 +244,7 @@ impl InstrumentTransportAdapter for SimulatedTransportAdapter {
     }
 
     fn exchange(&mut self, command: &InstrumentCommand) -> Result<InstrumentResponse, DomainError> {
-        if command.transport() != self.transport() {
-            return Err(DomainError::TransportAdapterMismatch {
-                expected: self.transport().as_str().to_owned(),
-                actual: command.transport().as_str().to_owned(),
-            });
-        }
+        validate_command_transport(self.endpoint(), command)?;
 
         Ok(deterministic_response(command.message()))
     }
@@ -457,6 +603,41 @@ fn validate_setpoint_against_limits(
     }
 
     Ok(())
+}
+
+fn validate_adapter_endpoint(
+    endpoint: &InstrumentTransportEndpoint,
+    expected: InstrumentTransport,
+) -> Result<(), DomainError> {
+    if endpoint.transport() != expected {
+        return Err(DomainError::TransportAdapterMismatch {
+            expected: expected.as_str().to_owned(),
+            actual: endpoint.transport().as_str().to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_command_transport(
+    endpoint: &InstrumentTransportEndpoint,
+    command: &InstrumentCommand,
+) -> Result<(), DomainError> {
+    if command.transport() != endpoint.transport() {
+        return Err(DomainError::TransportAdapterMismatch {
+            expected: endpoint.transport().as_str().to_owned(),
+            actual: command.transport().as_str().to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+fn external_exchange_unavailable(endpoint: &InstrumentTransportEndpoint) -> DomainError {
+    DomainError::ExternalTransportExchangeUnavailable {
+        transport: endpoint.transport().as_str().to_owned(),
+        address: endpoint.address().to_owned(),
+    }
 }
 
 fn deterministic_response(message: &InstrumentCommandMessage) -> InstrumentResponse {

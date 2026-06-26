@@ -33,6 +33,15 @@ pub enum DomainError {
         expected: String,
         actual: String,
     },
+    InvalidTransportTimeoutPolicy {
+        connect_timeout_ms: u32,
+        response_timeout_ms: u32,
+        max_retries: u8,
+    },
+    ExternalTransportExchangeUnavailable {
+        transport: String,
+        address: String,
+    },
     InvalidInstrumentSafetyLimit {
         quantity: String,
         minimum: i64,

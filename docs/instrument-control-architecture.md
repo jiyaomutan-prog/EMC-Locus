@@ -110,11 +110,14 @@ Implemented in the Rust core:
 9. transport endpoint model;
 10. transport adapter trait;
 11. simulated adapter conformance fixture;
-12. adapter-backed runtime that preserves observation logs and safety checks.
+12. adapter-backed runtime that preserves observation logs and safety checks;
+13. timeout policy model;
+14. VISA, TCP/IP, and serial adapter skeletons;
+15. explicit unavailable-IO errors so hardware communication is not faked.
 
 Not yet implemented:
 
 - typed SCPI command model;
-- timeout/retry policy;
+- retry execution policy;
 - automatic parsing of string commands into typed setpoints;
-- concrete VISA, TCP/IP, serial, and vendor SDK adapters.
+- IO-backed VISA, TCP/IP, serial, and vendor SDK implementations.

@@ -762,6 +762,96 @@ fn transport_endpoint_rejects_empty_addresses() {
 }
 
 #[test]
+fn transport_timeout_policy_rejects_zero_timeouts() {
+    let error = TransportTimeoutPolicy::new(0, 5_000, 1).unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::InvalidTransportTimeoutPolicy {
+            connect_timeout_ms: 0,
+            response_timeout_ms: 5_000,
+            max_retries: 1,
+        }
+    );
+
+    let policy = TransportTimeoutPolicy::laboratory_default();
+    assert_eq!(policy.connect_timeout_ms(), 2_000);
+    assert_eq!(policy.response_timeout_ms(), 5_000);
+    assert_eq!(policy.max_retries(), 1);
+}
+
+#[test]
+fn concrete_transport_adapters_validate_endpoint_transport() {
+    let endpoint =
+        InstrumentTransportEndpoint::new(InstrumentTransport::TcpIp, "TCPIP::192.0.2.10").unwrap();
+
+    let error = VisaTransportAdapter::new(endpoint, TransportTimeoutPolicy::laboratory_default())
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::TransportAdapterMismatch {
+            expected: "visa".to_owned(),
+            actual: "tcp_ip".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn tcp_ip_transport_adapter_reports_external_exchange_unavailable() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let endpoint =
+        InstrumentTransportEndpoint::new(InstrumentTransport::TcpIp, "TCPIP::192.0.2.10").unwrap();
+    let mut adapter =
+        TcpIpTransportAdapter::new(endpoint, TransportTimeoutPolicy::laboratory_default()).unwrap();
+
+    let error = adapter
+        .exchange(&InstrumentCommand::new(
+            code,
+            InstrumentTransport::TcpIp,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap_err();
+
+    assert_eq!(adapter.transport(), InstrumentTransport::TcpIp);
+    assert_eq!(
+        error,
+        DomainError::ExternalTransportExchangeUnavailable {
+            transport: "tcp_ip".to_owned(),
+            address: "TCPIP::192.0.2.10".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn transport_adapter_runtime_does_not_fake_concrete_io() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let endpoint =
+        InstrumentTransportEndpoint::new(InstrumentTransport::Serial, "COM3:115200").unwrap();
+    let adapter =
+        SerialTransportAdapter::new(endpoint, TransportTimeoutPolicy::laboratory_default())
+            .unwrap();
+    let mut runtime = TransportAdapterRuntime::new(code.clone(), adapter);
+
+    let error = runtime
+        .execute(InstrumentCommand::new(
+            code,
+            InstrumentTransport::Serial,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::ExternalTransportExchangeUnavailable {
+            transport: "serial".to_owned(),
+            address: "COM3:115200".to_owned(),
+        }
+    );
+    assert!(runtime.observations().is_empty());
+}
+
+#[test]
 fn simulated_transport_adapter_returns_deterministic_exchange() {
     let code = InstrumentCode::parse("RX-001").unwrap();
     let endpoint =

@@ -102,7 +102,8 @@ Goal: connect selected real instruments safely.
 Deliverables:
 
 - transport adapter boundary; initial Rust trait and simulated fixture added;
-- first concrete hardware transport adapter;
+- first concrete hardware transport adapter skeletons; initial Rust VISA,
+  TCP/IP, and serial skeletons added;
 - instrument capability declarations;
 - command templates;
 - validation against simulated baseline;
@@ -125,8 +126,8 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should add concrete VISA, TCP/IP, and serial
-adapters behind the transport boundary.
-
-The parallel storage stream should add sync persistence adapters around conflict
+The next productive session should add sync persistence adapters around conflict
 action plans.
+
+The parallel storage stream should add SQLite adapters for measurement data and
+test-definition domains.
