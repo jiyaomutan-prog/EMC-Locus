@@ -97,8 +97,19 @@ Each driver should have:
 
 ## First Implementation Slice
 
-1. Define `InstrumentTransport`.
-2. Define an instrument identity and capability model.
-3. Add a simulated SCPI-like instrument.
-4. Record command and observation events.
-5. Validate one measurement procedure against the simulator.
+Implemented in the Rust core:
+
+1. transport vocabulary with stable log/adapter slugs;
+2. instrument command messages;
+3. simulated instrument runtime;
+4. deterministic responses for query and set commands;
+5. ordered command and observation log;
+6. target-instrument and supported-transport validation.
+
+Not yet implemented:
+
+- typed SCPI command model;
+- timeout/retry policy;
+- safety limits;
+- measurement-run execution binding;
+- real transport adapters.

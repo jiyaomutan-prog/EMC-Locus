@@ -31,16 +31,16 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Simulated instrument runtime",
+            title="Measurement data records",
             objective=(
-                "Create a simulated instrument adapter so measurement workflows "
-                "can execute repeatable command and observation sequences."
+                "Connect accepted measurement-run plans to raw dataset records, "
+                "checksums, and command-observation evidence."
             ),
-            workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.STORAGE),
+            workstreams=(Workstream.DOMAIN, Workstream.INSTRUMENT_CONTROL, Workstream.STORAGE),
             expected_outputs=(
-                "simulated driver interface",
-                "command log",
-                "measurement-run fixture",
+                "raw dataset record",
+                "checksum value object",
+                "run evidence linkage",
             ),
         ),
         SessionPlan(

@@ -59,11 +59,11 @@ storage/
 
 ## First Useful Milestones
 
-1. Add a simulated instrument runtime with command and observation logs.
-2. Connect measurement-run plans to raw dataset records and checksums.
-3. Start numeric signal-processing execution for FFT and temporal analysis.
-4. Add synchronization conflict records for split repositories.
-5. Add report approval gates for accredited workflows.
+1. Connect measurement-run plans to raw dataset records and checksums.
+2. Start numeric signal-processing execution for FFT and temporal analysis.
+3. Add synchronization conflict records for split repositories.
+4. Add report approval gates for accredited workflows.
+5. Add typed safety limits for instrument commands.
 
 ## Development Status
 

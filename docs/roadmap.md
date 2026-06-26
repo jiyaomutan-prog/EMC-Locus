@@ -53,8 +53,8 @@ Goal: run repeatable test sequences with simulated hardware.
 Deliverables:
 
 - measurement-run planning model; initial Rust pre-run gate added;
-- simulated instrument driver;
-- command and observation log;
+- simulated instrument driver; initial Rust runtime added;
+- command and observation log; initial Rust observation log added;
 - measurement-run execution model;
 - raw dataset checksum;
 - data-retention policy hooks.
@@ -113,11 +113,8 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should start the simulated instrument driver with a
-command and observation log.
+The next productive session should connect planned measurement runs to raw
+dataset records and checksums.
 
-The parallel data stream should connect planned measurement runs to raw dataset
-records and checksums.
-
-After the simulated runtime exists, start numeric signal-processing execution
-for FFT and temporal analysis fixtures.
+The parallel signal stream should start numeric signal-processing execution for
+FFT and temporal analysis fixtures.

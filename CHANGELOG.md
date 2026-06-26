@@ -44,13 +44,16 @@ change should remain traceable through Git history, session logs, and this file.
   and blocks only on blocking pre-run issues.
 - Rust field repository package model for offline snapshots, signatures,
   schema-version compatibility, and complete domain coverage.
+- Rust simulated instrument runtime with command messages, deterministic
+  responses, supported-transport checks, target checks, and ordered observation
+  logs.
 
 ### Planned
 
 - Connect execution modes to stage gates and report approval rules.
-- Add simulated instrument runtime with command and observation logs.
 - Add numeric signal-processing execution for FFT and temporal analysis.
 - Connect measurement-run plans to raw dataset records and checksums.
+- Add typed safety limits for instrument commands.
 
 ## [0.1.0] - 2026-06-26
 

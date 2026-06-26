@@ -16,6 +16,27 @@ pub enum InstrumentTransport {
     Simulated,
 }
 
+impl InstrumentTransport {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Visa => "visa",
+            Self::Gpib => "gpib",
+            Self::Serial => "serial",
+            Self::TcpIp => "tcp_ip",
+            Self::Udp => "udp",
+            Self::UsbTmc => "usb_tmc",
+            Self::Can => "can",
+            Self::Lin => "lin",
+            Self::ModbusTcp => "modbus_tcp",
+            Self::ModbusRtu => "modbus_rtu",
+            Self::Rest => "rest",
+            Self::VendorSdk => "vendor_sdk",
+            Self::Manual => "manual",
+            Self::Simulated => "simulated",
+        }
+    }
+}
+
 pub fn baseline_instrument_transports() -> Vec<InstrumentTransport> {
     use InstrumentTransport::*;
 

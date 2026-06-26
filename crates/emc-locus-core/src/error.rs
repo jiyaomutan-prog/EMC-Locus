@@ -22,6 +22,12 @@ pub enum DomainError {
     InvalidCalibrationPeriod,
     DuplicateInstrumentCode(String),
     UnknownInstrumentCode(String),
+    EmptyInstrumentCommandMessage,
+    UnsupportedInstrumentTransport(String),
+    InstrumentCommandTargetMismatch {
+        expected: String,
+        actual: String,
+    },
     EmptySignalReference,
     InvalidSignalReference(String),
     EmptySignalUnit,

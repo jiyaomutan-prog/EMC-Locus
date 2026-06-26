@@ -553,6 +553,108 @@ fn instrument_transport_baseline_covers_common_lab_communications() {
 }
 
 #[test]
+fn instrument_transport_slugs_are_stable_for_logs_and_adapters() {
+    assert_eq!(InstrumentTransport::Visa.as_str(), "visa");
+    assert_eq!(InstrumentTransport::UsbTmc.as_str(), "usb_tmc");
+    assert_eq!(InstrumentTransport::VendorSdk.as_str(), "vendor_sdk");
+    assert_eq!(InstrumentTransport::Simulated.as_str(), "simulated");
+}
+
+#[test]
+fn instrument_command_message_rejects_empty_values() {
+    assert_eq!(
+        InstrumentCommandMessage::parse(" ").unwrap_err(),
+        DomainError::EmptyInstrumentCommandMessage
+    );
+
+    assert_eq!(
+        InstrumentCommandMessage::parse("*IDN?").unwrap().as_str(),
+        "*IDN?"
+    );
+}
+
+#[test]
+fn simulated_instrument_runtime_records_ordered_observations() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let mut runtime = SimulatedInstrumentRuntime::new(
+        code.clone(),
+        vec![InstrumentTransport::Simulated, InstrumentTransport::Visa],
+    );
+
+    let first = runtime
+        .execute(InstrumentCommand::new(
+            code.clone(),
+            InstrumentTransport::Simulated,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap()
+        .clone();
+    let second = runtime
+        .execute(InstrumentCommand::new(
+            code.clone(),
+            InstrumentTransport::Visa,
+            InstrumentCommandMessage::parse("FREQ 1000000").unwrap(),
+        ))
+        .unwrap()
+        .clone();
+
+    assert_eq!(runtime.instrument(), &code);
+    assert_eq!(runtime.observations().len(), 2);
+    assert_eq!(first.sequence(), 1);
+    assert_eq!(first.response().as_str(), "SIM:*IDN?=0");
+    assert!(first.success());
+    assert_eq!(second.sequence(), 2);
+    assert_eq!(second.response().as_str(), "OK:FREQ 1000000");
+    assert_eq!(second.command().transport(), InstrumentTransport::Visa);
+}
+
+#[test]
+fn simulated_instrument_runtime_rejects_wrong_target() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let other = InstrumentCode::parse("GEN-001").unwrap();
+    let mut runtime =
+        SimulatedInstrumentRuntime::new(code.clone(), vec![InstrumentTransport::Simulated]);
+
+    let error = runtime
+        .execute(InstrumentCommand::new(
+            other,
+            InstrumentTransport::Simulated,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::InstrumentCommandTargetMismatch {
+            expected: code.as_str().to_owned(),
+            actual: "GEN-001".to_owned(),
+        }
+    );
+    assert!(runtime.observations().is_empty());
+}
+
+#[test]
+fn simulated_instrument_runtime_rejects_unsupported_transport() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let mut runtime =
+        SimulatedInstrumentRuntime::new(code.clone(), vec![InstrumentTransport::Simulated]);
+
+    let error = runtime
+        .execute(InstrumentCommand::new(
+            code,
+            InstrumentTransport::TcpIp,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::UnsupportedInstrumentTransport("tcp_ip".to_owned())
+    );
+    assert!(runtime.observations().is_empty());
+}
+
+#[test]
 fn update_policy_requires_signed_packages_and_blocks_live_measurement_updates() {
     let policy = UpdatePolicy::laboratory_default();
 
