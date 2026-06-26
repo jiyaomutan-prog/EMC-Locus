@@ -666,6 +666,164 @@ fn out_of_service_equipment_blocks_every_execution_mode() {
 }
 
 #[test]
+fn measurement_run_reference_and_method_reference_validate_values() {
+    assert_eq!(
+        MeasurementRunReference::parse(" ").unwrap_err(),
+        DomainError::EmptyMeasurementRunReference
+    );
+    assert_eq!(
+        MeasurementRunReference::parse("RUN 001").unwrap_err(),
+        DomainError::InvalidMeasurementRunReference("RUN 001".to_owned())
+    );
+    assert_eq!(
+        TestMethodReference::parse("").unwrap_err(),
+        DomainError::EmptyTestMethodReference
+    );
+    assert_eq!(
+        TestMethodReference::parse("EN 61000").unwrap_err(),
+        DomainError::InvalidTestMethodReference("EN 61000".to_owned())
+    );
+
+    assert_eq!(
+        MeasurementRunReference::parse("RUN-001").unwrap().as_str(),
+        "RUN-001"
+    );
+    assert_eq!(
+        TestMethodReference::parse("EN61000-4-6").unwrap().as_str(),
+        "EN61000-4-6"
+    );
+}
+
+#[test]
+fn measurement_run_plan_requires_equipment_selection() {
+    let project = ProjectCode::parse("CEM-2026-001").unwrap();
+    let registry = MetrologyRegistry::new();
+
+    let error = MeasurementRunPlan::plan(
+        project,
+        MeasurementRunReference::parse("RUN-001").unwrap(),
+        TestMethodReference::parse("EN61000-4-6").unwrap(),
+        ExecutionMode::Accredited,
+        Vec::new(),
+        &registry,
+        MetrologyDate::new(2026, 6, 27).unwrap(),
+    )
+    .unwrap_err();
+
+    assert_eq!(error, DomainError::EmptyEquipmentSelection);
+}
+
+#[test]
+fn accredited_measurement_run_plan_blocks_when_required_calibration_is_missing() {
+    let project = ProjectCode::parse("CEM-2026-001").unwrap();
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let mut registry = MetrologyRegistry::new();
+    registry
+        .register_instrument(reference_receiver(code.clone()))
+        .unwrap();
+
+    let error = MeasurementRunPlan::plan(
+        project,
+        MeasurementRunReference::parse("RUN-001").unwrap(),
+        TestMethodReference::parse("EN61000-4-6").unwrap(),
+        ExecutionMode::Accredited,
+        vec![code],
+        &registry,
+        MetrologyDate::new(2026, 6, 27).unwrap(),
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::EquipmentReadinessBlocked {
+            blocking_issue_count: 1,
+        }
+    );
+}
+
+#[test]
+fn non_accredited_measurement_run_plan_keeps_non_blocking_readiness_warnings() {
+    let project = ProjectCode::parse("CEM-2026-001").unwrap();
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let mut registry = MetrologyRegistry::new();
+    registry
+        .register_instrument(reference_receiver(code.clone()))
+        .unwrap();
+    registry
+        .record_calibration(
+            CalibrationRecord::new(
+                code.clone(),
+                "CERT-2025-001",
+                MetrologyDate::new(2025, 1, 1).unwrap(),
+                MetrologyDate::new(2026, 1, 1).unwrap(),
+                "Accredited Provider",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    let plan = MeasurementRunPlan::plan(
+        project.clone(),
+        MeasurementRunReference::parse("RUN-001").unwrap(),
+        TestMethodReference::parse("EN61000-4-6").unwrap(),
+        ExecutionMode::NonAccredited,
+        vec![code.clone()],
+        &registry,
+        MetrologyDate::new(2026, 6, 27).unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(plan.project(), &project);
+    assert_eq!(plan.mode(), ExecutionMode::NonAccredited);
+    assert_eq!(plan.equipment(), &[code]);
+    assert!(plan.readiness_report().is_ready());
+    assert_eq!(plan.readiness_report().issues().len(), 1);
+    assert_eq!(
+        plan.readiness_report().issues()[0].kind(),
+        EquipmentIssueKind::CalibrationExpired
+    );
+    assert!(!plan.readiness_report().issues()[0].is_blocking());
+}
+
+#[test]
+fn accredited_measurement_run_plan_accepts_valid_calibrated_equipment() {
+    let project = ProjectCode::parse("CEM-2026-001").unwrap();
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let mut registry = MetrologyRegistry::new();
+    registry
+        .register_instrument(reference_receiver(code.clone()))
+        .unwrap();
+    registry
+        .record_calibration(
+            CalibrationRecord::new(
+                code.clone(),
+                "CERT-2026-001",
+                MetrologyDate::new(2026, 1, 1).unwrap(),
+                MetrologyDate::new(2027, 1, 1).unwrap(),
+                "Accredited Provider",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    let plan = MeasurementRunPlan::plan(
+        project,
+        MeasurementRunReference::parse("RUN-001").unwrap(),
+        TestMethodReference::parse("EN61000-4-6").unwrap(),
+        ExecutionMode::Accredited,
+        vec![code],
+        &registry,
+        MetrologyDate::new(2026, 6, 27).unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(plan.reference().as_str(), "RUN-001");
+    assert_eq!(plan.method().as_str(), "EN61000-4-6");
+    assert!(plan.readiness_report().is_ready());
+    assert!(plan.readiness_report().issues().is_empty());
+}
+
+#[test]
 fn cem_time_domain_workflow_prefers_opendaq_and_mixed_signal_processing() {
     let profile = SignalWorkflowProfile::cem_time_domain_default();
 

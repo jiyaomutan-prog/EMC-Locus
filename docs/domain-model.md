@@ -207,3 +207,23 @@ constraints, while out-of-service equipment remains blocking in every mode.
 
 Calibration due soon is treated as an attention point rather than a hard block,
 so the operator can continue a valid run while planning renewal.
+
+## Measurement Run Planning
+
+The Rust core now models the first pre-run planning gate. A measurement run plan
+links:
+
+- project code;
+- run reference;
+- test method reference;
+- execution mode;
+- selected instrument asset codes;
+- metrology readiness report.
+
+The plan is accepted only when the readiness report has no blocking issue.
+Accredited work therefore rejects missing or expired required calibration.
+Non-accredited and investigation work can preserve relaxed calibration warnings
+as non-blocking evidence. Empty equipment selections are rejected.
+
+This model does not execute acquisition yet. It prepares the controlled handoff
+between campaign planning, metrology, and the future instrument runtime.

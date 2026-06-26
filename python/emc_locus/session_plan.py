@@ -44,16 +44,16 @@ def default_backlog() -> list[SessionPlan]:
             ),
         ),
         SessionPlan(
-            title="Measurement-run readiness gate",
+            title="Simulated instrument runtime",
             objective=(
-                "Connect metrology readiness reports to the first "
-                "measurement-run planning model."
+                "Create a simulated instrument adapter so measurement workflows "
+                "can execute repeatable command and observation sequences."
             ),
-            workstreams=(Workstream.DOMAIN, Workstream.METROLOGY, Workstream.QUALITY),
+            workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.STORAGE),
             expected_outputs=(
-                "measurement-run entity",
-                "equipment selection model",
-                "tests for accepted and blocked runs",
+                "simulated driver interface",
+                "command log",
+                "measurement-run fixture",
             ),
         ),
         SessionPlan(
@@ -67,19 +67,6 @@ def default_backlog() -> list[SessionPlan]:
                 "deterministic FFT fixture",
                 "channel math execution",
                 "result artifact model",
-            ),
-        ),
-        SessionPlan(
-            title="Simulated instrument runtime",
-            objective=(
-                "Create a simulated instrument adapter so measurement workflows "
-                "can be tested before real hardware integration."
-            ),
-            workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.STORAGE),
-            expected_outputs=(
-                "simulated driver interface",
-                "command log",
-                "measurement-run fixture",
             ),
         ),
     ]

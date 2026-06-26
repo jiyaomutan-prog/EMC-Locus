@@ -59,11 +59,11 @@ storage/
 
 ## First Useful Milestones
 
-1. Add a measurement-run model consuming equipment readiness checks.
-2. Add local repository snapshots for offline field work.
-3. Add compatibility checks for split repositories and offline bundles.
+1. Add local repository snapshots for offline field work.
+2. Add compatibility checks for split repositories and offline bundles.
+3. Add a simulated instrument runtime with command and observation logs.
 4. Start numeric signal-processing execution for FFT and temporal analysis.
-5. Add a simulated instrument runtime with command and observation logs.
+5. Connect measurement-run plans to raw dataset records.
 
 ## Development Status
 

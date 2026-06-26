@@ -52,9 +52,10 @@ Goal: run repeatable test sequences with simulated hardware.
 
 Deliverables:
 
+- measurement-run planning model; initial Rust pre-run gate added;
 - simulated instrument driver;
 - command and observation log;
-- measurement-run model;
+- measurement-run execution model;
 - raw dataset checksum;
 - data-retention policy hooks.
 
@@ -111,11 +112,11 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should connect pre-run readiness to a measurement
-run planning model.
-
-The parallel storage stream should add local snapshot metadata and compatibility
+The next productive session should add local snapshot metadata and compatibility
 checks around the split SQLite repositories.
 
-After measurement-run planning exists, add local snapshot metadata and start the
-numeric signal-processing execution layer.
+The parallel runtime stream should start the simulated instrument driver with a
+command and observation log.
+
+After the simulated runtime exists, connect measurement-run planning to command
+execution and raw dataset records.

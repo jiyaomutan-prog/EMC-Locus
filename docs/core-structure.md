@@ -13,6 +13,7 @@ crates/emc-locus-core/src/
   project.rs       Project lifecycle and project audit record
   quality.rs       Contract review, deviations, and execution modes
   metrology.rs     Instrument registry, calibration records, and readiness checks
+  measurement.rs   Measurement-run planning and pre-run readiness gate
   repositories.rs  Connectivity, repository domains, and sync policy
   instrument.rs    Instrument transports and update policy
   signal.rs        DAQ, synchronized datasets, simulated source, and signal graph

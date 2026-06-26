@@ -30,6 +30,14 @@ pub enum DomainError {
     EmptyProcessingNodeInputs,
     DuplicateProcessingNode(String),
     UnknownSignalReference(String),
+    EmptyMeasurementRunReference,
+    InvalidMeasurementRunReference(String),
+    EmptyTestMethodReference,
+    InvalidTestMethodReference(String),
+    EmptyEquipmentSelection,
+    EquipmentReadinessBlocked {
+        blocking_issue_count: usize,
+    },
     InvalidProjectTransition {
         from: ProjectStage,
         to: ProjectStage,
