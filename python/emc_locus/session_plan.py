@@ -31,19 +31,6 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Adapter query APIs",
-            objective=(
-                "Expand SQLite adapters beyond smoke writes with read/query "
-                "APIs for metrology and project records."
-            ),
-            workstreams=(Workstream.METROLOGY, Workstream.STORAGE, Workstream.QUALITY),
-            expected_outputs=(
-                "instrument lookup",
-                "project lookup",
-                "adapter smoke tests",
-            ),
-        ),
-        SessionPlan(
             title="Optimized signal ops",
             objective=(
                 "Add optimized FFT/windowing and resampling execution behind "
@@ -54,6 +41,19 @@ def default_backlog() -> list[SessionPlan]:
                 "window function model",
                 "resampling fixture",
                 "FFT comparison tests",
+            ),
+        ),
+        SessionPlan(
+            title="Signed update bundles",
+            objective=(
+                "Model signed offline update bundles with compatibility and "
+                "rollback evidence."
+            ),
+            workstreams=(Workstream.STORAGE, Workstream.QUALITY),
+            expected_outputs=(
+                "update bundle model",
+                "compatibility checks",
+                "rollback metadata",
             ),
         ),
     ]

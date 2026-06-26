@@ -63,13 +63,15 @@ change should remain traceable through Git history, session logs, and this file.
   including conflict status and resolution.
 - Rust report export bundle evidence linking issued reports to exported files,
   checksums, and review/approval identities.
+- Python SQLite adapter query APIs for instrument, calibration, project, and
+  audit-event records.
 
 ### Planned
 
 - Add optimized FFT/windowing and resampling execution.
-- Expand SQLite adapters beyond smoke operations.
 - Add sync application services around conflict records.
 - Add signed update bundle workflow.
+- Add broader SQLite write/update APIs.
 - Add synchronization conflict records for split repositories.
 
 ## [0.1.0] - 2026-06-26

@@ -59,11 +59,11 @@ storage/
 
 ## First Useful Milestones
 
-1. Expand SQLite adapters beyond smoke operations.
-2. Add optimized FFT/windowing and resampling execution.
+1. Add optimized FFT/windowing and resampling execution.
+2. Add signed update bundle workflow.
 3. Add real transport adapter spikes behind the simulated baseline.
 4. Add sync application services around conflict records.
-5. Add signed update bundle workflow.
+5. Add broader SQLite write/update APIs.
 
 ## Development Status
 

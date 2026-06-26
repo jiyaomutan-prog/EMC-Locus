@@ -73,12 +73,16 @@ The Python package now exposes first SQLite-backed adapters:
 - `ProjectRepository`.
 
 They can initialize a local database from the matching migration domain and
-perform minimal insert/count operations for smoke testing:
+perform minimal insert/count/query operations for smoke testing:
 
 - instrument records;
 - calibration records;
 - project records;
 - project audit events.
+- instrument lookup/listing;
+- latest calibration lookup;
+- project lookup/listing;
+- ordered project audit-event listing.
 
 These adapters are intentionally small. They prove that the migration domains
 are usable from application code before broader query APIs, synchronization, or

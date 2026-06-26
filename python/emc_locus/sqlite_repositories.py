@@ -164,6 +164,35 @@ class MetrologyRepository(SQLiteDomainRepository):
             row = connection.execute("SELECT COUNT(*) AS count FROM calibration_records").fetchone()
         return int(row["count"])
 
+    def get_instrument(self, asset_id: str) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM instruments WHERE asset_id = ?",
+                (asset_id,),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def list_instruments(self) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                "SELECT * FROM instruments ORDER BY asset_id"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def latest_calibration_record(self, asset_id: str) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT *
+                FROM calibration_records
+                WHERE asset_id = ?
+                ORDER BY due_at DESC, calibrated_at DESC, id DESC
+                LIMIT 1
+                """,
+                (asset_id,),
+            ).fetchone()
+        return row_to_dict(row)
+
 
 class ProjectRepository(SQLiteDomainRepository):
     """SQLite adapter for projects and project audit events."""
@@ -242,3 +271,35 @@ class ProjectRepository(SQLiteDomainRepository):
                 "SELECT COUNT(*) AS count FROM project_audit_events"
             ).fetchone()
         return int(row["count"])
+
+    def get_project(self, code: str) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM projects WHERE code = ?",
+                (code,),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def list_projects(self) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute("SELECT * FROM projects ORDER BY code").fetchall()
+        return [dict(row) for row in rows]
+
+    def audit_events(self, project_code: str) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM project_audit_events
+                WHERE project_code = ?
+                ORDER BY sequence
+                """,
+                (project_code,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def row_to_dict(row: sqlite3.Row | None) -> dict[str, object] | None:
+    if row is None:
+        return None
+    return dict(row)

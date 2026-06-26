@@ -46,6 +46,7 @@ Deliverables:
 - uncertainty references;
 - pre-run equipment validity checks; initial Rust readiness report added.
 - SQLite metrology adapter; initial Python smoke adapter added.
+- SQLite metrology query APIs; initial Python lookups added.
 
 ## Phase 3: Measurement Runtime
 
@@ -116,8 +117,7 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should expand SQLite adapters beyond smoke
-operations.
-
-The parallel signal stream should add optimized FFT/windowing and resampling
+The next productive session should add optimized FFT/windowing and resampling
 execution.
+
+The parallel update stream should add signed update bundle workflow.
