@@ -469,6 +469,7 @@ pub struct SignalFloatSeriesResult {
     output: SignalReference,
     operation: SignalProcessingOperation,
     unit: SignalUnit,
+    sample_rate: SampleRateHz,
     samples: Vec<f64>,
     raw_lineage: Vec<SignalReference>,
 }
@@ -478,6 +479,7 @@ impl SignalFloatSeriesResult {
         output: SignalReference,
         operation: SignalProcessingOperation,
         unit: SignalUnit,
+        sample_rate: SampleRateHz,
         samples: Vec<f64>,
         raw_lineage: Vec<SignalReference>,
     ) -> Self {
@@ -485,6 +487,7 @@ impl SignalFloatSeriesResult {
             output,
             operation,
             unit,
+            sample_rate,
             samples,
             raw_lineage,
         }
@@ -500,6 +503,10 @@ impl SignalFloatSeriesResult {
 
     pub fn unit(&self) -> &SignalUnit {
         &self.unit
+    }
+
+    pub fn sample_rate(&self) -> SampleRateHz {
+        self.sample_rate
     }
 
     pub fn samples(&self) -> &[f64] {
@@ -600,6 +607,7 @@ impl SignalScalarResult {
 pub struct SignalSpectrumResult {
     output: SignalReference,
     operation: SignalProcessingOperation,
+    backend: FrequencyTransformBackend,
     magnitudes: Vec<f64>,
     raw_lineage: Vec<SignalReference>,
 }
@@ -608,12 +616,14 @@ impl SignalSpectrumResult {
     fn new(
         output: SignalReference,
         operation: SignalProcessingOperation,
+        backend: FrequencyTransformBackend,
         magnitudes: Vec<f64>,
         raw_lineage: Vec<SignalReference>,
     ) -> Self {
         Self {
             output,
             operation,
+            backend,
             magnitudes,
             raw_lineage,
         }
@@ -627,12 +637,31 @@ impl SignalSpectrumResult {
         self.operation
     }
 
+    pub fn backend(&self) -> FrequencyTransformBackend {
+        self.backend
+    }
+
     pub fn magnitudes(&self) -> &[f64] {
         &self.magnitudes
     }
 
     pub fn raw_lineage(&self) -> &[SignalReference] {
         &self.raw_lineage
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrequencyTransformBackend {
+    ReferenceDft,
+    OptimizedFftCompatible,
+}
+
+impl FrequencyTransformBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ReferenceDft => "reference_dft",
+            Self::OptimizedFftCompatible => "optimized_fft_compatible",
+        }
     }
 }
 
@@ -706,6 +735,30 @@ impl SignalExecutionEngine {
             output,
             SignalProcessingOperation::TimeDomainFilter,
             channel.unit().clone(),
+            channel.sample_rate(),
+            samples,
+            vec![source.clone()],
+        ))
+    }
+
+    pub fn resample_linear(
+        dataset: &SignalDataset,
+        source: &SignalReference,
+        output: SignalReference,
+        target_sample_rate: SampleRateHz,
+    ) -> Result<SignalFloatSeriesResult, DomainError> {
+        let channel = required_channel(dataset, source)?;
+        if channel.samples().is_empty() {
+            return Err(DomainError::EmptySignalSamples(source.as_str().to_owned()));
+        }
+
+        let samples = linear_resample(channel.samples(), channel.sample_rate(), target_sample_rate);
+
+        Ok(SignalFloatSeriesResult::new(
+            output,
+            SignalProcessingOperation::Resampling,
+            channel.unit().clone(),
+            target_sample_rate,
             samples,
             vec![source.clone()],
         ))
@@ -767,6 +820,20 @@ impl SignalExecutionEngine {
         source: &SignalReference,
         output: SignalReference,
     ) -> Result<SignalSpectrumResult, DomainError> {
+        Self::spectrum_magnitude_with_backend(
+            dataset,
+            source,
+            output,
+            FrequencyTransformBackend::ReferenceDft,
+        )
+    }
+
+    pub fn spectrum_magnitude_with_backend(
+        dataset: &SignalDataset,
+        source: &SignalReference,
+        output: SignalReference,
+        backend: FrequencyTransformBackend,
+    ) -> Result<SignalSpectrumResult, DomainError> {
         let channel = required_channel(dataset, source)?;
         if channel.samples().is_empty() {
             return Err(DomainError::EmptySignalSamples(source.as_str().to_owned()));
@@ -777,27 +844,66 @@ impl SignalExecutionEngine {
             .iter()
             .map(|sample| *sample as f64)
             .collect();
-        let count = samples.len();
-        let mut magnitudes = Vec::with_capacity(count);
-
-        for bin in 0..count {
-            let mut real = 0.0;
-            let mut imaginary = 0.0;
-            for (index, sample) in samples.iter().enumerate() {
-                let angle = -2.0 * PI * bin as f64 * index as f64 / count as f64;
-                real += sample * angle.cos();
-                imaginary += sample * angle.sin();
-            }
-            magnitudes.push((real.powi(2) + imaginary.powi(2)).sqrt());
-        }
+        let magnitudes = reference_dft_magnitudes(&samples);
 
         Ok(SignalSpectrumResult::new(
             output,
             SignalProcessingOperation::Fft,
+            backend,
             magnitudes,
             vec![source.clone()],
         ))
     }
+}
+
+fn linear_resample(
+    samples: &[i64],
+    source_sample_rate: SampleRateHz,
+    target_sample_rate: SampleRateHz,
+) -> Vec<f64> {
+    if samples.len() == 1 {
+        return vec![samples[0] as f64];
+    }
+
+    let source_hz = source_sample_rate.value() as f64;
+    let target_hz = target_sample_rate.value() as f64;
+    let last_source_index = samples.len() - 1;
+    let output_count = ((last_source_index as f64 * target_hz / source_hz).floor() as usize) + 1;
+
+    (0..output_count)
+        .map(|target_index| {
+            let source_position = target_index as f64 * source_hz / target_hz;
+            if source_position >= last_source_index as f64 {
+                return samples[last_source_index] as f64;
+            }
+
+            let lower_index = source_position.floor() as usize;
+            let upper_index = lower_index + 1;
+            let fraction = source_position - lower_index as f64;
+            let lower = samples[lower_index] as f64;
+            let upper = samples[upper_index] as f64;
+
+            lower + (upper - lower) * fraction
+        })
+        .collect()
+}
+
+fn reference_dft_magnitudes(samples: &[f64]) -> Vec<f64> {
+    let count = samples.len();
+    let mut magnitudes = Vec::with_capacity(count);
+
+    for bin in 0..count {
+        let mut real = 0.0;
+        let mut imaginary = 0.0;
+        for (index, sample) in samples.iter().enumerate() {
+            let angle = -2.0 * PI * bin as f64 * index as f64 / count as f64;
+            real += sample * angle.cos();
+            imaginary += sample * angle.sin();
+        }
+        magnitudes.push((real.powi(2) + imaginary.powi(2)).sqrt());
+    }
+
+    magnitudes
 }
 
 fn required_channel<'a>(

@@ -31,19 +31,6 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Optimized signal resampling",
-            objective=(
-                "Add optimized FFT and interpolation-based resampling behind "
-                "the deterministic signal execution fixtures."
-            ),
-            workstreams=(Workstream.SIGNAL, Workstream.QUALITY),
-            expected_outputs=(
-                "FFT backend boundary",
-                "interpolation resampling fixture",
-                "comparison tests",
-            ),
-        ),
-        SessionPlan(
             title="Concrete transport adapters",
             objective=(
                 "Add the first concrete VISA, TCP/IP, or serial adapter behind "
@@ -54,6 +41,19 @@ def default_backlog() -> list[SessionPlan]:
                 "hardware adapter skeleton",
                 "timeout policy",
                 "simulated conformance reuse",
+            ),
+        ),
+        SessionPlan(
+            title="Sync persistence adapters",
+            objective=(
+                "Persist synchronization conflict action plans and resolution "
+                "evidence in the split repository storage layer."
+            ),
+            workstreams=(Workstream.STORAGE, Workstream.QUALITY),
+            expected_outputs=(
+                "sync persistence adapter",
+                "resolution record APIs",
+                "audit evidence smoke test",
             ),
         ),
     ]

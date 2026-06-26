@@ -89,6 +89,8 @@ Deliverables:
 - FFT and temporal-processing pipeline model; initial graph model added;
 - numeric DFT/peak/channel arithmetic fixture; initial Rust execution added;
 - windowing and deterministic downsampling; initial Rust execution added;
+- FFT backend boundary and interpolation resampling; initial Rust execution
+  added;
 - channel math and signal lineage; initial Rust lineage model added;
 - CEM time-domain test families such as railway harmonics, axle counters, and
   inrush measurements.
@@ -123,8 +125,8 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should add optimized FFT and interpolation-based
-resampling.
-
-The parallel runtime stream should add concrete VISA, TCP/IP, and serial
+The next productive session should add concrete VISA, TCP/IP, and serial
 adapters behind the transport boundary.
+
+The parallel storage stream should add sync persistence adapters around conflict
+action plans.

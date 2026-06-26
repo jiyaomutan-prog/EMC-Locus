@@ -59,10 +59,10 @@ storage/
 
 ## First Useful Milestones
 
-1. Add optimized FFT and interpolation-based resampling.
-2. Add concrete VISA/TCP/IP/serial adapters behind the transport boundary.
-3. Add sync persistence adapters around conflict action plans.
-4. Add SQLite adapters for measurement data and test-definition domains.
+1. Add concrete VISA/TCP/IP/serial adapters behind the transport boundary.
+2. Add sync persistence adapters around conflict action plans.
+3. Add SQLite adapters for measurement data and test-definition domains.
+4. Add a real optimized FFT implementation behind the backend boundary.
 5. Add update bundle/domain validation mapping between Rust and SQLite.
 
 ## Development Status

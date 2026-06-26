@@ -2203,9 +2203,35 @@ fn signal_execution_engine_dft_magnitude_returns_deterministic_bins() {
 
     assert_eq!(result.output(), &output);
     assert_eq!(result.operation(), SignalProcessingOperation::Fft);
+    assert_eq!(result.backend(), FrequencyTransformBackend::ReferenceDft);
     assert_eq!(result.magnitudes().len(), 8);
     assert!((result.magnitudes()[0] - 425.0).abs() < 1e-9);
     assert_eq!(result.raw_lineage(), &[current]);
+}
+
+#[test]
+fn signal_execution_engine_records_fft_backend_boundary() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+    let output = SignalReference::parse("current_l1_fft_optimized").unwrap();
+
+    let result = SignalExecutionEngine::spectrum_magnitude_with_backend(
+        &dataset,
+        &current,
+        output,
+        FrequencyTransformBackend::OptimizedFftCompatible,
+    )
+    .unwrap();
+
+    assert_eq!(
+        result.backend(),
+        FrequencyTransformBackend::OptimizedFftCompatible
+    );
+    assert_eq!(result.backend().as_str(), "optimized_fft_compatible");
+    assert_eq!(result.operation(), SignalProcessingOperation::Fft);
+    assert!((result.magnitudes()[0] - 425.0).abs() < 1e-9);
 }
 
 #[test]
@@ -2304,10 +2330,39 @@ fn signal_execution_engine_applies_hann_window() {
         SignalProcessingOperation::TimeDomainFilter
     );
     assert_eq!(result.unit().as_str(), "mV");
+    assert_eq!(result.sample_rate(), SampleRateHz::new(10_000).unwrap());
     assert_eq!(result.samples().len(), 8);
     assert!(result.samples()[0].abs() < 1e-9);
     assert!(result.samples()[7].abs() < 1e-9);
     assert_eq!(result.raw_lineage(), &[voltage]);
+}
+
+#[test]
+fn signal_execution_engine_resamples_linearly() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+    let output = SignalReference::parse("current_l1_20khz").unwrap();
+
+    let result = SignalExecutionEngine::resample_linear(
+        &dataset,
+        &current,
+        output.clone(),
+        SampleRateHz::new(20_000).unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(result.output(), &output);
+    assert_eq!(result.operation(), SignalProcessingOperation::Resampling);
+    assert_eq!(result.unit().as_str(), "mA");
+    assert_eq!(result.sample_rate(), SampleRateHz::new(20_000).unwrap());
+    assert_eq!(result.samples().len(), 15);
+    assert_eq!(
+        &result.samples()[0..7],
+        &[0.0, 10.0, 20.0, 40.0, 60.0, 120.0, 180.0]
+    );
+    assert_eq!(result.raw_lineage(), &[current]);
 }
 
 #[test]

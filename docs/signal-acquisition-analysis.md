@@ -143,12 +143,13 @@ Implemented in the Rust core:
 7. temporal peak extraction;
 8. deterministic DFT magnitude fixture for FFT-oriented workflows;
 9. Hann and rectangular windowing;
-10. deterministic downsampling.
+10. deterministic downsampling;
+11. FFT backend boundary with spectrum backend traceability;
+12. interpolation-based linear resampling.
 
 Not yet implemented:
 
-- optimized FFT execution;
+- real optimized FFT implementation behind the backend boundary;
 - richer window families;
-- interpolation-based resampling;
 - persistence of graph instances;
 - real DAQ adapters.

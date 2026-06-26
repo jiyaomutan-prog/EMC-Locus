@@ -78,13 +78,15 @@ change should remain traceable through Git history, session logs, and this file.
   contract-review item completion.
 - Python SQLite update-catalog adapter for signed package metadata and install
   records.
+- Rust signal interpolation resampling and FFT backend boundary with backend
+  traceability on spectrum results.
 
 ### Planned
 
-- Add optimized FFT and interpolation-based resampling.
 - Add concrete VISA/TCP/IP/serial adapters behind the transport boundary.
 - Add sync persistence adapters around conflict action plans.
 - Add SQLite adapters for measurement data and test-definition domains.
+- Add a real optimized FFT implementation behind the backend boundary.
 - Add update bundle/domain validation mapping between Rust and SQLite.
 
 ## [0.1.0] - 2026-06-26
