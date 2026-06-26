@@ -51,7 +51,21 @@ as VISA, GPIB, serial, TCP/IP, UDP, USBTMC, CAN/LIN, Modbus, REST, vendor SDKs,
 manual steps, and simulation. See `instrument-control-architecture.md` for the
 driver boundary.
 
-### 4. Python Automation
+### 4. Signal Acquisition and Analysis
+
+EMC Locus must also support tests that are not naturally modeled as a simple
+level-versus-frequency sweep. Time-domain CEM work can require synchronized DAQ
+streams, FFT or windowed FFT, temporal processing, event counting, harmonic
+analysis, inrush analysis, and mathematical operations between signals.
+
+This layer owns:
+
+- DAQ-neutral acquisition profiles, with openDAQ as the preferred generic API;
+- synchronization policies for multi-DAQ acquisitions;
+- signal-processing pipeline definitions;
+- links between processed signals, raw data, and reports.
+
+### 5. Python Automation
 
 Python is useful for:
 
@@ -63,7 +77,7 @@ Python is useful for:
 
 Python code should call stable APIs rather than duplicate domain rules.
 
-### 5. Application API and UI
+### 6. Application API and UI
 
 The UI should arrive after the domain model and workflow vocabulary are clear.
 Candidate directions:
@@ -93,6 +107,8 @@ User/UI
 - Support separate quality modes for accredited, non-accredited, and
   investigation work.
 - Require signed update packages and block live updates during measurement.
+- Support time-domain DAQ workflows beside frequency-domain sweep workflows.
+- Prefer openDAQ for generic DAQ integration while allowing vendor SDK bridges.
 - Keep EN ISO/IEC 17025 alignment as a design checklist, not as a legal claim.
 
 ## Open Questions

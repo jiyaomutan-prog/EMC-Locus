@@ -655,6 +655,175 @@ impl UpdatePolicy {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MeasurementAxis {
+    FrequencySweep,
+    TimeSeries,
+    EventTriggered,
+    MixedTimeFrequency,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DaqInterface {
+    OpenDaq,
+    VendorSdk,
+    Usb,
+    Ethernet,
+    EtherCat,
+    Pcie,
+    SoundCard,
+    VisaDigitizer,
+    FileReplay,
+    Simulated,
+}
+
+impl DaqInterface {
+    pub fn preferred_generic() -> Self {
+        Self::OpenDaq
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignalSourceKind {
+    AnalogVoltage,
+    AnalogCurrent,
+    DigitalInput,
+    Counter,
+    Encoder,
+    BusFrame,
+    VideoFrame,
+    DerivedSignal,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SynchronizationMethod {
+    SharedSampleClock,
+    ExternalTrigger,
+    StartTrigger,
+    PtpIeee1588,
+    GpsGnss,
+    IrigB,
+    EtherCatDistributedClock,
+    HardwareTimestamp,
+    SoftwareTimestamp,
+    CrossCorrelationPostAlignment,
+}
+
+pub fn baseline_synchronization_methods() -> Vec<SynchronizationMethod> {
+    use SynchronizationMethod::*;
+
+    vec![
+        SharedSampleClock,
+        ExternalTrigger,
+        StartTrigger,
+        PtpIeee1588,
+        GpsGnss,
+        IrigB,
+        EtherCatDistributedClock,
+        HardwareTimestamp,
+        SoftwareTimestamp,
+        CrossCorrelationPostAlignment,
+    ]
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignalProcessingOperation {
+    Fft,
+    WindowedFft,
+    Ifft,
+    TimeDomainFilter,
+    ChannelArithmetic,
+    MathExpression,
+    HarmonicAnalysis,
+    InrushAnalysis,
+    EventCounting,
+    EdgeTiming,
+    Resampling,
+    CrossCorrelation,
+    Rms,
+    Peak,
+    Envelope,
+}
+
+pub fn baseline_signal_processing_operations() -> Vec<SignalProcessingOperation> {
+    use SignalProcessingOperation::*;
+
+    vec![
+        Fft,
+        WindowedFft,
+        Ifft,
+        TimeDomainFilter,
+        ChannelArithmetic,
+        MathExpression,
+        HarmonicAnalysis,
+        InrushAnalysis,
+        EventCounting,
+        EdgeTiming,
+        Resampling,
+        CrossCorrelation,
+        Rms,
+        Peak,
+        Envelope,
+    ]
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CemTimeDomainTestFamily {
+    RailwayHarmonics,
+    AxleCounter,
+    InrushCurrent,
+    TransientCapture,
+    PowerQuality,
+    PulsedDisturbance,
+    Custom,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignalWorkflowProfile {
+    axis: MeasurementAxis,
+    preferred_daq_interface: DaqInterface,
+    synchronization_required: bool,
+    operations: Vec<SignalProcessingOperation>,
+}
+
+impl SignalWorkflowProfile {
+    pub fn cem_time_domain_default() -> Self {
+        Self {
+            axis: MeasurementAxis::MixedTimeFrequency,
+            preferred_daq_interface: DaqInterface::preferred_generic(),
+            synchronization_required: true,
+            operations: vec![
+                SignalProcessingOperation::TimeDomainFilter,
+                SignalProcessingOperation::Fft,
+                SignalProcessingOperation::WindowedFft,
+                SignalProcessingOperation::ChannelArithmetic,
+                SignalProcessingOperation::MathExpression,
+                SignalProcessingOperation::HarmonicAnalysis,
+                SignalProcessingOperation::InrushAnalysis,
+                SignalProcessingOperation::EventCounting,
+                SignalProcessingOperation::EdgeTiming,
+                SignalProcessingOperation::CrossCorrelation,
+            ],
+        }
+    }
+
+    pub fn axis(&self) -> MeasurementAxis {
+        self.axis
+    }
+
+    pub fn preferred_daq_interface(&self) -> DaqInterface {
+        self.preferred_daq_interface
+    }
+
+    pub fn synchronization_required(&self) -> bool {
+        self.synchronization_required
+    }
+
+    pub fn operations(&self) -> &[SignalProcessingOperation] {
+        &self.operations
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TraceabilityRequirement {
     CustomerRequest,
     ContractReview,
@@ -1170,6 +1339,71 @@ mod tests {
         assert!(policy.signed_packages_required());
         assert!(policy.offline_install_allowed());
         assert!(!policy.apply_during_measurement_allowed());
+    }
+
+    #[test]
+    fn cem_time_domain_workflow_prefers_opendaq_and_mixed_signal_processing() {
+        let profile = SignalWorkflowProfile::cem_time_domain_default();
+
+        assert_eq!(profile.axis(), MeasurementAxis::MixedTimeFrequency);
+        assert_eq!(profile.preferred_daq_interface(), DaqInterface::OpenDaq);
+        assert!(profile.synchronization_required());
+        assert!(profile
+            .operations()
+            .contains(&SignalProcessingOperation::Fft));
+        assert!(profile
+            .operations()
+            .contains(&SignalProcessingOperation::TimeDomainFilter));
+        assert!(profile
+            .operations()
+            .contains(&SignalProcessingOperation::ChannelArithmetic));
+        assert!(profile
+            .operations()
+            .contains(&SignalProcessingOperation::HarmonicAnalysis));
+        assert!(profile
+            .operations()
+            .contains(&SignalProcessingOperation::InrushAnalysis));
+    }
+
+    #[test]
+    fn synchronization_baseline_covers_multi_daq_alignment_methods() {
+        let methods = baseline_synchronization_methods();
+
+        assert!(methods.contains(&SynchronizationMethod::SharedSampleClock));
+        assert!(methods.contains(&SynchronizationMethod::ExternalTrigger));
+        assert!(methods.contains(&SynchronizationMethod::PtpIeee1588));
+        assert!(methods.contains(&SynchronizationMethod::GpsGnss));
+        assert!(methods.contains(&SynchronizationMethod::IrigB));
+        assert!(methods.contains(&SynchronizationMethod::EtherCatDistributedClock));
+        assert!(methods.contains(&SynchronizationMethod::CrossCorrelationPostAlignment));
+    }
+
+    #[test]
+    fn signal_processing_baseline_covers_fft_temporal_math_and_events() {
+        let operations = baseline_signal_processing_operations();
+
+        assert!(operations.contains(&SignalProcessingOperation::Fft));
+        assert!(operations.contains(&SignalProcessingOperation::Ifft));
+        assert!(operations.contains(&SignalProcessingOperation::TimeDomainFilter));
+        assert!(operations.contains(&SignalProcessingOperation::ChannelArithmetic));
+        assert!(operations.contains(&SignalProcessingOperation::MathExpression));
+        assert!(operations.contains(&SignalProcessingOperation::HarmonicAnalysis));
+        assert!(operations.contains(&SignalProcessingOperation::InrushAnalysis));
+        assert!(operations.contains(&SignalProcessingOperation::EventCounting));
+        assert!(operations.contains(&SignalProcessingOperation::EdgeTiming));
+    }
+
+    #[test]
+    fn cem_time_domain_test_families_include_railway_axle_counter_and_inrush() {
+        let families = [
+            CemTimeDomainTestFamily::RailwayHarmonics,
+            CemTimeDomainTestFamily::AxleCounter,
+            CemTimeDomainTestFamily::InrushCurrent,
+        ];
+
+        assert!(families.contains(&CemTimeDomainTestFamily::RailwayHarmonics));
+        assert!(families.contains(&CemTimeDomainTestFamily::AxleCounter));
+        assert!(families.contains(&CemTimeDomainTestFamily::InrushCurrent));
     }
 
     #[test]

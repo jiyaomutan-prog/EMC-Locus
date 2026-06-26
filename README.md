@@ -45,6 +45,7 @@ docs/
   storage-schema.md      First SQLite persistence sketch
   offline-first-architecture.md Local work, split stores, and sync direction
   instrument-control-architecture.md Transport-neutral instrument runtime
+  signal-acquisition-analysis.md Time-domain DAQ and signal processing
   session-logs/          Dated development session records
   competitive-analysis/  Public feature baselines and product positioning
   roadmap.md             Incremental delivery plan

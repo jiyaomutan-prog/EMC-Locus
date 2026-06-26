@@ -26,6 +26,8 @@ Deliverables:
 - contract-review stage gate; initial Rust gate added;
 - public BAT-EMC feature baseline; initial analysis added;
 - quality modes and offline policy primitives; initial Rust model added;
+- DewesoftX/openDAQ concept baseline; initial analysis added;
+- signal acquisition and analysis primitives; initial Rust model added;
 - first storage schema draft; initial SQLite sketch added.
 
 
@@ -65,6 +67,21 @@ Deliverables:
 - export bundle;
 - traceability report for audit.
 
+## Phase 4b: Signal Acquisition and Analysis
+
+Goal: support CEM tests based on time-domain acquisition and advanced signal
+processing, not only level-versus-frequency sweeps.
+
+Deliverables:
+
+- openDAQ-preferred DAQ integration boundary;
+- simulated DAQ source;
+- synchronized multi-DAQ acquisition model;
+- FFT and temporal-processing pipeline model;
+- channel math and signal lineage;
+- CEM time-domain test families such as railway harmonics, axle counters, and
+  inrush measurements.
+
 ## Phase 5: Real Instrument Adapters
 
 Goal: connect selected real instruments safely.
@@ -94,3 +111,5 @@ Deliverables:
 The next productive session should start the metrology registry while preserving
 the new product constraints: split repository, offline snapshot support, and
 execution modes for accredited, non-accredited, and investigation work.
+A second near-term stream should create a simulated DAQ source and a minimal
+signal-processing graph fixture.
