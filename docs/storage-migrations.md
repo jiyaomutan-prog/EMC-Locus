@@ -64,3 +64,22 @@ $env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrat
 
 The helper checks migration filenames, detects duplicate versions per domain,
 and executes each domain's SQL in a fresh in-memory SQLite database.
+
+## Early Python Adapters
+
+The Python package now exposes first SQLite-backed adapters:
+
+- `MetrologyRepository`;
+- `ProjectRepository`.
+
+They can initialize a local database from the matching migration domain and
+perform minimal insert/count operations for smoke testing:
+
+- instrument records;
+- calibration records;
+- project records;
+- project audit events.
+
+These adapters are intentionally small. They prove that the migration domains
+are usable from application code before broader query APIs, synchronization, or
+Rust storage adapters are introduced.

@@ -55,14 +55,16 @@ change should remain traceable through Git history, session logs, and this file.
   issue gates.
 - Rust typed instrument setpoints and safety limits, with simulated-runtime
   blocking for commands outside known ranges.
+- Python SQLite repository adapters for metrology and project records, backed by
+  the versioned migration domains.
 
 ### Planned
 
-- Add persistent adapters for metrology and project repositories.
 - Add optimized FFT/windowing and resampling execution.
 - Add report export bundle evidence.
 - Connect measurement-run execution to simulated instrument runtime and dataset
   evidence.
+- Add synchronization conflict records for split repositories.
 
 ## [0.1.0] - 2026-06-26
 

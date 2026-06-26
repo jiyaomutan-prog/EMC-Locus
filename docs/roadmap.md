@@ -45,6 +45,7 @@ Deliverables:
 - out-of-service workflow; initial Rust blocking rule added;
 - uncertainty references;
 - pre-run equipment validity checks; initial Rust readiness report added.
+- SQLite metrology adapter; initial Python smoke adapter added.
 
 ## Phase 3: Measurement Runtime
 
@@ -114,8 +115,8 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should add persistent adapters for metrology and
-project repositories.
-
-The parallel runtime stream should connect measurement-run execution to the
+The next productive session should connect measurement-run execution to the
 simulated instrument runtime and dataset evidence.
+
+The parallel storage stream should add synchronization conflict records for
+split repositories.
