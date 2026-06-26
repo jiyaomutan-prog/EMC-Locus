@@ -7,7 +7,9 @@ Goal: agree on vocabulary, boundaries, and quality principles.
 Deliverables:
 
 - product README;
+- consolidated product objectives;
 - architecture notes;
+- core crate structure notes;
 - domain model;
 - EN ISO/IEC 17025 alignment notes;
 - minimal Rust core crate;
@@ -29,7 +31,7 @@ Deliverables:
 - DewesoftX/openDAQ concept baseline; initial analysis added;
 - signal acquisition and analysis primitives; initial Rust model added;
 - first storage schema draft; initial SQLite sketch added.
-
+- Rust core module split; initial structure added.
 
 ## Phase 2: Metrology Database
 
@@ -111,5 +113,9 @@ Deliverables:
 The next productive session should start the metrology registry while preserving
 the new product constraints: split repository, offline snapshot support, and
 execution modes for accredited, non-accredited, and investigation work.
-A second near-term stream should create a simulated DAQ source and a minimal
+
+The parallel technical stream should create a simulated DAQ source and a minimal
 signal-processing graph fixture.
+
+After both streams exist, convert the storage schema draft into versioned
+migrations.

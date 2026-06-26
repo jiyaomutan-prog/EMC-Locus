@@ -10,6 +10,7 @@ class Workstream(str, Enum):
     DOMAIN = "domain"
     METROLOGY = "metrology"
     INSTRUMENT_CONTROL = "instrument_control"
+    SIGNAL = "signal"
     STORAGE = "storage"
     REPORTING = "reporting"
     QUALITY = "quality"
@@ -43,16 +44,31 @@ def default_backlog() -> list[SessionPlan]:
             ),
         ),
         SessionPlan(
-            title="Metrology registry",
+            title="Metrology registry and calibration validity",
             objective=(
-                "Represent instruments, calibration records, and pre-run "
-                "validity checks for measurement campaigns."
+                "Represent instruments, status, calibration records, and "
+                "pre-run validity checks in a metrology-first model."
             ),
             workstreams=(Workstream.METROLOGY, Workstream.QUALITY),
             expected_outputs=(
                 "instrument entity",
+                "instrument status rules",
                 "calibration validity rules",
                 "pre-run equipment checklist",
+            ),
+        ),
+        SessionPlan(
+            title="Simulated DAQ and signal graph",
+            objective=(
+                "Create deterministic time-series fixtures and a minimal "
+                "processing graph for FFT, channel math, event timing, and "
+                "raw-to-result lineage."
+            ),
+            workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.SIGNAL, Workstream.STORAGE),
+            expected_outputs=(
+                "simulated DAQ source",
+                "signal-processing graph model",
+                "lineage fixture",
             ),
         ),
         SessionPlan(
@@ -66,6 +82,20 @@ def default_backlog() -> list[SessionPlan]:
                 "simulated driver interface",
                 "command log",
                 "measurement-run fixture",
+            ),
+        ),
+        SessionPlan(
+            title="Local repository snapshots",
+            objective=(
+                "Define the local snapshot and synchronization boundaries for "
+                "metrology, test definitions, drivers, projects, measurement "
+                "data, report templates, and update metadata."
+            ),
+            workstreams=(Workstream.STORAGE, Workstream.QUALITY),
+            expected_outputs=(
+                "snapshot metadata model",
+                "sync direction rules",
+                "offline validation checklist",
             ),
         ),
     ]

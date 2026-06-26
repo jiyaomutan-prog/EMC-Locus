@@ -39,6 +39,8 @@ crates/
   emc-locus-core/        Rust domain model and core invariants
 docs/
   architecture.md        System boundaries and technical direction
+  product-objectives.md  Consolidated product objectives and non-objectives
+  core-structure.md      Rust core module map and boundary rules
   domain-model.md        Main laboratory entities and state transitions
   iso-17025-alignment.md Traceability and quality-system mapping
   revision-control.md    Versioning, changelog, tags, and release evidence
@@ -55,13 +57,11 @@ python/
 
 ## First Useful Milestones
 
-1. Define the project, campaign, instrument, calibration, measurement, dataset,
-   report, and audit-event models.
-2. Build a storage schema that preserves immutable raw data and controlled
-   metadata changes.
-3. Add a simulated instrument driver before touching real hardware.
-4. Add a minimal campaign workflow with traceability checks.
-5. Generate a first report package from controlled test data.
+1. Add the metrology registry domain model.
+2. Add instrument identity, status, and calibration validity rules.
+3. Add a simulated DAQ source and deterministic signal fixtures.
+4. Add the first signal-processing graph with raw-to-result lineage.
+5. Convert the storage schema draft into versioned migrations.
 
 ## Development Status
 
@@ -83,5 +83,6 @@ Revision tracking uses:
 
 ```text
 py -m compileall python\emc_locus
+cargo fmt --check
 cargo test
 ```

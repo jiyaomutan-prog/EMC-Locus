@@ -25,6 +25,10 @@ change should remain traceable through Git history, session logs, and this file.
   multi-signal math, and synchronized multi-DAQ setups.
 - Rust primitives for measurement axes, DAQ interfaces, synchronization methods,
   signal-processing operations, and CEM time-domain test families.
+- Consolidated product objectives and non-objectives.
+- Rust core crate module split with documented module boundaries.
+- Updated recurring development backlog around metrology, simulated DAQ, local
+  repository snapshots, and migration work.
 
 ### Planned
 

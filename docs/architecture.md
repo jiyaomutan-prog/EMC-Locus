@@ -20,6 +20,7 @@ The Rust core owns business invariants:
 - report approval gates.
 
 This layer should not depend on a database, UI framework, or hardware driver.
+The current module map is documented in `core-structure.md`.
 
 ### 2. Storage and Audit
 
@@ -94,6 +95,7 @@ User/UI
     -> Rust domain core
     -> Storage adapters
     -> Instrument runtime
+    -> Signal acquisition and processing runtime
     -> Python automation pipelines
 ```
 
