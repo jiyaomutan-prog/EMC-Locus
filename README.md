@@ -60,7 +60,7 @@ storage/
 ## First Useful Milestones
 
 1. Add sync persistence adapters around conflict action plans.
-2. Add SQLite adapters for measurement data and test-definition domains.
+2. Add SQLite adapters for test-definition domains.
 3. Add IO-backed VISA/TCP/IP/serial implementations behind the adapter skeletons.
 4. Add a real optimized FFT implementation behind the backend boundary.
 5. Add update bundle/domain validation mapping between Rust and SQLite.

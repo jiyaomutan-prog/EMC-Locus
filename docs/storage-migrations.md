@@ -75,6 +75,7 @@ and executes each domain's SQL in a fresh in-memory SQLite database.
 The Python package now exposes first SQLite-backed adapters:
 
 - `MetrologyRepository`;
+- `MeasurementDataRepository`;
 - `ProjectRepository`;
 - `UpdateCatalogRepository`.
 
@@ -96,6 +97,10 @@ perform minimal insert/count/query operations for smoke testing:
 - per-connection SQLite foreign-key enforcement.
 - update package insert/count/get/list APIs;
 - update install record insert/count/list APIs.
+- immutable dataset insert/count/get/list-by-run APIs;
+- signal channel insert/list APIs;
+- processing graph insert/list APIs;
+- result artifact insert/list APIs.
 
 These adapters are intentionally small. They prove that the migration domains
 are usable from application code before broader query APIs, synchronization, or

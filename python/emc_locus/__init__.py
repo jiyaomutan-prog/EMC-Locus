@@ -3,6 +3,7 @@
 from .migrations import Migration, discover_migrations, validate_sqlite_migrations
 from .session_plan import SessionPlan, Workstream, default_backlog
 from .sqlite_repositories import (
+    MeasurementDataRepository,
     MetrologyRepository,
     ProjectRepository,
     SQLiteDomainRepository,
@@ -11,6 +12,7 @@ from .sqlite_repositories import (
 
 __all__ = [
     "Migration",
+    "MeasurementDataRepository",
     "MetrologyRepository",
     "ProjectRepository",
     "SessionPlan",

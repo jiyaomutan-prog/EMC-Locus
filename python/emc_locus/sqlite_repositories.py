@@ -456,6 +456,233 @@ class ProjectRepository(SQLiteDomainRepository):
         return [dict(row) for row in rows]
 
 
+class MeasurementDataRepository(SQLiteDomainRepository):
+    """SQLite adapter for immutable datasets and signal-processing artifacts."""
+
+    def __init__(self, database_path: Path | str, migrations_root: Path | str) -> None:
+        super().__init__(Path(database_path), Path(migrations_root), "measurement_data")
+
+    def add_dataset(
+        self,
+        *,
+        project_code: str,
+        campaign_reference: str,
+        measurement_run_reference: str,
+        kind: str,
+        file_reference: str,
+        checksum: str,
+        immutable: bool = True,
+    ) -> int:
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO datasets (
+                        project_code,
+                        campaign_reference,
+                        measurement_run_reference,
+                        kind,
+                        file_reference,
+                        checksum,
+                        acquired_at,
+                        immutable
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        project_code,
+                        campaign_reference,
+                        measurement_run_reference,
+                        kind,
+                        file_reference,
+                        checksum,
+                        utc_timestamp(),
+                        int(immutable),
+                    ),
+                )
+        return int(cursor.lastrowid)
+
+    def dataset_count(self) -> int:
+        with closing(self.connect()) as connection:
+            row = connection.execute("SELECT COUNT(*) AS count FROM datasets").fetchone()
+        return int(row["count"])
+
+    def get_dataset(self, dataset_id: int) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM datasets WHERE id = ?",
+                (dataset_id,),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def get_dataset_by_checksum(self, checksum: str) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM datasets WHERE checksum = ? ORDER BY id LIMIT 1",
+                (checksum,),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def datasets_for_run(
+        self,
+        *,
+        measurement_run_reference: str,
+    ) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM datasets
+                WHERE measurement_run_reference = ?
+                ORDER BY acquired_at, id
+                """,
+                (measurement_run_reference,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_signal_channel(
+        self,
+        *,
+        dataset_id: int,
+        name: str,
+        source_kind: str,
+        unit: str,
+        sample_rate_hz: float | None = None,
+        sample_count: int | None = None,
+        synchronization_reference: str | None = None,
+    ) -> int:
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO signal_channels (
+                        dataset_id,
+                        name,
+                        source_kind,
+                        unit,
+                        sample_rate_hz,
+                        sample_count,
+                        synchronization_reference
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        dataset_id,
+                        name,
+                        source_kind,
+                        unit,
+                        sample_rate_hz,
+                        sample_count,
+                        synchronization_reference,
+                    ),
+                )
+        return int(cursor.lastrowid)
+
+    def signal_channels(self, dataset_id: int) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM signal_channels
+                WHERE dataset_id = ?
+                ORDER BY name
+                """,
+                (dataset_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_processing_graph(
+        self,
+        *,
+        source_dataset_id: int,
+        graph_reference: str,
+        operations_json: str,
+        created_by: str,
+        checksum: str,
+    ) -> int:
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO processing_graphs (
+                        source_dataset_id,
+                        graph_reference,
+                        operations_json,
+                        created_by,
+                        created_at,
+                        checksum
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        source_dataset_id,
+                        graph_reference,
+                        operations_json,
+                        created_by,
+                        utc_timestamp(),
+                        checksum,
+                    ),
+                )
+        return int(cursor.lastrowid)
+
+    def processing_graphs_for_dataset(self, dataset_id: int) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM processing_graphs
+                WHERE source_dataset_id = ?
+                ORDER BY created_at, id
+                """,
+                (dataset_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_result_artifact(
+        self,
+        *,
+        processing_graph_id: int,
+        artifact_kind: str,
+        file_reference: str,
+        checksum: str,
+    ) -> int:
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO result_artifacts (
+                        processing_graph_id,
+                        artifact_kind,
+                        file_reference,
+                        checksum,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        processing_graph_id,
+                        artifact_kind,
+                        file_reference,
+                        checksum,
+                        utc_timestamp(),
+                    ),
+                )
+        return int(cursor.lastrowid)
+
+    def result_artifacts(self, processing_graph_id: int) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM result_artifacts
+                WHERE processing_graph_id = ?
+                ORDER BY created_at, id
+                """,
+                (processing_graph_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+
 class UpdateCatalogRepository(SQLiteDomainRepository):
     """SQLite adapter for signed update package and install metadata."""
 

@@ -62,6 +62,7 @@ Deliverables:
 - command and observation log; initial Rust observation log added;
 - measurement-run execution model; initial Rust execution binding added;
 - raw dataset checksum; initial Rust dataset evidence model added;
+- SQLite measurement-data adapter; initial Python adapter added;
 - data-retention policy hooks.
 
 ## Phase 4: Reporting Pipeline
@@ -129,5 +130,5 @@ Deliverables:
 The next productive session should add sync persistence adapters around conflict
 action plans.
 
-The parallel storage stream should add SQLite adapters for measurement data and
-test-definition domains.
+The parallel storage stream should add SQLite adapters for test-definition
+domains.

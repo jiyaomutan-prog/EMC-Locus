@@ -82,11 +82,13 @@ change should remain traceable through Git history, session logs, and this file.
   traceability on spectrum results.
 - Rust VISA, TCP/IP, and serial transport adapter skeletons with endpoint
   validation, timeout policy, and explicit unavailable-IO errors.
+- Python SQLite measurement-data adapter for immutable datasets, signal
+  channels, processing graphs, and result artifacts.
 
 ### Planned
 
 - Add sync persistence adapters around conflict action plans.
-- Add SQLite adapters for measurement data and test-definition domains.
+- Add SQLite adapters for test-definition domains.
 - Add IO-backed VISA/TCP/IP/serial implementations behind the adapter
   skeletons.
 - Add a real optimized FFT implementation behind the backend boundary.

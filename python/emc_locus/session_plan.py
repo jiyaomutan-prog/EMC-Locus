@@ -44,16 +44,16 @@ def default_backlog() -> list[SessionPlan]:
             ),
         ),
         SessionPlan(
-            title="Measurement data SQLite",
+            title="Test definitions SQLite",
             objective=(
-                "Add a first SQLite adapter for immutable measurement data and "
-                "processed dataset metadata."
+                "Add a first SQLite adapter for standards, methods, and "
+                "processing templates in the test-definition domain."
             ),
-            workstreams=(Workstream.STORAGE, Workstream.SIGNAL),
+            workstreams=(Workstream.STORAGE, Workstream.QUALITY),
             expected_outputs=(
-                "measurement data adapter",
-                "raw dataset insert/query APIs",
-                "checksum smoke test",
+                "test definition adapter",
+                "method insert/query APIs",
+                "processing template smoke test",
             ),
         ),
     ]
