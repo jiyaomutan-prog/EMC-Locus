@@ -812,6 +812,168 @@ fn update_policy_requires_signed_packages_and_blocks_live_measurement_updates() 
 }
 
 #[test]
+fn update_package_identity_signature_and_compatibility_are_validated() {
+    assert_eq!(
+        UpdatePackageName::parse(" ").unwrap_err(),
+        DomainError::EmptyUpdatePackageName
+    );
+    assert_eq!(
+        UpdatePackageName::parse("emc core").unwrap_err(),
+        DomainError::InvalidUpdatePackageName("emc core".to_owned())
+    );
+    assert_eq!(
+        UpdateSignature::parse("\t").unwrap_err(),
+        DomainError::EmptyUpdateSignature
+    );
+    assert_eq!(
+        RollbackReference::parse("").unwrap_err(),
+        DomainError::EmptyRollbackReference
+    );
+
+    let error = VersionCompatibilityRange::new(
+        SoftwareVersion::new(0, 2, 0),
+        Some(SoftwareVersion::new(0, 1, 9)),
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::InvalidUpdateCompatibilityRange {
+            minimum_version: "0.2.0".to_owned(),
+            maximum_version: "0.1.9".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn signed_update_bundle_exposes_compatibility_and_rollback_metadata() {
+    let bundle = sample_update_bundle(Some(UpdateSignature::parse("sig:core-020").unwrap()), true);
+    let components = baseline_update_components();
+
+    assert_eq!(bundle.name().as_str(), "emc-locus-core");
+    assert_eq!(bundle.package_version(), SoftwareVersion::new(0, 2, 0));
+    assert_eq!(bundle.component(), UpdateComponent::CoreApplication);
+    assert_eq!(bundle.component().as_str(), "core_application");
+    assert!(components.contains(&UpdateComponent::InstrumentDriver));
+    assert!(components.contains(&UpdateComponent::SignalProcessingEngine));
+    assert!(components.contains(&UpdateComponent::DatabaseMigration));
+    assert!(bundle.signed());
+    assert!(bundle.offline_install_allowed());
+    assert_eq!(bundle.signature().unwrap().as_str(), "sig:core-020");
+    assert_eq!(
+        bundle.rollback_reference().unwrap().as_str(),
+        "emc-locus-core-0.1.0"
+    );
+    assert!(bundle.is_compatible_with(&SoftwareVersion::new(0, 1, 0)));
+    assert!(!bundle.is_compatible_with(&SoftwareVersion::new(0, 2, 0)));
+}
+
+#[test]
+fn update_install_plan_accepts_signed_offline_bundle() {
+    let bundle = sample_update_bundle(Some(UpdateSignature::parse("sig:core-020").unwrap()), true);
+
+    let plan = UpdateInstallPlan::prepare(
+        bundle,
+        UpdatePolicy::laboratory_default(),
+        SoftwareVersion::new(0, 1, 0),
+        UpdateSource::OfflineBundle,
+        false,
+    )
+    .unwrap();
+
+    assert_eq!(plan.bundle().name().as_str(), "emc-locus-core");
+    assert_eq!(plan.bundle().component(), UpdateComponent::CoreApplication);
+    assert_eq!(plan.source(), UpdateSource::OfflineBundle);
+    assert_eq!(plan.source().as_str(), "offline_bundle");
+    assert_eq!(plan.installed_version(), SoftwareVersion::new(0, 1, 0));
+    assert_eq!(
+        plan.rollback_reference().unwrap().as_str(),
+        "emc-locus-core-0.1.0"
+    );
+}
+
+#[test]
+fn update_install_plan_rejects_unsigned_required_package() {
+    let bundle = sample_update_bundle(None, true);
+
+    let error = UpdateInstallPlan::prepare(
+        bundle,
+        UpdatePolicy::laboratory_default(),
+        SoftwareVersion::new(0, 1, 0),
+        UpdateSource::OfflineBundle,
+        false,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::UnsignedUpdatePackage("emc-locus-core".to_owned())
+    );
+}
+
+#[test]
+fn update_install_plan_rejects_offline_bundle_when_catalog_disallows_it() {
+    let bundle = sample_update_bundle(Some(UpdateSignature::parse("sig:core-020").unwrap()), false);
+
+    let error = UpdateInstallPlan::prepare(
+        bundle,
+        UpdatePolicy::laboratory_default(),
+        SoftwareVersion::new(0, 1, 0),
+        UpdateSource::OfflineBundle,
+        false,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::OfflineUpdateInstallNotAllowed("emc-locus-core".to_owned())
+    );
+}
+
+#[test]
+fn update_install_plan_rejects_incompatible_installed_version() {
+    let bundle = sample_update_bundle(Some(UpdateSignature::parse("sig:core-020").unwrap()), true);
+
+    let error = UpdateInstallPlan::prepare(
+        bundle,
+        UpdatePolicy::laboratory_default(),
+        SoftwareVersion::new(0, 2, 0),
+        UpdateSource::OnlineCatalog,
+        false,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::IncompatibleUpdatePackage {
+            package: "emc-locus-core".to_owned(),
+            minimum_version: "0.1.0".to_owned(),
+            maximum_version: Some("0.1.9".to_owned()),
+            actual_version: "0.2.0".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn update_install_plan_blocks_live_measurement_updates() {
+    let bundle = sample_update_bundle(Some(UpdateSignature::parse("sig:core-020").unwrap()), true);
+
+    let error = UpdateInstallPlan::prepare(
+        bundle,
+        UpdatePolicy::laboratory_default(),
+        SoftwareVersion::new(0, 1, 0),
+        UpdateSource::OnlineCatalog,
+        true,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::UpdateDuringMeasurementBlocked("emc-locus-core".to_owned())
+    );
+}
+
+#[test]
 fn instrument_code_rejects_empty_and_unsafe_values() {
     assert_eq!(
         InstrumentCode::parse(" ").unwrap_err(),
@@ -2042,6 +2204,26 @@ fn snapshot_with_signature(domain: RepositoryDomain, signed: bool) -> Repository
         signed,
     )
     .unwrap()
+}
+
+fn sample_update_bundle(
+    signature: Option<UpdateSignature>,
+    offline_install_allowed: bool,
+) -> UpdateBundle {
+    UpdateBundle::new(
+        UpdatePackageName::parse("emc-locus-core").unwrap(),
+        SoftwareVersion::new(0, 2, 0),
+        UpdateComponent::CoreApplication,
+        VersionCompatibilityRange::new(
+            SoftwareVersion::new(0, 1, 0),
+            Some(SoftwareVersion::new(0, 1, 9)),
+        )
+        .unwrap(),
+        SnapshotChecksum::parse("sha256:emc-locus-core-020").unwrap(),
+        signature,
+        offline_install_allowed,
+        Some(RollbackReference::parse("emc-locus-core-0.1.0").unwrap()),
+    )
 }
 
 fn accepted_measurement_plan(run_reference: &str) -> MeasurementRunPlan {

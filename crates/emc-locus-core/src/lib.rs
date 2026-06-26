@@ -18,6 +18,7 @@ pub mod reporting;
 pub mod repositories;
 pub mod signal;
 pub mod traceability;
+pub mod updates;
 
 pub use audit::*;
 pub use datasets::*;
@@ -34,6 +35,7 @@ pub use reporting::*;
 pub use repositories::*;
 pub use signal::*;
 pub use traceability::*;
+pub use updates::*;
 
 #[cfg(test)]
 mod tests;

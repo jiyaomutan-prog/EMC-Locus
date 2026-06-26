@@ -108,6 +108,22 @@ Important fields:
 - issue date;
 - exported files.
 
+### Update Bundle
+
+Represents a controlled software, driver, template, signal-engine, or database
+migration update.
+
+Important fields:
+
+- package name;
+- package version;
+- component;
+- compatibility range for the currently installed version;
+- checksum;
+- signature evidence;
+- offline-install permission;
+- rollback reference.
+
 ### Audit Event
 
 Records a meaningful action or decision.
@@ -289,3 +305,16 @@ only from an issued report and records:
 
 This keeps customer-facing files linked to the controlled report workflow rather
 than treating exports as loose files.
+
+## Update Bundle Workflow
+
+The Rust core now models controlled update bundles. An install plan can be
+prepared only when:
+
+- the package is signed when the laboratory policy requires signatures;
+- the installed software version is inside the package compatibility range;
+- offline installation is allowed by both policy and package metadata;
+- no measurement acquisition is active when policy blocks live updates.
+
+The plan preserves rollback metadata so the future updater can retain evidence
+for recovery and audit review.

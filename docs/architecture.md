@@ -18,6 +18,7 @@ The Rust core owns business invariants:
 - audit-event creation rules;
 - immutable dataset references;
 - report approval gates.
+- update package compatibility and installation gates.
 
 This layer should not depend on a database, UI framework, or hardware driver.
 The current module map is documented in `core-structure.md`.
@@ -110,6 +111,7 @@ User/UI
 - Support separate quality modes for accredited, non-accredited, and
   investigation work.
 - Require signed update packages and block live updates during measurement.
+- Preserve update rollback metadata and installed-version compatibility checks.
 - Support time-domain DAQ workflows beside frequency-domain sweep workflows.
 - Prefer openDAQ for generic DAQ integration while allowing vendor SDK bridges.
 - Keep EN ISO/IEC 17025 alignment as a design checklist, not as a legal claim.

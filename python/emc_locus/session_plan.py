@@ -31,19 +31,6 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Signed update bundles",
-            objective=(
-                "Model signed offline update bundles with compatibility and "
-                "rollback evidence."
-            ),
-            workstreams=(Workstream.STORAGE, Workstream.QUALITY),
-            expected_outputs=(
-                "update bundle model",
-                "compatibility checks",
-                "rollback metadata",
-            ),
-        ),
-        SessionPlan(
             title="Transport adapter spike",
             objective=(
                 "Create the first real transport-adapter spike behind the "
@@ -54,6 +41,19 @@ def default_backlog() -> list[SessionPlan]:
                 "transport trait",
                 "adapter fixture",
                 "simulated conformance test",
+            ),
+        ),
+        SessionPlan(
+            title="Sync application services",
+            objective=(
+                "Add application-service primitives around split-repository "
+                "synchronization conflicts."
+            ),
+            workstreams=(Workstream.STORAGE, Workstream.QUALITY),
+            expected_outputs=(
+                "sync service model",
+                "conflict action plan",
+                "audit-oriented tests",
             ),
         ),
     ]

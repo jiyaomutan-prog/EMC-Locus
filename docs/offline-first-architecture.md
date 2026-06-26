@@ -101,6 +101,14 @@ Owns:
 - compatibility metadata;
 - rollback metadata.
 
+The Rust core now models update bundles with package identity, semantic package
+version, component, signed checksum, optional signature evidence, compatibility
+range, offline-install permission, and rollback reference. Install planning
+rejects unsigned packages when the laboratory policy requires signatures,
+rejects incompatible installed versions, rejects offline bundles when either the
+policy or package disallows them, and blocks update application while a
+measurement acquisition is active.
+
 ## Synchronization
 
 Synchronization should be explicit and reviewable:

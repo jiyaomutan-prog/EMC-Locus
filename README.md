@@ -59,11 +59,11 @@ storage/
 
 ## First Useful Milestones
 
-1. Add signed update bundle workflow.
-2. Add real transport adapter spikes behind the simulated baseline.
-3. Add sync application services around conflict records.
-4. Add broader SQLite write/update APIs.
-5. Add optimized FFT and interpolation-based resampling.
+1. Add real transport adapter spikes behind the simulated baseline.
+2. Add sync application services around conflict records.
+3. Add broader SQLite write/update APIs.
+4. Add optimized FFT and interpolation-based resampling.
+5. Add update-catalog persistence APIs for signed bundles and install records.
 
 ## Development Status
 

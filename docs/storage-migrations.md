@@ -45,6 +45,11 @@ processing graph lineage, and result artifacts.
 Owns signed package metadata, compatibility ranges, offline install permission,
 and installation records.
 
+The Rust core now mirrors these storage concepts with update bundles, semantic
+software versions, package signatures, compatibility-range validation,
+rollback references, and install-plan gates. Persistence APIs still need to map
+these domain objects to `update_packages` and `update_install_records`.
+
 ## Cross-Domain Links
 
 SQLite foreign keys are used inside a domain. Links across domains are stored as

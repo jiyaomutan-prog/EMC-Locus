@@ -113,12 +113,13 @@ Deliverables:
 - snapshot schema compatibility checks; initial Rust validation added;
 - synchronization conflict workflow;
 - synchronization conflict records; initial Rust model added;
-- offline update bundles;
-- rollback and compatibility checks.
+- offline update bundles; initial Rust model added;
+- rollback and compatibility checks; initial Rust validation added.
 
 ## Near-Term Next Session
 
-The next productive session should add signed update bundle workflow.
-
-The parallel runtime stream should add real transport adapter spikes behind the
+The next productive session should add real transport adapter spikes behind the
 simulated baseline.
+
+The parallel storage stream should add sync application services around conflict
+records.

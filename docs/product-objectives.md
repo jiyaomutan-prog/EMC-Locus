@@ -109,13 +109,11 @@ Updates must be controlled like laboratory evidence:
 
 ## Near-Term Implementation Objectives
 
-1. Add the metrology registry domain model.
-2. Add instrument identity, status, and calibration validity rules.
-3. Add a simulated DAQ source and deterministic signal fixtures.
-4. Add the first signal-processing graph with raw-to-result lineage.
-5. Convert the storage schema draft into versioned migrations.
-6. Add explicit execution-mode effects to stage gates and reporting.
-7. Add a local repository snapshot/export format.
+1. Add real transport adapter spikes behind the simulated runtime boundary.
+2. Add sync application services around split-repository conflict records.
+3. Add broader SQLite write/update APIs for existing repositories.
+4. Add update-catalog persistence APIs for signed bundles and install records.
+5. Add optimized FFT and interpolation-based resampling.
 
 ## Non-Objectives
 

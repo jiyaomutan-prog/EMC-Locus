@@ -21,6 +21,7 @@ crates/emc-locus-core/src/
   instrument.rs    Instrument transports and update policy
   instrument_runtime.rs Simulated commands, responses, and observation log
   signal.rs        DAQ, synchronized datasets, simulated source, and signal graph
+  updates.rs       Signed update bundles, compatibility, and install gates
   traceability.rs  Baseline traceability requirements
   error.rs         Domain errors shared by the modules
   tests.rs         Public behavior tests across module boundaries
@@ -36,6 +37,8 @@ crates/emc-locus-core/src/
 - New metrology checks must distinguish blocking safety/quality failures from
   non-blocking attention points.
 - New signal-processing outputs must retain lineage to raw data.
+- New update workflows must preserve signature, compatibility, rollback, and
+  measurement-state gates.
 
 ## Growth Direction
 

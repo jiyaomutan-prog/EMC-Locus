@@ -66,14 +66,16 @@ change should remain traceable through Git history, session logs, and this file.
 - Python SQLite adapter query APIs for instrument, calibration, project, and
   audit-event records.
 - Rust signal windowing and deterministic downsampling execution primitives.
+- Rust update bundle workflow with signed-package checks, compatibility ranges,
+  rollback references, offline-install rules, and live-measurement blocking.
 
 ### Planned
 
 - Add sync application services around conflict records.
-- Add signed update bundle workflow.
 - Add broader SQLite write/update APIs.
 - Add optimized FFT and interpolation-based resampling.
-- Add synchronization conflict records for split repositories.
+- Add real transport adapter spikes behind the simulated baseline.
+- Add update-catalog persistence APIs for signed bundles and install records.
 
 ## [0.1.0] - 2026-06-26
 
