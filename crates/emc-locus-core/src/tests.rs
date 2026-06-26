@@ -431,6 +431,241 @@ fn update_policy_requires_signed_packages_and_blocks_live_measurement_updates() 
 }
 
 #[test]
+fn instrument_code_rejects_empty_and_unsafe_values() {
+    assert_eq!(
+        InstrumentCode::parse(" ").unwrap_err(),
+        DomainError::EmptyInstrumentCode
+    );
+    assert_eq!(
+        InstrumentCode::parse("RX 01").unwrap_err(),
+        DomainError::InvalidInstrumentCode("RX 01".to_owned())
+    );
+
+    let code = InstrumentCode::parse("RX-2026_001.A").unwrap();
+    assert_eq!(code.as_str(), "RX-2026_001.A");
+}
+
+#[test]
+fn metrology_date_validates_calendar_boundaries() {
+    assert!(MetrologyDate::new(2024, 2, 29).is_ok());
+    assert_eq!(
+        MetrologyDate::new(2026, 2, 29).unwrap_err(),
+        DomainError::InvalidMetrologyDate {
+            year: 2026,
+            month: 2,
+            day: 29,
+        }
+    );
+    assert_eq!(
+        MetrologyDate::new(1899, 12, 31).unwrap_err(),
+        DomainError::InvalidMetrologyDate {
+            year: 1899,
+            month: 12,
+            day: 31,
+        }
+    );
+}
+
+#[test]
+fn metrology_registry_rejects_duplicate_instruments() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let instrument = InstrumentRecord::new(
+        code.clone(),
+        InstrumentFamily::Receiver,
+        "Nexio Lab",
+        "Reference Receiver",
+        "SN-001",
+        CalibrationRequirement::Required,
+    )
+    .unwrap();
+    let mut registry = MetrologyRegistry::new();
+
+    registry.register_instrument(instrument.clone()).unwrap();
+    let error = registry.register_instrument(instrument).unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::DuplicateInstrumentCode(code.as_str().to_owned())
+    );
+}
+
+#[test]
+fn calibration_records_must_belong_to_a_registered_instrument() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let record = CalibrationRecord::new(
+        code.clone(),
+        "CERT-001",
+        MetrologyDate::new(2026, 1, 1).unwrap(),
+        MetrologyDate::new(2027, 1, 1).unwrap(),
+        "Accredited Provider",
+    )
+    .unwrap();
+    let mut registry = MetrologyRegistry::new();
+
+    let error = registry.record_calibration(record).unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::UnknownInstrumentCode(code.as_str().to_owned())
+    );
+}
+
+#[test]
+fn accredited_equipment_readiness_requires_valid_calibration() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let mut registry = MetrologyRegistry::new();
+    registry
+        .register_instrument(reference_receiver(code.clone()))
+        .unwrap();
+
+    let report = registry.assess_equipment_readiness(
+        &[code.clone()],
+        ExecutionMode::Accredited,
+        MetrologyDate::new(2026, 6, 27).unwrap(),
+    );
+
+    assert!(!report.is_ready());
+    assert_eq!(report.mode(), ExecutionMode::Accredited);
+    assert_eq!(
+        report.checked_on(),
+        MetrologyDate::new(2026, 6, 27).unwrap()
+    );
+    assert_eq!(report.issues().len(), 1);
+    assert_eq!(report.issues()[0].instrument(), &code);
+    assert_eq!(
+        report.issues()[0].kind(),
+        EquipmentIssueKind::CalibrationMissing
+    );
+    assert!(report.issues()[0].is_blocking());
+}
+
+#[test]
+fn non_accredited_equipment_readiness_flags_expired_calibration_without_blocking() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let mut registry = MetrologyRegistry::new();
+    registry
+        .register_instrument(reference_receiver(code.clone()))
+        .unwrap();
+    registry
+        .record_calibration(
+            CalibrationRecord::new(
+                code.clone(),
+                "CERT-2025-001",
+                MetrologyDate::new(2025, 1, 1).unwrap(),
+                MetrologyDate::new(2026, 1, 1).unwrap(),
+                "Accredited Provider",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    let report = registry.assess_equipment_readiness(
+        &[code],
+        ExecutionMode::NonAccredited,
+        MetrologyDate::new(2026, 6, 27).unwrap(),
+    );
+
+    assert!(report.is_ready());
+    assert_eq!(report.issues().len(), 1);
+    assert_eq!(
+        report.issues()[0].kind(),
+        EquipmentIssueKind::CalibrationExpired
+    );
+    assert!(!report.issues()[0].is_blocking());
+}
+
+#[test]
+fn valid_calibrated_equipment_is_ready_for_accredited_work() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let mut registry = MetrologyRegistry::new();
+    registry
+        .register_instrument(reference_receiver(code.clone()))
+        .unwrap();
+    registry
+        .record_calibration(
+            CalibrationRecord::new(
+                code.clone(),
+                "CERT-2026-001",
+                MetrologyDate::new(2026, 1, 1).unwrap(),
+                MetrologyDate::new(2027, 1, 1).unwrap(),
+                "Accredited Provider",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    let report = registry.assess_equipment_readiness(
+        &[code.clone()],
+        ExecutionMode::Accredited,
+        MetrologyDate::new(2026, 6, 27).unwrap(),
+    );
+
+    assert!(report.is_ready());
+    assert!(report.issues().is_empty());
+    assert_eq!(
+        registry
+            .latest_calibration_for(&code)
+            .unwrap()
+            .certificate_reference(),
+        "CERT-2026-001"
+    );
+}
+
+#[test]
+fn equipment_due_soon_is_reported_as_non_blocking_attention_point() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let mut registry = MetrologyRegistry::new();
+    registry
+        .register_instrument(reference_receiver(code.clone()))
+        .unwrap();
+    registry
+        .record_calibration(
+            CalibrationRecord::new(
+                code.clone(),
+                "CERT-2026-001",
+                MetrologyDate::new(2026, 1, 1).unwrap(),
+                MetrologyDate::new(2026, 7, 15).unwrap(),
+                "Accredited Provider",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    let report = registry.assess_equipment_readiness(
+        &[code],
+        ExecutionMode::Accredited,
+        MetrologyDate::new(2026, 6, 27).unwrap(),
+    );
+
+    assert!(report.is_ready());
+    assert_eq!(report.issues().len(), 1);
+    assert_eq!(
+        report.issues()[0].kind(),
+        EquipmentIssueKind::CalibrationDueSoon
+    );
+    assert!(!report.issues()[0].is_blocking());
+}
+
+#[test]
+fn out_of_service_equipment_blocks_every_execution_mode() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let mut receiver = reference_receiver(code.clone());
+    receiver.set_availability(InstrumentAvailability::OutOfService);
+    let mut registry = MetrologyRegistry::new();
+    registry.register_instrument(receiver).unwrap();
+
+    let report = registry.assess_equipment_readiness(
+        &[code],
+        ExecutionMode::Investigation,
+        MetrologyDate::new(2026, 6, 27).unwrap(),
+    );
+
+    assert!(!report.is_ready());
+    assert_eq!(report.issues()[0].kind(), EquipmentIssueKind::OutOfService);
+    assert!(report.issues()[0].is_blocking());
+}
+
+#[test]
 fn cem_time_domain_workflow_prefers_opendaq_and_mixed_signal_processing() {
     let profile = SignalWorkflowProfile::cem_time_domain_default();
 
@@ -502,4 +737,16 @@ fn campaign_trace_starts_with_the_baseline_requirements() {
 
     assert!(trace.is_baseline_complete());
     assert_eq!(trace.requirements().len(), 11);
+}
+
+fn reference_receiver(code: InstrumentCode) -> InstrumentRecord {
+    InstrumentRecord::new(
+        code,
+        InstrumentFamily::Receiver,
+        "Nexio Lab",
+        "Reference Receiver",
+        "SN-001",
+        CalibrationRequirement::Required,
+    )
+    .unwrap()
 }

@@ -185,3 +185,25 @@ stage transition to `TestPlanning`.
 
 Rejected gate checks are side-effect free: the project stage remains unchanged
 and no audit event is appended.
+
+## Metrology Registry
+
+The Rust core now owns the first metrology registry primitives:
+
+- instrument asset code;
+- instrument family;
+- manufacturer, model, and serial number;
+- availability status;
+- calibration requirement;
+- calibration certificate reference;
+- issue date, due date, and provider;
+- pre-run readiness report.
+
+Accredited work blocks when a required instrument has no valid calibration.
+Non-accredited work still reports missing or expired calibration, but those
+issues are non-blocking unless another safety or availability issue exists.
+Investigation mode can run exploratory checks with relaxed calibration
+constraints, while out-of-service equipment remains blocking in every mode.
+
+Calibration due soon is treated as an attention point rather than a hard block,
+so the operator can continue a valid run while planning renewal.

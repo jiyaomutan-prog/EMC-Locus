@@ -29,10 +29,13 @@ change should remain traceable through Git history, session logs, and this file.
 - Rust core crate module split with documented module boundaries.
 - Updated recurring development backlog around metrology, simulated DAQ, local
   repository snapshots, and migration work.
+- Rust metrology registry primitives for instrument identity, availability,
+  calibration records, calibration status, and pre-run readiness checks.
+- Tests for accredited, non-accredited, and investigation equipment readiness
+  behavior.
 
 ### Planned
 
-- Start the metrology registry with instruments and calibration records.
 - Introduce persistent migrations from the storage schema draft.
 - Connect execution modes to stage gates and report approval rules.
 - Implement a simulated DAQ source and signal-processing pipeline fixtures.

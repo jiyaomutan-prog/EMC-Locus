@@ -31,30 +31,29 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Project lifecycle and audit events",
+            title="Versioned metrology persistence",
             objective=(
-                "Model the project lifecycle from quotation to archive and "
-                "record every controlled transition as an audit event."
+                "Convert the storage schema draft into versioned migrations "
+                "for instruments, calibration records, and project audit data."
             ),
-            workstreams=(Workstream.DOMAIN, Workstream.QUALITY),
+            workstreams=(Workstream.METROLOGY, Workstream.STORAGE, Workstream.QUALITY),
             expected_outputs=(
-                "Rust lifecycle model",
-                "audit event model",
-                "unit tests for allowed and rejected transitions",
+                "migration directory",
+                "initial SQLite migration",
+                "schema validation notes",
             ),
         ),
         SessionPlan(
-            title="Metrology registry and calibration validity",
+            title="Measurement-run readiness gate",
             objective=(
-                "Represent instruments, status, calibration records, and "
-                "pre-run validity checks in a metrology-first model."
+                "Connect metrology readiness reports to the first "
+                "measurement-run planning model."
             ),
-            workstreams=(Workstream.METROLOGY, Workstream.QUALITY),
+            workstreams=(Workstream.DOMAIN, Workstream.METROLOGY, Workstream.QUALITY),
             expected_outputs=(
-                "instrument entity",
-                "instrument status rules",
-                "calibration validity rules",
-                "pre-run equipment checklist",
+                "measurement-run entity",
+                "equipment selection model",
+                "tests for accepted and blocked runs",
             ),
         ),
         SessionPlan(

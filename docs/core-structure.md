@@ -12,6 +12,7 @@ crates/emc-locus-core/src/
   audit.rs         Audit actions and audit events
   project.rs       Project lifecycle and project audit record
   quality.rs       Contract review, deviations, and execution modes
+  metrology.rs     Instrument registry, calibration records, and readiness checks
   repositories.rs  Connectivity, repository domains, and sync policy
   instrument.rs    Instrument transports and update policy
   signal.rs        DAQ, synchronization, and signal-processing primitives
@@ -27,13 +28,14 @@ crates/emc-locus-core/src/
 - Adapters should call core rules; they should not duplicate them.
 - New controlled workflow transitions must create audit evidence.
 - New relaxed workflows must expose their execution mode and deviation evidence.
+- New metrology checks must distinguish blocking safety/quality failures from
+  non-blocking attention points.
 - New signal-processing outputs must retain lineage to raw data.
 
 ## Growth Direction
 
 The next code growth should preserve the current shape:
 
-- metrology identity and calibration rules go into a future `metrology` module;
 - storage migrations should live outside `emc-locus-core`;
 - instrument drivers should live outside `emc-locus-core` and depend on core
   transport/capability concepts;

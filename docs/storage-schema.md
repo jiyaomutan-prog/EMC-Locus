@@ -64,7 +64,9 @@ CREATE TABLE instruments (
     manufacturer TEXT NOT NULL,
     model TEXT NOT NULL,
     serial_number TEXT NOT NULL,
+    family TEXT NOT NULL,
     status TEXT NOT NULL,
+    calibration_requirement TEXT NOT NULL,
     capabilities_json TEXT NOT NULL DEFAULT '[]',
     UNIQUE(manufacturer, model, serial_number)
 );
@@ -80,6 +82,7 @@ CREATE TABLE calibration_records (
     calibrated_at TEXT NOT NULL,
     due_at TEXT NOT NULL,
     provider TEXT NOT NULL,
+    status_at_import TEXT NOT NULL,
     uncertainty_json TEXT NOT NULL DEFAULT '{}',
     file_reference TEXT,
     checksum TEXT,

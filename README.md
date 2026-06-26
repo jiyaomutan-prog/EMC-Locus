@@ -57,11 +57,11 @@ python/
 
 ## First Useful Milestones
 
-1. Add the metrology registry domain model.
-2. Add instrument identity, status, and calibration validity rules.
-3. Add a simulated DAQ source and deterministic signal fixtures.
-4. Add the first signal-processing graph with raw-to-result lineage.
-5. Convert the storage schema draft into versioned migrations.
+1. Connect the metrology registry to versioned persistence migrations.
+2. Add a simulated DAQ source and deterministic signal fixtures.
+3. Add the first signal-processing graph with raw-to-result lineage.
+4. Add a measurement-run model consuming equipment readiness checks.
+5. Add local metrology snapshots for offline field work.
 
 ## Development Status
 

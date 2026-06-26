@@ -39,11 +39,11 @@ Goal: manage instruments and calibration records.
 
 Deliverables:
 
-- instrument registry;
-- calibration status model;
-- out-of-service workflow;
+- instrument registry; initial Rust model added;
+- calibration status model; initial Rust model added;
+- out-of-service workflow; initial Rust blocking rule added;
 - uncertainty references;
-- pre-run equipment validity checks.
+- pre-run equipment validity checks; initial Rust readiness report added.
 
 ## Phase 3: Measurement Runtime
 
@@ -110,12 +110,11 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should start the metrology registry while preserving
-the new product constraints: split repository, offline snapshot support, and
-execution modes for accredited, non-accredited, and investigation work.
+The next productive session should connect the metrology registry to persistence
+planning: split repository, offline snapshot support, and versioned migrations.
 
 The parallel technical stream should create a simulated DAQ source and a minimal
 signal-processing graph fixture.
 
-After both streams exist, convert the storage schema draft into versioned
-migrations.
+After the registry and DAQ fixture exist together, connect pre-run readiness to a
+measurement-run model.
