@@ -138,11 +138,14 @@ Implemented in the Rust core:
 2. deterministic inrush time-series fixture;
 3. synchronized signal dataset with channel metadata;
 4. processing graph nodes for FFT and channel arithmetic vocabulary;
-5. raw lineage lookup from derived outputs back to acquired inputs.
+5. raw lineage lookup from derived outputs back to acquired inputs;
+6. deterministic channel-sum execution;
+7. temporal peak extraction;
+8. deterministic DFT magnitude fixture for FFT-oriented workflows.
 
 Not yet implemented:
 
-- numeric FFT execution;
+- optimized FFT execution;
 - window functions;
 - resampling;
 - persistence of graph instances;

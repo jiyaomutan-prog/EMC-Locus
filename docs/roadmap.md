@@ -82,6 +82,7 @@ Deliverables:
 - simulated DAQ source;
 - synchronized acquisition dataset model; initial Rust model added;
 - FFT and temporal-processing pipeline model; initial graph model added;
+- numeric DFT/peak/channel arithmetic fixture; initial Rust execution added;
 - channel math and signal lineage; initial Rust lineage model added;
 - CEM time-domain test families such as railway harmonics, axle counters, and
   inrush measurements.
@@ -113,8 +114,8 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should start numeric signal-processing execution for
-FFT and temporal analysis fixtures.
-
-The parallel quality stream should add report approval gates for accredited
+The next productive session should add report approval gates for accredited
 workflows.
+
+The parallel storage stream should add persistent adapters for metrology and
+project repositories.

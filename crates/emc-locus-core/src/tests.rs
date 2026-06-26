@@ -1365,6 +1365,142 @@ fn signal_processing_node_requires_inputs() {
 }
 
 #[test]
+fn signal_execution_engine_channel_sum_preserves_samples_and_lineage() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let voltage = SignalReference::parse("voltage_l1").unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+    let output = SignalReference::parse("voltage_plus_current").unwrap();
+
+    let result = SignalExecutionEngine::channel_sum(
+        &dataset,
+        &voltage,
+        &current,
+        output.clone(),
+        SignalUnit::parse("derived").unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(result.output(), &output);
+    assert_eq!(
+        result.operation(),
+        SignalProcessingOperation::ChannelArithmetic
+    );
+    assert_eq!(result.unit().as_str(), "derived");
+    assert_eq!(result.samples()[3], 700);
+    assert_eq!(result.raw_lineage(), &[voltage, current]);
+}
+
+#[test]
+fn signal_execution_engine_peak_reports_absolute_peak() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+    let output = SignalReference::parse("current_peak").unwrap();
+
+    let result = SignalExecutionEngine::peak(&dataset, &current, output.clone()).unwrap();
+
+    assert_eq!(result.output(), &output);
+    assert_eq!(result.operation(), SignalProcessingOperation::Peak);
+    assert_eq!(result.unit().as_str(), "mA");
+    assert_eq!(result.value(), 180.0);
+    assert_eq!(result.raw_lineage(), &[current]);
+}
+
+#[test]
+fn signal_execution_engine_dft_magnitude_returns_deterministic_bins() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+    let output = SignalReference::parse("current_fft").unwrap();
+
+    let result = SignalExecutionEngine::dft_magnitude(&dataset, &current, output.clone()).unwrap();
+
+    assert_eq!(result.output(), &output);
+    assert_eq!(result.operation(), SignalProcessingOperation::Fft);
+    assert_eq!(result.magnitudes().len(), 8);
+    assert!((result.magnitudes()[0] - 425.0).abs() < 1e-9);
+    assert_eq!(result.raw_lineage(), &[current]);
+}
+
+#[test]
+fn signal_execution_engine_rejects_unknown_inputs() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let unknown = SignalReference::parse("missing").unwrap();
+
+    let error = SignalExecutionEngine::peak(
+        &dataset,
+        &unknown,
+        SignalReference::parse("missing_peak").unwrap(),
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::UnknownSignalReference("missing".to_owned())
+    );
+}
+
+#[test]
+fn signal_execution_engine_rejects_sample_count_mismatch() {
+    let sample_rate = SampleRateHz::new(10_000).unwrap();
+    let left = AcquiredSignalChannel::new(
+        SignalReference::parse("left").unwrap(),
+        SignalSourceKind::AnalogVoltage,
+        SignalUnit::parse("mV").unwrap(),
+        sample_rate,
+        vec![1, 2, 3],
+    );
+    let right = AcquiredSignalChannel::new(
+        SignalReference::parse("right").unwrap(),
+        SignalSourceKind::AnalogVoltage,
+        SignalUnit::parse("mV").unwrap(),
+        sample_rate,
+        vec![1, 2],
+    );
+    let dataset = SignalDataset::new(
+        DaqInterface::Simulated,
+        SynchronizationMethod::SharedSampleClock,
+        vec![left],
+    )
+    .unwrap();
+    let dataset = SignalDataset::new(
+        dataset.daq_interface(),
+        dataset.synchronization_method(),
+        vec![
+            dataset
+                .channel(&SignalReference::parse("left").unwrap())
+                .unwrap()
+                .clone(),
+            right,
+        ],
+    )
+    .unwrap();
+
+    let error = SignalExecutionEngine::channel_sum(
+        &dataset,
+        &SignalReference::parse("left").unwrap(),
+        &SignalReference::parse("right").unwrap(),
+        SignalReference::parse("sum").unwrap(),
+        SignalUnit::parse("mV").unwrap(),
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::SignalSampleCountMismatch {
+            left_count: 3,
+            right_count: 2,
+        }
+    );
+}
+
+#[test]
 fn synchronization_baseline_covers_multi_daq_alignment_methods() {
     let methods = baseline_synchronization_methods();
 

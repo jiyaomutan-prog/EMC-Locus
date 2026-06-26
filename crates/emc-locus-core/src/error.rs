@@ -42,6 +42,15 @@ pub enum DomainError {
     EmptySignalUnit,
     InvalidSampleRateHz(u32),
     EmptySignalDataset,
+    EmptySignalSamples(String),
+    SignalSampleRateMismatch {
+        left_hz: u32,
+        right_hz: u32,
+    },
+    SignalSampleCountMismatch {
+        left_count: usize,
+        right_count: usize,
+    },
     EmptyProcessingNodeInputs,
     DuplicateProcessingNode(String),
     UnknownSignalReference(String),

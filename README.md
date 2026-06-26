@@ -59,11 +59,11 @@ storage/
 
 ## First Useful Milestones
 
-1. Start numeric signal-processing execution for FFT and temporal analysis.
-2. Add report approval gates for accredited workflows.
+1. Add report approval gates for accredited workflows.
+2. Add persistent adapters for metrology and project repositories.
 3. Add synchronization conflict records for split repositories.
 4. Add typed safety limits for instrument commands.
-5. Add persistent adapters for metrology and project repositories.
+5. Add optimized FFT/windowing and resampling execution.
 
 ## Development Status
 

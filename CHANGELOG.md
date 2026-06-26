@@ -49,13 +49,15 @@ change should remain traceable through Git history, session logs, and this file.
   logs.
 - Rust dataset evidence model linking accepted measurement-run plans to command
   observations, immutable raw dataset records, file references, and checksums.
+- Rust signal execution primitives for deterministic channel arithmetic, peak
+  extraction, and DFT magnitude fixtures.
 
 ### Planned
 
 - Connect execution modes to stage gates and report approval rules.
-- Add numeric signal-processing execution for FFT and temporal analysis.
 - Add typed safety limits for instrument commands.
 - Add persistent adapters for metrology and project repositories.
+- Add optimized FFT/windowing and resampling execution.
 
 ## [0.1.0] - 2026-06-26
 

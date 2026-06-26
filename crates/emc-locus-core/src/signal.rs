@@ -1,3 +1,5 @@
+use std::f64::consts::PI;
+
 use crate::DomainError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -451,6 +453,274 @@ impl SignalProcessingGraph {
             }
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SignalSeriesResult {
+    output: SignalReference,
+    operation: SignalProcessingOperation,
+    unit: SignalUnit,
+    samples: Vec<i64>,
+    raw_lineage: Vec<SignalReference>,
+}
+
+impl SignalSeriesResult {
+    fn new(
+        output: SignalReference,
+        operation: SignalProcessingOperation,
+        unit: SignalUnit,
+        samples: Vec<i64>,
+        raw_lineage: Vec<SignalReference>,
+    ) -> Self {
+        Self {
+            output,
+            operation,
+            unit,
+            samples,
+            raw_lineage,
+        }
+    }
+
+    pub fn output(&self) -> &SignalReference {
+        &self.output
+    }
+
+    pub fn operation(&self) -> SignalProcessingOperation {
+        self.operation
+    }
+
+    pub fn unit(&self) -> &SignalUnit {
+        &self.unit
+    }
+
+    pub fn samples(&self) -> &[i64] {
+        &self.samples
+    }
+
+    pub fn raw_lineage(&self) -> &[SignalReference] {
+        &self.raw_lineage
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SignalScalarResult {
+    output: SignalReference,
+    operation: SignalProcessingOperation,
+    unit: SignalUnit,
+    value: f64,
+    raw_lineage: Vec<SignalReference>,
+}
+
+impl SignalScalarResult {
+    fn new(
+        output: SignalReference,
+        operation: SignalProcessingOperation,
+        unit: SignalUnit,
+        value: f64,
+        raw_lineage: Vec<SignalReference>,
+    ) -> Self {
+        Self {
+            output,
+            operation,
+            unit,
+            value,
+            raw_lineage,
+        }
+    }
+
+    pub fn output(&self) -> &SignalReference {
+        &self.output
+    }
+
+    pub fn operation(&self) -> SignalProcessingOperation {
+        self.operation
+    }
+
+    pub fn unit(&self) -> &SignalUnit {
+        &self.unit
+    }
+
+    pub fn value(&self) -> f64 {
+        self.value
+    }
+
+    pub fn raw_lineage(&self) -> &[SignalReference] {
+        &self.raw_lineage
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SignalSpectrumResult {
+    output: SignalReference,
+    operation: SignalProcessingOperation,
+    magnitudes: Vec<f64>,
+    raw_lineage: Vec<SignalReference>,
+}
+
+impl SignalSpectrumResult {
+    fn new(
+        output: SignalReference,
+        operation: SignalProcessingOperation,
+        magnitudes: Vec<f64>,
+        raw_lineage: Vec<SignalReference>,
+    ) -> Self {
+        Self {
+            output,
+            operation,
+            magnitudes,
+            raw_lineage,
+        }
+    }
+
+    pub fn output(&self) -> &SignalReference {
+        &self.output
+    }
+
+    pub fn operation(&self) -> SignalProcessingOperation {
+        self.operation
+    }
+
+    pub fn magnitudes(&self) -> &[f64] {
+        &self.magnitudes
+    }
+
+    pub fn raw_lineage(&self) -> &[SignalReference] {
+        &self.raw_lineage
+    }
+}
+
+pub struct SignalExecutionEngine;
+
+impl SignalExecutionEngine {
+    pub fn channel_sum(
+        dataset: &SignalDataset,
+        left: &SignalReference,
+        right: &SignalReference,
+        output: SignalReference,
+        output_unit: SignalUnit,
+    ) -> Result<SignalSeriesResult, DomainError> {
+        let left_channel = required_channel(dataset, left)?;
+        let right_channel = required_channel(dataset, right)?;
+
+        validate_sample_compatibility(left_channel, right_channel)?;
+
+        let samples = left_channel
+            .samples()
+            .iter()
+            .zip(right_channel.samples())
+            .map(|(left, right)| left + right)
+            .collect();
+
+        Ok(SignalSeriesResult::new(
+            output,
+            SignalProcessingOperation::ChannelArithmetic,
+            output_unit,
+            samples,
+            raw_lineage(vec![left.clone(), right.clone()]),
+        ))
+    }
+
+    pub fn peak(
+        dataset: &SignalDataset,
+        source: &SignalReference,
+        output: SignalReference,
+    ) -> Result<SignalScalarResult, DomainError> {
+        let channel = required_channel(dataset, source)?;
+        if channel.samples().is_empty() {
+            return Err(DomainError::EmptySignalSamples(source.as_str().to_owned()));
+        }
+
+        let value = channel
+            .samples()
+            .iter()
+            .map(|sample| sample.abs() as f64)
+            .fold(0.0, f64::max);
+
+        Ok(SignalScalarResult::new(
+            output,
+            SignalProcessingOperation::Peak,
+            channel.unit().clone(),
+            value,
+            vec![source.clone()],
+        ))
+    }
+
+    pub fn dft_magnitude(
+        dataset: &SignalDataset,
+        source: &SignalReference,
+        output: SignalReference,
+    ) -> Result<SignalSpectrumResult, DomainError> {
+        let channel = required_channel(dataset, source)?;
+        if channel.samples().is_empty() {
+            return Err(DomainError::EmptySignalSamples(source.as_str().to_owned()));
+        }
+
+        let samples: Vec<f64> = channel
+            .samples()
+            .iter()
+            .map(|sample| *sample as f64)
+            .collect();
+        let count = samples.len();
+        let mut magnitudes = Vec::with_capacity(count);
+
+        for bin in 0..count {
+            let mut real = 0.0;
+            let mut imaginary = 0.0;
+            for (index, sample) in samples.iter().enumerate() {
+                let angle = -2.0 * PI * bin as f64 * index as f64 / count as f64;
+                real += sample * angle.cos();
+                imaginary += sample * angle.sin();
+            }
+            magnitudes.push((real.powi(2) + imaginary.powi(2)).sqrt());
+        }
+
+        Ok(SignalSpectrumResult::new(
+            output,
+            SignalProcessingOperation::Fft,
+            magnitudes,
+            vec![source.clone()],
+        ))
+    }
+}
+
+fn required_channel<'a>(
+    dataset: &'a SignalDataset,
+    reference: &SignalReference,
+) -> Result<&'a AcquiredSignalChannel, DomainError> {
+    dataset
+        .channel(reference)
+        .ok_or_else(|| DomainError::UnknownSignalReference(reference.as_str().to_owned()))
+}
+
+fn validate_sample_compatibility(
+    left: &AcquiredSignalChannel,
+    right: &AcquiredSignalChannel,
+) -> Result<(), DomainError> {
+    if left.sample_rate() != right.sample_rate() {
+        return Err(DomainError::SignalSampleRateMismatch {
+            left_hz: left.sample_rate().value(),
+            right_hz: right.sample_rate().value(),
+        });
+    }
+
+    if left.samples().len() != right.samples().len() {
+        return Err(DomainError::SignalSampleCountMismatch {
+            left_count: left.samples().len(),
+            right_count: right.samples().len(),
+        });
+    }
+
+    Ok(())
+}
+
+fn raw_lineage(inputs: Vec<SignalReference>) -> Vec<SignalReference> {
+    let mut lineage = Vec::new();
+    for input in inputs {
+        if !lineage.contains(&input) {
+            lineage.push(input);
+        }
+    }
+    lineage
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

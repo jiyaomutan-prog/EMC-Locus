@@ -31,16 +31,29 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Signal execution engine",
+            title="Report approval gates",
             objective=(
-                "Start executing approved signal-processing graph nodes for "
-                "FFT, channel math, event timing, and raw-to-result lineage."
+                "Add technical review and report approval gates for "
+                "accredited workflows."
             ),
-            workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.SIGNAL, Workstream.STORAGE),
+            workstreams=(Workstream.DOMAIN, Workstream.REPORTING, Workstream.QUALITY),
             expected_outputs=(
-                "deterministic FFT fixture",
-                "channel math execution",
-                "result artifact model",
+                "report package model",
+                "technical review gate",
+                "approval tests",
+            ),
+        ),
+        SessionPlan(
+            title="Persistent repository adapters",
+            objective=(
+                "Create the first SQLite-backed adapters for metrology and "
+                "project records using the versioned migrations."
+            ),
+            workstreams=(Workstream.METROLOGY, Workstream.STORAGE, Workstream.QUALITY),
+            expected_outputs=(
+                "metrology adapter skeleton",
+                "project adapter skeleton",
+                "migration-backed smoke test",
             ),
         ),
     ]
