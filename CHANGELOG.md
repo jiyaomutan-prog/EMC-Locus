@@ -73,14 +73,17 @@ change should remain traceable through Git history, session logs, and this file.
   safety-limit enforcement.
 - Rust synchronization conflict service that turns conflict resolutions into
   audit-required action plans and applies/deferred resolutions safely.
+- Python SQLite write APIs for instrument availability/capabilities,
+  calibration attachments, project stage changes with audit events, and
+  contract-review item completion.
 
 ### Planned
 
-- Add broader SQLite write/update APIs.
 - Add optimized FFT and interpolation-based resampling.
 - Add update-catalog persistence APIs for signed bundles and install records.
 - Add concrete VISA/TCP/IP/serial adapters behind the transport boundary.
 - Add sync persistence adapters around conflict action plans.
+- Add SQLite adapters for measurement data and test-definition domains.
 
 ## [0.1.0] - 2026-06-26
 

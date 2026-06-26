@@ -31,19 +31,6 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="SQLite write APIs",
-            objective=(
-                "Broaden the SQLite adapters with update/delete operations "
-                "for existing metrology and project repositories."
-            ),
-            workstreams=(Workstream.STORAGE, Workstream.QUALITY),
-            expected_outputs=(
-                "write API methods",
-                "transaction tests",
-                "audit side-effect checks",
-            ),
-        ),
-        SessionPlan(
             title="Update catalog persistence",
             objective=(
                 "Persist signed update bundles and install records in the "
@@ -54,6 +41,19 @@ def default_backlog() -> list[SessionPlan]:
                 "update catalog adapter",
                 "bundle insert/query APIs",
                 "install record smoke test",
+            ),
+        ),
+        SessionPlan(
+            title="Optimized signal resampling",
+            objective=(
+                "Add optimized FFT and interpolation-based resampling behind "
+                "the deterministic signal execution fixtures."
+            ),
+            workstreams=(Workstream.SIGNAL, Workstream.QUALITY),
+            expected_outputs=(
+                "FFT backend boundary",
+                "interpolation resampling fixture",
+                "comparison tests",
             ),
         ),
     ]

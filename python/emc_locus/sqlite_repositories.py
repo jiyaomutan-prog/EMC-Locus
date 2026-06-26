@@ -43,6 +43,7 @@ class SQLiteDomainRepository:
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
     def metadata(self) -> dict[str, str]:
@@ -193,6 +194,59 @@ class MetrologyRepository(SQLiteDomainRepository):
             ).fetchone()
         return row_to_dict(row)
 
+    def update_instrument_availability(self, *, asset_id: str, availability: str) -> bool:
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    UPDATE instruments
+                    SET availability = ?, updated_at = ?
+                    WHERE asset_id = ?
+                    """,
+                    (availability, now, asset_id),
+                )
+        return cursor.rowcount == 1
+
+    def update_instrument_capabilities(
+        self,
+        *,
+        asset_id: str,
+        capabilities_json: str,
+    ) -> bool:
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    UPDATE instruments
+                    SET capabilities_json = ?, updated_at = ?
+                    WHERE asset_id = ?
+                    """,
+                    (capabilities_json, now, asset_id),
+                )
+        return cursor.rowcount == 1
+
+    def update_calibration_attachment(
+        self,
+        *,
+        asset_id: str,
+        certificate_reference: str,
+        file_reference: str | None,
+        checksum: str | None,
+    ) -> bool:
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    UPDATE calibration_records
+                    SET file_reference = ?, checksum = ?
+                    WHERE asset_id = ? AND certificate_reference = ?
+                    """,
+                    (file_reference, checksum, asset_id, certificate_reference),
+                )
+        return cursor.rowcount == 1
+
 
 class ProjectRepository(SQLiteDomainRepository):
     """SQLite adapter for projects and project audit events."""
@@ -293,6 +347,109 @@ class ProjectRepository(SQLiteDomainRepository):
                 FROM project_audit_events
                 WHERE project_code = ?
                 ORDER BY sequence
+                """,
+                (project_code,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def set_project_stage_with_audit(
+        self,
+        *,
+        code: str,
+        stage: str,
+        actor: str,
+        reason: str | None = None,
+        action: str = "project_stage_set",
+        payload_json: str = "{}",
+    ) -> int | None:
+        """Persist a domain-approved project stage change and audit event."""
+
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                project = connection.execute(
+                    "SELECT code FROM projects WHERE code = ?",
+                    (code,),
+                ).fetchone()
+                if project is None:
+                    return None
+
+                sequence_row = connection.execute(
+                    """
+                    SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+                    FROM project_audit_events
+                    WHERE project_code = ?
+                    """,
+                    (code,),
+                ).fetchone()
+                sequence = int(sequence_row["next_sequence"])
+                archived_at = now if stage == "archived" else None
+
+                connection.execute(
+                    """
+                    UPDATE projects
+                    SET stage = ?,
+                        archived_at = CASE WHEN ? IS NULL THEN archived_at ELSE ? END
+                    WHERE code = ?
+                    """,
+                    (stage, archived_at, archived_at, code),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO project_audit_events (
+                        project_code,
+                        sequence,
+                        actor,
+                        action,
+                        reason,
+                        payload_json,
+                        occurred_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (code, sequence, actor, action, reason, payload_json, now),
+                )
+        return sequence
+
+    def complete_contract_review_item(
+        self,
+        *,
+        project_code: str,
+        item: str,
+        completed_by: str,
+        comment: str | None = None,
+    ) -> None:
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO contract_review_items (
+                        project_code,
+                        item,
+                        completed,
+                        completed_by,
+                        completed_at,
+                        comment
+                    )
+                    VALUES (?, ?, 1, ?, ?, ?)
+                    ON CONFLICT(project_code, item) DO UPDATE SET
+                        completed = 1,
+                        completed_by = excluded.completed_by,
+                        completed_at = excluded.completed_at,
+                        comment = excluded.comment
+                    """,
+                    (project_code, item, completed_by, now, comment),
+                )
+
+    def contract_review_items(self, project_code: str) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM contract_review_items
+                WHERE project_code = ?
+                ORDER BY item
                 """,
                 (project_code,),
             ).fetchall()

@@ -88,6 +88,11 @@ perform minimal insert/count/query operations for smoke testing:
 - latest calibration lookup;
 - project lookup/listing;
 - ordered project audit-event listing.
+- instrument availability and capability updates;
+- calibration attachment updates;
+- project stage changes with an audit event in the same transaction;
+- contract-review item completion/upsert;
+- per-connection SQLite foreign-key enforcement.
 
 These adapters are intentionally small. They prove that the migration domains
 are usable from application code before broader query APIs, synchronization, or

@@ -26,6 +26,8 @@ Deliverables:
 - audit events; initial Rust project audit log added;
 - contract-review checklist; initial Rust checklist added;
 - contract-review stage gate; initial Rust gate added;
+- SQLite project stage/audit and contract-review write APIs; initial Python
+  updates added;
 - public BAT-EMC feature baseline; initial analysis added;
 - quality modes and offline policy primitives; initial Rust model added;
 - DewesoftX/openDAQ concept baseline; initial analysis added;
@@ -47,6 +49,7 @@ Deliverables:
 - pre-run equipment validity checks; initial Rust readiness report added.
 - SQLite metrology adapter; initial Python smoke adapter added.
 - SQLite metrology query APIs; initial Python lookups added.
+- SQLite metrology write APIs; initial Python updates added.
 
 ## Phase 3: Measurement Runtime
 
@@ -119,7 +122,8 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should add broader SQLite write/update APIs.
-
-The parallel storage stream should add update-catalog persistence APIs for
+The next productive session should add update-catalog persistence APIs for
 signed bundles and install records.
+
+The parallel signal stream should add optimized FFT and interpolation-based
+resampling.

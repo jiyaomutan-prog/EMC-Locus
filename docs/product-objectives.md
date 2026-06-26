@@ -109,11 +109,11 @@ Updates must be controlled like laboratory evidence:
 
 ## Near-Term Implementation Objectives
 
-1. Add broader SQLite write/update APIs for existing repositories.
-2. Add update-catalog persistence APIs for signed bundles and install records.
-3. Add optimized FFT and interpolation-based resampling.
-4. Add concrete VISA, TCP/IP, and serial adapters behind the transport boundary.
-5. Add sync persistence adapters around conflict action plans.
+1. Add update-catalog persistence APIs for signed bundles and install records.
+2. Add optimized FFT and interpolation-based resampling.
+3. Add concrete VISA, TCP/IP, and serial adapters behind the transport boundary.
+4. Add sync persistence adapters around conflict action plans.
+5. Add SQLite adapters for measurement data and test-definition domains.
 
 ## Non-Objectives
 
