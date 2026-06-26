@@ -31,6 +31,7 @@ Deliverables:
 - DewesoftX/openDAQ concept baseline; initial analysis added;
 - signal acquisition and analysis primitives; initial Rust model added;
 - first storage schema draft; initial SQLite sketch added.
+- versioned split SQLite migrations; initial domain migrations added.
 - Rust core module split; initial structure added.
 
 ## Phase 2: Metrology Database
@@ -110,11 +111,11 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should connect the metrology registry to persistence
-planning: split repository, offline snapshot support, and versioned migrations.
-
-The parallel technical stream should create a simulated DAQ source and a minimal
+The next productive session should create the simulated DAQ source and minimal
 signal-processing graph fixture.
+
+The parallel storage stream should add local snapshot metadata and compatibility
+checks around the split SQLite repositories.
 
 After the registry and DAQ fixture exist together, connect pre-run readiness to a
 measurement-run model.

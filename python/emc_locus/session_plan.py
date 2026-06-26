@@ -31,16 +31,16 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Versioned metrology persistence",
+            title="Local repository snapshots",
             objective=(
-                "Convert the storage schema draft into versioned migrations "
-                "for instruments, calibration records, and project audit data."
+                "Define local snapshot metadata, compatibility checks, and "
+                "offline validation rules for split repositories."
             ),
-            workstreams=(Workstream.METROLOGY, Workstream.STORAGE, Workstream.QUALITY),
+            workstreams=(Workstream.STORAGE, Workstream.QUALITY),
             expected_outputs=(
-                "migration directory",
-                "initial SQLite migration",
-                "schema validation notes",
+                "snapshot metadata model",
+                "compatibility rule set",
+                "offline validation checklist",
             ),
         ),
         SessionPlan(
@@ -81,20 +81,6 @@ def default_backlog() -> list[SessionPlan]:
                 "simulated driver interface",
                 "command log",
                 "measurement-run fixture",
-            ),
-        ),
-        SessionPlan(
-            title="Local repository snapshots",
-            objective=(
-                "Define the local snapshot and synchronization boundaries for "
-                "metrology, test definitions, drivers, projects, measurement "
-                "data, report templates, and update metadata."
-            ),
-            workstreams=(Workstream.STORAGE, Workstream.QUALITY),
-            expected_outputs=(
-                "snapshot metadata model",
-                "sync direction rules",
-                "offline validation checklist",
             ),
         ),
     ]

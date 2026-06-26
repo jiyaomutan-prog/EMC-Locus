@@ -33,12 +33,16 @@ change should remain traceable through Git history, session logs, and this file.
   calibration records, calibration status, and pre-run readiness checks.
 - Tests for accredited, non-accredited, and investigation equipment readiness
   behavior.
+- Versioned SQLite migration domains for metrology, projects, test definitions,
+  measurement data, and update catalog repositories.
+- Python migration validation helper for filename, version, and executable SQL
+  checks.
 
 ### Planned
 
-- Introduce persistent migrations from the storage schema draft.
 - Connect execution modes to stage gates and report approval rules.
 - Implement a simulated DAQ source and signal-processing pipeline fixtures.
+- Add local snapshot metadata and compatibility checks for split repositories.
 
 ## [0.1.0] - 2026-06-26
 

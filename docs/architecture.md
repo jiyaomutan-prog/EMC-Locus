@@ -34,9 +34,10 @@ The storage layer should preserve:
 
 EMC Locus should not depend on a single remote repository during acquisition.
 The first architecture target is a set of local SQLite repositories split by
-domain, with signed snapshots and synchronization flows. See
-`offline-first-architecture.md` for the repository split and offline-field
-direction.
+domain, with signed snapshots and synchronization flows. The first versioned
+SQLite migrations live under `storage/sqlite/`. See
+`offline-first-architecture.md` for the repository split and
+`storage-migrations.md` for the migration layout.
 
 ### 3. Instrument Runtime
 

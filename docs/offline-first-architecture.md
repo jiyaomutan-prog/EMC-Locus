@@ -126,3 +126,7 @@ Synchronization should be explicit and reviewable:
 Early implementation can use SQLite per domain plus exported signed bundles.
 Later implementations can add PostgreSQL, object storage, content-addressed raw
 data, or peer-to-peer synchronization where needed.
+
+The initial SQLite migration split is now represented in `storage/sqlite/` for
+metrology, projects, test definitions, measurement data, and update catalog
+repositories.

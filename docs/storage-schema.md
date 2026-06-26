@@ -1,7 +1,8 @@
 # Storage Schema Draft
 
-This draft targets SQLite for an early single-workstation implementation. It is
-a persistence sketch, not a final migration file.
+This draft targets SQLite for an early single-workstation implementation. The
+first versioned migrations now live under `storage/sqlite/` and are split by
+domain repository.
 
 ## Principles
 
@@ -13,6 +14,10 @@ a persistence sketch, not a final migration file.
 - Application code should enforce domain invariants before writing rows.
 
 ## Tables
+
+The original sketch below remains as a readable overview. The executable
+migrations separate these tables into metrology, projects, test definitions,
+measurement data, and update catalog domains.
 
 ### projects
 

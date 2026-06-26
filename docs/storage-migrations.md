@@ -1,0 +1,66 @@
+# Storage Migrations
+
+EMC Locus uses versioned SQLite migrations for the first local/offline storage
+target.
+
+The storage layout intentionally follows the repository split:
+
+```text
+storage/sqlite/
+  metrology/
+  projects/
+  test_definitions/
+  measurement_data/
+  update_catalog/
+```
+
+Each folder is applied to a separate SQLite database file in a future runtime.
+This allows a field station to refresh reference repositories without rewriting
+project records or raw measurement data.
+
+## Domain Boundaries
+
+### Metrology
+
+Owns instrument identities, families, availability, calibration requirements,
+and calibration certificates.
+
+### Projects
+
+Owns customer projects, audit events, contract review, campaigns, measurement
+run references, equipment selections, and report workflow state.
+
+### Test Definitions
+
+Owns standards, methods, method revisions, approved parameters, acceptance
+criteria, processing graph definitions, and step-by-step evidence expectations.
+
+### Measurement Data
+
+Owns immutable raw and processed dataset records, signal channel metadata,
+processing graph lineage, and result artifacts.
+
+### Update Catalog
+
+Owns signed package metadata, compatibility ranges, offline install permission,
+and installation records.
+
+## Cross-Domain Links
+
+SQLite foreign keys are used inside a domain. Links across domains are stored as
+stable references such as project code, asset id, certificate reference, method
+code, dataset checksum, or package version.
+
+That rule is deliberate: cross-domain references must survive export, offline
+snapshot restore, and delayed synchronization.
+
+## Validation
+
+Python exposes a small validation helper:
+
+```text
+$env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrations import validate_sqlite_migrations; print(validate_sqlite_migrations(Path('storage/sqlite')))"
+```
+
+The helper checks migration filenames, detects duplicate versions per domain,
+and executes each domain's SQL in a fresh in-memory SQLite database.

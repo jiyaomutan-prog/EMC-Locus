@@ -53,6 +53,8 @@ docs/
   roadmap.md             Incremental delivery plan
 python/
   emc_locus/             Python helper package for planning and automation
+storage/
+  sqlite/                 Versioned SQLite migrations split by domain
 ```
 
 ## First Useful Milestones
@@ -83,6 +85,7 @@ Revision tracking uses:
 
 ```text
 py -m compileall python\emc_locus
+$env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrations import validate_sqlite_migrations; print(validate_sqlite_migrations(Path('storage/sqlite')))"
 cargo fmt --check
 cargo test
 ```
