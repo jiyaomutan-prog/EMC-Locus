@@ -59,11 +59,11 @@ storage/
 
 ## First Useful Milestones
 
-1. Add synchronization conflict records for split repositories.
-2. Add report export bundle evidence.
+1. Add report export bundle evidence.
+2. Expand SQLite adapters beyond smoke operations.
 3. Add optimized FFT/windowing and resampling execution.
-4. Expand SQLite adapters beyond smoke operations.
-5. Add real transport adapter spikes behind the simulated baseline.
+4. Add real transport adapter spikes behind the simulated baseline.
+5. Add sync application services around conflict records.
 
 ## Development Status
 

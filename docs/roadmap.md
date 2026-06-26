@@ -110,12 +110,13 @@ Deliverables:
 - signed reference snapshots; initial Rust field-package model added;
 - snapshot schema compatibility checks; initial Rust validation added;
 - synchronization conflict workflow;
+- synchronization conflict records; initial Rust model added;
 - offline update bundles;
 - rollback and compatibility checks.
 
 ## Near-Term Next Session
 
-The next productive session should add synchronization conflict records for
-split repositories.
+The next productive session should add report export bundle evidence.
 
-The parallel reporting stream should add report export bundle evidence.
+The parallel storage stream should expand SQLite adapters beyond smoke
+operations.

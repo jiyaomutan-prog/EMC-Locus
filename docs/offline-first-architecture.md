@@ -112,6 +112,20 @@ Synchronization should be explicit and reviewable:
 - record sync audit events;
 - never rewrite immutable raw data.
 
+The Rust core now includes synchronization conflict records with:
+
+- conflict id;
+- repository domain;
+- conflict kind;
+- local snapshot id;
+- reference snapshot id;
+- status;
+- resolution.
+
+Supported first conflict kinds include concurrent update, local/reference
+deletion, checksum mismatch, and schema mismatch. A conflict can be resolved or
+deferred for later review, but a resolved conflict cannot be resolved again.
+
 ## Field Workflow
 
 1. Prepare a signed field package in the laboratory.

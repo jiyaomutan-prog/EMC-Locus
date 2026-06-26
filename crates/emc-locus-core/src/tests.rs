@@ -538,6 +538,86 @@ fn signed_field_repository_package_validates_for_offline_work() {
 }
 
 #[test]
+fn sync_conflict_id_rejects_empty_and_unsafe_values() {
+    assert_eq!(
+        SyncConflictId::parse(" ").unwrap_err(),
+        DomainError::EmptySyncConflictId
+    );
+    assert_eq!(
+        SyncConflictId::parse("sync conflict").unwrap_err(),
+        DomainError::InvalidSyncConflictId("sync conflict".to_owned())
+    );
+
+    assert_eq!(
+        SyncConflictId::parse("conflict-001").unwrap().as_str(),
+        "conflict-001"
+    );
+}
+
+#[test]
+fn sync_conflict_record_starts_open_with_snapshot_context() {
+    let conflict = SyncConflictRecord::new(
+        SyncConflictId::parse("conflict-001").unwrap(),
+        RepositoryDomain::ProjectRecords,
+        SyncConflictKind::ConcurrentUpdate,
+        RepositorySnapshotId::parse("local-v1").unwrap(),
+        RepositorySnapshotId::parse("reference-v2").unwrap(),
+    );
+
+    assert_eq!(conflict.id().as_str(), "conflict-001");
+    assert_eq!(conflict.domain(), RepositoryDomain::ProjectRecords);
+    assert_eq!(conflict.kind(), SyncConflictKind::ConcurrentUpdate);
+    assert_eq!(conflict.local_snapshot().as_str(), "local-v1");
+    assert_eq!(conflict.reference_snapshot().as_str(), "reference-v2");
+    assert_eq!(conflict.status(), SyncConflictStatus::Open);
+    assert_eq!(conflict.resolution(), None);
+}
+
+#[test]
+fn sync_conflict_record_can_be_resolved_once() {
+    let mut conflict = SyncConflictRecord::new(
+        SyncConflictId::parse("conflict-001").unwrap(),
+        RepositoryDomain::ProjectRecords,
+        SyncConflictKind::ConcurrentUpdate,
+        RepositorySnapshotId::parse("local-v1").unwrap(),
+        RepositorySnapshotId::parse("reference-v2").unwrap(),
+    );
+
+    conflict
+        .resolve(SyncConflictResolution::ManualMerge)
+        .unwrap();
+    let error = conflict
+        .resolve(SyncConflictResolution::KeepLocal)
+        .unwrap_err();
+
+    assert_eq!(conflict.status(), SyncConflictStatus::Resolved);
+    assert_eq!(
+        conflict.resolution(),
+        Some(SyncConflictResolution::ManualMerge)
+    );
+    assert_eq!(
+        error,
+        DomainError::SyncConflictAlreadyResolved("conflict-001".to_owned())
+    );
+}
+
+#[test]
+fn sync_conflict_record_can_be_deferred_for_later_review() {
+    let mut conflict = SyncConflictRecord::new(
+        SyncConflictId::parse("conflict-001").unwrap(),
+        RepositoryDomain::MeasurementData,
+        SyncConflictKind::ChecksumMismatch,
+        RepositorySnapshotId::parse("local-v1").unwrap(),
+        RepositorySnapshotId::parse("reference-v1").unwrap(),
+    );
+
+    conflict.resolve(SyncConflictResolution::Defer).unwrap();
+
+    assert_eq!(conflict.status(), SyncConflictStatus::Deferred);
+    assert_eq!(conflict.resolution(), Some(SyncConflictResolution::Defer));
+}
+
+#[test]
 fn instrument_transport_baseline_covers_common_lab_communications() {
     let transports = baseline_instrument_transports();
 

@@ -31,19 +31,6 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Sync conflict records",
-            objective=(
-                "Model synchronization conflict records for split repository "
-                "snapshots and local field changes."
-            ),
-            workstreams=(Workstream.STORAGE, Workstream.QUALITY),
-            expected_outputs=(
-                "conflict record model",
-                "resolution status rules",
-                "offline sync tests",
-            ),
-        ),
-        SessionPlan(
             title="Report export bundle",
             objective=(
                 "Model report export bundles with file references, checksums, "
@@ -54,6 +41,19 @@ def default_backlog() -> list[SessionPlan]:
                 "export bundle model",
                 "checksum linkage",
                 "approval evidence tests",
+            ),
+        ),
+        SessionPlan(
+            title="Adapter query APIs",
+            objective=(
+                "Expand SQLite adapters beyond smoke writes with read/query "
+                "APIs for metrology and project records."
+            ),
+            workstreams=(Workstream.METROLOGY, Workstream.STORAGE, Workstream.QUALITY),
+            expected_outputs=(
+                "instrument lookup",
+                "project lookup",
+                "adapter smoke tests",
             ),
         ),
     ]

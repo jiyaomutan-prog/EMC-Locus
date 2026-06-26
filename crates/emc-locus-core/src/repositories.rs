@@ -145,6 +145,132 @@ impl RepositorySnapshotId {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SyncConflictId(String);
+
+impl SyncConflictId {
+    pub fn parse(value: impl Into<String>) -> Result<Self, DomainError> {
+        let value = value.into();
+        let trimmed = value.trim();
+
+        if trimmed.is_empty() {
+            return Err(DomainError::EmptySyncConflictId);
+        }
+
+        if !trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+        {
+            return Err(DomainError::InvalidSyncConflictId(trimmed.to_owned()));
+        }
+
+        Ok(Self(trimmed.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyncConflictKind {
+    ConcurrentUpdate,
+    DeletedInReference,
+    DeletedLocally,
+    ChecksumMismatch,
+    SchemaMismatch,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyncConflictStatus {
+    Open,
+    Resolved,
+    Deferred,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyncConflictResolution {
+    KeepLocal,
+    KeepReference,
+    ManualMerge,
+    AcceptDeletion,
+    Defer,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SyncConflictRecord {
+    id: SyncConflictId,
+    domain: RepositoryDomain,
+    kind: SyncConflictKind,
+    local_snapshot: RepositorySnapshotId,
+    reference_snapshot: RepositorySnapshotId,
+    status: SyncConflictStatus,
+    resolution: Option<SyncConflictResolution>,
+}
+
+impl SyncConflictRecord {
+    pub fn new(
+        id: SyncConflictId,
+        domain: RepositoryDomain,
+        kind: SyncConflictKind,
+        local_snapshot: RepositorySnapshotId,
+        reference_snapshot: RepositorySnapshotId,
+    ) -> Self {
+        Self {
+            id,
+            domain,
+            kind,
+            local_snapshot,
+            reference_snapshot,
+            status: SyncConflictStatus::Open,
+            resolution: None,
+        }
+    }
+
+    pub fn id(&self) -> &SyncConflictId {
+        &self.id
+    }
+
+    pub fn domain(&self) -> RepositoryDomain {
+        self.domain
+    }
+
+    pub fn kind(&self) -> SyncConflictKind {
+        self.kind
+    }
+
+    pub fn local_snapshot(&self) -> &RepositorySnapshotId {
+        &self.local_snapshot
+    }
+
+    pub fn reference_snapshot(&self) -> &RepositorySnapshotId {
+        &self.reference_snapshot
+    }
+
+    pub fn status(&self) -> SyncConflictStatus {
+        self.status
+    }
+
+    pub fn resolution(&self) -> Option<SyncConflictResolution> {
+        self.resolution
+    }
+
+    pub fn resolve(&mut self, resolution: SyncConflictResolution) -> Result<(), DomainError> {
+        if self.status == SyncConflictStatus::Resolved {
+            return Err(DomainError::SyncConflictAlreadyResolved(
+                self.id.as_str().to_owned(),
+            ));
+        }
+
+        self.status = match resolution {
+            SyncConflictResolution::Defer => SyncConflictStatus::Deferred,
+            _ => SyncConflictStatus::Resolved,
+        };
+        self.resolution = Some(resolution);
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SnapshotChecksum(String);
 
 impl SnapshotChecksum {
