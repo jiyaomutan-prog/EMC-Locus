@@ -148,7 +148,9 @@ Implemented in the Rust core:
 12. interpolation-based linear resampling;
 13. optimized radix-2 FFT-compatible backend with deterministic DFT fallback;
 14. revisioned processing graph instances bound to source dataset checksums,
-    graph checksums, creator identity, and software version.
+    graph checksums, creator identity, and software version;
+15. result artifacts linked to revisioned graph instances with output signal
+    references and raw-lineage evidence.
 
 Not yet implemented:
 

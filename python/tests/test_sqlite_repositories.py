@@ -152,11 +152,20 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                       AND name = 'processing_graph_instances'
                     """
                 ).fetchone()
+                graph_artifact_table = connection.execute(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name = 'processing_graph_instance_artifacts'
+                    """
+                ).fetchone()
                 dataset = connection.execute("SELECT * FROM datasets").fetchone()
 
-            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3])
+            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4])
             self.assertIsNotNone(retention_table)
             self.assertIsNotNone(graph_instance_table)
+            self.assertIsNotNone(graph_artifact_table)
             self.assertEqual(dataset["retention_status"], "retained")
 
     def test_records_revisioned_processing_graph_instances(self) -> None:
@@ -201,7 +210,16 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                 graph_reference="inrush-fft",
                 graph_revision="B",
             )
+            artifact_id = repository.add_processing_graph_instance_artifact(
+                processing_graph_instance_id=second_revision_id,
+                output_signal_reference="current_l1_fft",
+                artifact_kind="processed_signal",
+                file_reference="data/RUN-FFT-001/current_l1_fft.csv",
+                checksum="sha256:resultfft001",
+                raw_lineage_json='["current_l1"]',
+            )
             all_instances = repository.processing_graph_instances_for_dataset(dataset_id)
+            artifacts = repository.processing_graph_instance_artifacts(second_revision_id)
 
             self.assertEqual(
                 first_revision["source_dataset_checksum"],
@@ -214,6 +232,9 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                 [row["id"] for row in all_instances],
                 [first_revision_id, second_revision_id],
             )
+            self.assertEqual(artifacts[0]["id"], artifact_id)
+            self.assertEqual(artifacts[0]["output_signal_reference"], "current_l1_fft")
+            self.assertEqual(artifacts[0]["raw_lineage_json"], '["current_l1"]')
 
             with self.assertRaises(ValueError):
                 repository.add_processing_graph_instance(
@@ -225,6 +246,15 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                     software_version="0.1.2",
                     graph_checksum="sha256:graphfft003",
                     source_dataset_checksum="sha256:wrong",
+                )
+
+            with self.assertRaises(ValueError):
+                repository.add_processing_graph_instance_artifact(
+                    processing_graph_instance_id=second_revision_id,
+                    output_signal_reference="raw_copy",
+                    artifact_kind="raw_signal",
+                    file_reference="data/RUN-FFT-001/raw-copy.opendata",
+                    checksum="sha256:rawcopy001",
                 )
 
 

@@ -2537,6 +2537,118 @@ fn processing_graph_instance_rejects_empty_definition_and_software_version() {
 }
 
 #[test]
+fn processing_graph_result_artifact_links_output_to_instance_lineage() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+    let current_fft = SignalReference::parse("current_l1_fft").unwrap();
+    let mut graph = SignalProcessingGraph::from_dataset(&dataset);
+    graph
+        .add_node(
+            SignalProcessingNode::new(
+                SignalReference::parse("fft_current").unwrap(),
+                SignalProcessingOperation::Fft,
+                vec![current.clone()],
+                current_fft.clone(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let instance = ProcessingGraphInstance::new(
+        ProcessingGraphReference::parse("inrush-analysis").unwrap(),
+        ProcessingGraphRevision::parse("A").unwrap(),
+        DatasetReference::parse("dataset-raw-inrush").unwrap(),
+        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        graph,
+        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        AuditActor::parse("signal.engineer").unwrap(),
+        "0.1.0",
+    )
+    .unwrap();
+
+    let artifact = ProcessingGraphResultArtifact::from_instance(
+        &instance,
+        current_fft.clone(),
+        DatasetKind::ProcessedSignal,
+        DatasetFileReference::parse("data/RUN-INRUSH/current_l1_fft.csv").unwrap(),
+        DatasetChecksum::parse("sha256:currentfft001").unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(artifact.graph_reference().as_str(), "inrush-analysis");
+    assert_eq!(artifact.graph_revision().as_str(), "A");
+    assert_eq!(artifact.output_signal(), &current_fft);
+    assert_eq!(artifact.kind(), DatasetKind::ProcessedSignal);
+    assert_eq!(
+        artifact.file_reference().as_str(),
+        "data/RUN-INRUSH/current_l1_fft.csv"
+    );
+    assert_eq!(artifact.checksum().as_str(), "sha256:currentfft001");
+    assert_eq!(artifact.raw_lineage(), &[current]);
+}
+
+#[test]
+fn processing_graph_result_artifact_rejects_invalid_kind_and_unknown_output() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+    let current_fft = SignalReference::parse("current_l1_fft").unwrap();
+    let mut graph = SignalProcessingGraph::from_dataset(&dataset);
+    graph
+        .add_node(
+            SignalProcessingNode::new(
+                SignalReference::parse("fft_current").unwrap(),
+                SignalProcessingOperation::Fft,
+                vec![current],
+                current_fft.clone(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let instance = ProcessingGraphInstance::new(
+        ProcessingGraphReference::parse("inrush-analysis").unwrap(),
+        ProcessingGraphRevision::parse("A").unwrap(),
+        DatasetReference::parse("dataset-raw-inrush").unwrap(),
+        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        graph,
+        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        AuditActor::parse("signal.engineer").unwrap(),
+        "0.1.0",
+    )
+    .unwrap();
+
+    let kind_error = ProcessingGraphResultArtifact::from_instance(
+        &instance,
+        current_fft,
+        DatasetKind::RawSignal,
+        DatasetFileReference::parse("data/RUN-INRUSH/raw.opendata").unwrap(),
+        DatasetChecksum::parse("sha256:rawagain001").unwrap(),
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        kind_error,
+        DomainError::InvalidProcessingGraphArtifactKind("raw_signal".to_owned())
+    );
+
+    let unknown_error = ProcessingGraphResultArtifact::from_instance(
+        &instance,
+        SignalReference::parse("missing_output").unwrap(),
+        DatasetKind::ResultTable,
+        DatasetFileReference::parse("data/RUN-INRUSH/missing.csv").unwrap(),
+        DatasetChecksum::parse("sha256:missing001").unwrap(),
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        unknown_error,
+        DomainError::UnknownSignalReference("missing_output".to_owned())
+    );
+}
+
+#[test]
 fn signal_processing_node_requires_inputs() {
     let error = SignalProcessingNode::new(
         SignalReference::parse("fft_current").unwrap(),

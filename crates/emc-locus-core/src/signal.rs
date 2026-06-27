@@ -1,7 +1,7 @@
 use std::f64::consts::PI;
 
 use crate::{
-    datasets::{DatasetChecksum, DatasetReference},
+    datasets::{DatasetChecksum, DatasetFileReference, DatasetKind, DatasetReference},
     identifiers::AuditActor,
     DomainError,
 };
@@ -603,6 +603,76 @@ impl ProcessingGraphInstance {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessingGraphResultArtifact {
+    graph_reference: ProcessingGraphReference,
+    graph_revision: ProcessingGraphRevision,
+    output_signal: SignalReference,
+    kind: DatasetKind,
+    file_reference: DatasetFileReference,
+    checksum: DatasetChecksum,
+    raw_lineage: Vec<SignalReference>,
+}
+
+impl ProcessingGraphResultArtifact {
+    pub fn from_instance(
+        instance: &ProcessingGraphInstance,
+        output_signal: SignalReference,
+        kind: DatasetKind,
+        file_reference: DatasetFileReference,
+        checksum: DatasetChecksum,
+    ) -> Result<Self, DomainError> {
+        if !matches!(
+            kind,
+            DatasetKind::ProcessedSignal | DatasetKind::ResultTable
+        ) {
+            return Err(DomainError::InvalidProcessingGraphArtifactKind(
+                dataset_kind_slug(kind).to_owned(),
+            ));
+        }
+
+        let raw_lineage = instance.raw_lineage_for(&output_signal)?;
+
+        Ok(Self {
+            graph_reference: instance.reference().clone(),
+            graph_revision: instance.revision().clone(),
+            output_signal,
+            kind,
+            file_reference,
+            checksum,
+            raw_lineage,
+        })
+    }
+
+    pub fn graph_reference(&self) -> &ProcessingGraphReference {
+        &self.graph_reference
+    }
+
+    pub fn graph_revision(&self) -> &ProcessingGraphRevision {
+        &self.graph_revision
+    }
+
+    pub fn output_signal(&self) -> &SignalReference {
+        &self.output_signal
+    }
+
+    pub fn kind(&self) -> DatasetKind {
+        self.kind
+    }
+
+    pub fn file_reference(&self) -> &DatasetFileReference {
+        &self.file_reference
+    }
+
+    pub fn checksum(&self) -> &DatasetChecksum {
+        &self.checksum
+    }
+
+    pub fn raw_lineage(&self) -> &[SignalReference] {
+        &self.raw_lineage
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SignalSeriesResult {
     output: SignalReference,
@@ -1165,6 +1235,17 @@ fn validate_sample_compatibility(
     }
 
     Ok(())
+}
+
+fn dataset_kind_slug(kind: DatasetKind) -> &'static str {
+    match kind {
+        DatasetKind::RawSignal => "raw_signal",
+        DatasetKind::RawSweep => "raw_sweep",
+        DatasetKind::CommandLog => "command_log",
+        DatasetKind::ProcessedSignal => "processed_signal",
+        DatasetKind::ResultTable => "result_table",
+        DatasetKind::ReportExport => "report_export",
+    }
 }
 
 fn raw_lineage(inputs: Vec<SignalReference>) -> Vec<SignalReference> {

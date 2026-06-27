@@ -101,6 +101,8 @@ Deliverables:
 - channel math and signal lineage; initial Rust lineage model added;
 - persisted processing graph instances; initial Rust instance model, SQLite
   migration, and Python repository APIs added;
+- result artifacts linked to revisioned processing graph instances; initial
+  Rust artifact model, SQLite migration, and Python repository APIs added;
 - CEM time-domain test families such as railway harmonics, axle counters, and
   inrush measurements.
 
@@ -164,5 +166,5 @@ Deliverables:
 The next productive session should expand guarded IO-backed serial or VISA
 implementations behind the adapter skeletons.
 
-The parallel runtime stream should add richer signal windows and result-artifact
-links from revisioned processing graph instances.
+The parallel runtime stream should add richer signal windows and graph-driven
+execution records.

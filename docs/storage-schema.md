@@ -243,6 +243,22 @@ CREATE TABLE processing_graph_instances (
 );
 ```
 
+### processing_graph_instance_artifacts
+
+```sql
+CREATE TABLE processing_graph_instance_artifacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    processing_graph_instance_id INTEGER NOT NULL
+        REFERENCES processing_graph_instances(id),
+    output_signal_reference TEXT NOT NULL,
+    artifact_kind TEXT NOT NULL,
+    file_reference TEXT NOT NULL,
+    checksum TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    raw_lineage_json TEXT NOT NULL DEFAULT '[]'
+);
+```
+
 ### reports
 
 ```sql

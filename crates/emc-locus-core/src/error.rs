@@ -109,6 +109,7 @@ pub enum DomainError {
     EmptyProcessingGraphRevision,
     EmptyProcessingGraphSoftwareVersion,
     EmptyProcessingGraphDefinition(String),
+    InvalidProcessingGraphArtifactKind(String),
     EmptyMeasurementRunReference,
     InvalidMeasurementRunReference(String),
     EmptyTestMethodReference,

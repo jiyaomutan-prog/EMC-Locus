@@ -28,6 +28,7 @@ RETENTION_STATUSES = {
     "deleted",
 }
 PROCESSING_GRAPH_STATUSES = {"draft", "active", "superseded", "rejected"}
+PROCESSING_GRAPH_ARTIFACT_KINDS = {"processed_signal", "result_table"}
 _PACKAGE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SOFTWARE_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -886,6 +887,69 @@ class MeasurementDataRepository(SQLiteDomainRepository):
                 ORDER BY graph_reference, graph_revision, id
                 """,
                 (dataset_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_processing_graph_instance_artifact(
+        self,
+        *,
+        processing_graph_instance_id: int,
+        output_signal_reference: str,
+        artifact_kind: str,
+        file_reference: str,
+        checksum: str,
+        raw_lineage_json: str = "[]",
+    ) -> int:
+        if artifact_kind not in PROCESSING_GRAPH_ARTIFACT_KINDS:
+            raise ValueError(f"invalid processing graph artifact kind: {artifact_kind}")
+
+        with closing(self.connect()) as connection:
+            with connection:
+                instance = connection.execute(
+                    "SELECT id FROM processing_graph_instances WHERE id = ?",
+                    (processing_graph_instance_id,),
+                ).fetchone()
+                if instance is None:
+                    raise ValueError("processing graph instance does not exist")
+
+                cursor = connection.execute(
+                    """
+                    INSERT INTO processing_graph_instance_artifacts (
+                        processing_graph_instance_id,
+                        output_signal_reference,
+                        artifact_kind,
+                        file_reference,
+                        checksum,
+                        created_at,
+                        raw_lineage_json
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        processing_graph_instance_id,
+                        output_signal_reference,
+                        artifact_kind,
+                        file_reference,
+                        checksum,
+                        utc_timestamp(),
+                        raw_lineage_json,
+                    ),
+                )
+        return int(cursor.lastrowid)
+
+    def processing_graph_instance_artifacts(
+        self,
+        processing_graph_instance_id: int,
+    ) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM processing_graph_instance_artifacts
+                WHERE processing_graph_instance_id = ?
+                ORDER BY created_at, id
+                """,
+                (processing_graph_instance_id,),
             ).fetchall()
         return [dict(row) for row in rows]
 

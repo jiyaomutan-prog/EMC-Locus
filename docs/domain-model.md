@@ -115,10 +115,13 @@ Important fields:
 - graph definition checksum;
 - creator identity;
 - software version used to define or execute the graph.
+- linked result artifacts with output signal references, file references,
+  checksums, and raw lineage.
 
 The Rust core now provides a persistable processing-graph instance model. The
 SQLite measurement-data repository can store and retrieve revisioned graph
-instances with source dataset checksum verification.
+instances with source dataset checksum verification and link result artifacts
+back to graph revisions.
 
 ### Report
 
