@@ -134,6 +134,8 @@ change should remain traceable through Git history, session logs, and this file.
   strings, validated by the VISA transport adapter.
 - Rust, SQLite, and Python processing graph execution records with execution
   reference, actor, software version, status, and output artifact count.
+- Qt console status metrics for active projects, metrology alerts, retained
+  datasets, and updates requiring attention.
 
 ### Planned
 

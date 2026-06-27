@@ -14,6 +14,7 @@ from .qt_console_data import build_console_bootstrap_from_repositories
 from .qt_console_models import (
     ConsoleViewModel,
     OperatorActionIntent,
+    StatusMetric,
     TableViewModel,
     build_console_view_model,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "SyncRepository",
     "ConsoleViewModel",
     "OperatorActionIntent",
+    "StatusMetric",
     "TableViewModel",
     "TestDefinitionRepository",
     "UpdateCatalogRepository",

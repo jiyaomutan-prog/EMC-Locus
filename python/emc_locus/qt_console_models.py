@@ -30,6 +30,7 @@ class ConsoleViewModel:
 
     tables: tuple[TableViewModel, ...]
     actions: tuple["OperatorActionIntent", ...]
+    metrics: tuple["StatusMetric", ...]
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,15 @@ class OperatorActionIntent:
     target_table: str
     enabled: bool
     reason: str
+
+
+@dataclass(frozen=True)
+class StatusMetric:
+    """A compact operational metric for the Qt console header."""
+
+    label: str
+    value: str
+    tone: str
 
 
 def build_console_view_model(bootstrap: dict[str, Any]) -> ConsoleViewModel:
@@ -80,6 +90,7 @@ def build_console_view_model(bootstrap: dict[str, Any]) -> ConsoleViewModel:
             ),
         ),
         actions=_action_intents(bootstrap),
+        metrics=_status_metrics(bootstrap),
     )
 
 
@@ -165,5 +176,36 @@ def _action_intents(bootstrap: dict[str, Any]) -> tuple[OperatorActionIntent, ..
                 if update_enabled
                 else "Aucune update a valider"
             ),
+        ),
+    )
+
+
+def _status_metrics(bootstrap: dict[str, Any]) -> tuple[StatusMetric, ...]:
+    projects = _project_rows(bootstrap.get("projects"))
+    instruments = _list_rows(bootstrap.get("instruments"), 6)
+    datasets = _list_rows(bootstrap.get("datasets"), 5)
+    updates = _list_rows(bootstrap.get("updates"), 5)
+
+    active_projects = sum(1 for row in projects if row[2] != "Archived")
+    instrument_alerts = sum(1 for row in instruments if row[5] in {"warn", "danger"})
+    retained_datasets = sum(1 for row in datasets if row[4] in {"Immutable", "retained"})
+    pending_updates = sum(1 for row in updates if row[3].lower() not in {"installed", "installe"})
+
+    return (
+        StatusMetric("Projets actifs", str(active_projects), "ok" if active_projects else "neutral"),
+        StatusMetric(
+            "Alertes metrologie",
+            str(instrument_alerts),
+            "warn" if instrument_alerts else "ok",
+        ),
+        StatusMetric(
+            "Datasets retenus",
+            str(retained_datasets),
+            "ok" if retained_datasets else "neutral",
+        ),
+        StatusMetric(
+            "Updates a traiter",
+            str(pending_updates),
+            "warn" if pending_updates else "ok",
         ),
     )

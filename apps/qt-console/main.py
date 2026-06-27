@@ -104,6 +104,13 @@ def run(argv: list[str] | None = None) -> int:
         header.addWidget(button)
     layout.addLayout(header)
 
+    metrics = qt.QHBoxLayout()
+    metrics.setSpacing(10)
+    for metric in view_model.metrics:
+        metrics.addWidget(_metric(qt, metric.label, metric.value, metric.tone))
+    metrics.addStretch(1)
+    layout.addLayout(metrics)
+
     tabs = qt.QTabWidget()
     for table_model in view_model.tables:
         tabs.addTab(_table(qt, table_model), table_model.tab_label)
@@ -115,6 +122,20 @@ def run(argv: list[str] | None = None) -> int:
     window.setStyleSheet(_stylesheet())
     window.show()
     return application.exec()
+
+
+def _metric(qt: QtBindings, label: str, value: str, tone: str) -> Any:
+    widget = qt.QWidget()
+    widget.setObjectName(f"Metric-{tone}")
+    layout = qt.QVBoxLayout(widget)
+    layout.setContentsMargins(12, 9, 12, 9)
+    value_label = qt.QLabel(value)
+    value_label.setObjectName("MetricValue")
+    text_label = qt.QLabel(label)
+    text_label.setObjectName("MetricLabel")
+    layout.addWidget(value_label)
+    layout.addWidget(text_label)
+    return widget
 
 
 def _load_console_data(args: argparse.Namespace) -> dict[str, Any]:
@@ -243,6 +264,27 @@ def _stylesheet() -> str:
         selection-background-color: #2f6f5e;
         selection-color: white;
         font-size: 12px;
+    }
+    QWidget#Metric-ok {
+        background: #e8f3ec;
+        border: 1px solid #b7d5c0;
+    }
+    QWidget#Metric-warn {
+        background: #fff5dc;
+        border: 1px solid #dec777;
+    }
+    QWidget#Metric-neutral {
+        background: #eef0ed;
+        border: 1px solid #d4d8d2;
+    }
+    QLabel#MetricValue {
+        color: #17211b;
+        font-size: 18px;
+        font-weight: 700;
+    }
+    QLabel#MetricLabel {
+        color: #59635d;
+        font-size: 11px;
     }
     QPushButton {
         background: #2f6f5e;

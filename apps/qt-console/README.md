@@ -49,5 +49,8 @@ advancement, dataset-retention requests, and update validation. These are
 display-only command affordances for now; audited write execution remains in
 the Python action layer until the Qt command path is hardened.
 
+The console also exposes first status metrics for active projects, metrology
+alerts, retained datasets, and updates requiring attention.
+
 The Rust core remains responsible for domain invariants, while Python adapters
 bridge local repositories, scripts, and early instrument workflows.
