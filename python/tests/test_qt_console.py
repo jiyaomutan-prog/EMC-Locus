@@ -68,11 +68,29 @@ class QtConsoleTests(unittest.TestCase):
         )
         project_table = model.tables[0]
         dataset_table = model.tables[3]
+        actions = {action.action_id: action for action in model.actions}
 
         self.assertEqual(project_table.columns[0:3], ("Code", "Client", "Etape"))
         self.assertEqual(project_table.rows[0][0:3], ("CEM-QT-001", "Rail Motion", "Measuring"))
         self.assertEqual(dataset_table.columns, ("Run", "Type", "Fichier", "Checksum", "Retention"))
         self.assertEqual(dataset_table.rows[0][1], "raw_signal")
+        self.assertTrue(actions["advance_project"].enabled)
+        self.assertTrue(actions["request_dataset_deletion"].enabled)
+        self.assertEqual(actions["validate_update"].reason, "Aucune update a valider")
+
+    def test_console_action_intents_disable_completed_work(self) -> None:
+        model = build_console_view_model(
+            {
+                "projects": [{"code": "ARCHIVED", "stage": "Archived"}],
+                "datasets": [["RUN-QT-002", "processed_signal", "out.csv", "sha256:out", "deleted"]],
+                "updates": [["core", "0.1.0", "Signed", "Installed", "offline_bundle"]],
+            }
+        )
+        actions = {action.action_id: action for action in model.actions}
+
+        self.assertFalse(actions["advance_project"].enabled)
+        self.assertFalse(actions["request_dataset_deletion"].enabled)
+        self.assertFalse(actions["validate_update"].enabled)
 
     def test_builds_qt_console_bootstrap_from_local_repository_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

@@ -95,11 +95,13 @@ def run(argv: list[str] | None = None) -> int:
     title.setObjectName("Title")
     subtitle = qt.QLabel("Poste operateur local - prototype Qt")
     subtitle.setObjectName("Subtitle")
-    refresh = qt.QPushButton("Rafraichir")
-    refresh.setEnabled(False)
     header.addWidget(title)
     header.addWidget(subtitle, 1)
-    header.addWidget(refresh)
+    for action in view_model.actions:
+        button = qt.QPushButton(action.label)
+        button.setEnabled(action.enabled)
+        button.setToolTip(action.reason)
+        header.addWidget(button)
     layout.addLayout(header)
 
     tabs = qt.QTabWidget()

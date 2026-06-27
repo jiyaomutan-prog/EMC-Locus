@@ -37,3 +37,7 @@ The initial Qt console uses testable Python view models for project,
 metrology, method, dataset, and update tables. The PySide6 layer renders those
 models but does not own the data shaping rules. This keeps the first UI bridge
 thin and prepares the transition to proper Qt model/view classes.
+
+The view-model layer also exposes operator action intents. These describe which
+high-level commands can be shown to the operator before the Qt layer is allowed
+to perform audited writes directly.

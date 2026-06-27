@@ -126,6 +126,8 @@ change should remain traceable through Git history, session logs, and this file.
   update tables with explicit business columns.
 - Qt console data loader that can read split SQLite repository paths directly
   while preserving `bootstrap.js` compatibility.
+- Qt console operator action intents for project advancement, dataset-retention
+  requests, and update validation.
 
 ### Planned
 

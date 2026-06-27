@@ -29,6 +29,18 @@ class ConsoleViewModel:
     """Top-level console data used by the first Qt shell."""
 
     tables: tuple[TableViewModel, ...]
+    actions: tuple["OperatorActionIntent", ...]
+
+
+@dataclass(frozen=True)
+class OperatorActionIntent:
+    """A command the Qt console may expose without owning write rules."""
+
+    action_id: str
+    label: str
+    target_table: str
+    enabled: bool
+    reason: str
 
 
 def build_console_view_model(bootstrap: dict[str, Any]) -> ConsoleViewModel:
@@ -66,7 +78,8 @@ def build_console_view_model(bootstrap: dict[str, Any]) -> ConsoleViewModel:
                 columns=("Package", "Version", "Signature", "Statut", "Source"),
                 rows=_list_rows(bootstrap.get("updates"), 5),
             ),
-        )
+        ),
+        actions=_action_intents(bootstrap),
     )
 
 
@@ -112,3 +125,45 @@ def _fixed_row(row: list[Any], column_count: int) -> tuple[str, ...]:
     values = [str(value) for value in row[:column_count]]
     values.extend("" for _ in range(column_count - len(values)))
     return tuple(values)
+
+
+def _action_intents(bootstrap: dict[str, Any]) -> tuple[OperatorActionIntent, ...]:
+    projects = _project_rows(bootstrap.get("projects"))
+    datasets = _list_rows(bootstrap.get("datasets"), 5)
+    updates = _list_rows(bootstrap.get("updates"), 5)
+
+    project_enabled = any(row[2] != "Archived" for row in projects)
+    retention_enabled = any(row[4] in {"Immutable", "retained"} for row in datasets)
+    update_enabled = any(row[3].lower() not in {"installed", "installe"} for row in updates)
+
+    return (
+        OperatorActionIntent(
+            action_id="advance_project",
+            label="Avancer projet",
+            target_table="projects",
+            enabled=project_enabled,
+            reason="Selectionner un projet non archive" if project_enabled else "Aucun projet actif",
+        ),
+        OperatorActionIntent(
+            action_id="request_dataset_deletion",
+            label="Demander suppression",
+            target_table="datasets",
+            enabled=retention_enabled,
+            reason=(
+                "Selectionner un dataset retenu"
+                if retention_enabled
+                else "Aucun dataset eligible"
+            ),
+        ),
+        OperatorActionIntent(
+            action_id="validate_update",
+            label="Valider update",
+            target_table="updates",
+            enabled=update_enabled,
+            reason=(
+                "Selectionner un package non installe"
+                if update_enabled
+                else "Aucune update a valider"
+            ),
+        ),
+    )

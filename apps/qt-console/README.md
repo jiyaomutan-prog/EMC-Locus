@@ -44,5 +44,10 @@ view models in `emc_locus.qt_console_models`. This keeps the GUI bridge small
 while future screens move toward real Qt model/view widgets backed by stable
 application services.
 
+The same view-model layer exposes initial operator action intents for project
+advancement, dataset-retention requests, and update validation. These are
+display-only command affordances for now; audited write execution remains in
+the Python action layer until the Qt command path is hardened.
+
 The Rust core remains responsible for domain invariants, while Python adapters
 bridge local repositories, scripts, and early instrument workflows.
