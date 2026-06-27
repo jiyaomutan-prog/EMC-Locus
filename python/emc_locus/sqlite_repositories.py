@@ -143,6 +143,95 @@ class MetrologyRepository(SQLiteDomainRepository):
                     ),
                 )
 
+    def register_instrument(
+        self,
+        *,
+        asset_id: str,
+        family: str,
+        manufacturer: str,
+        model: str,
+        serial_number: str,
+        calibration_requirement: str,
+        availability: str = "available",
+        capabilities_json: str = "[]",
+        category_code: str | None = None,
+        certificate_reference: str | None = None,
+        calibrated_at: str | None = None,
+        due_at: str | None = None,
+        provider: str | None = None,
+        status_at_import: str = "valid",
+        uncertainty_json: str = "{}",
+        file_reference: str | None = None,
+        checksum: str | None = None,
+    ) -> None:
+        """Register an instrument and optional initial calibration atomically."""
+
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO instruments (
+                        asset_id,
+                        family,
+                        manufacturer,
+                        model,
+                        serial_number,
+                        availability,
+                        calibration_requirement,
+                        capabilities_json,
+                        category_code,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        asset_id,
+                        family,
+                        manufacturer,
+                        model,
+                        serial_number,
+                        availability,
+                        calibration_requirement,
+                        capabilities_json,
+                        category_code,
+                        now,
+                        now,
+                    ),
+                )
+
+                if certificate_reference is not None:
+                    connection.execute(
+                        """
+                        INSERT INTO calibration_records (
+                            asset_id,
+                            certificate_reference,
+                            calibrated_at,
+                            due_at,
+                            provider,
+                            status_at_import,
+                            uncertainty_json,
+                            file_reference,
+                            checksum,
+                            created_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            asset_id,
+                            certificate_reference,
+                            calibrated_at,
+                            due_at,
+                            provider,
+                            status_at_import,
+                            uncertainty_json,
+                            file_reference,
+                            checksum,
+                            now,
+                        ),
+                    )
+
     def add_calibration_record(
         self,
         *,

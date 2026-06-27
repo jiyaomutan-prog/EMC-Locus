@@ -17,6 +17,7 @@ from emc_locus import (
     advance_project_stage,
     build_bootstrap,
     next_project_stage,
+    register_metrology_instrument,
     record_dataset_retention_action,
     record_update_install_action,
     record_update_validation_action,
@@ -685,6 +686,74 @@ class GuiActionTests(unittest.TestCase):
     def test_next_project_stage_rejects_unknown_stage(self) -> None:
         with self.assertRaises(ValueError):
             next_project_stage("unknown")
+
+    def test_register_metrology_instrument_records_asset_certificate_and_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path("storage/sqlite")
+            base = Path(temporary_directory)
+            metrology_db = base / "metrology.sqlite"
+            bootstrap_output = base / "bootstrap.js"
+
+            result = register_metrology_instrument(
+                metrology_db=metrology_db,
+                asset_id="RX-ACT-001",
+                family="Receiver",
+                manufacturer="Rohde Schwarz",
+                model="ESW",
+                serial_number="100001",
+                category_code="emi_receiver",
+                capabilities_json='{"frequency_max_hz": 44000000000}',
+                certificate_reference="CERT-RX-001",
+                calibrated_at="2026-06-01",
+                due_at="2027-06-01",
+                provider="Accredited Lab",
+                uncertainty_json='{"level_db": 0.6}',
+                bootstrap_output=bootstrap_output,
+            )
+
+            repository = MetrologyRepository(metrology_db, root)
+            instrument = repository.get_instrument("RX-ACT-001")
+            calibration = repository.latest_calibration_record("RX-ACT-001")
+            bootstrap_text = bootstrap_output.read_text()
+
+            self.assertEqual(result["category_code"], "emi_receiver")
+            self.assertEqual(result["category_label"], "EMI test receiver")
+            self.assertEqual(result["calibration_requirement"], "required")
+            self.assertTrue(result["calibration_recorded"])
+            self.assertEqual(instrument["category_code"], "emi_receiver")
+            self.assertEqual(calibration["certificate_reference"], "CERT-RX-001")
+            self.assertIn("RX-ACT-001", bootstrap_text)
+            self.assertIn("EMI test receiver", bootstrap_text)
+
+    def test_register_metrology_instrument_rejects_unknown_or_incomplete_data(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            metrology_db = Path(temporary_directory) / "metrology.sqlite"
+
+            with self.assertRaises(ValueError):
+                register_metrology_instrument(
+                    metrology_db=metrology_db,
+                    asset_id="BAD-CAT",
+                    family="Receiver",
+                    manufacturer="Unknown",
+                    model="Unknown",
+                    serial_number="BAD-CAT",
+                    category_code="missing_category",
+                )
+
+            with self.assertRaises(ValueError):
+                register_metrology_instrument(
+                    metrology_db=metrology_db,
+                    asset_id="BAD-CERT",
+                    family="Receiver",
+                    manufacturer="Unknown",
+                    model="Unknown",
+                    serial_number="BAD-CERT",
+                    category_code="emi_receiver",
+                    certificate_reference="CERT-INCOMPLETE",
+                )
+
+            repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
+            self.assertIsNone(repository.get_instrument("BAD-CERT"))
 
     def test_dataset_retention_action_records_event_and_refreshes_bootstrap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

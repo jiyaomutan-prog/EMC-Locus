@@ -153,6 +153,8 @@ change should remain traceable through Git history, session logs, and this file.
   electronics, EMC, thermal, acoustic, shock/vibration, radio/RF, and
   data-monitoring domains, plus Python repository APIs and Qt/browser category
   tables.
+- Local metrology registration action and CLI for creating category-linked
+  instruments with optional initial calibration records and bootstrap refresh.
 
 ### Planned
 

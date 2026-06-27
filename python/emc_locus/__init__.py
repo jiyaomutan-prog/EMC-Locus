@@ -3,6 +3,7 @@
 from .gui_actions import (
     advance_project_stage,
     next_project_stage,
+    register_metrology_instrument,
     record_dataset_retention_action,
     record_update_install_action,
     record_update_validation_action,
@@ -52,6 +53,7 @@ __all__ = [
     "discover_migrations",
     "default_backlog",
     "next_project_stage",
+    "register_metrology_instrument",
     "record_dataset_retention_action",
     "record_update_install_action",
     "record_update_validation_action",

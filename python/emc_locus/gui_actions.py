@@ -36,6 +36,121 @@ DATASET_RETENTION_ACTIONS = {
 }
 
 
+def register_metrology_instrument(
+    *,
+    metrology_db: Path | str,
+    asset_id: str,
+    family: str,
+    manufacturer: str,
+    model: str,
+    serial_number: str,
+    category_code: str,
+    calibration_requirement: str | None = None,
+    availability: str = "available",
+    capabilities_json: str = "[]",
+    certificate_reference: str | None = None,
+    calibrated_at: str | None = None,
+    due_at: str | None = None,
+    provider: str | None = None,
+    status_at_import: str = "valid",
+    uncertainty_json: str = "{}",
+    file_reference: str | None = None,
+    checksum: str | None = None,
+    migrations_root: Path | str = Path("storage/sqlite"),
+    bootstrap_output: Path | str | None = None,
+    projects_db: Path | str | None = None,
+    test_definitions_db: Path | str | None = None,
+    measurement_data_db: Path | str | None = None,
+    update_catalog_db: Path | str | None = None,
+) -> dict[str, Any]:
+    """Register one metrology instrument and optional initial certificate."""
+
+    asset_id = require_non_empty(asset_id, "asset_id")
+    family = require_non_empty(family, "family")
+    manufacturer = require_non_empty(manufacturer, "manufacturer")
+    model = require_non_empty(model, "model")
+    serial_number = require_non_empty(serial_number, "serial_number")
+    category_code = require_non_empty(category_code, "category_code")
+    availability = require_non_empty(availability, "availability")
+    capabilities_json = _normalized_json(capabilities_json, "capabilities_json")
+    uncertainty_json = _normalized_json(uncertainty_json, "uncertainty_json")
+
+    repository = MetrologyRepository(Path(metrology_db), Path(migrations_root))
+    repository.initialize()
+    category = repository.get_instrument_category(category_code)
+    if category is None:
+        raise ValueError(f"unknown instrument category: {category_code}")
+
+    if calibration_requirement is None:
+        calibration_requirement = str(category["default_calibration_requirement"])
+    calibration_requirement = require_non_empty(
+        calibration_requirement,
+        "calibration_requirement",
+    )
+
+    has_certificate = any(
+        _has_text(value) for value in (certificate_reference, calibrated_at, due_at, provider)
+    )
+    if has_certificate:
+        certificate_reference = require_non_empty(
+            str(certificate_reference or ""),
+            "certificate_reference",
+        )
+        calibrated_at = require_non_empty(str(calibrated_at or ""), "calibrated_at")
+        due_at = require_non_empty(str(due_at or ""), "due_at")
+        provider = require_non_empty(str(provider or ""), "provider")
+    else:
+        certificate_reference = None
+        calibrated_at = None
+        due_at = None
+        provider = None
+
+    repository.register_instrument(
+        asset_id=asset_id,
+        family=family,
+        manufacturer=manufacturer,
+        model=model,
+        serial_number=serial_number,
+        calibration_requirement=calibration_requirement,
+        availability=availability,
+        capabilities_json=capabilities_json,
+        category_code=category_code,
+        certificate_reference=certificate_reference,
+        calibrated_at=calibrated_at,
+        due_at=due_at,
+        provider=provider,
+        status_at_import=status_at_import,
+        uncertainty_json=uncertainty_json,
+        file_reference=file_reference,
+        checksum=checksum,
+    )
+    latest_calibration = repository.latest_calibration_record(asset_id)
+
+    if bootstrap_output is not None:
+        refresh_bootstrap(
+            output=bootstrap_output,
+            migrations_root=migrations_root,
+            projects_db=projects_db,
+            metrology_db=metrology_db,
+            test_definitions_db=test_definitions_db,
+            measurement_data_db=measurement_data_db,
+            update_catalog_db=update_catalog_db,
+        )
+
+    return {
+        "asset_id": asset_id,
+        "category_code": category_code,
+        "category_label": str(category["label"]),
+        "calibration_requirement": calibration_requirement,
+        "calibration_recorded": latest_calibration is not None,
+        "certificate_reference": (
+            str(latest_calibration["certificate_reference"])
+            if latest_calibration is not None
+            else None
+        ),
+    }
+
+
 def advance_project_stage(
     *,
     projects_db: Path | str,
@@ -318,6 +433,28 @@ def main(argv: list[str] | None = None) -> int:
     _add_repository_args(refresh_parser)
     refresh_parser.add_argument("--output", required=True, type=Path)
 
+    register_parser = subcommands.add_parser("register-instrument")
+    _add_repository_args(register_parser, include_metrology=False)
+    register_parser.add_argument("--metrology-db", required=True, type=Path)
+    register_parser.add_argument("--asset-id", required=True)
+    register_parser.add_argument("--family", required=True)
+    register_parser.add_argument("--manufacturer", required=True)
+    register_parser.add_argument("--model", required=True)
+    register_parser.add_argument("--serial-number", required=True)
+    register_parser.add_argument("--category-code", required=True)
+    register_parser.add_argument("--calibration-requirement")
+    register_parser.add_argument("--availability", default="available")
+    register_parser.add_argument("--capabilities-json", default="[]")
+    register_parser.add_argument("--certificate-reference")
+    register_parser.add_argument("--calibrated-at")
+    register_parser.add_argument("--due-at")
+    register_parser.add_argument("--provider")
+    register_parser.add_argument("--status-at-import", default="valid")
+    register_parser.add_argument("--uncertainty-json", default="{}")
+    register_parser.add_argument("--file-reference")
+    register_parser.add_argument("--checksum")
+    register_parser.add_argument("--bootstrap-output", type=Path)
+
     advance_parser = subcommands.add_parser("advance-project")
     _add_repository_args(advance_parser, include_projects=False)
     advance_parser.add_argument("--projects-db", required=True, type=Path)
@@ -380,6 +517,36 @@ def main(argv: list[str] | None = None) -> int:
             measurement_data_db=args.measurement_data_db,
             update_catalog_db=args.update_catalog_db,
         )
+        return 0
+
+    if args.command == "register-instrument":
+        result = register_metrology_instrument(
+            metrology_db=args.metrology_db,
+            asset_id=args.asset_id,
+            family=args.family,
+            manufacturer=args.manufacturer,
+            model=args.model,
+            serial_number=args.serial_number,
+            category_code=args.category_code,
+            calibration_requirement=args.calibration_requirement,
+            availability=args.availability,
+            capabilities_json=args.capabilities_json,
+            certificate_reference=args.certificate_reference,
+            calibrated_at=args.calibrated_at,
+            due_at=args.due_at,
+            provider=args.provider,
+            status_at_import=args.status_at_import,
+            uncertainty_json=args.uncertainty_json,
+            file_reference=args.file_reference,
+            checksum=args.checksum,
+            migrations_root=args.migrations_root,
+            bootstrap_output=args.bootstrap_output,
+            projects_db=args.projects_db,
+            test_definitions_db=args.test_definitions_db,
+            measurement_data_db=args.measurement_data_db,
+            update_catalog_db=args.update_catalog_db,
+        )
+        print(json.dumps(result, sort_keys=True))
         return 0
 
     if args.command == "dataset-retention":
@@ -465,18 +632,33 @@ def _add_repository_args(
     parser: argparse.ArgumentParser,
     *,
     include_projects: bool = True,
+    include_metrology: bool = True,
     include_measurement_data: bool = True,
     include_update_catalog: bool = True,
 ) -> None:
     parser.add_argument("--migrations-root", type=Path, default=Path("storage/sqlite"))
     if include_projects:
         parser.add_argument("--projects-db", type=Path)
-    parser.add_argument("--metrology-db", type=Path)
+    if include_metrology:
+        parser.add_argument("--metrology-db", type=Path)
     parser.add_argument("--test-definitions-db", type=Path)
     if include_measurement_data:
         parser.add_argument("--measurement-data-db", type=Path)
     if include_update_catalog:
         parser.add_argument("--update-catalog-db", type=Path)
+
+
+def _normalized_json(value: str, field_name: str) -> str:
+    text = require_non_empty(value, field_name)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{field_name} must contain valid JSON") from error
+    return json.dumps(parsed, sort_keys=True)
+
+
+def _has_text(value: str | None) -> bool:
+    return value is not None and bool(value.strip())
 
 
 def _open_repository(

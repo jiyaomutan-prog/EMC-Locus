@@ -84,6 +84,34 @@ The migration adds:
 listing, and instrument lookup by category/domain. The Qt console now receives a
 dedicated `instrument_categories` bootstrap table.
 
+## Operator Registration Action
+
+The local action layer can create a metrology asset, link it to a controlled
+category, optionally record the first calibration certificate, and regenerate
+the browser/Qt bootstrap payload:
+
+```text
+$env:PYTHONPATH='python'
+python -m emc_locus.actions_cli register-instrument `
+  --metrology-db local/metrology.sqlite `
+  --asset-id RX-001 `
+  --family Receiver `
+  --manufacturer "Rohde Schwarz" `
+  --model ESW `
+  --serial-number 100001 `
+  --category-code emi_receiver `
+  --certificate-reference CERT-RX-001 `
+  --calibrated-at 2026-06-01 `
+  --due-at 2027-06-01 `
+  --provider "Accredited Lab" `
+  --bootstrap-output apps/gui-shell/bootstrap.js
+```
+
+If `--calibration-requirement` is omitted, the action takes the default from the
+selected category. If one certificate field is supplied, the certificate
+reference, calibration date, due date, and provider are all required. The
+instrument and certificate are written in a single SQLite transaction.
+
 ## Public Sources Used
 
 - Keysight public electronic test equipment guide:
