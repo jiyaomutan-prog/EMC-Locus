@@ -142,7 +142,7 @@ Implemented in the Rust core:
 6. deterministic channel-sum execution;
 7. temporal peak extraction;
 8. deterministic DFT magnitude fixture for FFT-oriented workflows;
-9. Hann and rectangular windowing;
+9. rectangular, Hann, Hamming, Blackman, and flat-top windowing;
 10. deterministic downsampling;
 11. FFT backend boundary with spectrum backend traceability;
 12. interpolation-based linear resampling;
@@ -154,5 +154,4 @@ Implemented in the Rust core:
 
 Not yet implemented:
 
-- richer window families;
 - real DAQ adapters.

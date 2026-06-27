@@ -116,6 +116,8 @@ change should remain traceable through Git history, session logs, and this file.
   software version.
 - Rust, SQLite, and Python links from revisioned processing graph instances to
   result artifacts with output signal references and raw-lineage evidence.
+- Rust signal window family expansion with Hamming, Blackman, and flat-top
+  coefficients alongside rectangular and Hann windows.
 
 ### Planned
 

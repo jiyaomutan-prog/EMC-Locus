@@ -2887,6 +2887,18 @@ fn signal_execution_engine_applies_hann_window() {
 }
 
 #[test]
+fn window_functions_expose_deterministic_coefficients() {
+    assert_eq!(WindowFunction::Rectangular.coefficient(2, 5), 1.0);
+    assert!((WindowFunction::Hann.coefficient(2, 5) - 1.0).abs() < 1e-12);
+    assert!((WindowFunction::Hamming.coefficient(0, 5) - 0.08).abs() < 1e-12);
+    assert!(WindowFunction::Blackman.coefficient(0, 5).abs() < 1e-12);
+    assert!((WindowFunction::Blackman.coefficient(2, 5) - 1.0).abs() < 1e-12);
+    assert!((WindowFunction::FlatTop.coefficient(2, 5) - 1.0).abs() < 1e-8);
+    assert!(WindowFunction::FlatTop.coefficient(0, 5).abs() < 0.001);
+    assert_eq!(WindowFunction::FlatTop.coefficient(0, 1), 1.0);
+}
+
+#[test]
 fn signal_execution_engine_resamples_linearly() {
     let dataset = SimulatedDaqSource::open_daq()
         .acquire_inrush_fixture()

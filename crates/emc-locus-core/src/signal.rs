@@ -887,14 +887,29 @@ impl FrequencyTransformBackend {
 pub enum WindowFunction {
     Rectangular,
     Hann,
+    Hamming,
+    Blackman,
+    FlatTop,
 }
 
 impl WindowFunction {
     pub fn coefficient(self, index: usize, sample_count: usize) -> f64 {
+        if sample_count <= 1 {
+            return 1.0;
+        }
+
+        let angle = 2.0 * PI * index as f64 / (sample_count - 1) as f64;
+
         match self {
             Self::Rectangular => 1.0,
-            Self::Hann if sample_count <= 1 => 1.0,
-            Self::Hann => 0.5 - 0.5 * (2.0 * PI * index as f64 / (sample_count - 1) as f64).cos(),
+            Self::Hann => 0.5 - 0.5 * angle.cos(),
+            Self::Hamming => 0.54 - 0.46 * angle.cos(),
+            Self::Blackman => 0.42 - 0.5 * angle.cos() + 0.08 * (2.0 * angle).cos(),
+            Self::FlatTop => {
+                0.215_578_95 - 0.416_631_58 * angle.cos() + 0.277_263_158 * (2.0 * angle).cos()
+                    - 0.083_578_947 * (3.0 * angle).cos()
+                    + 0.006_947_368 * (4.0 * angle).cos()
+            }
         }
     }
 }

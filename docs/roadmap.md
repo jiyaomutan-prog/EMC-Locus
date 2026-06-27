@@ -93,7 +93,8 @@ Deliverables:
 - synchronized acquisition dataset model; initial Rust model added;
 - FFT and temporal-processing pipeline model; initial graph model added;
 - numeric DFT/peak/channel arithmetic fixture; initial Rust execution added;
-- windowing and deterministic downsampling; initial Rust execution added;
+- windowing and deterministic downsampling; initial Rust execution added, with
+  rectangular, Hann, Hamming, Blackman, and flat-top windows;
 - FFT backend boundary and interpolation resampling; initial Rust execution
   added;
 - optimized radix-2 FFT-compatible backend with DFT fallback; initial Rust
@@ -166,5 +167,4 @@ Deliverables:
 The next productive session should expand guarded IO-backed serial or VISA
 implementations behind the adapter skeletons.
 
-The parallel runtime stream should add richer signal windows and graph-driven
-execution records.
+The parallel runtime stream should add graph-driven execution records.

@@ -126,7 +126,7 @@ existing runtime boundary.
 
 1. Expand guarded IO-backed serial and VISA implementations behind the adapter
    skeletons.
-2. Add richer signal window families and graph-driven execution records.
+2. Add graph-driven execution records for revisioned signal-processing runs.
 
 ## Non-Objectives
 
