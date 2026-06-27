@@ -60,10 +60,10 @@ storage/
 ## First Useful Milestones
 
 1. Add sync persistence adapters around conflict action plans.
-2. Add SQLite adapters for test-definition domains.
-3. Add IO-backed VISA/TCP/IP/serial implementations behind the adapter skeletons.
-4. Add a real optimized FFT implementation behind the backend boundary.
-5. Add update bundle/domain validation mapping between Rust and SQLite.
+2. Add IO-backed VISA/TCP/IP/serial implementations behind the adapter skeletons.
+3. Add a real optimized FFT implementation behind the backend boundary.
+4. Add update bundle/domain validation mapping between Rust and SQLite.
+5. Add data-retention policy hooks for immutable measurement datasets.
 
 ## Development Status
 
@@ -85,6 +85,7 @@ Revision tracking uses:
 
 ```text
 py -m compileall python\emc_locus
+$env:PYTHONPATH='python'; py -m unittest discover -s python\tests
 $env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrations import validate_sqlite_migrations; print(validate_sqlite_migrations(Path('storage/sqlite')))"
 cargo fmt --check
 cargo test

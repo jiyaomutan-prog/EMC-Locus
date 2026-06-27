@@ -125,6 +125,63 @@ CREATE TABLE measurement_runs (
 );
 ```
 
+### standards
+
+```sql
+CREATE TABLE standards (
+    code TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    edition TEXT NOT NULL,
+    issuer TEXT NOT NULL,
+    status TEXT NOT NULL
+);
+```
+
+### test_methods
+
+```sql
+CREATE TABLE test_methods (
+    code TEXT PRIMARY KEY,
+    standard_code TEXT REFERENCES standards(code),
+    name TEXT NOT NULL,
+    family TEXT NOT NULL,
+    measurement_axis TEXT NOT NULL,
+    controlled INTEGER NOT NULL DEFAULT 1
+);
+```
+
+### test_method_revisions
+
+```sql
+CREATE TABLE test_method_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    method_code TEXT NOT NULL REFERENCES test_methods(code),
+    revision TEXT NOT NULL,
+    status TEXT NOT NULL,
+    parameters_json TEXT NOT NULL DEFAULT '{}',
+    acceptance_criteria_json TEXT NOT NULL DEFAULT '{}',
+    processing_graph_json TEXT NOT NULL DEFAULT '{}',
+    approved_by TEXT,
+    approved_at TEXT,
+    checksum TEXT,
+    UNIQUE(method_code, revision)
+);
+```
+
+### test_steps
+
+```sql
+CREATE TABLE test_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    method_revision_id INTEGER NOT NULL REFERENCES test_method_revisions(id),
+    sequence INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    instruction TEXT NOT NULL,
+    expected_evidence TEXT NOT NULL,
+    UNIQUE(method_revision_id, sequence)
+);
+```
+
 ### measurement_run_instruments
 
 ```sql

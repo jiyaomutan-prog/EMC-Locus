@@ -683,6 +683,238 @@ class MeasurementDataRepository(SQLiteDomainRepository):
         return [dict(row) for row in rows]
 
 
+class TestDefinitionRepository(SQLiteDomainRepository):
+    """SQLite adapter for standards, methods, revisions, and test steps."""
+
+    def __init__(self, database_path: Path | str, migrations_root: Path | str) -> None:
+        super().__init__(Path(database_path), Path(migrations_root), "test_definitions")
+
+    def add_standard(
+        self,
+        *,
+        code: str,
+        title: str,
+        edition: str,
+        issuer: str,
+        status: str = "active",
+    ) -> None:
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO standards (
+                        code,
+                        title,
+                        edition,
+                        issuer,
+                        status,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (code, title, edition, issuer, status, now, now),
+                )
+
+    def get_standard(self, code: str) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM standards WHERE code = ?",
+                (code,),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def list_standards(self) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute("SELECT * FROM standards ORDER BY code").fetchall()
+        return [dict(row) for row in rows]
+
+    def add_test_method(
+        self,
+        *,
+        code: str,
+        standard_code: str | None,
+        name: str,
+        family: str,
+        measurement_axis: str,
+        controlled: bool = True,
+    ) -> None:
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO test_methods (
+                        code,
+                        standard_code,
+                        name,
+                        family,
+                        measurement_axis,
+                        controlled,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        code,
+                        standard_code,
+                        name,
+                        family,
+                        measurement_axis,
+                        int(controlled),
+                        now,
+                        now,
+                    ),
+                )
+
+    def get_test_method(self, code: str) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM test_methods WHERE code = ?",
+                (code,),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def list_test_methods(self, family: str | None = None) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            if family is None:
+                rows = connection.execute(
+                    "SELECT * FROM test_methods ORDER BY family, code"
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT *
+                    FROM test_methods
+                    WHERE family = ?
+                    ORDER BY code
+                    """,
+                    (family,),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_method_revision(
+        self,
+        *,
+        method_code: str,
+        revision: str,
+        status: str = "draft",
+        parameters_json: str = "{}",
+        acceptance_criteria_json: str = "{}",
+        processing_graph_json: str = "{}",
+        checksum: str | None = None,
+    ) -> int:
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO test_method_revisions (
+                        method_code,
+                        revision,
+                        status,
+                        parameters_json,
+                        acceptance_criteria_json,
+                        processing_graph_json,
+                        checksum
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        method_code,
+                        revision,
+                        status,
+                        parameters_json,
+                        acceptance_criteria_json,
+                        processing_graph_json,
+                        checksum,
+                    ),
+                )
+        return int(cursor.lastrowid)
+
+    def approve_method_revision(
+        self,
+        *,
+        method_code: str,
+        revision: str,
+        approved_by: str,
+        checksum: str | None = None,
+    ) -> bool:
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    UPDATE test_method_revisions
+                    SET status = 'approved',
+                        approved_by = ?,
+                        approved_at = ?,
+                        checksum = COALESCE(?, checksum)
+                    WHERE method_code = ? AND revision = ?
+                    """,
+                    (approved_by, utc_timestamp(), checksum, method_code, revision),
+                )
+        return cursor.rowcount == 1
+
+    def method_revisions(self, method_code: str) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM test_method_revisions
+                WHERE method_code = ?
+                ORDER BY revision
+                """,
+                (method_code,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_test_step(
+        self,
+        *,
+        method_revision_id: int,
+        sequence: int,
+        name: str,
+        instruction: str,
+        expected_evidence: str,
+    ) -> int:
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO test_steps (
+                        method_revision_id,
+                        sequence,
+                        name,
+                        instruction,
+                        expected_evidence
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        method_revision_id,
+                        sequence,
+                        name,
+                        instruction,
+                        expected_evidence,
+                    ),
+                )
+        return int(cursor.lastrowid)
+
+    def test_steps(self, method_revision_id: int) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM test_steps
+                WHERE method_revision_id = ?
+                ORDER BY sequence
+                """,
+                (method_revision_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+
 class UpdateCatalogRepository(SQLiteDomainRepository):
     """SQLite adapter for signed update package and install metadata."""
 

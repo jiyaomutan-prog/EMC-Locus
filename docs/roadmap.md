@@ -35,6 +35,9 @@ Deliverables:
 - first storage schema draft; initial SQLite sketch added.
 - versioned split SQLite migrations; initial domain migrations added.
 - Rust core module split; initial structure added.
+- SQLite test-definition adapter for standards, test methods, approved
+  revisions, processing graph metadata, and evidence steps; initial Python
+  adapter added.
 
 ## Phase 2: Metrology Database
 
@@ -130,5 +133,5 @@ Deliverables:
 The next productive session should add sync persistence adapters around conflict
 action plans.
 
-The parallel storage stream should add SQLite adapters for test-definition
-domains.
+The parallel storage stream should add update bundle/domain validation mapping
+between Rust and SQLite.

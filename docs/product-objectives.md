@@ -110,11 +110,11 @@ Updates must be controlled like laboratory evidence:
 ## Near-Term Implementation Objectives
 
 1. Add sync persistence adapters around conflict action plans.
-2. Add SQLite adapters for test-definition domains.
-3. Add IO-backed VISA, TCP/IP, and serial implementations behind the adapter
+2. Add IO-backed VISA, TCP/IP, and serial implementations behind the adapter
    skeletons.
-4. Add a real optimized FFT implementation behind the backend boundary.
-5. Add update bundle/domain validation mapping between Rust and SQLite.
+3. Add a real optimized FFT implementation behind the backend boundary.
+4. Add update bundle/domain validation mapping between Rust and SQLite.
+5. Add data-retention policy hooks for immutable measurement datasets.
 
 ## Non-Objectives
 

@@ -84,11 +84,12 @@ change should remain traceable through Git history, session logs, and this file.
   validation, timeout policy, and explicit unavailable-IO errors.
 - Python SQLite measurement-data adapter for immutable datasets, signal
   channels, processing graphs, and result artifacts.
+- Python SQLite test-definition adapter for standards, test methods, approved
+  method revisions, processing graph metadata, and ordered evidence steps.
 
 ### Planned
 
 - Add sync persistence adapters around conflict action plans.
-- Add SQLite adapters for test-definition domains.
 - Add IO-backed VISA/TCP/IP/serial implementations behind the adapter
   skeletons.
 - Add a real optimized FFT implementation behind the backend boundary.
