@@ -147,13 +147,15 @@ Deliverables:
   initial static views added;
 - local/offline switch visible in the operator workflow; initial UI control
   added;
-- service wiring to the Python repository adapters;
+- service wiring to the Python repository adapters; initial Python bootstrap
+  export and `bootstrap.js` loading path added;
+- local write actions and refresh workflow;
 - future Rust-backed command execution bridge for instrument runtime actions.
 
 ## Near-Term Next Session
 
-The next productive session should start wiring the GUI shell to local Python
-repository services.
+The next productive session should add local write actions and a refresh
+workflow behind the GUI shell.
 
 The parallel runtime stream should add IO-backed VISA, TCP/IP, or serial
 implementations behind the adapter skeletons.

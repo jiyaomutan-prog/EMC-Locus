@@ -114,13 +114,14 @@ let operators see campaign state, readiness, metrology status, test-definition
 approval, dataset lineage, update gates, and local/offline operating mode from
 one place.
 
-The first GUI shell is static and fixture-driven. The next step is to wire it
-to local Python repository services before adding remote synchronization or
-instrument runtime controls.
+The first GUI shell is static and can load a Python-generated local bootstrap
+file from split SQLite repositories. The next step is to add local write
+actions and refresh workflow before remote synchronization or instrument
+runtime controls.
 
 ## Near-Term Implementation Objectives
 
-1. Wire the GUI shell to local Python repository services.
+1. Add local write actions and refresh workflow behind the GUI shell.
 2. Add IO-backed VISA, TCP/IP, and serial implementations behind the adapter
    skeletons.
 3. Add a real optimized FFT implementation behind the backend boundary.

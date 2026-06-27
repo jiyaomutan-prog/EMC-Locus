@@ -32,17 +32,17 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="GUI service wiring",
+            title="GUI local write actions",
             objective=(
-                "Wire the static operator console shell to local Python "
-                "repository services for projects, metrology, test "
-                "definitions, measurement data, and update metadata."
+                "Replace the remaining fixture-only GUI actions with local "
+                "Python-backed write actions and a refresh path for the "
+                "generated bootstrap data."
             ),
             workstreams=(Workstream.UI, Workstream.STORAGE, Workstream.QUALITY),
             expected_outputs=(
-                "local repository read API for the GUI",
-                "fixture replacement path",
-                "offline mode smoke test",
+                "project stage write action",
+                "bootstrap regeneration command",
+                "operator workflow smoke test",
             ),
         ),
         SessionPlan(

@@ -6,7 +6,7 @@ const state = {
   selectedProject: "CEM-2026-001",
 };
 
-const data = {
+const fallbackData = {
   projects: [
     {
       code: "CEM-2026-001",
@@ -59,6 +59,8 @@ const data = {
     ["report-template-fr", "0.1.1", "Signed", "Installed", "offline_bundle"],
   ],
 };
+
+const data = window.EMC_LOCUS_BOOTSTRAP || fallbackData;
 
 const titles = {
   dashboard: "Tableau",

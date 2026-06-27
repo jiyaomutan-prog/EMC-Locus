@@ -97,10 +97,12 @@ change should remain traceable through Git history, session logs, and this file.
   immutable raw data.
 - SQLite measurement-data retention evidence migration and Python APIs for
   retention events, current status, and reviewed deletion workflows.
+- Python GUI bootstrap exporter that maps local SQLite repositories into the
+  static console data contract, with a browser-loadable `bootstrap.js` file.
 
 ### Planned
 
-- Wire the GUI shell to local Python repository services.
+- Add local write actions and refresh workflow behind the GUI shell.
 - Add IO-backed VISA/TCP/IP/serial implementations behind the adapter
   skeletons.
 - Add a real optimized FFT implementation behind the backend boundary.

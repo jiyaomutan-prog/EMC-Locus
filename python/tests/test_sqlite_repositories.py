@@ -8,9 +8,13 @@ from pathlib import Path
 
 from emc_locus import (
     MeasurementDataRepository,
+    MetrologyRepository,
+    ProjectRepository,
     SyncRepository,
     TestDefinitionRepository,
     UpdateCatalogRepository,
+    build_bootstrap,
+    write_bootstrap_js,
 )
 
 
@@ -140,6 +144,102 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
             self.assertEqual([row["version"] for row in version_rows], [1, 2])
             self.assertIsNotNone(retention_table)
             self.assertEqual(dataset["retention_status"], "retained")
+
+
+class GuiBootstrapTests(unittest.TestCase):
+    def test_builds_bootstrap_from_local_repositories(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path("storage/sqlite")
+            base = Path(temporary_directory)
+            projects = ProjectRepository(base / "projects.sqlite", root)
+            metrology = MetrologyRepository(base / "metrology.sqlite", root)
+            test_definitions = TestDefinitionRepository(
+                base / "test_definitions.sqlite",
+                root,
+            )
+            measurement_data = MeasurementDataRepository(
+                base / "measurement_data.sqlite",
+                root,
+            )
+            update_catalog = UpdateCatalogRepository(base / "update_catalog.sqlite", root)
+
+            for repository in (
+                projects,
+                metrology,
+                test_definitions,
+                measurement_data,
+                update_catalog,
+            ):
+                repository.initialize()
+
+            projects.create_project(
+                code="CEM-BOOT-001",
+                customer_name="Bootstrap Customer",
+                execution_mode="investigation",
+                stage="measuring",
+            )
+            metrology.add_instrument(
+                asset_id="DAQ-001",
+                family="DAQ",
+                manufacturer="Open",
+                model="DAQ",
+                serial_number="001",
+                calibration_requirement="required",
+            )
+            metrology.add_calibration_record(
+                asset_id="DAQ-001",
+                certificate_reference="CERT-001",
+                calibrated_at="2026-01-01",
+                due_at="2027-01-01",
+                provider="Metrology Lab",
+            )
+            test_definitions.add_test_method(
+                code="INRUSH-001",
+                standard_code=None,
+                name="Inrush current",
+                family="inrush",
+                measurement_axis="time_series",
+            )
+            test_definitions.add_method_revision(
+                method_code="INRUSH-001",
+                revision="A",
+                status="approved",
+                checksum="sha256:method001",
+            )
+            measurement_data.add_dataset(
+                project_code="CEM-BOOT-001",
+                campaign_reference="CAMP-BOOT-001",
+                measurement_run_reference="RUN-BOOT-001",
+                kind="raw_signal",
+                file_reference="data/RUN-BOOT-001/raw.opendata",
+                checksum="sha256:rawboot001",
+            )
+            update_catalog.add_update_package(
+                package_name="driver-pack-opendaq",
+                package_version="0.1.0",
+                component="instrument_driver",
+                compatibility_range="0.1.0..0.1.9",
+                signed_checksum="sha256:driver001",
+            )
+
+            payload = build_bootstrap(
+                projects=projects,
+                metrology=metrology,
+                test_definitions=test_definitions,
+                measurement_data=measurement_data,
+                update_catalog=update_catalog,
+            )
+            output_path = base / "bootstrap.js"
+            write_bootstrap_js(output_path, payload)
+
+            self.assertEqual(payload["projects"][0]["code"], "CEM-BOOT-001")
+            self.assertEqual(payload["projects"][0]["stage"], "Measuring")
+            self.assertEqual(payload["instruments"][0][0], "DAQ-001")
+            self.assertEqual(payload["instruments"][0][5], "ok")
+            self.assertEqual(payload["methods"][0][3], "approved")
+            self.assertEqual(payload["datasets"][0][4], "Immutable")
+            self.assertEqual(payload["updates"][0][0], "driver-pack-opendaq")
+            self.assertIn("window.EMC_LOCUS_BOOTSTRAP", output_path.read_text())
 
 
 class TestDefinitionRepositoryTests(unittest.TestCase):

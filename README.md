@@ -62,7 +62,7 @@ storage/
 
 ## First Useful Milestones
 
-1. Wire the GUI shell to local Python repository services.
+1. Add local write actions and refresh workflow behind the GUI shell.
 2. Add IO-backed VISA/TCP/IP/serial implementations behind the adapter skeletons.
 3. Add a real optimized FFT implementation behind the backend boundary.
 4. Add traceability report views for audit and technical review.

@@ -1,5 +1,6 @@
 """Python helpers for EMC Locus laboratory automation."""
 
+from .gui_bootstrap import build_bootstrap, build_fixture_bootstrap, write_bootstrap_js
 from .migrations import Migration, discover_migrations, validate_sqlite_migrations
 from .session_plan import SessionPlan, Workstream, default_backlog
 from .sqlite_repositories import (
@@ -23,7 +24,10 @@ __all__ = [
     "TestDefinitionRepository",
     "UpdateCatalogRepository",
     "Workstream",
+    "build_bootstrap",
+    "build_fixture_bootstrap",
     "discover_migrations",
     "default_backlog",
     "validate_sqlite_migrations",
+    "write_bootstrap_js",
 ]

@@ -565,6 +565,17 @@ class MeasurementDataRepository(SQLiteDomainRepository):
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_datasets(self) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM datasets
+                ORDER BY acquired_at, id
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def record_retention_event(
         self,
         *,
