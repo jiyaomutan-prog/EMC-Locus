@@ -50,11 +50,32 @@ Represents a physical or simulated measurement instrument.
 Important fields:
 
 - asset identifier;
+- category code and metrology domain;
 - manufacturer;
 - model;
 - serial number;
 - supported capabilities;
 - current availability status.
+
+### Instrument Category
+
+Represents a revisioned metrology taxonomy entry used to group instruments by
+measurement domain before driver, calibration, and readiness rules become
+specific to a model.
+
+Initial domains:
+
+- electronics;
+- EMC;
+- thermal;
+- acoustic;
+- shock and vibration;
+- radio/RF;
+- data monitoring.
+
+Each category records typical instrument types, measured quantities, likely
+communication transports, a calibration profile, a default calibration
+requirement, and public source provenance.
 
 ### Calibration Record
 
@@ -236,6 +257,7 @@ The Rust core now owns the first metrology registry primitives:
 
 - instrument asset code;
 - instrument family;
+- instrument category reference;
 - manufacturer, model, and serial number;
 - availability status;
 - calibration requirement;
@@ -251,6 +273,12 @@ constraints, while out-of-service equipment remains blocking in every mode.
 
 Calibration due soon is treated as an attention point rather than a hard block,
 so the operator can continue a valid run while planning renewal.
+
+The SQLite metrology repository now seeds the first revisioned instrument
+category taxonomy (`2026-06-27-v1`) with electronics, EMC, thermal, acoustic,
+shock/vibration, radio/RF, and data-monitoring categories. Existing v1
+metrology databases migrate with a nullable `category_code`, so legacy assets
+remain valid while new assets can be linked to controlled categories.
 
 ## Measurement Run Planning
 

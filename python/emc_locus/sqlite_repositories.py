@@ -106,6 +106,7 @@ class MetrologyRepository(SQLiteDomainRepository):
         calibration_requirement: str,
         availability: str = "available",
         capabilities_json: str = "[]",
+        category_code: str | None = None,
     ) -> None:
         now = utc_timestamp()
         with closing(self.connect()) as connection:
@@ -121,10 +122,11 @@ class MetrologyRepository(SQLiteDomainRepository):
                         availability,
                         calibration_requirement,
                         capabilities_json,
+                        category_code,
                         created_at,
                         updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         asset_id,
@@ -135,6 +137,7 @@ class MetrologyRepository(SQLiteDomainRepository):
                         availability,
                         calibration_requirement,
                         capabilities_json,
+                        category_code,
                         now,
                         now,
                     ),
@@ -195,6 +198,64 @@ class MetrologyRepository(SQLiteDomainRepository):
             row = connection.execute("SELECT COUNT(*) AS count FROM calibration_records").fetchone()
         return int(row["count"])
 
+    def category_count(self) -> int:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS count FROM instrument_categories"
+            ).fetchone()
+        return int(row["count"])
+
+    def list_instrument_categories(
+        self,
+        *,
+        domain: str | None = None,
+    ) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            if domain is None:
+                rows = connection.execute(
+                    """
+                    SELECT *
+                    FROM instrument_categories
+                    WHERE active = 1
+                    ORDER BY domain, label
+                    """
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT *
+                    FROM instrument_categories
+                    WHERE active = 1 AND domain = ?
+                    ORDER BY label
+                    """,
+                    (domain,),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_instrument_category(self, code: str) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM instrument_categories WHERE code = ?",
+                (code,),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def list_instrument_category_sources(
+        self,
+        category_code: str,
+    ) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM instrument_category_sources
+                WHERE category_code = ?
+                ORDER BY source_name, source_url
+                """,
+                (category_code,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def get_instrument(self, asset_id: str) -> dict[str, object] | None:
         with closing(self.connect()) as connection:
             row = connection.execute(
@@ -207,6 +268,36 @@ class MetrologyRepository(SQLiteDomainRepository):
         with closing(self.connect()) as connection:
             rows = connection.execute(
                 "SELECT * FROM instruments ORDER BY asset_id"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def instruments_by_category(self, category_code: str) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT instruments.*
+                FROM instruments
+                WHERE category_code = ?
+                ORDER BY asset_id
+                """,
+                (category_code,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def instruments_by_category_domain(self, domain: str) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT instruments.*,
+                       instrument_categories.label AS category_label,
+                       instrument_categories.domain AS category_domain
+                FROM instruments
+                JOIN instrument_categories
+                  ON instrument_categories.code = instruments.category_code
+                WHERE instrument_categories.domain = ?
+                ORDER BY instruments.asset_id
+                """,
+                (domain,),
             ).fetchall()
         return [dict(row) for row in rows]
 

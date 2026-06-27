@@ -53,6 +53,9 @@ Deliverables:
 - SQLite metrology adapter; initial Python smoke adapter added.
 - SQLite metrology query APIs; initial Python lookups added.
 - SQLite metrology write APIs; initial Python updates added.
+- Revisioned instrument category taxonomy for electronics, EMC, thermal,
+  acoustic, shock/vibration, radio/RF, and data-monitoring equipment; initial
+  SQLite/Python/Qt support added.
 
 ## Phase 3: Measurement Runtime
 

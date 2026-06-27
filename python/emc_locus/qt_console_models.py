@@ -83,6 +83,12 @@ def build_console_view_model(bootstrap: dict[str, Any]) -> ConsoleViewModel:
                 rows=_list_rows(bootstrap.get("instruments"), 6),
             ),
             TableViewModel(
+                tab_label="Categories",
+                title="Categories instruments",
+                columns=("Code", "Domaine", "Nom", "Calibration", "Profil"),
+                rows=_list_rows(bootstrap.get("instrument_categories"), 5),
+            ),
+            TableViewModel(
                 tab_label="Runtime",
                 title="Instrument runtime",
                 columns=RUNTIME_COLUMNS,
@@ -201,6 +207,7 @@ def _action_intents(bootstrap: dict[str, Any]) -> tuple[OperatorActionIntent, ..
 def _status_metrics(bootstrap: dict[str, Any]) -> tuple[StatusMetric, ...]:
     projects = _project_rows(bootstrap.get("projects"))
     instruments = _list_rows(bootstrap.get("instruments"), 6)
+    categories = _list_rows(bootstrap.get("instrument_categories"), 5)
     runtime = _list_rows(bootstrap.get("runtime"), len(RUNTIME_COLUMNS))
     datasets = _list_rows(bootstrap.get("datasets"), 5)
     updates = _list_rows(bootstrap.get("updates"), 5)
@@ -218,6 +225,11 @@ def _status_metrics(bootstrap: dict[str, Any]) -> tuple[StatusMetric, ...]:
             "Alertes metrologie",
             str(instrument_alerts),
             "warn" if instrument_alerts else "ok",
+        ),
+        StatusMetric(
+            "Categories instruments",
+            str(len(categories)),
+            "ok" if categories else "neutral",
         ),
         StatusMetric(
             "Erreurs runtime",

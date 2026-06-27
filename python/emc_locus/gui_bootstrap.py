@@ -55,6 +55,16 @@ FALLBACK_BOOTSTRAP: BootstrapData = {
         ["DAQ-OPEN-01", "DAQ", "Available", "CERT-2026-112", "2027-03-18", "ok"],
         ["AMP-004", "Amplifier", "Out of service", "CERT-2024-090", "2025-12-04", "danger"],
     ],
+    "instrument_categories": [
+        ["emi_receiver", "emc", "EMI test receiver", "required", "rf"],
+        ["line_impedance_stabilization_network", "emc", "LISN and AMN", "required", "rf"],
+        ["oscilloscope", "electronics", "Oscilloscope", "required", "electrical"],
+        ["thermal_camera", "thermal", "Thermal camera", "conditional", "thermal"],
+        ["sound_level_meter", "acoustic", "Sound level meter", "required", "acoustic"],
+        ["accelerometer", "shock_vibration", "Accelerometer", "required", "mechanical"],
+        ["spectrum_analyzer", "radio_rf", "Spectrum analyzer", "required", "rf"],
+        ["daq_chassis", "data_monitoring", "DAQ chassis and modules", "required", "data_acquisition"],
+    ],
     "methods": [
         ["EN61000-4-6-CS", "Conducted immunity", "frequency_sweep", "approved", "sha256:methodA"],
         ["RAIL-HARM-01", "Railway harmonics", "mixed_time_frequency", "approved", "sha256:railH"],
@@ -120,6 +130,9 @@ def build_bootstrap(
     if metrology is not None:
         payload["instruments"] = [
             _instrument_row(metrology, row) for row in metrology.list_instruments()
+        ]
+        payload["instrument_categories"] = [
+            _instrument_category_row(row) for row in metrology.list_instrument_categories()
         ]
 
     if test_definitions is not None:
@@ -227,6 +240,16 @@ def _instrument_row(
         str(calibration["certificate_reference"]) if calibration else "missing",
         str(calibration["due_at"]) if calibration else "missing",
         _instrument_tone(status, calibration_status),
+    ]
+
+
+def _instrument_category_row(row: dict[str, object]) -> list[str]:
+    return [
+        str(row["code"]),
+        str(row["domain"]),
+        str(row["label"]),
+        str(row["default_calibration_requirement"]),
+        str(row["calibration_profile"]),
     ]
 
 

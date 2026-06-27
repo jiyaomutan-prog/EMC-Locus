@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -411,6 +412,119 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                 )
 
 
+class MetrologyRepositoryTests(unittest.TestCase):
+    def test_lists_instrument_categories_and_links_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = MetrologyRepository(
+                Path(temporary_directory) / "metrology.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            category = repository.get_instrument_category("daq_chassis")
+            electronics = repository.list_instrument_categories(domain="electronics")
+            daq_sources = repository.list_instrument_category_sources("daq_chassis")
+
+            self.assertEqual(repository.category_count(), 34)
+            self.assertIsNotNone(category)
+            assert category is not None
+            self.assertEqual(category["domain"], "data_monitoring")
+            self.assertIn(
+                "openDAQ device",
+                json.loads(str(category["typical_instruments_json"])),
+            )
+            self.assertIn("oscilloscope", {row["code"] for row in electronics})
+            self.assertTrue(any("NI" in str(source["source_name"]) for source in daq_sources))
+
+            repository.add_instrument(
+                asset_id="DAQ-001",
+                family="DAQ",
+                manufacturer="Open",
+                model="DAQ",
+                serial_number="001",
+                calibration_requirement="required",
+                category_code="daq_chassis",
+            )
+
+            instrument = repository.get_instrument("DAQ-001")
+            by_category = repository.instruments_by_category("daq_chassis")
+            by_domain = repository.instruments_by_category_domain("data_monitoring")
+
+            self.assertEqual(instrument["category_code"], "daq_chassis")
+            self.assertEqual(by_category[0]["asset_id"], "DAQ-001")
+            self.assertEqual(by_domain[0]["category_label"], "DAQ chassis and modules")
+
+            with self.assertRaises(sqlite3.IntegrityError):
+                repository.add_instrument(
+                    asset_id="BAD-001",
+                    family="Unknown",
+                    manufacturer="Unknown",
+                    model="Unknown",
+                    serial_number="BAD",
+                    calibration_requirement="required",
+                    category_code="missing_category",
+                )
+
+    def test_applies_category_migration_to_existing_metrology_database(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            database_path = Path(temporary_directory) / "metrology.sqlite"
+            connection = sqlite3.connect(database_path)
+            try:
+                connection.executescript(
+                    Path("storage/sqlite/metrology/0001_metrology_registry.sql").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                connection.execute(
+                    """
+                    INSERT INTO instruments (
+                        asset_id,
+                        family,
+                        manufacturer,
+                        model,
+                        serial_number,
+                        availability,
+                        calibration_requirement,
+                        capabilities_json,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "LEGACY-001",
+                        "Receiver",
+                        "Legacy",
+                        "Model",
+                        "SN-001",
+                        "available",
+                        "required",
+                        "[]",
+                        "1970-01-01T00:00:00Z",
+                        "1970-01-01T00:00:00Z",
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            repository = MetrologyRepository(database_path, Path("storage/sqlite"))
+            repository.initialize()
+
+            with closing(repository.connect()) as connection:
+                version_rows = connection.execute(
+                    "SELECT version FROM schema_migrations ORDER BY version"
+                ).fetchall()
+                instrument_columns = connection.execute(
+                    "PRAGMA table_info(instruments)"
+                ).fetchall()
+
+            self.assertEqual([row["version"] for row in version_rows], [1, 2])
+            self.assertIn("category_code", {row["name"] for row in instrument_columns})
+            self.assertEqual(repository.category_count(), 34)
+            self.assertIsNone(repository.get_instrument("LEGACY-001")["category_code"])
+
+
 class GuiBootstrapTests(unittest.TestCase):
     def test_builds_bootstrap_from_local_repositories(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -450,6 +564,7 @@ class GuiBootstrapTests(unittest.TestCase):
                 model="DAQ",
                 serial_number="001",
                 calibration_requirement="required",
+                category_code="daq_chassis",
             )
             metrology.add_calibration_record(
                 asset_id="DAQ-001",
@@ -514,6 +629,10 @@ class GuiBootstrapTests(unittest.TestCase):
             self.assertEqual(payload["projects"][0]["stage"], "Measuring")
             self.assertEqual(payload["instruments"][0][0], "DAQ-001")
             self.assertEqual(payload["instruments"][0][5], "ok")
+            self.assertIn(
+                "daq_chassis",
+                {row[0] for row in payload["instrument_categories"]},
+            )
             self.assertEqual(payload["methods"][0][3], "approved")
             self.assertEqual(payload["datasets"][0][4], "Immutable")
             self.assertEqual(payload["runtime"][0][0], "DAQ-001")

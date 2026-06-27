@@ -42,6 +42,16 @@ const fallbackData = {
     ["DAQ-OPEN-01", "DAQ", "Available", "CERT-2026-112", "2027-03-18", "ok"],
     ["AMP-004", "Amplifier", "Out of service", "CERT-2024-090", "2025-12-04", "danger"],
   ],
+  instrument_categories: [
+    ["emi_receiver", "emc", "EMI test receiver", "required", "rf"],
+    ["line_impedance_stabilization_network", "emc", "LISN and AMN", "required", "rf"],
+    ["oscilloscope", "electronics", "Oscilloscope", "required", "electrical"],
+    ["thermal_camera", "thermal", "Thermal camera", "conditional", "thermal"],
+    ["sound_level_meter", "acoustic", "Sound level meter", "required", "acoustic"],
+    ["accelerometer", "shock_vibration", "Accelerometer", "required", "mechanical"],
+    ["spectrum_analyzer", "radio_rf", "Spectrum analyzer", "required", "rf"],
+    ["daq_chassis", "data_monitoring", "DAQ chassis and modules", "required", "data_acquisition"],
+  ],
   methods: [
     ["EN61000-4-6-CS", "Conducted immunity", "frequency_sweep", "approved", "sha256:methodA"],
     ["RAIL-HARM-01", "Railway harmonics", "mixed_time_frequency", "approved", "sha256:railH"],
@@ -100,12 +110,14 @@ function renderStatus() {
   const readyInstruments = data.instruments.filter((item) => item[5] === "ok").length;
   const approvedMethods = data.methods.filter((item) => item[3] === "approved").length;
   const immutableDatasets = data.datasets.filter((item) => item[4] === "Immutable").length;
+  const instrumentCategories = (data.instrument_categories || []).length;
   const updateGate = data.updates.every((item) => item[2] === "Signed") ? "Strict" : "Review";
 
   selectors.statusStrip.innerHTML = [
     ["Projets", activeProjects],
     ["Mode qualite", state.qualityMode],
     ["Instruments prets", readyInstruments],
+    ["Categories metro", instrumentCategories],
     ["Methodes approuvees", approvedMethods],
     ["Datasets immutables", immutableDatasets],
     ["Update gate", updateGate],
@@ -189,6 +201,19 @@ function renderMetrology() {
         <td>${item[1]}</td>
         <td>${badge(item[2], item[5])}</td>
         <td>${item[3]}</td>
+        <td>${item[4]}</td>
+      </tr>`
+    )
+    .join("");
+  document.querySelector("#metrology-categories-table").innerHTML = (data.instrument_categories || [])
+    .filter((item) => matchesSearch(item))
+    .map(
+      (item) => `
+      <tr>
+        <td>${item[0]}</td>
+        <td>${item[1]}</td>
+        <td>${item[2]}</td>
+        <td>${badge(item[3], item[3] === "required" ? "ok" : "warn")}</td>
         <td>${item[4]}</td>
       </tr>`
     )

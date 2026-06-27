@@ -23,8 +23,9 @@ project records or raw measurement data.
 
 ### Metrology
 
-Owns instrument identities, families, availability, calibration requirements,
-and calibration certificates.
+Owns instrument identities, instrument categories, families, availability,
+calibration requirements, calibration certificates, and category source
+provenance.
 
 ### Projects
 
@@ -96,9 +97,12 @@ perform minimal insert/count/query operations for smoke testing:
 
 - instrument records;
 - calibration records;
+- instrument category records;
+- instrument category source records;
 - project records;
 - project audit events.
 - instrument lookup/listing;
+- instrument category lookup/listing and domain filtering;
 - latest calibration lookup;
 - project lookup/listing;
 - ordered project audit-event listing.

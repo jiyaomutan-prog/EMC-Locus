@@ -1,0 +1,107 @@
+# Metrology Instrument Categories
+
+This document records the first EMC Locus metrology taxonomy. It is intentionally
+broader than classic BAT-EMC level-versus-frequency equipment because EMC
+campaigns also involve time-domain acquisition, DAQ synchronization, thermal
+state, acoustic evidence, shock/vibration monitoring, and radio/RF checks.
+
+The canonical seed data lives in:
+
+```text
+storage/sqlite/metrology/0002_instrument_categories.sql
+```
+
+Taxonomy revision: `2026-06-27-v1`.
+
+## Domains
+
+### Electronics
+
+Bench and system instruments used to stimulate or observe electrical behavior:
+oscilloscopes, digital multimeters, LCR/impedance meters, DC power supplies,
+electronic loads, source-measure units, and function/arbitrary waveform
+generators.
+
+These categories cover voltage, current, impedance, timing, transient, and
+source/load behavior. They are usually driven through VISA/SCPI over USB,
+Ethernet, GPIB, or serial links, with manual entries still allowed for simple
+bench equipment.
+
+### EMC
+
+Emission and immunity chain equipment: EMI receivers, LISN/AMN networks,
+antennas and probes, RF power amplifiers, coupling/decoupling networks, and ESD
+generators.
+
+This domain must support accredited pre-run readiness checks because wrong
+calibration, wrong network factor, or an out-of-service amplifier can invalidate
+an entire campaign.
+
+### Thermal
+
+Thermal cameras, temperature/humidity loggers, climatic chambers, and
+temperature calibrators. These instruments are needed when environmental state
+or component temperature is part of the test evidence.
+
+### Acoustic
+
+Sound level meters, measurement microphones, acoustic calibrators, and noise
+dosimeters. These categories support acoustic evidence, monitoring, and
+calibrator-before/after workflows.
+
+### Shock And Vibration
+
+Accelerometers, vibration controllers, impact hammers, and shock/vibration
+loggers. These categories make EMC Locus ready for campaigns where mechanical
+state, transport shock, shaker excitation, or vibration monitoring must be
+correlated with electrical behavior.
+
+### Radio And RF
+
+Spectrum/signal analyzers, RF signal generators, vector network analyzers, RF
+power meters, and radio communication testers. These categories cover RF
+source/measurement chains, antenna and cable verification, amplifier level
+traceability, and radio-oriented checks.
+
+### Data Monitoring
+
+DAQ chassis/modules, data loggers, condition-monitoring units, and
+timing/synchronization units. This domain is central for future openDAQ-style
+time-series acquisition, multi-DAQ synchronization, triggered capture, and
+offline field work.
+
+## Storage Behavior
+
+The migration adds:
+
+- `instrument_categories`, seeded with 34 active categories;
+- `instrument_category_sources`, keeping public-source provenance;
+- nullable `instruments.category_code`, so existing v1 metrology databases
+  migrate without losing legacy instruments;
+- repository metadata keys for taxonomy revision and category count.
+
+`MetrologyRepository` exposes category listing, domain filtering, source
+listing, and instrument lookup by category/domain. The Qt console now receives a
+dedicated `instrument_categories` bootstrap table.
+
+## Public Sources Used
+
+- Keysight public electronic test equipment guide:
+  https://www.keysight.com/used/cz/en/knowledge/guides/top-10-electronic-test-equipment-for-engineers
+- Rohde and Schwarz EMC test equipment overview:
+  https://www.rohde-schwarz.com/us/products/test-and-measurement/emc-test-equipment_105350.html
+- NI data acquisition overview:
+  https://www.ni.com/en/shop/data-acquisition.html
+- NTi Audio sound level meter overview:
+  https://www.nti-audio.com/en/support/know-how/what-is-a-sound-level-meter
+- Larson Davis sound and vibration product scope:
+  https://www.larsondavis.com/
+- PCB Piezotronics accelerometer reference:
+  https://www.pcb.com/sensors-for-test-measurement/accelerometers
+- Dewesoft vibration analysis and testing reference:
+  https://dewesoft.com/applications/vibration-analysis
+- Fluke thermal camera reference:
+  https://www.fluke.com/en-us/products/thermal-cameras
+
+The source list is not a vendor selection. It is a starting reference set used
+to avoid modeling the metrology database around only one CEM software family.

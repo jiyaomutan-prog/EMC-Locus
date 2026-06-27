@@ -149,6 +149,10 @@ change should remain traceable through Git history, session logs, and this file.
   datasets, and updates requiring attention.
 - Qt console runtime table contract for future instrument transport endpoints,
   runtime state, and last-observation display.
+- Revisioned SQLite metrology taxonomy with 34 instrument categories across
+  electronics, EMC, thermal, acoustic, shock/vibration, radio/RF, and
+  data-monitoring domains, plus Python repository APIs and Qt/browser category
+  tables.
 
 ### Planned
 

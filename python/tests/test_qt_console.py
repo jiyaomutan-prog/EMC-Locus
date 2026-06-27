@@ -88,10 +88,14 @@ class QtConsoleTests(unittest.TestCase):
                     ],
                 ],
                 "updates": [["driver", "0.2.0", "Signed", "Available", "offline_bundle"]],
+                "instrument_categories": [
+                    ["daq_chassis", "data_monitoring", "DAQ chassis and modules", "required", "data_acquisition"]
+                ],
             }
         )
         tables = {table.tab_label: table for table in model.tables}
         project_table = tables["Projets"]
+        category_table = tables["Categories"]
         dataset_table = tables["Donnees"]
         runtime_table = tables["Runtime"]
         actions = {action.action_id: action for action in model.actions}
@@ -114,6 +118,8 @@ class QtConsoleTests(unittest.TestCase):
         )
         self.assertEqual(runtime_table.rows[0][2], "SIM::DAQ-001")
         self.assertEqual(runtime_table.rows[0][4:8], ("RUN-QT-001", "7", "READ? -> OK", "2"))
+        self.assertEqual(category_table.columns, ("Code", "Domaine", "Nom", "Calibration", "Profil"))
+        self.assertEqual(category_table.rows[0][0], "daq_chassis")
         self.assertEqual(dataset_table.columns, ("Run", "Type", "Fichier", "Checksum", "Retention"))
         self.assertEqual(dataset_table.rows[0][1], "raw_signal")
         self.assertTrue(actions["advance_project"].enabled)
@@ -121,6 +127,7 @@ class QtConsoleTests(unittest.TestCase):
         self.assertTrue(actions["validate_update"].enabled)
         self.assertEqual(metrics["Projets actifs"].value, "1")
         self.assertEqual(metrics["Alertes metrologie"].tone, "warn")
+        self.assertEqual(metrics["Categories instruments"].value, "1")
         self.assertEqual(metrics["Erreurs runtime"].value, "1")
         self.assertEqual(metrics["Erreurs runtime"].tone, "warn")
         self.assertEqual(metrics["Tentatives max"].value, "3")

@@ -56,6 +56,64 @@ window.EMC_LOCUS_BOOTSTRAP = {
       "danger"
     ]
   ],
+  "instrument_categories": [
+    [
+      "emi_receiver",
+      "emc",
+      "EMI test receiver",
+      "required",
+      "rf"
+    ],
+    [
+      "line_impedance_stabilization_network",
+      "emc",
+      "LISN and AMN",
+      "required",
+      "rf"
+    ],
+    [
+      "oscilloscope",
+      "electronics",
+      "Oscilloscope",
+      "required",
+      "electrical"
+    ],
+    [
+      "thermal_camera",
+      "thermal",
+      "Thermal camera",
+      "conditional",
+      "thermal"
+    ],
+    [
+      "sound_level_meter",
+      "acoustic",
+      "Sound level meter",
+      "required",
+      "acoustic"
+    ],
+    [
+      "accelerometer",
+      "shock_vibration",
+      "Accelerometer",
+      "required",
+      "mechanical"
+    ],
+    [
+      "spectrum_analyzer",
+      "radio_rf",
+      "Spectrum analyzer",
+      "required",
+      "rf"
+    ],
+    [
+      "daq_chassis",
+      "data_monitoring",
+      "DAQ chassis and modules",
+      "required",
+      "data_acquisition"
+    ]
+  ],
   "methods": [
     [
       "EN61000-4-6-CS",
