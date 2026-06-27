@@ -115,6 +115,9 @@ change should remain traceable through Git history, session logs, and this file.
   run evidence, raw dataset checksums, observations, review, and approval.
 - Traceability report run summaries for total and maximum instrument exchange
   attempts, so unstable communications remain visible during review.
+- SQLite/Python measurement-data observation log for instrument commands,
+  responses, endpoints, success state, and exchange-attempt evidence, with Qt
+  runtime bootstrap rows derived from the latest local observations.
 - Rust, SQLite, and Python support for revisioned processing graph instances
   bound to source dataset checksums, graph checksums, creator identity, and
   software version.

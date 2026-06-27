@@ -277,6 +277,28 @@ CREATE TABLE processing_graph_executions (
 );
 ```
 
+### instrument_observations
+
+```sql
+CREATE TABLE instrument_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_code TEXT NOT NULL,
+    campaign_reference TEXT NOT NULL,
+    measurement_run_reference TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    instrument_code TEXT NOT NULL,
+    transport TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    command_message TEXT NOT NULL,
+    response_message TEXT NOT NULL,
+    success INTEGER NOT NULL,
+    exchange_attempts INTEGER NOT NULL,
+    observed_at TEXT NOT NULL,
+    raw_payload_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(measurement_run_reference, instrument_code, sequence)
+);
+```
+
 ### reports
 
 ```sql

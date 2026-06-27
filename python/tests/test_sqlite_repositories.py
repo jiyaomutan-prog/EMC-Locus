@@ -168,14 +168,119 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                       AND name = 'processing_graph_executions'
                     """
                 ).fetchone()
+                observation_table = connection.execute(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name = 'instrument_observations'
+                    """
+                ).fetchone()
                 dataset = connection.execute("SELECT * FROM datasets").fetchone()
 
-            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4, 5])
+            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4, 5, 6])
             self.assertIsNotNone(retention_table)
             self.assertIsNotNone(graph_instance_table)
             self.assertIsNotNone(graph_artifact_table)
             self.assertIsNotNone(graph_execution_table)
+            self.assertIsNotNone(observation_table)
             self.assertEqual(dataset["retention_status"], "retained")
+
+    def test_records_instrument_observations_for_runtime_traceability(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = MeasurementDataRepository(
+                Path(temporary_directory) / "measurement_data.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            first_id = repository.record_instrument_observation(
+                project_code="CEM-OBS-001",
+                campaign_reference="CAMP-OBS-001",
+                measurement_run_reference="RUN-OBS-001",
+                sequence=1,
+                instrument_code="RX-001",
+                transport="tcp_ip",
+                endpoint="TCPIP::127.0.0.1::5025",
+                command_message="FREQ 1000000",
+                response_message="OK",
+                success=True,
+                exchange_attempts=1,
+            )
+            second_id = repository.record_instrument_observation(
+                project_code="CEM-OBS-001",
+                campaign_reference="CAMP-OBS-001",
+                measurement_run_reference="RUN-OBS-001",
+                sequence=2,
+                instrument_code="RX-001",
+                transport="tcp_ip",
+                endpoint="TCPIP::127.0.0.1::5025",
+                command_message="READ?",
+                response_message="timeout",
+                success=False,
+                exchange_attempts=3,
+                raw_payload_json='{"error":"timeout"}',
+            )
+            generator_id = repository.record_instrument_observation(
+                project_code="CEM-OBS-001",
+                campaign_reference="CAMP-OBS-001",
+                measurement_run_reference="RUN-OBS-001",
+                sequence=1,
+                instrument_code="GEN-001",
+                transport="visa",
+                endpoint="USB0::0x1234::0x5678::SN001::INSTR",
+                command_message="OUTP ON",
+                response_message="OK",
+                success=True,
+                exchange_attempts=1,
+            )
+
+            run_rows = repository.instrument_observations_for_run("RUN-OBS-001")
+            receiver_rows = repository.instrument_observations_for_instrument(
+                measurement_run_reference="RUN-OBS-001",
+                instrument_code="RX-001",
+            )
+            latest_by_instrument = {
+                row["instrument_code"]: row
+                for row in repository.latest_instrument_observations()
+            }
+
+            self.assertEqual([row["id"] for row in receiver_rows], [first_id, second_id])
+            self.assertEqual(len(run_rows), 3)
+            self.assertEqual(receiver_rows[1]["success"], 0)
+            self.assertEqual(receiver_rows[1]["exchange_attempts"], 3)
+            self.assertEqual(latest_by_instrument["RX-001"]["id"], second_id)
+            self.assertEqual(latest_by_instrument["GEN-001"]["id"], generator_id)
+
+            with self.assertRaises(sqlite3.IntegrityError):
+                repository.record_instrument_observation(
+                    project_code="CEM-OBS-001",
+                    campaign_reference="CAMP-OBS-001",
+                    measurement_run_reference="RUN-OBS-001",
+                    sequence=2,
+                    instrument_code="RX-001",
+                    transport="tcp_ip",
+                    endpoint="TCPIP::127.0.0.1::5025",
+                    command_message="READ?",
+                    response_message="duplicate",
+                    success=False,
+                    exchange_attempts=1,
+                )
+
+            with self.assertRaises(ValueError):
+                repository.record_instrument_observation(
+                    project_code="CEM-OBS-001",
+                    campaign_reference="CAMP-OBS-001",
+                    measurement_run_reference="RUN-OBS-001",
+                    sequence=3,
+                    instrument_code="RX-001",
+                    transport="tcp_ip",
+                    endpoint="TCPIP::127.0.0.1::5025",
+                    command_message="READ?",
+                    response_message="invalid attempts",
+                    success=False,
+                    exchange_attempts=0,
+                )
 
     def test_records_revisioned_processing_graph_instances(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -358,6 +463,19 @@ class GuiBootstrapTests(unittest.TestCase):
                 file_reference="data/RUN-BOOT-001/raw.opendata",
                 checksum="sha256:rawboot001",
             )
+            measurement_data.record_instrument_observation(
+                project_code="CEM-BOOT-001",
+                campaign_reference="CAMP-BOOT-001",
+                measurement_run_reference="RUN-BOOT-001",
+                sequence=1,
+                instrument_code="DAQ-001",
+                transport="simulated",
+                endpoint="SIM::DAQ-001",
+                command_message="READ?",
+                response_message="OK",
+                success=True,
+                exchange_attempts=2,
+            )
             update_catalog.add_update_package(
                 package_name="driver-pack-opendaq",
                 package_version="0.1.0",
@@ -382,6 +500,9 @@ class GuiBootstrapTests(unittest.TestCase):
             self.assertEqual(payload["instruments"][0][5], "ok")
             self.assertEqual(payload["methods"][0][3], "approved")
             self.assertEqual(payload["datasets"][0][4], "Immutable")
+            self.assertEqual(payload["runtime"][0][0], "DAQ-001")
+            self.assertEqual(payload["runtime"][0][3], "OK")
+            self.assertIn("2 essais", payload["runtime"][0][4])
             self.assertEqual(payload["updates"][0][0], "driver-pack-opendaq")
             self.assertIn("window.EMC_LOCUS_BOOTSTRAP", output_path.read_text())
 

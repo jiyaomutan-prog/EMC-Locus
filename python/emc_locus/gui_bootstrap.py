@@ -130,6 +130,9 @@ def build_bootstrap(
 
     if measurement_data is not None:
         payload["datasets"] = [_dataset_row(row) for row in measurement_data.list_datasets()]
+        payload["runtime"] = [
+            _runtime_row(row) for row in measurement_data.latest_instrument_observations()
+        ]
 
     if update_catalog is not None:
         payload["updates"] = [_update_row(row) for row in update_catalog.list_update_packages()]
@@ -252,6 +255,22 @@ def _dataset_row(row: dict[str, object]) -> list[str]:
         str(row["file_reference"]),
         str(row["checksum"]),
         state,
+    ]
+
+
+def _runtime_row(row: dict[str, object]) -> list[str]:
+    attempts = int(row["exchange_attempts"])
+    attempt_label = "essai" if attempts == 1 else "essais"
+    return [
+        str(row["instrument_code"]),
+        str(row["transport"]),
+        str(row["endpoint"]),
+        "OK" if int(row["success"]) else "Echec",
+        (
+            f'{row["measurement_run_reference"]} #{row["sequence"]}: '
+            f'{row["command_message"]} -> {row["response_message"]} '
+            f"({attempts} {attempt_label})"
+        ),
     ]
 
 

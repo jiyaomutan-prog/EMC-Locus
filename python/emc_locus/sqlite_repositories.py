@@ -579,6 +579,141 @@ class MeasurementDataRepository(SQLiteDomainRepository):
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def record_instrument_observation(
+        self,
+        *,
+        project_code: str,
+        campaign_reference: str,
+        measurement_run_reference: str,
+        sequence: int,
+        instrument_code: str,
+        transport: str,
+        endpoint: str,
+        command_message: str,
+        response_message: str,
+        success: bool,
+        exchange_attempts: int,
+        raw_payload_json: str = "{}",
+    ) -> int:
+        if sequence < 1:
+            raise ValueError("sequence must be positive")
+        if exchange_attempts < 1:
+            raise ValueError("exchange_attempts must be positive")
+
+        project_code = require_non_empty(project_code, "project_code")
+        campaign_reference = require_non_empty(campaign_reference, "campaign_reference")
+        measurement_run_reference = require_non_empty(
+            measurement_run_reference, "measurement_run_reference"
+        )
+        instrument_code = require_non_empty(instrument_code, "instrument_code")
+        transport = require_non_empty(transport, "transport")
+        endpoint = require_non_empty(endpoint, "endpoint")
+        command_message = require_non_empty(command_message, "command_message")
+        raw_payload_json = require_non_empty(raw_payload_json, "raw_payload_json")
+
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO instrument_observations (
+                        project_code,
+                        campaign_reference,
+                        measurement_run_reference,
+                        sequence,
+                        instrument_code,
+                        transport,
+                        endpoint,
+                        command_message,
+                        response_message,
+                        success,
+                        exchange_attempts,
+                        observed_at,
+                        raw_payload_json
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        project_code,
+                        campaign_reference,
+                        measurement_run_reference,
+                        sequence,
+                        instrument_code,
+                        transport,
+                        endpoint,
+                        command_message,
+                        str(response_message),
+                        int(success),
+                        exchange_attempts,
+                        utc_timestamp(),
+                        raw_payload_json,
+                    ),
+                )
+        return int(cursor.lastrowid)
+
+    def instrument_observations_for_run(
+        self,
+        measurement_run_reference: str,
+    ) -> list[dict[str, object]]:
+        measurement_run_reference = require_non_empty(
+            measurement_run_reference, "measurement_run_reference"
+        )
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM instrument_observations
+                WHERE measurement_run_reference = ?
+                ORDER BY observed_at, id
+                """,
+                (measurement_run_reference,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def instrument_observations_for_instrument(
+        self,
+        *,
+        measurement_run_reference: str,
+        instrument_code: str,
+    ) -> list[dict[str, object]]:
+        measurement_run_reference = require_non_empty(
+            measurement_run_reference, "measurement_run_reference"
+        )
+        instrument_code = require_non_empty(instrument_code, "instrument_code")
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM instrument_observations
+                WHERE measurement_run_reference = ?
+                  AND instrument_code = ?
+                ORDER BY sequence, id
+                """,
+                (measurement_run_reference, instrument_code),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def latest_instrument_observations(self) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT observation.*
+                FROM instrument_observations observation
+                JOIN (
+                    SELECT
+                        measurement_run_reference,
+                        instrument_code,
+                        MAX(sequence) AS sequence
+                    FROM instrument_observations
+                    GROUP BY measurement_run_reference, instrument_code
+                ) latest
+                    ON latest.measurement_run_reference = observation.measurement_run_reference
+                   AND latest.instrument_code = observation.instrument_code
+                   AND latest.sequence = observation.sequence
+                ORDER BY observation.observed_at DESC, observation.id DESC
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def record_retention_event(
         self,
         *,
