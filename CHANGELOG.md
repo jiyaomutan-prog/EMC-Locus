@@ -107,6 +107,8 @@ change should remain traceable through Git history, session logs, and this file.
   `bootstrap.js` regeneration.
 - IO-backed TCP/IP transport adapter with timeout policy, newline-terminated
   command exchange, response readback, and local socket test coverage.
+- Transport exchange-attempt traceability on instrument observations, including
+  TCP/IP retry attempt counts for failed and successful exchanges.
 - Pure Rust radix-2 optimized FFT-compatible backend with deterministic DFT
   fallback and reference-matching test coverage.
 - Rust traceability report view linking issued report exports to measurement

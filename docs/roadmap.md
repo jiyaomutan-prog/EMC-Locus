@@ -122,6 +122,8 @@ Deliverables:
   TCP/IP, and serial skeletons added;
 - TCP/IP IO-backed exchange; initial Rust standard-library implementation and
   local socket test added;
+- transport attempt traceability; adapter-backed observations now retain
+  exchange counts, including TCP/IP retry attempts;
 - structured serial endpoint settings; initial Rust parser and adapter
   validation added;
 - structured VISA resource settings; initial Rust parser and adapter validation

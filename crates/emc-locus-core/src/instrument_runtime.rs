@@ -86,6 +86,10 @@ pub trait InstrumentTransportAdapter {
     fn transport(&self) -> InstrumentTransport {
         self.endpoint().transport()
     }
+
+    fn last_exchange_attempt_count(&self) -> u16 {
+        1
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -374,6 +378,7 @@ impl InstrumentTransportAdapter for VisaTransportAdapter {
 pub struct TcpIpTransportAdapter {
     endpoint: InstrumentTransportEndpoint,
     timeout_policy: TransportTimeoutPolicy,
+    last_exchange_attempt_count: u16,
 }
 
 impl TcpIpTransportAdapter {
@@ -385,6 +390,7 @@ impl TcpIpTransportAdapter {
         Ok(Self {
             endpoint,
             timeout_policy,
+            last_exchange_attempt_count: 0,
         })
     }
 
@@ -399,8 +405,16 @@ impl InstrumentTransportAdapter for TcpIpTransportAdapter {
     }
 
     fn exchange(&mut self, command: &InstrumentCommand) -> Result<InstrumentResponse, DomainError> {
+        self.last_exchange_attempt_count = 0;
         validate_command_transport(self.endpoint(), command)?;
-        exchange_tcp_ip(self.endpoint(), self.timeout_policy(), command)
+        let (result, attempt_count) =
+            exchange_tcp_ip(self.endpoint(), self.timeout_policy(), command);
+        self.last_exchange_attempt_count = attempt_count;
+        result
+    }
+
+    fn last_exchange_attempt_count(&self) -> u16 {
+        self.last_exchange_attempt_count
     }
 }
 
@@ -613,6 +627,7 @@ pub struct InstrumentObservation {
     command: InstrumentCommand,
     response: InstrumentResponse,
     success: bool,
+    exchange_attempts: u16,
 }
 
 impl InstrumentObservation {
@@ -621,12 +636,14 @@ impl InstrumentObservation {
         command: InstrumentCommand,
         response: InstrumentResponse,
         success: bool,
+        exchange_attempts: u16,
     ) -> Self {
         Self {
             sequence,
             command,
             response,
             success,
+            exchange_attempts,
         }
     }
 
@@ -644,6 +661,10 @@ impl InstrumentObservation {
 
     pub fn success(&self) -> bool {
         self.success
+    }
+
+    pub fn exchange_attempts(&self) -> u16 {
+        self.exchange_attempts
     }
 }
 
@@ -716,7 +737,14 @@ where
         }
 
         let response = self.adapter.exchange(&command)?;
-        let observation = InstrumentObservation::new(self.next_sequence, command, response, true);
+        let exchange_attempts = self.adapter.last_exchange_attempt_count();
+        let observation = InstrumentObservation::new(
+            self.next_sequence,
+            command,
+            response,
+            true,
+            exchange_attempts,
+        );
         self.next_sequence += 1;
         self.observations.push(observation);
 
@@ -789,7 +817,8 @@ impl SimulatedInstrumentRuntime {
         }
 
         let response = deterministic_response(command.message());
-        let observation = InstrumentObservation::new(self.next_sequence, command, response, true);
+        let observation =
+            InstrumentObservation::new(self.next_sequence, command, response, true, 1);
         self.next_sequence += 1;
         self.observations.push(observation);
 
@@ -896,36 +925,43 @@ fn exchange_tcp_ip(
     endpoint: &InstrumentTransportEndpoint,
     timeout_policy: TransportTimeoutPolicy,
     command: &InstrumentCommand,
-) -> Result<InstrumentResponse, DomainError> {
-    let target = tcp_socket_target(endpoint.address())?;
+) -> (Result<InstrumentResponse, DomainError>, u16) {
+    let target = match tcp_socket_target(endpoint.address()) {
+        Ok(target) => target,
+        Err(error) => return (Err(error), 0),
+    };
     let connect_timeout = Duration::from_millis(u64::from(timeout_policy.connect_timeout_ms()));
     let response_timeout = Duration::from_millis(u64::from(timeout_policy.response_timeout_ms()));
     let attempts = u16::from(timeout_policy.max_retries()) + 1;
+    let mut attempt_count = 0;
 
     for _ in 0..attempts {
+        attempt_count += 1;
         if let Ok(mut stream) = connect_tcp_stream(&target, connect_timeout) {
-            stream
-                .set_read_timeout(Some(response_timeout))
-                .map_err(|_| external_exchange_unavailable(endpoint))?;
-            stream
-                .set_write_timeout(Some(response_timeout))
-                .map_err(|_| external_exchange_unavailable(endpoint))?;
+            if stream.set_read_timeout(Some(response_timeout)).is_err() {
+                return (Err(external_exchange_unavailable(endpoint)), attempt_count);
+            }
+            if stream.set_write_timeout(Some(response_timeout)).is_err() {
+                return (Err(external_exchange_unavailable(endpoint)), attempt_count);
+            }
 
             let outbound = format!("{}\n", command.message().as_str());
-            stream
-                .write_all(outbound.as_bytes())
-                .map_err(|_| external_exchange_unavailable(endpoint))?;
-            stream
-                .flush()
-                .map_err(|_| external_exchange_unavailable(endpoint))?;
+            if stream.write_all(outbound.as_bytes()).is_err() {
+                return (Err(external_exchange_unavailable(endpoint)), attempt_count);
+            }
+            if stream.flush().is_err() {
+                return (Err(external_exchange_unavailable(endpoint)), attempt_count);
+            }
 
-            let response = read_tcp_response(&mut stream)
-                .map_err(|_| external_exchange_unavailable(endpoint))?;
-            return Ok(InstrumentResponse::received(response));
+            let response = match read_tcp_response(&mut stream) {
+                Ok(response) => response,
+                Err(_) => return (Err(external_exchange_unavailable(endpoint)), attempt_count),
+            };
+            return (Ok(InstrumentResponse::received(response)), attempt_count);
         }
     }
 
-    Err(external_exchange_unavailable(endpoint))
+    (Err(external_exchange_unavailable(endpoint)), attempt_count)
 }
 
 fn connect_tcp_stream(target: &str, timeout: Duration) -> std::io::Result<TcpStream> {

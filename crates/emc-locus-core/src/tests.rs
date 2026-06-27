@@ -902,6 +902,7 @@ fn tcp_ip_transport_adapter_reports_external_exchange_unavailable() {
         .unwrap_err();
 
     assert_eq!(adapter.transport(), InstrumentTransport::TcpIp);
+    assert_eq!(adapter.last_exchange_attempt_count(), 1);
     assert_eq!(
         error,
         DomainError::ExternalTransportExchangeUnavailable {
@@ -943,7 +944,40 @@ fn tcp_ip_transport_adapter_exchanges_with_local_socket() {
         .unwrap();
 
     assert_eq!(response.as_str(), "EMC LOCUS,TCP FIXTURE");
+    assert_eq!(adapter.last_exchange_attempt_count(), 1);
     handle.join().unwrap();
+}
+
+#[test]
+fn tcp_ip_transport_adapter_tracks_failed_retry_attempts() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    drop(listener);
+    let endpoint = InstrumentTransportEndpoint::new(
+        InstrumentTransport::TcpIp,
+        format!("TCPIP::{}::{}", address.ip(), address.port()),
+    )
+    .unwrap();
+    let timeout_policy = TransportTimeoutPolicy::new(10, 10, 2).unwrap();
+    let mut adapter = TcpIpTransportAdapter::new(endpoint, timeout_policy).unwrap();
+
+    let error = adapter
+        .exchange(&InstrumentCommand::new(
+            code,
+            InstrumentTransport::TcpIp,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap_err();
+
+    assert_eq!(adapter.last_exchange_attempt_count(), 3);
+    assert_eq!(
+        error,
+        DomainError::ExternalTransportExchangeUnavailable {
+            transport: "tcp_ip".to_owned(),
+            address: format!("TCPIP::{}::{}", address.ip(), address.port()),
+        }
+    );
 }
 
 #[test]
@@ -1030,6 +1064,7 @@ fn transport_adapter_runtime_records_observations() {
     assert_eq!(runtime.adapter().endpoint().address(), "TCPIP::192.0.2.10");
     assert_eq!(runtime.observations().len(), 1);
     assert_eq!(observation.sequence(), 1);
+    assert_eq!(observation.exchange_attempts(), 1);
     assert_eq!(
         observation.command().transport(),
         InstrumentTransport::TcpIp
@@ -1126,9 +1161,11 @@ fn simulated_instrument_runtime_records_ordered_observations() {
     assert_eq!(first.sequence(), 1);
     assert_eq!(first.response().as_str(), "SIM:*IDN?=0");
     assert!(first.success());
+    assert_eq!(first.exchange_attempts(), 1);
     assert_eq!(second.sequence(), 2);
     assert_eq!(second.response().as_str(), "OK:FREQ 1000000");
     assert_eq!(second.command().transport(), InstrumentTransport::Visa);
+    assert_eq!(second.exchange_attempts(), 1);
 }
 
 #[test]

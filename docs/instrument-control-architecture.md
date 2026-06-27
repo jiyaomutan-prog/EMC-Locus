@@ -117,18 +117,22 @@ Implemented in the Rust core:
 16. IO-backed TCP/IP command exchange with local socket coverage;
 17. structured serial endpoint parsing for port, baud rate, data bits, parity,
     and stop bits;
-18. structured VISA resource parsing for TCPIP, USB, GPIB, and ASRL resources.
+18. structured VISA resource parsing for TCPIP, USB, GPIB, and ASRL resources;
+19. exchange-attempt traceability on adapter-backed observations and TCP/IP
+    retry attempts.
 
 Not yet implemented:
 
 - typed SCPI command model;
-- retry execution policy;
+- broader retry classification for connected write/read failures;
 - automatic parsing of string commands into typed setpoints;
 - IO-backed VISA, serial, and vendor SDK implementations.
 
 TCP/IP currently supports `TCPIP::host::port`, `TCPIP::host`, and `host:port`
 endpoints, writes newline-terminated commands, and reads responses until a
-newline or closed socket under the configured timeout policy.
+newline or closed socket under the configured timeout policy. Adapter-backed
+observations retain the exchange attempt count, so retry behavior remains
+visible in run evidence.
 
 Serial endpoints currently support `PORT:baud` with default 8N1 framing, or
 `PORT:baud:framing` for explicit values such as `COM4:9600:7E2`. Native serial
