@@ -124,14 +124,16 @@ Deliverables:
 - snapshot schema compatibility checks; initial Rust validation added;
 - synchronization conflict workflow; initial Rust action-plan service added;
 - synchronization conflict records; initial Rust model added;
+- synchronization conflict persistence; initial SQLite migration and Python
+  adapter added;
 - offline update bundles; initial Rust model added;
 - update-catalog persistence APIs; initial Python adapter added;
 - rollback and compatibility checks; initial Rust validation added.
 
 ## Near-Term Next Session
 
-The next productive session should add sync persistence adapters around conflict
-action plans.
-
-The parallel storage stream should add update bundle/domain validation mapping
+The next productive session should add update bundle/domain validation mapping
 between Rust and SQLite.
+
+The parallel runtime stream should add IO-backed VISA, TCP/IP, or serial
+implementations behind the adapter skeletons.

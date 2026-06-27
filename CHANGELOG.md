@@ -86,6 +86,8 @@ change should remain traceable through Git history, session logs, and this file.
   channels, processing graphs, and result artifacts.
 - Python SQLite test-definition adapter for standards, test methods, approved
   method revisions, processing graph metadata, and ordered evidence steps.
+- SQLite synchronization domain and Python adapter for conflict records,
+  action plans, resolution outcomes, and audit-event references.
 
 ### Planned
 

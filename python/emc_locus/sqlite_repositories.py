@@ -915,6 +915,242 @@ class TestDefinitionRepository(SQLiteDomainRepository):
         return [dict(row) for row in rows]
 
 
+class SyncRepository(SQLiteDomainRepository):
+    """SQLite adapter for synchronization conflicts and action plans."""
+
+    def __init__(self, database_path: Path | str, migrations_root: Path | str) -> None:
+        super().__init__(Path(database_path), Path(migrations_root), "sync")
+
+    def record_conflict(
+        self,
+        *,
+        conflict_id: str,
+        domain: str,
+        kind: str,
+        local_snapshot: str,
+        reference_snapshot: str,
+    ) -> None:
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO sync_conflicts (
+                        conflict_id,
+                        domain,
+                        kind,
+                        local_snapshot,
+                        reference_snapshot,
+                        status,
+                        detected_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, 'open', ?, ?)
+                    """,
+                    (
+                        conflict_id,
+                        domain,
+                        kind,
+                        local_snapshot,
+                        reference_snapshot,
+                        now,
+                        now,
+                    ),
+                )
+
+    def conflict_count(self) -> int:
+        with closing(self.connect()) as connection:
+            row = connection.execute("SELECT COUNT(*) AS count FROM sync_conflicts").fetchone()
+        return int(row["count"])
+
+    def action_plan_count(self) -> int:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS count FROM sync_conflict_action_plans"
+            ).fetchone()
+        return int(row["count"])
+
+    def get_conflict(self, conflict_id: str) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM sync_conflicts WHERE conflict_id = ?",
+                (conflict_id,),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def list_conflicts(self, status: str | None = None) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            if status is None:
+                rows = connection.execute(
+                    "SELECT * FROM sync_conflicts ORDER BY detected_at, conflict_id"
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT *
+                    FROM sync_conflicts
+                    WHERE status = ?
+                    ORDER BY detected_at, conflict_id
+                    """,
+                    (status,),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    def record_action_plan(
+        self,
+        *,
+        conflict_id: str,
+        domain: str,
+        kind: str,
+        resolution: str,
+        action: str,
+        local_snapshot: str,
+        reference_snapshot: str,
+        planned_by: str,
+        requires_audit_event: bool = True,
+    ) -> int:
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = self._insert_action_plan(
+                    connection,
+                    conflict_id=conflict_id,
+                    domain=domain,
+                    kind=kind,
+                    resolution=resolution,
+                    action=action,
+                    local_snapshot=local_snapshot,
+                    reference_snapshot=reference_snapshot,
+                    planned_by=planned_by,
+                    requires_audit_event=requires_audit_event,
+                )
+        return int(cursor.lastrowid)
+
+    def apply_resolution_plan(
+        self,
+        *,
+        conflict_id: str,
+        resolution: str,
+        action: str,
+        planned_by: str,
+        requires_audit_event: bool = True,
+        audit_event_reference: str | None = None,
+    ) -> int | None:
+        """Persist a plan and update the conflict outcome in one transaction."""
+
+        now = utc_timestamp()
+        status = "deferred" if resolution == "defer" else "resolved"
+        with closing(self.connect()) as connection:
+            with connection:
+                conflict = connection.execute(
+                    "SELECT * FROM sync_conflicts WHERE conflict_id = ?",
+                    (conflict_id,),
+                ).fetchone()
+                if conflict is None or conflict["status"] == "resolved":
+                    return None
+
+                cursor = self._insert_action_plan(
+                    connection,
+                    conflict_id=conflict_id,
+                    domain=str(conflict["domain"]),
+                    kind=str(conflict["kind"]),
+                    resolution=resolution,
+                    action=action,
+                    local_snapshot=str(conflict["local_snapshot"]),
+                    reference_snapshot=str(conflict["reference_snapshot"]),
+                    planned_by=planned_by,
+                    requires_audit_event=requires_audit_event,
+                )
+                connection.execute(
+                    """
+                    UPDATE sync_conflicts
+                    SET status = ?,
+                        resolution = ?,
+                        updated_at = ?
+                    WHERE conflict_id = ?
+                    """,
+                    (status, resolution, now, conflict_id),
+                )
+                if audit_event_reference is not None:
+                    connection.execute(
+                        """
+                        UPDATE sync_conflict_action_plans
+                        SET applied_at = ?,
+                            audit_event_reference = ?
+                        WHERE id = ?
+                        """,
+                        (now, audit_event_reference, cursor.lastrowid),
+                    )
+        return int(cursor.lastrowid)
+
+    def action_plans_for_conflict(self, conflict_id: str) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM sync_conflict_action_plans
+                WHERE conflict_id = ?
+                ORDER BY sequence
+                """,
+                (conflict_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    @staticmethod
+    def _insert_action_plan(
+        connection: sqlite3.Connection,
+        *,
+        conflict_id: str,
+        domain: str,
+        kind: str,
+        resolution: str,
+        action: str,
+        local_snapshot: str,
+        reference_snapshot: str,
+        planned_by: str,
+        requires_audit_event: bool,
+    ) -> sqlite3.Cursor:
+        sequence_row = connection.execute(
+            """
+            SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+            FROM sync_conflict_action_plans
+            WHERE conflict_id = ?
+            """,
+            (conflict_id,),
+        ).fetchone()
+        sequence = int(sequence_row["next_sequence"])
+        return connection.execute(
+            """
+            INSERT INTO sync_conflict_action_plans (
+                conflict_id,
+                sequence,
+                domain,
+                kind,
+                resolution,
+                action,
+                local_snapshot,
+                reference_snapshot,
+                requires_audit_event,
+                planned_by,
+                planned_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                conflict_id,
+                sequence,
+                domain,
+                kind,
+                resolution,
+                action,
+                local_snapshot,
+                reference_snapshot,
+                int(requires_audit_event),
+                planned_by,
+                utc_timestamp(),
+            ),
+        )
+
+
 class UpdateCatalogRepository(SQLiteDomainRepository):
     """SQLite adapter for signed update package and install metadata."""
 

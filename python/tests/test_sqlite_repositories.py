@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from emc_locus import TestDefinitionRepository
+from emc_locus import SyncRepository, TestDefinitionRepository
 
 
 class TestDefinitionRepositoryTests(unittest.TestCase):
@@ -115,6 +115,117 @@ class TestDefinitionRepositoryTests(unittest.TestCase):
                     approved_by="qa.lead",
                 )
             )
+
+
+class SyncRepositoryTests(unittest.TestCase):
+    def test_records_conflict_and_applies_resolution_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = SyncRepository(
+                Path(temporary_directory) / "sync.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            self.assertEqual(repository.metadata()["domain"], "sync")
+
+            repository.record_conflict(
+                conflict_id="conflict-001",
+                domain="project_records",
+                kind="concurrent_update",
+                local_snapshot="project-local.1",
+                reference_snapshot="project-reference.2",
+            )
+            plan_id = repository.apply_resolution_plan(
+                conflict_id="conflict-001",
+                resolution="keep_local",
+                action="push_local_snapshot",
+                planned_by="sync.operator",
+                audit_event_reference="project-audit-42",
+            )
+
+            conflict = repository.get_conflict("conflict-001")
+            plans = repository.action_plans_for_conflict("conflict-001")
+
+            self.assertIsNotNone(plan_id)
+            self.assertEqual(repository.conflict_count(), 1)
+            self.assertEqual(repository.action_plan_count(), 1)
+            self.assertEqual(conflict["status"], "resolved")
+            self.assertEqual(conflict["resolution"], "keep_local")
+            self.assertEqual(repository.list_conflicts("open"), [])
+            self.assertEqual(plans[0]["id"], plan_id)
+            self.assertEqual(plans[0]["sequence"], 1)
+            self.assertEqual(plans[0]["domain"], "project_records")
+            self.assertEqual(plans[0]["action"], "push_local_snapshot")
+            self.assertEqual(plans[0]["requires_audit_event"], 1)
+            self.assertEqual(plans[0]["audit_event_reference"], "project-audit-42")
+
+    def test_defers_conflict_and_enforces_constraints(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = SyncRepository(
+                Path(temporary_directory) / "sync.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            with self.assertRaises(sqlite3.IntegrityError):
+                repository.record_conflict(
+                    conflict_id="conflict-bad-domain",
+                    domain="unknown",
+                    kind="concurrent_update",
+                    local_snapshot="local.1",
+                    reference_snapshot="reference.1",
+                )
+
+            repository.record_conflict(
+                conflict_id="conflict-002",
+                domain="measurement_data",
+                kind="checksum_mismatch",
+                local_snapshot="measurement-local.1",
+                reference_snapshot="measurement-reference.1",
+            )
+            plan_id = repository.apply_resolution_plan(
+                conflict_id="conflict-002",
+                resolution="defer",
+                action="defer_for_review",
+                planned_by="qa.lead",
+            )
+
+            conflict = repository.get_conflict("conflict-002")
+            plans = repository.action_plans_for_conflict("conflict-002")
+
+            self.assertIsNotNone(plan_id)
+            self.assertEqual(conflict["status"], "deferred")
+            self.assertEqual(conflict["resolution"], "defer")
+            self.assertEqual(
+                repository.list_conflicts("deferred")[0]["conflict_id"],
+                "conflict-002",
+            )
+            self.assertEqual(plans[0]["sequence"], 1)
+            self.assertEqual(plans[0]["action"], "defer_for_review")
+
+            with self.assertRaises(sqlite3.IntegrityError):
+                repository.record_action_plan(
+                    conflict_id="missing-conflict",
+                    domain="measurement_data",
+                    kind="checksum_mismatch",
+                    resolution="defer",
+                    action="defer_for_review",
+                    local_snapshot="measurement-local.1",
+                    reference_snapshot="measurement-reference.1",
+                    planned_by="qa.lead",
+                )
+
+            with self.assertRaises(sqlite3.IntegrityError):
+                repository.record_action_plan(
+                    conflict_id="conflict-002",
+                    domain="project_records",
+                    kind="checksum_mismatch",
+                    resolution="defer",
+                    action="defer_for_review",
+                    local_snapshot="measurement-local.1",
+                    reference_snapshot="measurement-reference.1",
+                    planned_by="qa.lead",
+                )
 
 
 if __name__ == "__main__":

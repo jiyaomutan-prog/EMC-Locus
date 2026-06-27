@@ -12,6 +12,7 @@ storage/sqlite/
   test_definitions/
   measurement_data/
   update_catalog/
+  sync/
 ```
 
 Each folder is applied to a separate SQLite database file in a future runtime.
@@ -44,6 +45,11 @@ processing graph lineage, and result artifacts.
 
 Owns signed package metadata, compatibility ranges, offline install permission,
 and installation records.
+
+### Sync
+
+Owns synchronization conflict records and action-plan evidence for resolving or
+deferring conflicts between local and reference repository snapshots.
 
 The Rust core now mirrors these storage concepts with update bundles, semantic
 software versions, package signatures, compatibility-range validation,
@@ -78,7 +84,8 @@ The Python package now exposes first SQLite-backed adapters:
 - `MeasurementDataRepository`;
 - `ProjectRepository`;
 - `TestDefinitionRepository`;
-- `UpdateCatalogRepository`.
+- `UpdateCatalogRepository`;
+- `SyncRepository`.
 
 They can initialize a local database from the matching migration domain and
 perform minimal insert/count/query operations for smoke testing:
@@ -106,6 +113,10 @@ perform minimal insert/count/query operations for smoke testing:
 - test method insert/get/list APIs;
 - method revision insert/approval/list APIs;
 - ordered test-step insert/list APIs with duplicate-sequence rejection.
+- synchronization conflict insert/count/get/list APIs;
+- synchronization action-plan insert/list APIs;
+- transactional conflict resolution/defer APIs with optional audit-event
+  references.
 
 These adapters are intentionally small. They prove that the migration domains
 are usable from application code before broader query APIs, synchronization, or

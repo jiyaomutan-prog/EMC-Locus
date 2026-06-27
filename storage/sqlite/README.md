@@ -4,8 +4,8 @@ EMC Locus starts with SQLite migrations because they are easy to inspect,
 portable for field work, and suitable for deterministic tests.
 
 Each subdirectory represents a separate local repository database. This keeps
-metrology, project records, test definitions, measurement data, and update
-metadata independently exportable and synchronizable.
+metrology, project records, test definitions, measurement data, update
+metadata, and synchronization coordination independently inspectable.
 
 ```text
 storage/sqlite/
@@ -14,6 +14,7 @@ storage/sqlite/
   test_definitions/
   measurement_data/
   update_catalog/
+  sync/
 ```
 
 Migration filenames use:

@@ -31,29 +31,29 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Sync persistence adapters",
+            title="Update bundle SQLite mapping",
             objective=(
-                "Persist synchronization conflict action plans and resolution "
-                "evidence in the split repository storage layer."
+                "Map update bundle and install-plan validation evidence between "
+                "the Rust domain model and the SQLite update catalog."
             ),
             workstreams=(Workstream.STORAGE, Workstream.QUALITY),
             expected_outputs=(
-                "sync persistence adapter",
-                "resolution record APIs",
-                "audit evidence smoke test",
+                "update validation adapter APIs",
+                "compatibility evidence records",
+                "offline bundle smoke test",
             ),
         ),
         SessionPlan(
-            title="Test definitions SQLite",
+            title="Instrument IO adapters",
             objective=(
-                "Add a first SQLite adapter for standards, methods, and "
-                "processing templates in the test-definition domain."
+                "Add the first guarded IO-backed implementation behind one "
+                "transport adapter skeleton."
             ),
-            workstreams=(Workstream.STORAGE, Workstream.QUALITY),
+            workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.QUALITY),
             expected_outputs=(
-                "test definition adapter",
-                "method insert/query APIs",
-                "processing template smoke test",
+                "IO adapter implementation",
+                "simulated baseline comparison",
+                "unavailable hardware test path",
             ),
         ),
     ]

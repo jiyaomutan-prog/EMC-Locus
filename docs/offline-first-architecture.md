@@ -141,6 +141,12 @@ and reject invalid resolution choices for the conflict kind. Every generated
 plan requires an audit event and records the local/reference snapshot ids that
 will be pushed, pulled, merged, deleted, or deferred.
 
+The SQLite storage layer now includes a synchronization coordination repository
+for conflict records and action plans. The Python adapter can persist detected
+conflicts, append planned actions, resolve or defer a conflict in the same
+transaction as its plan, and retain an optional audit-event reference for later
+traceability.
+
 ## Field Workflow
 
 1. Prepare a signed field package in the laboratory.
@@ -182,5 +188,5 @@ Later implementations can add PostgreSQL, object storage, content-addressed raw
 data, or peer-to-peer synchronization where needed.
 
 The initial SQLite migration split is now represented in `storage/sqlite/` for
-metrology, projects, test definitions, measurement data, and update catalog
-repositories.
+metrology, projects, test definitions, measurement data, update catalog, and
+synchronization coordination repositories.

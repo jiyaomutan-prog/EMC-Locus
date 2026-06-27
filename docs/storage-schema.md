@@ -17,7 +17,7 @@ domain repository.
 
 The original sketch below remains as a readable overview. The executable
 migrations separate these tables into metrology, projects, test definitions,
-measurement data, and update catalog domains.
+measurement data, update catalog, and synchronization coordination domains.
 
 ### projects
 
@@ -223,6 +223,39 @@ CREATE TABLE reports (
     file_reference TEXT,
     checksum TEXT,
     UNIQUE(report_number, revision)
+);
+```
+
+### sync_conflicts
+
+```sql
+CREATE TABLE sync_conflicts (
+    conflict_id TEXT PRIMARY KEY,
+    domain TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    local_snapshot TEXT NOT NULL,
+    reference_snapshot TEXT NOT NULL,
+    status TEXT NOT NULL,
+    resolution TEXT,
+    detected_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+```
+
+### sync_conflict_action_plans
+
+```sql
+CREATE TABLE sync_conflict_action_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conflict_id TEXT NOT NULL REFERENCES sync_conflicts(conflict_id),
+    sequence INTEGER NOT NULL,
+    resolution TEXT NOT NULL,
+    action TEXT NOT NULL,
+    requires_audit_event INTEGER NOT NULL DEFAULT 1,
+    planned_by TEXT NOT NULL,
+    planned_at TEXT NOT NULL,
+    audit_event_reference TEXT,
+    UNIQUE(conflict_id, sequence)
 );
 ```
 
