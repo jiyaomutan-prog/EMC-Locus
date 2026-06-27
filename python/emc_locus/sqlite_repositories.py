@@ -5,6 +5,8 @@ from __future__ import annotations
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
+import json
 from pathlib import Path
 import re
 import sqlite3
@@ -609,7 +611,23 @@ class MeasurementDataRepository(SQLiteDomainRepository):
         transport = require_non_empty(transport, "transport")
         endpoint = require_non_empty(endpoint, "endpoint")
         command_message = require_non_empty(command_message, "command_message")
+        response_message = str(response_message)
         raw_payload_json = require_non_empty(raw_payload_json, "raw_payload_json")
+        success_value = int(success)
+        observation_checksum = instrument_observation_checksum(
+            project_code=project_code,
+            campaign_reference=campaign_reference,
+            measurement_run_reference=measurement_run_reference,
+            sequence=sequence,
+            instrument_code=instrument_code,
+            transport=transport,
+            endpoint=endpoint,
+            command_message=command_message,
+            response_message=response_message,
+            success=success_value,
+            exchange_attempts=exchange_attempts,
+            raw_payload_json=raw_payload_json,
+        )
 
         with closing(self.connect()) as connection:
             with connection:
@@ -628,9 +646,10 @@ class MeasurementDataRepository(SQLiteDomainRepository):
                         success,
                         exchange_attempts,
                         observed_at,
-                        raw_payload_json
+                        raw_payload_json,
+                        observation_checksum
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         project_code,
@@ -641,14 +660,33 @@ class MeasurementDataRepository(SQLiteDomainRepository):
                         transport,
                         endpoint,
                         command_message,
-                        str(response_message),
-                        int(success),
+                        response_message,
+                        success_value,
                         exchange_attempts,
                         utc_timestamp(),
                         raw_payload_json,
+                        observation_checksum,
                     ),
                 )
         return int(cursor.lastrowid)
+
+    def get_instrument_observation_by_checksum(
+        self,
+        observation_checksum: str,
+    ) -> dict[str, object] | None:
+        observation_checksum = require_non_empty(
+            observation_checksum, "observation_checksum"
+        )
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT *
+                FROM instrument_observations
+                WHERE observation_checksum = ?
+                """,
+                (observation_checksum,),
+            ).fetchone()
+        return row_to_dict(row)
 
     def instrument_observations_for_run(
         self,
@@ -2116,6 +2154,39 @@ def retention_transition_allowed(previous: str, next_status: str, immutable: boo
     }:
         return True
     return not immutable and (previous, next_status) == ("retained", "deleted")
+
+
+def instrument_observation_checksum(
+    *,
+    project_code: str,
+    campaign_reference: str,
+    measurement_run_reference: str,
+    sequence: int,
+    instrument_code: str,
+    transport: str,
+    endpoint: str,
+    command_message: str,
+    response_message: str,
+    success: int,
+    exchange_attempts: int,
+    raw_payload_json: str,
+) -> str:
+    payload = {
+        "campaign_reference": campaign_reference,
+        "command_message": command_message,
+        "endpoint": endpoint,
+        "exchange_attempts": exchange_attempts,
+        "instrument_code": instrument_code,
+        "measurement_run_reference": measurement_run_reference,
+        "project_code": project_code,
+        "raw_payload_json": raw_payload_json,
+        "response_message": response_message,
+        "sequence": sequence,
+        "success": success,
+        "transport": transport,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def validate_update_package_name(value: str) -> str:

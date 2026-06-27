@@ -176,14 +176,21 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                       AND name = 'instrument_observations'
                     """
                 ).fetchone()
+                observation_columns = connection.execute(
+                    "PRAGMA table_info(instrument_observations)"
+                ).fetchall()
                 dataset = connection.execute("SELECT * FROM datasets").fetchone()
 
-            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4, 5, 6])
+            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4, 5, 6, 7])
             self.assertIsNotNone(retention_table)
             self.assertIsNotNone(graph_instance_table)
             self.assertIsNotNone(graph_artifact_table)
             self.assertIsNotNone(graph_execution_table)
             self.assertIsNotNone(observation_table)
+            self.assertIn(
+                "observation_checksum",
+                {row["name"] for row in observation_columns},
+            )
             self.assertEqual(dataset["retention_status"], "retained")
 
     def test_records_instrument_observations_for_runtime_traceability(self) -> None:
@@ -244,11 +251,20 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                 row["instrument_code"]: row
                 for row in repository.latest_instrument_observations()
             }
+            second_checksum = str(receiver_rows[1]["observation_checksum"])
+            checksum_row = repository.get_instrument_observation_by_checksum(second_checksum)
 
             self.assertEqual([row["id"] for row in receiver_rows], [first_id, second_id])
             self.assertEqual(len(run_rows), 3)
             self.assertEqual(receiver_rows[1]["success"], 0)
             self.assertEqual(receiver_rows[1]["exchange_attempts"], 3)
+            self.assertTrue(str(receiver_rows[0]["observation_checksum"]).startswith("sha256:"))
+            self.assertEqual(len(str(receiver_rows[0]["observation_checksum"])), 71)
+            self.assertNotEqual(
+                receiver_rows[0]["observation_checksum"],
+                receiver_rows[1]["observation_checksum"],
+            )
+            self.assertEqual(checksum_row["id"], second_id)
             self.assertEqual(latest_by_instrument["RX-001"]["id"], second_id)
             self.assertEqual(latest_by_instrument["GEN-001"]["id"], generator_id)
 

@@ -295,6 +295,7 @@ CREATE TABLE instrument_observations (
     exchange_attempts INTEGER NOT NULL,
     observed_at TEXT NOT NULL,
     raw_payload_json TEXT NOT NULL DEFAULT '{}',
+    observation_checksum TEXT,
     UNIQUE(measurement_run_reference, instrument_code, sequence)
 );
 ```

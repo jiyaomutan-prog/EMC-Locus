@@ -84,6 +84,11 @@ Owns:
 This repository must be local-first. Raw data should never require a remote
 write to be considered acquired.
 
+Persisted instrument observations carry deterministic SHA-256 checksums over
+the command, response, endpoint, run, sequence, exchange-attempt count, and raw
+payload evidence. Synchronization and audit tooling can compare observations by
+content without relying on local SQLite row ids or station-specific timestamps.
+
 ### Report Template Repository
 
 Owns:
