@@ -6,7 +6,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from emc_locus import build_console_view_model
+from emc_locus import (
+    ProjectRepository,
+    build_console_bootstrap_from_repositories,
+    build_console_view_model,
+)
 
 
 QT_CONSOLE_PATH = Path(__file__).resolve().parents[2] / "apps" / "qt-console" / "main.py"
@@ -69,6 +73,26 @@ class QtConsoleTests(unittest.TestCase):
         self.assertEqual(project_table.rows[0][0:3], ("CEM-QT-001", "Rail Motion", "Measuring"))
         self.assertEqual(dataset_table.columns, ("Run", "Type", "Fichier", "Checksum", "Retention"))
         self.assertEqual(dataset_table.rows[0][1], "raw_signal")
+
+    def test_builds_qt_console_bootstrap_from_local_repository_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects_db = Path(temporary_directory) / "projects.sqlite"
+            repository = ProjectRepository(projects_db, Path("storage/sqlite"))
+            repository.initialize()
+            repository.create_project(
+                code="CEM-QT-REPO",
+                customer_name="Repository Customer",
+                execution_mode="investigation",
+                stage="measuring",
+            )
+
+            payload = build_console_bootstrap_from_repositories(
+                migrations_root=Path("storage/sqlite"),
+                projects_db=projects_db,
+            )
+
+        self.assertEqual(payload["projects"][0]["code"], "CEM-QT-REPO")
+        self.assertEqual(payload["projects"][0]["customer"], "Repository Customer")
 
 
 if __name__ == "__main__":

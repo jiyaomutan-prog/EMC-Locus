@@ -124,6 +124,8 @@ change should remain traceable through Git history, session logs, and this file.
   reuses local GUI bootstrap data from the static workflow prototype.
 - Testable Qt console view models for project, metrology, method, dataset, and
   update tables with explicit business columns.
+- Qt console data loader that can read split SQLite repository paths directly
+  while preserving `bootstrap.js` compatibility.
 
 ### Planned
 

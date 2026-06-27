@@ -31,6 +31,12 @@ $env:PYTHONPATH='python'; py -m emc_locus.gui_actions refresh-bootstrap --output
 py apps\qt-console\main.py --bootstrap apps\gui-shell\bootstrap.js
 ```
 
+It can also load local SQLite repositories directly:
+
+```text
+py apps\qt-console\main.py --projects-db data\projects.sqlite --metrology-db data\metrology.sqlite --measurement-data-db data\measurement_data.sqlite
+```
+
 ## Direction
 
 The first implementation already separates Qt rendering from testable Python

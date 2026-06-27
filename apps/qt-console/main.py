@@ -21,6 +21,7 @@ PYTHON_ROOT = REPOSITORY_ROOT / "python"
 if str(PYTHON_ROOT) not in sys.path:
     sys.path.insert(0, str(PYTHON_ROOT))
 
+from emc_locus.qt_console_data import build_console_bootstrap_from_repositories
 from emc_locus.qt_console_models import TableViewModel, build_console_view_model
 
 
@@ -65,11 +66,17 @@ def run(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--bootstrap",
         type=Path,
-        default=Path(__file__).resolve().parents[1] / "gui-shell" / "bootstrap.js",
+        default=None,
         help="Path to a generated bootstrap.js file.",
     )
+    parser.add_argument("--migrations-root", type=Path, default=REPOSITORY_ROOT / "storage" / "sqlite")
+    parser.add_argument("--projects-db", type=Path)
+    parser.add_argument("--metrology-db", type=Path)
+    parser.add_argument("--test-definitions-db", type=Path)
+    parser.add_argument("--measurement-data-db", type=Path)
+    parser.add_argument("--update-catalog-db", type=Path)
     args = parser.parse_args(argv)
-    data = load_bootstrap_js(args.bootstrap)
+    data = _load_console_data(args)
     view_model = build_console_view_model(data)
     qt = _load_qt()
 
@@ -102,10 +109,45 @@ def run(argv: list[str] | None = None) -> int:
 
     window.setCentralWidget(root)
     window.setStatusBar(qt.QStatusBar())
-    window.statusBar().showMessage(f"Bootstrap local: {args.bootstrap}")
+    window.statusBar().showMessage(_status_message(args))
     window.setStyleSheet(_stylesheet())
     window.show()
     return application.exec()
+
+
+def _load_console_data(args: argparse.Namespace) -> dict[str, Any]:
+    if _has_repository_paths(args):
+        return build_console_bootstrap_from_repositories(
+            migrations_root=args.migrations_root,
+            projects_db=args.projects_db,
+            metrology_db=args.metrology_db,
+            test_definitions_db=args.test_definitions_db,
+            measurement_data_db=args.measurement_data_db,
+            update_catalog_db=args.update_catalog_db,
+        )
+
+    bootstrap = args.bootstrap or REPOSITORY_ROOT / "apps" / "gui-shell" / "bootstrap.js"
+    return load_bootstrap_js(bootstrap)
+
+
+def _has_repository_paths(args: argparse.Namespace) -> bool:
+    return any(
+        (
+            args.projects_db,
+            args.metrology_db,
+            args.test_definitions_db,
+            args.measurement_data_db,
+            args.update_catalog_db,
+        )
+    )
+
+
+def _status_message(args: argparse.Namespace) -> str:
+    if _has_repository_paths(args):
+        return "Donnees chargees depuis les depots SQLite locaux"
+
+    bootstrap = args.bootstrap or REPOSITORY_ROOT / "apps" / "gui-shell" / "bootstrap.js"
+    return f"Bootstrap local: {bootstrap}"
 
 
 def _load_qt() -> QtBindings:
