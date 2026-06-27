@@ -105,10 +105,12 @@ change should remain traceable through Git history, session logs, and this file.
   deletion marking, and optional `bootstrap.js` regeneration.
 - Python GUI update validation and install action commands with optional
   `bootstrap.js` regeneration.
+- IO-backed TCP/IP transport adapter with timeout policy, newline-terminated
+  command exchange, response readback, and local socket test coverage.
 
 ### Planned
 
-- Add IO-backed VISA/TCP/IP/serial implementations behind the adapter
+- Expand guarded IO-backed serial and VISA implementations behind the adapter
   skeletons.
 - Add a real optimized FFT implementation behind the backend boundary.
 

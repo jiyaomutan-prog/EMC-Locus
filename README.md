@@ -62,7 +62,8 @@ storage/
 
 ## First Useful Milestones
 
-1. Add IO-backed VISA/TCP/IP/serial implementations behind the adapter skeletons.
+1. Expand guarded IO-backed serial and VISA implementations behind the adapter
+   skeletons.
 2. Add a real optimized FFT implementation behind the backend boundary.
 3. Add traceability report views for audit and technical review.
 

@@ -32,14 +32,14 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Instrument IO adapters",
+            title="Serial and VISA IO adapters",
             objective=(
-                "Add the first guarded IO-backed implementation behind one "
-                "transport adapter skeleton."
+                "Expand the guarded instrument runtime with the next concrete "
+                "IO-backed adapter after the TCP/IP implementation."
             ),
             workstreams=(Workstream.INSTRUMENT_CONTROL, Workstream.QUALITY),
             expected_outputs=(
-                "IO adapter implementation",
+                "serial or VISA adapter implementation",
                 "simulated baseline comparison",
                 "unavailable hardware test path",
             ),

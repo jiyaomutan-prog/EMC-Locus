@@ -802,8 +802,8 @@ fn tcp_ip_transport_adapter_reports_external_exchange_unavailable() {
     let code = InstrumentCode::parse("RX-001").unwrap();
     let endpoint =
         InstrumentTransportEndpoint::new(InstrumentTransport::TcpIp, "TCPIP::192.0.2.10").unwrap();
-    let mut adapter =
-        TcpIpTransportAdapter::new(endpoint, TransportTimeoutPolicy::laboratory_default()).unwrap();
+    let timeout_policy = TransportTimeoutPolicy::new(10, 10, 0).unwrap();
+    let mut adapter = TcpIpTransportAdapter::new(endpoint, timeout_policy).unwrap();
 
     let error = adapter
         .exchange(&InstrumentCommand::new(
@@ -821,6 +821,41 @@ fn tcp_ip_transport_adapter_reports_external_exchange_unavailable() {
             address: "TCPIP::192.0.2.10".to_owned(),
         }
     );
+}
+
+#[test]
+fn tcp_ip_transport_adapter_exchanges_with_local_socket() {
+    use std::io::{Read, Write};
+
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = [0_u8; 64];
+        let read = stream.read(&mut buffer).unwrap();
+        assert_eq!(std::str::from_utf8(&buffer[..read]).unwrap(), "*IDN?\n");
+        stream.write_all(b"EMC LOCUS,TCP FIXTURE\n").unwrap();
+    });
+
+    let endpoint = InstrumentTransportEndpoint::new(
+        InstrumentTransport::TcpIp,
+        format!("TCPIP::{}::{}", address.ip(), address.port()),
+    )
+    .unwrap();
+    let timeout_policy = TransportTimeoutPolicy::new(100, 1_000, 0).unwrap();
+    let mut adapter = TcpIpTransportAdapter::new(endpoint, timeout_policy).unwrap();
+
+    let response = adapter
+        .exchange(&InstrumentCommand::new(
+            code,
+            InstrumentTransport::TcpIp,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap();
+
+    assert_eq!(response.as_str(), "EMC LOCUS,TCP FIXTURE");
+    handle.join().unwrap();
 }
 
 #[test]

@@ -113,11 +113,16 @@ Implemented in the Rust core:
 12. adapter-backed runtime that preserves observation logs and safety checks;
 13. timeout policy model;
 14. VISA, TCP/IP, and serial adapter skeletons;
-15. explicit unavailable-IO errors so hardware communication is not faked.
+15. explicit unavailable-IO errors so hardware communication is not faked;
+16. IO-backed TCP/IP command exchange with local socket coverage.
 
 Not yet implemented:
 
 - typed SCPI command model;
 - retry execution policy;
 - automatic parsing of string commands into typed setpoints;
-- IO-backed VISA, TCP/IP, serial, and vendor SDK implementations.
+- IO-backed VISA, serial, and vendor SDK implementations.
+
+TCP/IP currently supports `TCPIP::host::port`, `TCPIP::host`, and `host:port`
+endpoints, writes newline-terminated commands, and reads responses until a
+newline or closed socket under the configured timeout policy.

@@ -109,6 +109,8 @@ Deliverables:
 - transport adapter boundary; initial Rust trait and simulated fixture added;
 - first concrete hardware transport adapter skeletons; initial Rust VISA,
   TCP/IP, and serial skeletons added;
+- TCP/IP IO-backed exchange; initial Rust standard-library implementation and
+  local socket test added;
 - instrument capability declarations;
 - command templates;
 - validation against simulated baseline;
@@ -155,8 +157,7 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should add IO-backed VISA, TCP/IP, or serial
+The next productive session should expand guarded IO-backed serial or VISA
 implementations behind the adapter skeletons.
 
-The parallel runtime stream should add IO-backed VISA, TCP/IP, or serial
-implementations behind the adapter skeletons.
+The parallel runtime stream should continue the optimized FFT backend boundary.

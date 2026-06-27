@@ -1,4 +1,12 @@
+use std::{
+    io::{Read, Write},
+    net::{TcpStream, ToSocketAddrs},
+    time::Duration,
+};
+
 use crate::{instrument::InstrumentTransport, metrology::InstrumentCode, DomainError};
+
+const DEFAULT_SCPI_TCP_PORT: u16 = 5025;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstrumentCommandMessage(String);
@@ -25,6 +33,10 @@ pub struct InstrumentResponse(String);
 
 impl InstrumentResponse {
     pub fn simulated(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn received(value: impl Into<String>) -> Self {
         Self(value.into())
     }
 
@@ -189,7 +201,7 @@ impl InstrumentTransportAdapter for TcpIpTransportAdapter {
 
     fn exchange(&mut self, command: &InstrumentCommand) -> Result<InstrumentResponse, DomainError> {
         validate_command_transport(self.endpoint(), command)?;
-        Err(external_exchange_unavailable(self.endpoint()))
+        exchange_tcp_ip(self.endpoint(), self.timeout_policy(), command)
     }
 }
 
@@ -638,6 +650,97 @@ fn external_exchange_unavailable(endpoint: &InstrumentTransportEndpoint) -> Doma
         transport: endpoint.transport().as_str().to_owned(),
         address: endpoint.address().to_owned(),
     }
+}
+
+fn exchange_tcp_ip(
+    endpoint: &InstrumentTransportEndpoint,
+    timeout_policy: TransportTimeoutPolicy,
+    command: &InstrumentCommand,
+) -> Result<InstrumentResponse, DomainError> {
+    let target = tcp_socket_target(endpoint.address())?;
+    let connect_timeout = Duration::from_millis(u64::from(timeout_policy.connect_timeout_ms()));
+    let response_timeout = Duration::from_millis(u64::from(timeout_policy.response_timeout_ms()));
+    let attempts = u16::from(timeout_policy.max_retries()) + 1;
+
+    for _ in 0..attempts {
+        if let Ok(mut stream) = connect_tcp_stream(&target, connect_timeout) {
+            stream
+                .set_read_timeout(Some(response_timeout))
+                .map_err(|_| external_exchange_unavailable(endpoint))?;
+            stream
+                .set_write_timeout(Some(response_timeout))
+                .map_err(|_| external_exchange_unavailable(endpoint))?;
+
+            let outbound = format!("{}\n", command.message().as_str());
+            stream
+                .write_all(outbound.as_bytes())
+                .map_err(|_| external_exchange_unavailable(endpoint))?;
+            stream
+                .flush()
+                .map_err(|_| external_exchange_unavailable(endpoint))?;
+
+            let response = read_tcp_response(&mut stream)
+                .map_err(|_| external_exchange_unavailable(endpoint))?;
+            return Ok(InstrumentResponse::received(response));
+        }
+    }
+
+    Err(external_exchange_unavailable(endpoint))
+}
+
+fn connect_tcp_stream(target: &str, timeout: Duration) -> std::io::Result<TcpStream> {
+    let mut last_error = None;
+
+    for address in target.to_socket_addrs()? {
+        match TcpStream::connect_timeout(&address, timeout) {
+            Ok(stream) => return Ok(stream),
+            Err(error) => last_error = Some(error),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "no socket address")
+    }))
+}
+
+fn read_tcp_response(stream: &mut TcpStream) -> std::io::Result<String> {
+    let mut response = Vec::new();
+    let mut buffer = [0_u8; 256];
+
+    loop {
+        let read = stream.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+
+        response.extend_from_slice(&buffer[..read]);
+        if response.iter().any(|byte| *byte == b'\n') {
+            break;
+        }
+    }
+
+    Ok(String::from_utf8_lossy(&response).trim().to_owned())
+}
+
+fn tcp_socket_target(address: &str) -> Result<String, DomainError> {
+    let trimmed = address.trim();
+    if trimmed.is_empty() {
+        return Err(DomainError::EmptyTransportEndpointAddress);
+    }
+
+    let tcp_address = trimmed.strip_prefix("TCPIP::").unwrap_or(trimmed);
+    if tcp_address.contains("::") {
+        let parts: Vec<&str> = tcp_address.split("::").collect();
+        if parts.len() >= 2 {
+            return Ok(format!("{}:{}", parts[0], parts[1]));
+        }
+    }
+
+    if tcp_address.contains(':') {
+        return Ok(tcp_address.to_owned());
+    }
+
+    Ok(format!("{tcp_address}:{DEFAULT_SCPI_TCP_PORT}"))
 }
 
 fn deterministic_response(message: &InstrumentCommandMessage) -> InstrumentResponse {
