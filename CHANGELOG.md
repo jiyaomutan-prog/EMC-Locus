@@ -128,6 +128,8 @@ change should remain traceable through Git history, session logs, and this file.
   while preserving `bootstrap.js` compatibility.
 - Qt console operator action intents for project advancement, dataset-retention
   requests, and update validation.
+- Structured Rust serial endpoint settings for port, baud rate, data bits,
+  parity, and stop bits, validated by the serial transport adapter.
 
 ### Planned
 

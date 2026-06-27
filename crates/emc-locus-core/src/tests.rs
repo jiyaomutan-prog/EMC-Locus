@@ -781,6 +781,45 @@ fn transport_timeout_policy_rejects_zero_timeouts() {
 }
 
 #[test]
+fn serial_endpoint_settings_parse_default_and_explicit_framing() {
+    let default = SerialEndpointSettings::parse("COM3:115200").unwrap();
+    assert_eq!(default.port(), "COM3");
+    assert_eq!(default.baud_rate(), 115_200);
+    assert_eq!(default.data_bits(), 8);
+    assert_eq!(default.parity(), SerialParity::None);
+    assert_eq!(default.parity().as_str(), "none");
+    assert_eq!(default.stop_bits(), SerialStopBits::One);
+    assert_eq!(default.stop_bits().value(), 1);
+
+    let explicit = SerialEndpointSettings::parse("COM4:9600:7E2").unwrap();
+    assert_eq!(explicit.port(), "COM4");
+    assert_eq!(explicit.baud_rate(), 9_600);
+    assert_eq!(explicit.data_bits(), 7);
+    assert_eq!(explicit.parity(), SerialParity::Even);
+    assert_eq!(explicit.stop_bits(), SerialStopBits::Two);
+}
+
+#[test]
+fn serial_endpoint_settings_reject_invalid_addresses() {
+    assert_eq!(
+        SerialEndpointSettings::parse("COM3").unwrap_err(),
+        DomainError::InvalidSerialEndpointAddress("COM3".to_owned())
+    );
+    assert_eq!(
+        SerialEndpointSettings::parse("COM3:0").unwrap_err(),
+        DomainError::InvalidSerialEndpointAddress("COM3:0".to_owned())
+    );
+    assert_eq!(
+        SerialEndpointSettings::parse("COM3:115200:9N1").unwrap_err(),
+        DomainError::InvalidSerialEndpointAddress("COM3:115200:9N1".to_owned())
+    );
+    assert_eq!(
+        SerialEndpointSettings::parse("COM3:115200:8X1").unwrap_err(),
+        DomainError::InvalidSerialEndpointAddress("COM3:115200:8X1".to_owned())
+    );
+}
+
+#[test]
 fn concrete_transport_adapters_validate_endpoint_transport() {
     let endpoint =
         InstrumentTransportEndpoint::new(InstrumentTransport::TcpIp, "TCPIP::192.0.2.10").unwrap();
@@ -884,6 +923,21 @@ fn transport_adapter_runtime_does_not_fake_concrete_io() {
         }
     );
     assert!(runtime.observations().is_empty());
+}
+
+#[test]
+fn serial_transport_adapter_exposes_validated_settings() {
+    let endpoint =
+        InstrumentTransportEndpoint::new(InstrumentTransport::Serial, "COM7:57600:8O1").unwrap();
+    let adapter =
+        SerialTransportAdapter::new(endpoint, TransportTimeoutPolicy::laboratory_default())
+            .unwrap();
+
+    assert_eq!(adapter.settings().port(), "COM7");
+    assert_eq!(adapter.settings().baud_rate(), 57_600);
+    assert_eq!(adapter.settings().data_bits(), 8);
+    assert_eq!(adapter.settings().parity(), SerialParity::Odd);
+    assert_eq!(adapter.settings().stop_bits(), SerialStopBits::One);
 }
 
 #[test]

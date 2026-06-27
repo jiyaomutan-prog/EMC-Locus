@@ -29,6 +29,7 @@ pub enum DomainError {
         actual: String,
     },
     EmptyTransportEndpointAddress,
+    InvalidSerialEndpointAddress(String),
     TransportAdapterMismatch {
         expected: String,
         actual: String,

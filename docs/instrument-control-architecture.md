@@ -114,7 +114,9 @@ Implemented in the Rust core:
 13. timeout policy model;
 14. VISA, TCP/IP, and serial adapter skeletons;
 15. explicit unavailable-IO errors so hardware communication is not faked;
-16. IO-backed TCP/IP command exchange with local socket coverage.
+16. IO-backed TCP/IP command exchange with local socket coverage;
+17. structured serial endpoint parsing for port, baud rate, data bits, parity,
+    and stop bits.
 
 Not yet implemented:
 
@@ -126,3 +128,8 @@ Not yet implemented:
 TCP/IP currently supports `TCPIP::host::port`, `TCPIP::host`, and `host:port`
 endpoints, writes newline-terminated commands, and reads responses until a
 newline or closed socket under the configured timeout policy.
+
+Serial endpoints currently support `PORT:baud` with default 8N1 framing, or
+`PORT:baud:framing` for explicit values such as `COM4:9600:7E2`. Native serial
+IO is still intentionally unavailable until a guarded implementation and device
+test strategy are added.

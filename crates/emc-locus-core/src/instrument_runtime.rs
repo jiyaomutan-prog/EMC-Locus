@@ -137,6 +137,119 @@ impl TransportTimeoutPolicy {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SerialParity {
+    None,
+    Even,
+    Odd,
+}
+
+impl SerialParity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Even => "even",
+            Self::Odd => "odd",
+        }
+    }
+
+    fn parse(value: char) -> Option<Self> {
+        match value.to_ascii_uppercase() {
+            'N' => Some(Self::None),
+            'E' => Some(Self::Even),
+            'O' => Some(Self::Odd),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SerialStopBits {
+    One,
+    Two,
+}
+
+impl SerialStopBits {
+    pub fn value(self) -> u8 {
+        match self {
+            Self::One => 1,
+            Self::Two => 2,
+        }
+    }
+
+    fn parse(value: char) -> Option<Self> {
+        match value {
+            '1' => Some(Self::One),
+            '2' => Some(Self::Two),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SerialEndpointSettings {
+    port: String,
+    baud_rate: u32,
+    data_bits: u8,
+    parity: SerialParity,
+    stop_bits: SerialStopBits,
+}
+
+impl SerialEndpointSettings {
+    pub fn parse(address: &str) -> Result<Self, DomainError> {
+        let parts: Vec<&str> = address.split(':').collect();
+        if parts.len() < 2 || parts.len() > 3 {
+            return Err(invalid_serial_endpoint(address));
+        }
+
+        let port = parts[0].trim();
+        if port.is_empty() {
+            return Err(invalid_serial_endpoint(address));
+        }
+
+        let baud_rate = parts[1]
+            .trim()
+            .parse::<u32>()
+            .map_err(|_| invalid_serial_endpoint(address))?;
+        if baud_rate == 0 {
+            return Err(invalid_serial_endpoint(address));
+        }
+
+        let (data_bits, parity, stop_bits) = match parts.get(2).map(|value| value.trim()) {
+            None | Some("") => (8, SerialParity::None, SerialStopBits::One),
+            Some(framing) => parse_serial_framing(framing, address)?,
+        };
+
+        Ok(Self {
+            port: port.to_owned(),
+            baud_rate,
+            data_bits,
+            parity,
+            stop_bits,
+        })
+    }
+
+    pub fn port(&self) -> &str {
+        &self.port
+    }
+
+    pub fn baud_rate(&self) -> u32 {
+        self.baud_rate
+    }
+
+    pub fn data_bits(&self) -> u8 {
+        self.data_bits
+    }
+
+    pub fn parity(&self) -> SerialParity {
+        self.parity
+    }
+
+    pub fn stop_bits(&self) -> SerialStopBits {
+        self.stop_bits
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VisaTransportAdapter {
     endpoint: InstrumentTransportEndpoint,
@@ -209,6 +322,7 @@ impl InstrumentTransportAdapter for TcpIpTransportAdapter {
 pub struct SerialTransportAdapter {
     endpoint: InstrumentTransportEndpoint,
     timeout_policy: TransportTimeoutPolicy,
+    settings: SerialEndpointSettings,
 }
 
 impl SerialTransportAdapter {
@@ -217,14 +331,20 @@ impl SerialTransportAdapter {
         timeout_policy: TransportTimeoutPolicy,
     ) -> Result<Self, DomainError> {
         validate_adapter_endpoint(&endpoint, InstrumentTransport::Serial)?;
+        let settings = SerialEndpointSettings::parse(endpoint.address())?;
         Ok(Self {
             endpoint,
             timeout_policy,
+            settings,
         })
     }
 
     pub fn timeout_policy(&self) -> TransportTimeoutPolicy {
         self.timeout_policy
+    }
+
+    pub fn settings(&self) -> &SerialEndpointSettings {
+        &self.settings
     }
 }
 
@@ -643,6 +763,36 @@ fn validate_command_transport(
     }
 
     Ok(())
+}
+
+fn parse_serial_framing(
+    framing: &str,
+    original_address: &str,
+) -> Result<(u8, SerialParity, SerialStopBits), DomainError> {
+    let mut chars = framing.chars();
+    let data_bits = chars
+        .next()
+        .and_then(|value| value.to_digit(10))
+        .map(|value| value as u8)
+        .ok_or_else(|| invalid_serial_endpoint(original_address))?;
+    let parity = chars
+        .next()
+        .and_then(SerialParity::parse)
+        .ok_or_else(|| invalid_serial_endpoint(original_address))?;
+    let stop_bits = chars
+        .next()
+        .and_then(SerialStopBits::parse)
+        .ok_or_else(|| invalid_serial_endpoint(original_address))?;
+
+    if chars.next().is_some() || !(5..=8).contains(&data_bits) {
+        return Err(invalid_serial_endpoint(original_address));
+    }
+
+    Ok((data_bits, parity, stop_bits))
+}
+
+fn invalid_serial_endpoint(address: &str) -> DomainError {
+    DomainError::InvalidSerialEndpointAddress(address.to_owned())
 }
 
 fn external_exchange_unavailable(endpoint: &InstrumentTransportEndpoint) -> DomainError {

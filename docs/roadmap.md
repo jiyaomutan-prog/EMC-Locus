@@ -120,6 +120,8 @@ Deliverables:
   TCP/IP, and serial skeletons added;
 - TCP/IP IO-backed exchange; initial Rust standard-library implementation and
   local socket test added;
+- structured serial endpoint settings; initial Rust parser and adapter
+  validation added;
 - instrument capability declarations;
 - command templates;
 - validation against simulated baseline;
