@@ -22,6 +22,7 @@ from emc_locus import (
     record_dataset_retention_action,
     record_update_install_action,
     record_update_validation_action,
+    set_metrology_instrument_capabilities,
     set_metrology_instrument_availability,
     write_bootstrap_js,
 )
@@ -900,6 +901,77 @@ class GuiActionTests(unittest.TestCase):
             self.assertEqual(
                 repository.get_instrument("DMM-STATUS-001")["availability"],
                 "available",
+            )
+
+    def test_set_metrology_instrument_capabilities_updates_existing_asset(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            metrology_db = Path(temporary_directory) / "metrology.sqlite"
+            bootstrap_output = Path(temporary_directory) / "bootstrap.js"
+
+            register_metrology_instrument(
+                metrology_db=metrology_db,
+                asset_id="DAQ-CAP-001",
+                family="DAQ",
+                manufacturer="Open",
+                model="DAQ",
+                serial_number="CAP-001",
+                category_code="daq_chassis",
+            )
+
+            result = set_metrology_instrument_capabilities(
+                metrology_db=metrology_db,
+                asset_id="DAQ-CAP-001",
+                capabilities_json='{"channels": 8, "transports": ["opendaq", "ethernet"]}',
+                bootstrap_output=bootstrap_output,
+            )
+
+            repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
+            instrument = repository.get_instrument("DAQ-CAP-001")
+
+            self.assertEqual(result["previous_capabilities_json"], "[]")
+            self.assertEqual(
+                result["new_capabilities_json"],
+                '{"channels": 8, "transports": ["opendaq", "ethernet"]}',
+            )
+            self.assertEqual(
+                instrument["capabilities_json"],
+                '{"channels": 8, "transports": ["opendaq", "ethernet"]}',
+            )
+            self.assertIn("DAQ-CAP-001", bootstrap_output.read_text())
+
+    def test_set_metrology_instrument_capabilities_rejects_missing_asset_or_bad_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            metrology_db = Path(temporary_directory) / "metrology.sqlite"
+
+            with self.assertRaises(ValueError):
+                set_metrology_instrument_capabilities(
+                    metrology_db=metrology_db,
+                    asset_id="MISSING",
+                    capabilities_json="{}",
+                )
+
+            register_metrology_instrument(
+                metrology_db=metrology_db,
+                asset_id="DMM-CAP-001",
+                family="DMM",
+                manufacturer="Bench",
+                model="DMM",
+                serial_number="CAP-001",
+                category_code="digital_multimeter",
+                capabilities_json='{"digits": 6.5}',
+            )
+
+            with self.assertRaises(ValueError):
+                set_metrology_instrument_capabilities(
+                    metrology_db=metrology_db,
+                    asset_id="DMM-CAP-001",
+                    capabilities_json="{bad-json",
+                )
+
+            repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
+            self.assertEqual(
+                repository.get_instrument("DMM-CAP-001")["capabilities_json"],
+                '{"digits": 6.5}',
             )
 
     def test_dataset_retention_action_records_event_and_refreshes_bootstrap(self) -> None:

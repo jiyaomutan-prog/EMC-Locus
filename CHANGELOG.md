@@ -159,6 +159,8 @@ change should remain traceable through Git history, session logs, and this file.
   existing instruments while keeping prior calibration history.
 - Local metrology availability action and CLI for marking instruments available,
   reserved, or out of service with bootstrap refresh.
+- Local metrology capability action and CLI for replacing controlled instrument
+  capability JSON on existing assets.
 
 ### Planned
 

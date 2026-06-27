@@ -145,6 +145,19 @@ python -m emc_locus.actions_cli set-instrument-availability `
 Allowed status values are `available`, `reserved`, and `out_of_service`.
 Out-of-service instruments remain blocking in readiness checks.
 
+Instrument capabilities can be updated as controlled JSON. Typical content is
+category-specific: RF range, channel count, supported transports, sensor type,
+maximum voltage/current, or synchronization support.
+
+```text
+$env:PYTHONPATH='python'
+python -m emc_locus.actions_cli set-instrument-capabilities `
+  --metrology-db local/metrology.sqlite `
+  --asset-id DAQ-001 `
+  --capabilities-json '{\"channels\":8,\"transports\":[\"opendaq\",\"ethernet\"]}' `
+  --bootstrap-output apps/gui-shell/bootstrap.js
+```
+
 ## Public Sources Used
 
 - Keysight public electronic test equipment guide:

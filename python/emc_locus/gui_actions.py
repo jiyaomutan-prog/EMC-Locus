@@ -271,6 +271,54 @@ def set_metrology_instrument_availability(
     }
 
 
+def set_metrology_instrument_capabilities(
+    *,
+    metrology_db: Path | str,
+    asset_id: str,
+    capabilities_json: str,
+    migrations_root: Path | str = Path("storage/sqlite"),
+    bootstrap_output: Path | str | None = None,
+    projects_db: Path | str | None = None,
+    test_definitions_db: Path | str | None = None,
+    measurement_data_db: Path | str | None = None,
+    update_catalog_db: Path | str | None = None,
+) -> dict[str, Any]:
+    """Replace the capability declaration of an existing metrology asset."""
+
+    asset_id = require_non_empty(asset_id, "asset_id")
+    capabilities_json = _normalized_json(capabilities_json, "capabilities_json")
+
+    repository = MetrologyRepository(Path(metrology_db), Path(migrations_root))
+    repository.initialize()
+    before = repository.get_instrument(asset_id)
+    if before is None:
+        raise ValueError("instrument does not exist")
+
+    updated = repository.update_instrument_capabilities(
+        asset_id=asset_id,
+        capabilities_json=capabilities_json,
+    )
+    if not updated:
+        raise ValueError("instrument does not exist")
+
+    if bootstrap_output is not None:
+        refresh_bootstrap(
+            output=bootstrap_output,
+            migrations_root=migrations_root,
+            projects_db=projects_db,
+            metrology_db=metrology_db,
+            test_definitions_db=test_definitions_db,
+            measurement_data_db=measurement_data_db,
+            update_catalog_db=update_catalog_db,
+        )
+
+    return {
+        "asset_id": asset_id,
+        "previous_capabilities_json": str(before["capabilities_json"]),
+        "new_capabilities_json": capabilities_json,
+    }
+
+
 def advance_project_stage(
     *,
     projects_db: Path | str,
@@ -600,6 +648,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     availability_parser.add_argument("--bootstrap-output", type=Path)
 
+    capabilities_parser = subcommands.add_parser("set-instrument-capabilities")
+    _add_repository_args(capabilities_parser, include_metrology=False)
+    capabilities_parser.add_argument("--metrology-db", required=True, type=Path)
+    capabilities_parser.add_argument("--asset-id", required=True)
+    capabilities_parser.add_argument("--capabilities-json", required=True)
+    capabilities_parser.add_argument("--bootstrap-output", type=Path)
+
     advance_parser = subcommands.add_parser("advance-project")
     _add_repository_args(advance_parser, include_projects=False)
     advance_parser.add_argument("--projects-db", required=True, type=Path)
@@ -721,6 +776,21 @@ def main(argv: list[str] | None = None) -> int:
             metrology_db=args.metrology_db,
             asset_id=args.asset_id,
             availability=args.availability,
+            migrations_root=args.migrations_root,
+            bootstrap_output=args.bootstrap_output,
+            projects_db=args.projects_db,
+            test_definitions_db=args.test_definitions_db,
+            measurement_data_db=args.measurement_data_db,
+            update_catalog_db=args.update_catalog_db,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "set-instrument-capabilities":
+        result = set_metrology_instrument_capabilities(
+            metrology_db=args.metrology_db,
+            asset_id=args.asset_id,
+            capabilities_json=args.capabilities_json,
             migrations_root=args.migrations_root,
             bootstrap_output=args.bootstrap_output,
             projects_db=args.projects_db,
