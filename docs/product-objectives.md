@@ -124,8 +124,7 @@ serial or VISA IO behind the existing runtime boundary.
 
 1. Expand guarded IO-backed serial and VISA implementations behind the adapter
    skeletons.
-2. Add a real optimized FFT implementation behind the backend boundary.
-3. Add traceability report views for audit and technical review.
+2. Add traceability report views for audit and technical review.
 
 ## Non-Objectives
 

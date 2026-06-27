@@ -2437,6 +2437,40 @@ fn signal_execution_engine_records_fft_backend_boundary() {
 }
 
 #[test]
+fn optimized_fft_backend_matches_reference_dft_for_power_of_two_fixture() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+    let reference_output = SignalReference::parse("current_l1_reference_fft").unwrap();
+    let optimized_output = SignalReference::parse("current_l1_optimized_fft").unwrap();
+
+    let reference = SignalExecutionEngine::spectrum_magnitude_with_backend(
+        &dataset,
+        &current,
+        reference_output,
+        FrequencyTransformBackend::ReferenceDft,
+    )
+    .unwrap();
+    let optimized = SignalExecutionEngine::spectrum_magnitude_with_backend(
+        &dataset,
+        &current,
+        optimized_output,
+        FrequencyTransformBackend::OptimizedFftCompatible,
+    )
+    .unwrap();
+
+    assert_eq!(
+        optimized.backend(),
+        FrequencyTransformBackend::OptimizedFftCompatible
+    );
+    assert_eq!(optimized.magnitudes().len(), reference.magnitudes().len());
+    for (actual, expected) in optimized.magnitudes().iter().zip(reference.magnitudes()) {
+        assert!((actual - expected).abs() < 1e-9);
+    }
+}
+
+#[test]
 fn signal_execution_engine_rejects_unknown_inputs() {
     let dataset = SimulatedDaqSource::open_daq()
         .acquire_inrush_fixture()

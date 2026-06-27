@@ -96,6 +96,8 @@ Deliverables:
 - windowing and deterministic downsampling; initial Rust execution added;
 - FFT backend boundary and interpolation resampling; initial Rust execution
   added;
+- optimized radix-2 FFT-compatible backend with DFT fallback; initial Rust
+  execution added;
 - channel math and signal lineage; initial Rust lineage model added;
 - CEM time-domain test families such as railway harmonics, axle counters, and
   inrush measurements.

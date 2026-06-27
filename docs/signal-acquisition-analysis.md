@@ -145,11 +145,11 @@ Implemented in the Rust core:
 9. Hann and rectangular windowing;
 10. deterministic downsampling;
 11. FFT backend boundary with spectrum backend traceability;
-12. interpolation-based linear resampling.
+12. interpolation-based linear resampling;
+13. optimized radix-2 FFT-compatible backend with deterministic DFT fallback.
 
 Not yet implemented:
 
-- real optimized FFT implementation behind the backend boundary;
 - richer window families;
 - persistence of graph instances;
 - real DAQ adapters.

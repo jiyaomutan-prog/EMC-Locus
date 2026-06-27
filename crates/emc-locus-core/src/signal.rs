@@ -844,7 +844,10 @@ impl SignalExecutionEngine {
             .iter()
             .map(|sample| *sample as f64)
             .collect();
-        let magnitudes = reference_dft_magnitudes(&samples);
+        let magnitudes = match backend {
+            FrequencyTransformBackend::ReferenceDft => reference_dft_magnitudes(&samples),
+            FrequencyTransformBackend::OptimizedFftCompatible => optimized_fft_magnitudes(&samples),
+        };
 
         Ok(SignalSpectrumResult::new(
             output,
@@ -904,6 +907,86 @@ fn reference_dft_magnitudes(samples: &[f64]) -> Vec<f64> {
     }
 
     magnitudes
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ComplexSample {
+    real: f64,
+    imaginary: f64,
+}
+
+impl ComplexSample {
+    fn new(real: f64, imaginary: f64) -> Self {
+        Self { real, imaginary }
+    }
+
+    fn magnitude(self) -> f64 {
+        (self.real.powi(2) + self.imaginary.powi(2)).sqrt()
+    }
+
+    fn add(self, other: Self) -> Self {
+        Self::new(self.real + other.real, self.imaginary + other.imaginary)
+    }
+
+    fn sub(self, other: Self) -> Self {
+        Self::new(self.real - other.real, self.imaginary - other.imaginary)
+    }
+
+    fn mul(self, other: Self) -> Self {
+        Self::new(
+            self.real * other.real - self.imaginary * other.imaginary,
+            self.real * other.imaginary + self.imaginary * other.real,
+        )
+    }
+}
+
+fn optimized_fft_magnitudes(samples: &[f64]) -> Vec<f64> {
+    if !samples.len().is_power_of_two() {
+        return reference_dft_magnitudes(samples);
+    }
+
+    let count = samples.len();
+    let bit_count = count.trailing_zeros();
+    let mut values = vec![ComplexSample::new(0.0, 0.0); count];
+
+    for (index, sample) in samples.iter().enumerate() {
+        let reversed = reverse_bits(index, bit_count);
+        values[reversed] = ComplexSample::new(*sample, 0.0);
+    }
+
+    let mut width = 2;
+    while width <= count {
+        let half_width = width / 2;
+        let angle_step = -2.0 * PI / width as f64;
+
+        for start in (0..count).step_by(width) {
+            for offset in 0..half_width {
+                let angle = angle_step * offset as f64;
+                let twiddle = ComplexSample::new(angle.cos(), angle.sin());
+                let even = values[start + offset];
+                let odd = values[start + offset + half_width].mul(twiddle);
+
+                values[start + offset] = even.add(odd);
+                values[start + offset + half_width] = even.sub(odd);
+            }
+        }
+
+        width *= 2;
+    }
+
+    values.into_iter().map(ComplexSample::magnitude).collect()
+}
+
+fn reverse_bits(value: usize, bit_count: u32) -> usize {
+    let mut reversed = 0_usize;
+
+    for bit in 0..bit_count {
+        if value & (1_usize << bit) != 0 {
+            reversed |= 1_usize << (bit_count - 1 - bit);
+        }
+    }
+
+    reversed
 }
 
 fn required_channel<'a>(

@@ -107,12 +107,13 @@ change should remain traceable through Git history, session logs, and this file.
   `bootstrap.js` regeneration.
 - IO-backed TCP/IP transport adapter with timeout policy, newline-terminated
   command exchange, response readback, and local socket test coverage.
+- Pure Rust radix-2 optimized FFT-compatible backend with deterministic DFT
+  fallback and reference-matching test coverage.
 
 ### Planned
 
 - Expand guarded IO-backed serial and VISA implementations behind the adapter
   skeletons.
-- Add a real optimized FFT implementation behind the backend boundary.
 
 ## [0.1.0] - 2026-06-26
 
