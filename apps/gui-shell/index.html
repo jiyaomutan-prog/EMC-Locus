@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EMC Locus Console</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">EMC</div>
+          <div>
+            <strong>EMC Locus</strong>
+            <span>Lab console</span>
+          </div>
+        </div>
+        <nav class="nav-list" aria-label="Vues">
+          <button class="nav-item active" data-view="dashboard" type="button">Tableau</button>
+          <button class="nav-item" data-view="projects" type="button">Projets</button>
+          <button class="nav-item" data-view="metrology" type="button">Metrologie</button>
+          <button class="nav-item" data-view="methods" type="button">Essais</button>
+          <button class="nav-item" data-view="data" type="button">Donnees</button>
+          <button class="nav-item" data-view="updates" type="button">Updates</button>
+        </nav>
+        <div class="mode-panel">
+          <label for="quality-mode">Mode qualite</label>
+          <select id="quality-mode">
+            <option value="Accredite">Accredite</option>
+            <option value="Non accredite">Non accredite</option>
+            <option value="Investigation">Investigation</option>
+          </select>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Station locale</p>
+            <h1 id="view-title">Tableau</h1>
+          </div>
+          <div class="toolbar">
+            <label class="search-box" for="search-input">
+              <span>Recherche</span>
+              <input id="search-input" type="search" placeholder="Projet, instrument, methode" />
+            </label>
+            <button class="toggle active" id="offline-toggle" type="button" aria-pressed="true">
+              Local
+            </button>
+          </div>
+        </header>
+
+        <section class="status-strip" id="status-strip" aria-label="Synthese"></section>
+
+        <section class="view active" id="dashboard-view" aria-labelledby="view-title">
+          <div class="dashboard-grid">
+            <section class="panel wide">
+              <div class="panel-head">
+                <h2>Campagnes actives</h2>
+                <span id="project-count"></span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Projet</th>
+                      <th>Client</th>
+                      <th>Etape</th>
+                      <th>Mode</th>
+                      <th>Blocage</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboard-projects"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Readiness</h2>
+                <span id="readiness-count"></span>
+              </div>
+              <div class="queue" id="readiness-list"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Dernier traitement</h2>
+                <span>FFT</span>
+              </div>
+              <div class="signal-preview" aria-label="Apercu signal">
+                <div class="trace trace-a"></div>
+                <div class="trace trace-b"></div>
+                <div class="trace trace-c"></div>
+              </div>
+              <dl class="facts" id="signal-facts"></dl>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="projects-view" aria-labelledby="view-title">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Projets</h2>
+              <button class="command" id="advance-project" type="button">Avancer</button>
+            </div>
+            <div class="split">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Code</th>
+                      <th>Client</th>
+                      <th>Etape</th>
+                      <th>Mode</th>
+                    </tr>
+                  </thead>
+                  <tbody id="projects-table"></tbody>
+                </table>
+              </div>
+              <aside class="detail-panel" id="project-detail"></aside>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="metrology-view" aria-labelledby="view-title">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Metrologie</h2>
+              <span>Instruments</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Asset</th>
+                    <th>Famille</th>
+                    <th>Statut</th>
+                    <th>Calibration</th>
+                    <th>Echeance</th>
+                  </tr>
+                </thead>
+                <tbody id="metrology-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="methods-view" aria-labelledby="view-title">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Definitions d'essais</h2>
+              <span>Methodes</span>
+            </div>
+            <div class="method-grid" id="method-grid"></div>
+          </section>
+        </section>
+
+        <section class="view" id="data-view" aria-labelledby="view-title">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Donnees de mesure</h2>
+              <span>Datasets</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Run</th>
+                    <th>Type</th>
+                    <th>Fichier</th>
+                    <th>Checksum</th>
+                    <th>Etat</th>
+                  </tr>
+                </thead>
+                <tbody id="data-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="updates-view" aria-labelledby="view-title">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Gestionnaire de mises a jour</h2>
+              <span id="update-gate"></span>
+            </div>
+            <div class="update-list" id="update-list"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

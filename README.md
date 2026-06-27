@@ -30,13 +30,16 @@ technical review, report delivery, and archive.
   critical instrument-control primitives.
 - Python layer for laboratory scripting, adapters, data import/export, analysis
   pipelines, and fast prototyping.
-- A future UI can be built on top of stable APIs once the domain model is solid.
+- A first operator-facing GUI shell exists as a static app. It should be wired
+  to stable Python and Rust services as those APIs mature.
 
 ## Repository Layout
 
 ```text
 crates/
   emc-locus-core/        Rust domain model and core invariants
+apps/
+  gui-shell/             Static operator console shell for workflow shaping
 docs/
   architecture.md        System boundaries and technical direction
   product-objectives.md  Consolidated product objectives and non-objectives
@@ -59,10 +62,11 @@ storage/
 
 ## First Useful Milestones
 
-1. Add IO-backed VISA/TCP/IP/serial implementations behind the adapter skeletons.
-2. Add a real optimized FFT implementation behind the backend boundary.
-3. Add data-retention policy hooks for immutable measurement datasets.
-4. Add traceability report views for audit and technical review.
+1. Add data-retention policy hooks for immutable measurement datasets.
+2. Wire the GUI shell to local Python repository services.
+3. Add IO-backed VISA/TCP/IP/serial implementations behind the adapter skeletons.
+4. Add a real optimized FFT implementation behind the backend boundary.
+5. Add traceability report views for audit and technical review.
 
 ## Development Status
 
@@ -88,4 +92,5 @@ $env:PYTHONPATH='python'; py -m unittest discover -s python\tests
 $env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrations import validate_sqlite_migrations; print(validate_sqlite_migrations(Path('storage/sqlite')))"
 cargo fmt --check
 cargo test
+node --check apps\gui-shell\app.js
 ```

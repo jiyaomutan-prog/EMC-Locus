@@ -91,9 +91,12 @@ change should remain traceable through Git history, session logs, and this file.
 - SQLite update-install validation evidence for signature, compatibility,
   offline-install, and active-measurement gates.
 - Incremental Python migration application for existing domain databases.
+- Static operator-facing GUI shell for dashboard, project, metrology, test
+  definition, measurement-data, and update workflows.
 
 ### Planned
 
+- Wire the GUI shell to local Python repository services.
 - Add IO-backed VISA/TCP/IP/serial implementations behind the adapter
   skeletons.
 - Add a real optimized FFT implementation behind the backend boundary.

@@ -107,13 +107,25 @@ Updates must be controlled like laboratory evidence:
 - no updates during active measurement acquisition;
 - changelog and validation evidence tied to releases.
 
+### 8. Operator Console
+
+The GUI must be a working laboratory surface, not a marketing layer. It should
+let operators see campaign state, readiness, metrology status, test-definition
+approval, dataset lineage, update gates, and local/offline operating mode from
+one place.
+
+The first GUI shell is static and fixture-driven. The next step is to wire it
+to local Python repository services before adding remote synchronization or
+instrument runtime controls.
+
 ## Near-Term Implementation Objectives
 
-1. Add IO-backed VISA, TCP/IP, and serial implementations behind the adapter
+1. Add data-retention policy hooks for immutable measurement datasets.
+2. Wire the GUI shell to local Python repository services.
+3. Add IO-backed VISA, TCP/IP, and serial implementations behind the adapter
    skeletons.
-2. Add a real optimized FFT implementation behind the backend boundary.
-3. Add data-retention policy hooks for immutable measurement datasets.
-4. Add traceability report views for audit and technical review.
+4. Add a real optimized FFT implementation behind the backend boundary.
+5. Add traceability report views for audit and technical review.
 
 ## Non-Objectives
 

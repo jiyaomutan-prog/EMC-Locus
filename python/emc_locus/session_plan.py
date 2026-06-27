@@ -14,6 +14,7 @@ class Workstream(str, Enum):
     STORAGE = "storage"
     REPORTING = "reporting"
     QUALITY = "quality"
+    UI = "ui"
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,20 @@ def default_backlog() -> list[SessionPlan]:
                 "retention policy primitives",
                 "SQLite retention evidence records",
                 "immutable dataset smoke tests",
+            ),
+        ),
+        SessionPlan(
+            title="GUI service wiring",
+            objective=(
+                "Wire the static operator console shell to local Python "
+                "repository services for projects, metrology, test "
+                "definitions, measurement data, and update metadata."
+            ),
+            workstreams=(Workstream.UI, Workstream.STORAGE, Workstream.QUALITY),
+            expected_outputs=(
+                "local repository read API for the GUI",
+                "fixture replacement path",
+                "offline mode smoke test",
             ),
         ),
         SessionPlan(
