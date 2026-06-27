@@ -99,10 +99,13 @@ change should remain traceable through Git history, session logs, and this file.
   retention events, current status, and reviewed deletion workflows.
 - Python GUI bootstrap exporter that maps local SQLite repositories into the
   static console data contract, with a browser-loadable `bootstrap.js` file.
+- Python GUI action command for audited local project stage advancement with
+  optional `bootstrap.js` regeneration.
 
 ### Planned
 
-- Add local write actions and refresh workflow behind the GUI shell.
+- Add dataset-retention and update-management local actions behind the GUI
+  shell.
 - Add IO-backed VISA/TCP/IP/serial implementations behind the adapter
   skeletons.
 - Add a real optimized FFT implementation behind the backend boundary.

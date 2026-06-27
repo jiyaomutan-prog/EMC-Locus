@@ -32,17 +32,17 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="GUI local write actions",
+            title="GUI dataset retention actions",
             objective=(
-                "Replace the remaining fixture-only GUI actions with local "
-                "Python-backed write actions and a refresh path for the "
-                "generated bootstrap data."
+                "Add local Python-backed dataset retention actions and refresh "
+                "the generated bootstrap data so operators can see reviewed "
+                "deletion workflows from the console."
             ),
             workstreams=(Workstream.UI, Workstream.STORAGE, Workstream.QUALITY),
             expected_outputs=(
-                "project stage write action",
-                "bootstrap regeneration command",
-                "operator workflow smoke test",
+                "dataset retention request action",
+                "dataset retention approval action",
+                "bootstrap refresh smoke test",
             ),
         ),
         SessionPlan(

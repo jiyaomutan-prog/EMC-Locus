@@ -13,7 +13,9 @@ from emc_locus import (
     SyncRepository,
     TestDefinitionRepository,
     UpdateCatalogRepository,
+    advance_project_stage,
     build_bootstrap,
+    next_project_stage,
     write_bootstrap_js,
 )
 
@@ -240,6 +242,48 @@ class GuiBootstrapTests(unittest.TestCase):
             self.assertEqual(payload["datasets"][0][4], "Immutable")
             self.assertEqual(payload["updates"][0][0], "driver-pack-opendaq")
             self.assertIn("window.EMC_LOCUS_BOOTSTRAP", output_path.read_text())
+
+
+class GuiActionTests(unittest.TestCase):
+    def test_advance_project_stage_records_audit_and_refreshes_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path("storage/sqlite")
+            base = Path(temporary_directory)
+            projects_db = base / "projects.sqlite"
+            bootstrap_output = base / "bootstrap.js"
+            projects = ProjectRepository(projects_db, root)
+            projects.initialize()
+            projects.create_project(
+                code="CEM-ACT-001",
+                customer_name="Action Customer",
+                execution_mode="accredited",
+                stage="quotation",
+            )
+
+            result = advance_project_stage(
+                projects_db=projects_db,
+                code="CEM-ACT-001",
+                actor="operator.one",
+                reason="Contract review is ready",
+                bootstrap_output=bootstrap_output,
+            )
+
+            project = projects.get_project("CEM-ACT-001")
+            events = projects.audit_events("CEM-ACT-001")
+            bootstrap_text = bootstrap_output.read_text()
+
+            self.assertEqual(result["previous_stage"], "quotation")
+            self.assertEqual(result["new_stage"], "contract_review")
+            self.assertEqual(result["audit_sequence"], 1)
+            self.assertEqual(project["stage"], "contract_review")
+            self.assertEqual(events[0]["action"], "gui_project_stage_advanced")
+            self.assertIn('"from": "quotation"', events[0]["payload_json"])
+            self.assertIn("CEM-ACT-001", bootstrap_text)
+            self.assertIn("Contract review", bootstrap_text)
+
+    def test_next_project_stage_rejects_unknown_stage(self) -> None:
+        with self.assertRaises(ValueError):
+            next_project_stage("unknown")
 
 
 class TestDefinitionRepositoryTests(unittest.TestCase):
