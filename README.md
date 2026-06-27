@@ -64,7 +64,7 @@ storage/
 
 1. Expand guarded IO-backed serial and VISA implementations behind the adapter
    skeletons.
-2. Add traceability report views for audit and technical review.
+2. Add richer signal window families and persisted processing graph instances.
 
 ## Development Status
 

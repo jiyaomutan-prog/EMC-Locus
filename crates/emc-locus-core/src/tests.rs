@@ -2129,6 +2129,90 @@ fn report_export_bundle_preserves_accredited_review_and_approval_evidence() {
 }
 
 #[test]
+fn traceability_report_view_links_report_export_to_run_evidence() {
+    let reviewer = AuditActor::parse("technical.reviewer").unwrap();
+    let approver = AuditActor::parse("quality.manager").unwrap();
+    let report = issued_accredited_report(
+        ProjectCode::parse("CEM-2026-001").unwrap(),
+        reviewer.clone(),
+        approver.clone(),
+    );
+    let bundle = ReportExportBundle::from_issued_report(
+        &report,
+        ReportExportFormat::Pdf,
+        DatasetFileReference::parse("reports/RPT-001-A.pdf").unwrap(),
+        DatasetChecksum::parse("sha256:report123").unwrap(),
+    )
+    .unwrap();
+    let plan = accepted_measurement_plan("RUN-001");
+    let instrument = plan.equipment()[0].clone();
+    let mut runtime =
+        SimulatedInstrumentRuntime::new(instrument.clone(), vec![InstrumentTransport::Simulated]);
+    let observation = runtime
+        .execute(InstrumentCommand::new(
+            instrument,
+            InstrumentTransport::Simulated,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap()
+        .clone();
+    let mut evidence = MeasurementRunEvidence::new(plan);
+    evidence.record_observation(observation);
+    evidence
+        .record_raw_dataset(raw_dataset_for_run("RUN-001"))
+        .unwrap();
+
+    let view = TraceabilityReportView::from_export_bundle(&bundle, &[evidence]).unwrap();
+
+    assert_eq!(view.project().as_str(), "CEM-2026-001");
+    assert_eq!(view.report_number().as_str(), "RPT-001");
+    assert_eq!(view.report_revision().as_str(), "A");
+    assert_eq!(view.export_checksum().as_str(), "sha256:report123");
+    assert_eq!(view.reviewed_by(), Some(&reviewer));
+    assert_eq!(view.approved_by(), Some(&approver));
+    assert!(view.has_technical_review());
+    assert!(view.has_report_approval());
+    assert!(view.has_raw_data_lineage());
+    assert_eq!(view.requirements().len(), 11);
+    assert_eq!(view.runs().len(), 1);
+    assert_eq!(view.runs()[0].run().as_str(), "RUN-001");
+    assert_eq!(view.runs()[0].method().as_str(), "EN61000-4-6");
+    assert_eq!(view.runs()[0].equipment()[0].as_str(), "RX-001");
+    assert_eq!(view.runs()[0].observation_count(), 1);
+    assert_eq!(
+        view.runs()[0].raw_datasets()[0].checksum().as_str(),
+        "sha256:abc123"
+    );
+}
+
+#[test]
+fn traceability_report_view_rejects_run_evidence_for_another_project() {
+    let report = issued_accredited_report(
+        ProjectCode::parse("CEM-OTHER").unwrap(),
+        AuditActor::parse("technical.reviewer").unwrap(),
+        AuditActor::parse("quality.manager").unwrap(),
+    );
+    let bundle = ReportExportBundle::from_issued_report(
+        &report,
+        ReportExportFormat::Pdf,
+        DatasetFileReference::parse("reports/RPT-001-A.pdf").unwrap(),
+        DatasetChecksum::parse("sha256:report123").unwrap(),
+    )
+    .unwrap();
+    let evidence = MeasurementRunEvidence::new(accepted_measurement_plan("RUN-001"));
+
+    let error = TraceabilityReportView::from_export_bundle(&bundle, &[evidence]).unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::TraceabilityProjectMismatch {
+            expected: "CEM-OTHER".to_owned(),
+            actual: "CEM-2026-001".to_owned(),
+        }
+    );
+}
+
+#[test]
 fn report_export_bundle_allows_non_accredited_issue_without_approval() {
     let project = ProjectCode::parse("CEM-2026-001").unwrap();
     let mut report = ReportPackage::new(

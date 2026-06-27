@@ -311,6 +311,13 @@ only from an issued report and records:
 This keeps customer-facing files linked to the controlled report workflow rather
 than treating exports as loose files.
 
+## Traceability Report View
+
+The Rust core now provides a traceability view for audit and technical review.
+It links an issued report export to measurement-run evidence, raw dataset
+checksums, command-observation counts, equipment, test method reference,
+technical reviewer, approver, and the baseline traceability requirements.
+
 ## Update Bundle Workflow
 
 The Rust core now models controlled update bundles. An install plan can be

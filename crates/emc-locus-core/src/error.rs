@@ -117,6 +117,10 @@ pub enum DomainError {
     ReportTechnicalReviewRequired,
     ReportApprovalRequired,
     ReportMustBeIssuedBeforeExport,
+    TraceabilityProjectMismatch {
+        expected: String,
+        actual: String,
+    },
     InvalidReportTransition {
         from: String,
         to: String,

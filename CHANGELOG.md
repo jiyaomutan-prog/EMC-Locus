@@ -109,6 +109,8 @@ change should remain traceable through Git history, session logs, and this file.
   command exchange, response readback, and local socket test coverage.
 - Pure Rust radix-2 optimized FFT-compatible backend with deterministic DFT
   fallback and reference-matching test coverage.
+- Rust traceability report view linking issued report exports to measurement
+  run evidence, raw dataset checksums, observations, review, and approval.
 
 ### Planned
 
