@@ -144,11 +144,88 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                       AND name = 'dataset_retention_events'
                     """
                 ).fetchone()
+                graph_instance_table = connection.execute(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name = 'processing_graph_instances'
+                    """
+                ).fetchone()
                 dataset = connection.execute("SELECT * FROM datasets").fetchone()
 
-            self.assertEqual([row["version"] for row in version_rows], [1, 2])
+            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3])
             self.assertIsNotNone(retention_table)
+            self.assertIsNotNone(graph_instance_table)
             self.assertEqual(dataset["retention_status"], "retained")
+
+    def test_records_revisioned_processing_graph_instances(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = MeasurementDataRepository(
+                Path(temporary_directory) / "measurement_data.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            dataset_id = repository.add_dataset(
+                project_code="CEM-2026-FFT",
+                campaign_reference="CAMP-FFT-001",
+                measurement_run_reference="RUN-FFT-001",
+                kind="raw_signal",
+                file_reference="data/RUN-FFT-001/raw.opendata",
+                checksum="sha256:rawfft001",
+            )
+            first_revision_id = repository.add_processing_graph_instance(
+                source_dataset_id=dataset_id,
+                graph_reference="inrush-fft",
+                graph_revision="A",
+                operations_json='{"nodes": ["fft_current"]}',
+                created_by="signal.engineer",
+                software_version="0.1.0",
+                graph_checksum="sha256:graphfft001",
+                source_dataset_checksum="sha256:rawfft001",
+            )
+            second_revision_id = repository.add_processing_graph_instance(
+                source_dataset_id=dataset_id,
+                graph_reference="inrush-fft",
+                graph_revision="B",
+                operations_json='{"nodes": ["hann_window", "fft_current"]}',
+                created_by="technical.reviewer",
+                software_version="0.1.1",
+                graph_checksum="sha256:graphfft002",
+            )
+
+            first_revision = repository.get_processing_graph_instance(first_revision_id)
+            second_revision = repository.processing_graph_instance(
+                source_dataset_id=dataset_id,
+                graph_reference="inrush-fft",
+                graph_revision="B",
+            )
+            all_instances = repository.processing_graph_instances_for_dataset(dataset_id)
+
+            self.assertEqual(
+                first_revision["source_dataset_checksum"],
+                "sha256:rawfft001",
+            )
+            self.assertEqual(first_revision["graph_revision"], "A")
+            self.assertEqual(second_revision["id"], second_revision_id)
+            self.assertEqual(second_revision["software_version"], "0.1.1")
+            self.assertEqual(
+                [row["id"] for row in all_instances],
+                [first_revision_id, second_revision_id],
+            )
+
+            with self.assertRaises(ValueError):
+                repository.add_processing_graph_instance(
+                    source_dataset_id=dataset_id,
+                    graph_reference="inrush-fft",
+                    graph_revision="C",
+                    operations_json="{}",
+                    created_by="signal.engineer",
+                    software_version="0.1.2",
+                    graph_checksum="sha256:graphfft003",
+                    source_dataset_checksum="sha256:wrong",
+                )
 
 
 class GuiBootstrapTests(unittest.TestCase):

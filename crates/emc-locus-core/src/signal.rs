@@ -1,6 +1,10 @@
 use std::f64::consts::PI;
 
-use crate::DomainError;
+use crate::{
+    datasets::{DatasetChecksum, DatasetReference},
+    identifiers::AuditActor,
+    DomainError,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MeasurementAxis {
@@ -142,6 +146,55 @@ impl SignalReference {
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
         {
             return Err(DomainError::InvalidSignalReference(trimmed.to_owned()));
+        }
+
+        Ok(Self(trimmed.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessingGraphReference(String);
+
+impl ProcessingGraphReference {
+    pub fn parse(value: impl Into<String>) -> Result<Self, DomainError> {
+        let value = value.into();
+        let trimmed = value.trim();
+
+        if trimmed.is_empty() {
+            return Err(DomainError::EmptyProcessingGraphReference);
+        }
+
+        if !trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+        {
+            return Err(DomainError::InvalidProcessingGraphReference(
+                trimmed.to_owned(),
+            ));
+        }
+
+        Ok(Self(trimmed.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessingGraphRevision(String);
+
+impl ProcessingGraphRevision {
+    pub fn parse(value: impl Into<String>) -> Result<Self, DomainError> {
+        let value = value.into();
+        let trimmed = value.trim();
+
+        if trimmed.is_empty() {
+            return Err(DomainError::EmptyProcessingGraphRevision);
         }
 
         Ok(Self(trimmed.to_owned()))
@@ -419,6 +472,10 @@ impl SignalProcessingGraph {
         self.nodes.iter().any(|node| node.operation() == operation)
     }
 
+    pub fn has_nodes(&self) -> bool {
+        !self.nodes.is_empty()
+    }
+
     pub fn raw_lineage_for(
         &self,
         signal: &SignalReference,
@@ -452,6 +509,97 @@ impl SignalProcessingGraph {
                 self.collect_raw_lineage(input, lineage);
             }
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessingGraphInstance {
+    reference: ProcessingGraphReference,
+    revision: ProcessingGraphRevision,
+    source_dataset: DatasetReference,
+    source_dataset_checksum: DatasetChecksum,
+    graph: SignalProcessingGraph,
+    definition_checksum: DatasetChecksum,
+    created_by: AuditActor,
+    software_version: String,
+}
+
+impl ProcessingGraphInstance {
+    pub fn new(
+        reference: ProcessingGraphReference,
+        revision: ProcessingGraphRevision,
+        source_dataset: DatasetReference,
+        source_dataset_checksum: DatasetChecksum,
+        graph: SignalProcessingGraph,
+        definition_checksum: DatasetChecksum,
+        created_by: AuditActor,
+        software_version: impl Into<String>,
+    ) -> Result<Self, DomainError> {
+        if !graph.has_nodes() {
+            return Err(DomainError::EmptyProcessingGraphDefinition(
+                reference.as_str().to_owned(),
+            ));
+        }
+
+        let software_version = software_version.into();
+        let software_version = software_version.trim();
+        if software_version.is_empty() {
+            return Err(DomainError::EmptyProcessingGraphSoftwareVersion);
+        }
+
+        Ok(Self {
+            reference,
+            revision,
+            source_dataset,
+            source_dataset_checksum,
+            graph,
+            definition_checksum,
+            created_by,
+            software_version: software_version.to_owned(),
+        })
+    }
+
+    pub fn reference(&self) -> &ProcessingGraphReference {
+        &self.reference
+    }
+
+    pub fn revision(&self) -> &ProcessingGraphRevision {
+        &self.revision
+    }
+
+    pub fn source_dataset(&self) -> &DatasetReference {
+        &self.source_dataset
+    }
+
+    pub fn source_dataset_checksum(&self) -> &DatasetChecksum {
+        &self.source_dataset_checksum
+    }
+
+    pub fn graph(&self) -> &SignalProcessingGraph {
+        &self.graph
+    }
+
+    pub fn definition_checksum(&self) -> &DatasetChecksum {
+        &self.definition_checksum
+    }
+
+    pub fn created_by(&self) -> &AuditActor {
+        &self.created_by
+    }
+
+    pub fn software_version(&self) -> &str {
+        &self.software_version
+    }
+
+    pub fn contains_operation(&self, operation: SignalProcessingOperation) -> bool {
+        self.graph.contains_operation(operation)
+    }
+
+    pub fn raw_lineage_for(
+        &self,
+        signal: &SignalReference,
+    ) -> Result<Vec<SignalReference>, DomainError> {
+        self.graph.raw_lineage_for(signal)
     }
 }
 

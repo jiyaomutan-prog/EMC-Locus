@@ -100,6 +100,26 @@ Immutable raw datasets require a reviewed retention workflow before deletion.
 The current core model records deletion requests, approvals, rejections, and
 executed deletion events with actor and reason evidence.
 
+### Signal Processing Graph
+
+Represents a revisioned numerical processing definition applied to acquired
+signals.
+
+Important fields:
+
+- graph reference;
+- graph revision;
+- source dataset reference and checksum;
+- input and output signal references;
+- processing operations;
+- graph definition checksum;
+- creator identity;
+- software version used to define or execute the graph.
+
+The Rust core now provides a persistable processing-graph instance model. The
+SQLite measurement-data repository can store and retrieve revisioned graph
+instances with source dataset checksum verification.
+
 ### Report
 
 Represents the customer-facing deliverable.

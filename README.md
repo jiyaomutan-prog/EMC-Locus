@@ -64,7 +64,8 @@ storage/
 
 1. Expand guarded IO-backed serial and VISA implementations behind the adapter
    skeletons.
-2. Add richer signal window families and persisted processing graph instances.
+2. Add richer signal window families and result-artifact links from revisioned
+   processing graph instances.
 
 ## Development Status
 

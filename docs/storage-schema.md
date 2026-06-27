@@ -224,6 +224,25 @@ CREATE TABLE dataset_retention_events (
 );
 ```
 
+### processing_graph_instances
+
+```sql
+CREATE TABLE processing_graph_instances (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_dataset_id INTEGER NOT NULL REFERENCES datasets(id),
+    graph_reference TEXT NOT NULL,
+    graph_revision TEXT NOT NULL,
+    operations_json TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    software_version TEXT NOT NULL,
+    source_dataset_checksum TEXT,
+    graph_checksum TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    UNIQUE(source_dataset_id, graph_reference, graph_revision)
+);
+```
+
 ### reports
 
 ```sql

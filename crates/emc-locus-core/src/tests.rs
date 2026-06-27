@@ -2420,6 +2420,123 @@ fn signal_processing_graph_rejects_unknown_inputs_and_duplicate_nodes() {
 }
 
 #[test]
+fn processing_graph_instance_preserves_revision_dataset_and_lineage() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+    let current_fft = SignalReference::parse("current_l1_fft").unwrap();
+    let mut graph = SignalProcessingGraph::from_dataset(&dataset);
+
+    graph
+        .add_node(
+            SignalProcessingNode::new(
+                SignalReference::parse("fft_current").unwrap(),
+                SignalProcessingOperation::Fft,
+                vec![current.clone()],
+                current_fft.clone(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    let instance = ProcessingGraphInstance::new(
+        ProcessingGraphReference::parse("inrush-analysis").unwrap(),
+        ProcessingGraphRevision::parse("A").unwrap(),
+        DatasetReference::parse("dataset-raw-inrush").unwrap(),
+        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        graph,
+        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        AuditActor::parse("signal.engineer").unwrap(),
+        "0.1.0",
+    )
+    .unwrap();
+
+    assert_eq!(instance.reference().as_str(), "inrush-analysis");
+    assert_eq!(instance.revision().as_str(), "A");
+    assert_eq!(instance.source_dataset().as_str(), "dataset-raw-inrush");
+    assert_eq!(
+        instance.source_dataset_checksum().as_str(),
+        "sha256:rawinrush001"
+    );
+    assert_eq!(
+        instance.definition_checksum().as_str(),
+        "sha256:graphinrush001"
+    );
+    assert_eq!(instance.created_by().as_str(), "signal.engineer");
+    assert_eq!(instance.software_version(), "0.1.0");
+    assert!(instance.contains_operation(SignalProcessingOperation::Fft));
+    assert_eq!(
+        instance.raw_lineage_for(&current_fft).unwrap(),
+        vec![current]
+    );
+}
+
+#[test]
+fn processing_graph_instance_rejects_empty_definition_and_software_version() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let empty_graph = SignalProcessingGraph::from_dataset(&dataset);
+
+    let empty_error = ProcessingGraphInstance::new(
+        ProcessingGraphReference::parse("empty-graph").unwrap(),
+        ProcessingGraphRevision::parse("A").unwrap(),
+        DatasetReference::parse("dataset-raw-inrush").unwrap(),
+        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        empty_graph,
+        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        AuditActor::parse("signal.engineer").unwrap(),
+        "0.1.0",
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        empty_error,
+        DomainError::EmptyProcessingGraphDefinition("empty-graph".to_owned())
+    );
+    assert_eq!(
+        ProcessingGraphReference::parse("bad reference").unwrap_err(),
+        DomainError::InvalidProcessingGraphReference("bad reference".to_owned())
+    );
+    assert_eq!(
+        ProcessingGraphRevision::parse(" ").unwrap_err(),
+        DomainError::EmptyProcessingGraphRevision
+    );
+
+    let mut graph = SignalProcessingGraph::from_dataset(&dataset);
+    let current = SignalReference::parse("current_l1").unwrap();
+    graph
+        .add_node(
+            SignalProcessingNode::new(
+                SignalReference::parse("fft_current").unwrap(),
+                SignalProcessingOperation::Fft,
+                vec![current],
+                SignalReference::parse("current_l1_fft").unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    let software_error = ProcessingGraphInstance::new(
+        ProcessingGraphReference::parse("inrush-analysis").unwrap(),
+        ProcessingGraphRevision::parse("A").unwrap(),
+        DatasetReference::parse("dataset-raw-inrush").unwrap(),
+        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        graph,
+        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        AuditActor::parse("signal.engineer").unwrap(),
+        " ",
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        software_error,
+        DomainError::EmptyProcessingGraphSoftwareVersion
+    );
+}
+
+#[test]
 fn signal_processing_node_requires_inputs() {
     let error = SignalProcessingNode::new(
         SignalReference::parse("fft_current").unwrap(),

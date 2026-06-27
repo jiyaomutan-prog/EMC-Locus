@@ -99,6 +99,8 @@ Deliverables:
 - optimized radix-2 FFT-compatible backend with DFT fallback; initial Rust
   execution added;
 - channel math and signal lineage; initial Rust lineage model added;
+- persisted processing graph instances; initial Rust instance model, SQLite
+  migration, and Python repository APIs added;
 - CEM time-domain test families such as railway harmonics, axle counters, and
   inrush measurements.
 
@@ -162,4 +164,5 @@ Deliverables:
 The next productive session should expand guarded IO-backed serial or VISA
 implementations behind the adapter skeletons.
 
-The parallel runtime stream should continue the optimized FFT backend boundary.
+The parallel runtime stream should add richer signal windows and result-artifact
+links from revisioned processing graph instances.

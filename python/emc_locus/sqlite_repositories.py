@@ -27,6 +27,7 @@ RETENTION_STATUSES = {
     "deletion_rejected",
     "deleted",
 }
+PROCESSING_GRAPH_STATUSES = {"draft", "active", "superseded", "rejected"}
 _PACKAGE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SOFTWARE_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -770,6 +771,119 @@ class MeasurementDataRepository(SQLiteDomainRepository):
                 FROM processing_graphs
                 WHERE source_dataset_id = ?
                 ORDER BY created_at, id
+                """,
+                (dataset_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_processing_graph_instance(
+        self,
+        *,
+        source_dataset_id: int,
+        graph_reference: str,
+        graph_revision: str,
+        operations_json: str,
+        created_by: str,
+        software_version: str,
+        graph_checksum: str,
+        source_dataset_checksum: str | None = None,
+        status: str = "active",
+    ) -> int:
+        if status not in PROCESSING_GRAPH_STATUSES:
+            raise ValueError(f"invalid processing graph status: {status}")
+
+        with closing(self.connect()) as connection:
+            with connection:
+                dataset = connection.execute(
+                    "SELECT checksum FROM datasets WHERE id = ?",
+                    (source_dataset_id,),
+                ).fetchone()
+                if dataset is None:
+                    raise ValueError("source dataset does not exist")
+
+                stored_dataset_checksum = str(dataset["checksum"])
+                if source_dataset_checksum is None:
+                    source_dataset_checksum = stored_dataset_checksum
+                elif source_dataset_checksum != stored_dataset_checksum:
+                    raise ValueError("source dataset checksum mismatch")
+
+                cursor = connection.execute(
+                    """
+                    INSERT INTO processing_graph_instances (
+                        source_dataset_id,
+                        graph_reference,
+                        graph_revision,
+                        operations_json,
+                        created_by,
+                        created_at,
+                        software_version,
+                        source_dataset_checksum,
+                        graph_checksum,
+                        status
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        source_dataset_id,
+                        graph_reference,
+                        graph_revision,
+                        operations_json,
+                        created_by,
+                        utc_timestamp(),
+                        software_version,
+                        source_dataset_checksum,
+                        graph_checksum,
+                        status,
+                    ),
+                )
+        return int(cursor.lastrowid)
+
+    def get_processing_graph_instance(
+        self,
+        instance_id: int,
+    ) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT *
+                FROM processing_graph_instances
+                WHERE id = ?
+                """,
+                (instance_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def processing_graph_instance(
+        self,
+        *,
+        source_dataset_id: int,
+        graph_reference: str,
+        graph_revision: str,
+    ) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT *
+                FROM processing_graph_instances
+                WHERE source_dataset_id = ?
+                  AND graph_reference = ?
+                  AND graph_revision = ?
+                """,
+                (source_dataset_id, graph_reference, graph_revision),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def processing_graph_instances_for_dataset(
+        self,
+        dataset_id: int,
+    ) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM processing_graph_instances
+                WHERE source_dataset_id = ?
+                ORDER BY graph_reference, graph_revision, id
                 """,
                 (dataset_id,),
             ).fetchall()
