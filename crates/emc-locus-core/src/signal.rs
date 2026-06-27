@@ -826,6 +826,7 @@ pub struct SignalSpectrumResult {
     output: SignalReference,
     operation: SignalProcessingOperation,
     backend: FrequencyTransformBackend,
+    window: Option<WindowFunction>,
     magnitudes: Vec<f64>,
     raw_lineage: Vec<SignalReference>,
 }
@@ -835,6 +836,7 @@ impl SignalSpectrumResult {
         output: SignalReference,
         operation: SignalProcessingOperation,
         backend: FrequencyTransformBackend,
+        window: Option<WindowFunction>,
         magnitudes: Vec<f64>,
         raw_lineage: Vec<SignalReference>,
     ) -> Self {
@@ -842,6 +844,7 @@ impl SignalSpectrumResult {
             output,
             operation,
             backend,
+            window,
             magnitudes,
             raw_lineage,
         }
@@ -857,6 +860,10 @@ impl SignalSpectrumResult {
 
     pub fn backend(&self) -> FrequencyTransformBackend {
         self.backend
+    }
+
+    pub fn window(&self) -> Option<WindowFunction> {
+        self.window
     }
 
     pub fn magnitudes(&self) -> &[f64] {
@@ -1077,15 +1084,44 @@ impl SignalExecutionEngine {
             .iter()
             .map(|sample| *sample as f64)
             .collect();
-        let magnitudes = match backend {
-            FrequencyTransformBackend::ReferenceDft => reference_dft_magnitudes(&samples),
-            FrequencyTransformBackend::OptimizedFftCompatible => optimized_fft_magnitudes(&samples),
-        };
+        let magnitudes = frequency_magnitudes(&samples, backend);
 
         Ok(SignalSpectrumResult::new(
             output,
             SignalProcessingOperation::Fft,
             backend,
+            None,
+            magnitudes,
+            vec![source.clone()],
+        ))
+    }
+
+    pub fn windowed_spectrum_magnitude_with_backend(
+        dataset: &SignalDataset,
+        source: &SignalReference,
+        output: SignalReference,
+        window: WindowFunction,
+        backend: FrequencyTransformBackend,
+    ) -> Result<SignalSpectrumResult, DomainError> {
+        let channel = required_channel(dataset, source)?;
+        if channel.samples().is_empty() {
+            return Err(DomainError::EmptySignalSamples(source.as_str().to_owned()));
+        }
+
+        let sample_count = channel.samples().len();
+        let samples: Vec<f64> = channel
+            .samples()
+            .iter()
+            .enumerate()
+            .map(|(index, sample)| *sample as f64 * window.coefficient(index, sample_count))
+            .collect();
+        let magnitudes = frequency_magnitudes(&samples, backend);
+
+        Ok(SignalSpectrumResult::new(
+            output,
+            SignalProcessingOperation::WindowedFft,
+            backend,
+            Some(window),
             magnitudes,
             vec![source.clone()],
         ))
@@ -1140,6 +1176,13 @@ fn reference_dft_magnitudes(samples: &[f64]) -> Vec<f64> {
     }
 
     magnitudes
+}
+
+fn frequency_magnitudes(samples: &[f64], backend: FrequencyTransformBackend) -> Vec<f64> {
+    match backend {
+        FrequencyTransformBackend::ReferenceDft => reference_dft_magnitudes(samples),
+        FrequencyTransformBackend::OptimizedFftCompatible => optimized_fft_magnitudes(samples),
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

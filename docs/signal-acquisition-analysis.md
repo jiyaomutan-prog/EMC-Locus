@@ -150,7 +150,9 @@ Implemented in the Rust core:
 14. revisioned processing graph instances bound to source dataset checksums,
     graph checksums, creator identity, and software version;
 15. result artifacts linked to revisioned graph instances with output signal
-    references and raw-lineage evidence.
+    references and raw-lineage evidence;
+16. windowed FFT execution with window traceability and optimized-backend
+    compatibility.
 
 Not yet implemented:
 

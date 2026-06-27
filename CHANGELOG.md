@@ -118,6 +118,8 @@ change should remain traceable through Git history, session logs, and this file.
   result artifacts with output signal references and raw-lineage evidence.
 - Rust signal window family expansion with Hamming, Blackman, and flat-top
   coefficients alongside rectangular and Hann windows.
+- Rust windowed FFT execution that records the selected window and remains
+  compatible with the optimized FFT backend.
 
 ### Planned
 

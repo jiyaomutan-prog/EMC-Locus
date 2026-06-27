@@ -99,6 +99,8 @@ Deliverables:
   added;
 - optimized radix-2 FFT-compatible backend with DFT fallback; initial Rust
   execution added;
+- windowed FFT execution with retained window metadata and optimized-backend
+  compatibility; initial Rust execution added;
 - channel math and signal lineage; initial Rust lineage model added;
 - persisted processing graph instances; initial Rust instance model, SQLite
   migration, and Python repository APIs added;

@@ -2719,6 +2719,7 @@ fn signal_execution_engine_dft_magnitude_returns_deterministic_bins() {
     assert_eq!(result.output(), &output);
     assert_eq!(result.operation(), SignalProcessingOperation::Fft);
     assert_eq!(result.backend(), FrequencyTransformBackend::ReferenceDft);
+    assert_eq!(result.window(), None);
     assert_eq!(result.magnitudes().len(), 8);
     assert!((result.magnitudes()[0] - 425.0).abs() < 1e-9);
     assert_eq!(result.raw_lineage(), &[current]);
@@ -2777,6 +2778,45 @@ fn optimized_fft_backend_matches_reference_dft_for_power_of_two_fixture() {
         optimized.backend(),
         FrequencyTransformBackend::OptimizedFftCompatible
     );
+    assert_eq!(optimized.magnitudes().len(), reference.magnitudes().len());
+    for (actual, expected) in optimized.magnitudes().iter().zip(reference.magnitudes()) {
+        assert!((actual - expected).abs() < 1e-9);
+    }
+}
+
+#[test]
+fn windowed_fft_records_window_and_matches_optimized_backend() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+    let reference_output = SignalReference::parse("current_l1_hamming_fft_ref").unwrap();
+    let optimized_output = SignalReference::parse("current_l1_hamming_fft_opt").unwrap();
+
+    let reference = SignalExecutionEngine::windowed_spectrum_magnitude_with_backend(
+        &dataset,
+        &current,
+        reference_output,
+        WindowFunction::Hamming,
+        FrequencyTransformBackend::ReferenceDft,
+    )
+    .unwrap();
+    let optimized = SignalExecutionEngine::windowed_spectrum_magnitude_with_backend(
+        &dataset,
+        &current,
+        optimized_output,
+        WindowFunction::Hamming,
+        FrequencyTransformBackend::OptimizedFftCompatible,
+    )
+    .unwrap();
+
+    assert_eq!(
+        reference.operation(),
+        SignalProcessingOperation::WindowedFft
+    );
+    assert_eq!(reference.window(), Some(WindowFunction::Hamming));
+    assert_eq!(reference.raw_lineage(), &[current]);
+    assert_eq!(optimized.window(), Some(WindowFunction::Hamming));
     assert_eq!(optimized.magnitudes().len(), reference.magnitudes().len());
     for (actual, expected) in optimized.magnitudes().iter().zip(reference.magnitudes()) {
         assert!((actual - expected).abs() < 1e-9);
