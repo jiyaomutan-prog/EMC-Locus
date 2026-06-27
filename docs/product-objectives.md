@@ -115,17 +115,16 @@ approval, dataset lineage, update gates, and local/offline operating mode from
 one place.
 
 The first GUI shell is static and can load a Python-generated local bootstrap
-file from split SQLite repositories. First audited local project-stage and
-dataset-retention actions exist. The next step is to add update-management
-actions before remote synchronization or instrument runtime controls.
+file from split SQLite repositories. First audited local project-stage,
+dataset-retention, and update-management actions exist. The next step is to
+connect real instrument IO behind the existing runtime boundary.
 
 ## Near-Term Implementation Objectives
 
-1. Add update-management local actions behind the GUI shell.
-2. Add IO-backed VISA, TCP/IP, and serial implementations behind the adapter
+1. Add IO-backed VISA, TCP/IP, and serial implementations behind the adapter
    skeletons.
-3. Add a real optimized FFT implementation behind the backend boundary.
-4. Add traceability report views for audit and technical review.
+2. Add a real optimized FFT implementation behind the backend boundary.
+3. Add traceability report views for audit and technical review.
 
 ## Non-Objectives
 

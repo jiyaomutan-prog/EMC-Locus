@@ -103,10 +103,11 @@ change should remain traceable through Git history, session logs, and this file.
   optional `bootstrap.js` regeneration.
 - Python GUI dataset-retention action command for request, approval, rejection,
   deletion marking, and optional `bootstrap.js` regeneration.
+- Python GUI update validation and install action commands with optional
+  `bootstrap.js` regeneration.
 
 ### Planned
 
-- Add update-management local actions behind the GUI shell.
 - Add IO-backed VISA/TCP/IP/serial implementations behind the adapter
   skeletons.
 - Add a real optimized FFT implementation behind the backend boundary.

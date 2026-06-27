@@ -150,13 +150,13 @@ Deliverables:
 - service wiring to the Python repository adapters; initial Python bootstrap
   export and `bootstrap.js` loading path added;
 - local write actions and refresh workflow; initial audited project stage action
-  and dataset-retention action added;
+  and dataset-retention and update-management actions added;
 - future Rust-backed command execution bridge for instrument runtime actions.
 
 ## Near-Term Next Session
 
-The next productive session should add update-management local actions behind
-the GUI shell.
+The next productive session should add IO-backed VISA, TCP/IP, or serial
+implementations behind the adapter skeletons.
 
 The parallel runtime stream should add IO-backed VISA, TCP/IP, or serial
 implementations behind the adapter skeletons.

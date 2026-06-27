@@ -155,6 +155,116 @@ def record_dataset_retention_action(
     }
 
 
+def record_update_validation_action(
+    *,
+    update_catalog_db: Path | str,
+    package_name: str,
+    package_version: str,
+    component: str,
+    installed_version: str,
+    source: str,
+    compatibility_minimum_version: str,
+    validated_by: str,
+    compatibility_maximum_version: str | None = None,
+    signature_required: bool = True,
+    policy_offline_install_allowed: bool = True,
+    measurement_active: bool = False,
+    apply_during_measurement_allowed: bool = False,
+    migrations_root: Path | str = Path("storage/sqlite"),
+    bootstrap_output: Path | str | None = None,
+    projects_db: Path | str | None = None,
+    metrology_db: Path | str | None = None,
+    test_definitions_db: Path | str | None = None,
+    measurement_data_db: Path | str | None = None,
+) -> dict[str, Any]:
+    """Record update validation evidence and optionally refresh GUI data."""
+
+    repository = UpdateCatalogRepository(Path(update_catalog_db), Path(migrations_root))
+    repository.initialize()
+    evidence_id = repository.record_install_validation(
+        package_name=package_name,
+        package_version=package_version,
+        component=component,
+        installed_version=installed_version,
+        source=source,
+        compatibility_minimum_version=compatibility_minimum_version,
+        compatibility_maximum_version=compatibility_maximum_version,
+        signature_required=signature_required,
+        policy_offline_install_allowed=policy_offline_install_allowed,
+        measurement_active=measurement_active,
+        apply_during_measurement_allowed=apply_during_measurement_allowed,
+        validated_by=validated_by,
+    )
+    evidence = repository.get_install_validation_evidence(evidence_id)
+
+    if bootstrap_output is not None:
+        refresh_bootstrap(
+            output=bootstrap_output,
+            migrations_root=migrations_root,
+            projects_db=projects_db,
+            metrology_db=metrology_db,
+            test_definitions_db=test_definitions_db,
+            measurement_data_db=measurement_data_db,
+            update_catalog_db=update_catalog_db,
+        )
+
+    return {
+        "validation_evidence_id": evidence_id,
+        "validation_status": str(evidence["validation_status"]),
+        "reason": evidence["reason"],
+    }
+
+
+def record_update_install_action(
+    *,
+    update_catalog_db: Path | str,
+    package_name: str,
+    package_version: str,
+    component: str,
+    installed_by: str,
+    source: str,
+    rollback_reference: str | None = None,
+    validation_evidence_id: int | None = None,
+    migrations_root: Path | str = Path("storage/sqlite"),
+    bootstrap_output: Path | str | None = None,
+    projects_db: Path | str | None = None,
+    metrology_db: Path | str | None = None,
+    test_definitions_db: Path | str | None = None,
+    measurement_data_db: Path | str | None = None,
+) -> dict[str, Any]:
+    """Record an update install action and optionally refresh GUI data."""
+
+    repository = UpdateCatalogRepository(Path(update_catalog_db), Path(migrations_root))
+    repository.initialize()
+    install_id = repository.record_install(
+        package_name=package_name,
+        package_version=package_version,
+        component=component,
+        installed_by=installed_by,
+        source=source,
+        rollback_reference=rollback_reference,
+        validation_evidence_id=validation_evidence_id,
+    )
+
+    if bootstrap_output is not None:
+        refresh_bootstrap(
+            output=bootstrap_output,
+            migrations_root=migrations_root,
+            projects_db=projects_db,
+            metrology_db=metrology_db,
+            test_definitions_db=test_definitions_db,
+            measurement_data_db=measurement_data_db,
+            update_catalog_db=update_catalog_db,
+        )
+
+    return {
+        "install_id": install_id,
+        "package_name": package_name,
+        "package_version": package_version,
+        "component": component,
+    }
+
+
 def next_project_stage(current_stage: str) -> str:
     current_stage = require_non_empty(current_stage, "current_stage")
     if current_stage not in PROJECT_STAGE_FLOW:
@@ -230,6 +340,35 @@ def main(argv: list[str] | None = None) -> int:
     retention_parser.add_argument("--audit-event-reference")
     retention_parser.add_argument("--bootstrap-output", type=Path)
 
+    validation_parser = subcommands.add_parser("validate-update")
+    _add_repository_args(validation_parser, include_update_catalog=False)
+    validation_parser.add_argument("--update-catalog-db", required=True, type=Path)
+    validation_parser.add_argument("--package-name", required=True)
+    validation_parser.add_argument("--package-version", required=True)
+    validation_parser.add_argument("--component", required=True)
+    validation_parser.add_argument("--installed-version", required=True)
+    validation_parser.add_argument("--source", required=True)
+    validation_parser.add_argument("--compatibility-minimum-version", required=True)
+    validation_parser.add_argument("--compatibility-maximum-version")
+    validation_parser.add_argument("--validated-by", required=True)
+    validation_parser.add_argument("--no-signature-required", action="store_true")
+    validation_parser.add_argument("--block-offline-install", action="store_true")
+    validation_parser.add_argument("--measurement-active", action="store_true")
+    validation_parser.add_argument("--allow-apply-during-measurement", action="store_true")
+    validation_parser.add_argument("--bootstrap-output", type=Path)
+
+    install_parser = subcommands.add_parser("install-update")
+    _add_repository_args(install_parser, include_update_catalog=False)
+    install_parser.add_argument("--update-catalog-db", required=True, type=Path)
+    install_parser.add_argument("--package-name", required=True)
+    install_parser.add_argument("--package-version", required=True)
+    install_parser.add_argument("--component", required=True)
+    install_parser.add_argument("--installed-by", required=True)
+    install_parser.add_argument("--source", required=True)
+    install_parser.add_argument("--rollback-reference")
+    install_parser.add_argument("--validation-evidence-id", type=int)
+    install_parser.add_argument("--bootstrap-output", type=Path)
+
     args = parser.parse_args(argv)
     if args.command == "refresh-bootstrap":
         refresh_bootstrap(
@@ -261,6 +400,51 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, sort_keys=True))
         return 0
 
+    if args.command == "validate-update":
+        result = record_update_validation_action(
+            update_catalog_db=args.update_catalog_db,
+            package_name=args.package_name,
+            package_version=args.package_version,
+            component=args.component,
+            installed_version=args.installed_version,
+            source=args.source,
+            compatibility_minimum_version=args.compatibility_minimum_version,
+            compatibility_maximum_version=args.compatibility_maximum_version,
+            validated_by=args.validated_by,
+            signature_required=not args.no_signature_required,
+            policy_offline_install_allowed=not args.block_offline_install,
+            measurement_active=args.measurement_active,
+            apply_during_measurement_allowed=args.allow_apply_during_measurement,
+            migrations_root=args.migrations_root,
+            bootstrap_output=args.bootstrap_output,
+            projects_db=args.projects_db,
+            metrology_db=args.metrology_db,
+            test_definitions_db=args.test_definitions_db,
+            measurement_data_db=args.measurement_data_db,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "install-update":
+        result = record_update_install_action(
+            update_catalog_db=args.update_catalog_db,
+            package_name=args.package_name,
+            package_version=args.package_version,
+            component=args.component,
+            installed_by=args.installed_by,
+            source=args.source,
+            rollback_reference=args.rollback_reference,
+            validation_evidence_id=args.validation_evidence_id,
+            migrations_root=args.migrations_root,
+            bootstrap_output=args.bootstrap_output,
+            projects_db=args.projects_db,
+            metrology_db=args.metrology_db,
+            test_definitions_db=args.test_definitions_db,
+            measurement_data_db=args.measurement_data_db,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
     result = advance_project_stage(
         projects_db=args.projects_db,
         code=args.code,
@@ -282,6 +466,7 @@ def _add_repository_args(
     *,
     include_projects: bool = True,
     include_measurement_data: bool = True,
+    include_update_catalog: bool = True,
 ) -> None:
     parser.add_argument("--migrations-root", type=Path, default=Path("storage/sqlite"))
     if include_projects:
@@ -290,7 +475,8 @@ def _add_repository_args(
     parser.add_argument("--test-definitions-db", type=Path)
     if include_measurement_data:
         parser.add_argument("--measurement-data-db", type=Path)
-    parser.add_argument("--update-catalog-db", type=Path)
+    if include_update_catalog:
+        parser.add_argument("--update-catalog-db", type=Path)
 
 
 def _open_repository(

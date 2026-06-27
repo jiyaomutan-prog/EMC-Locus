@@ -4,6 +4,8 @@ from .gui_actions import (
     advance_project_stage,
     next_project_stage,
     record_dataset_retention_action,
+    record_update_install_action,
+    record_update_validation_action,
     refresh_bootstrap,
 )
 from .gui_bootstrap import build_bootstrap, build_fixture_bootstrap, write_bootstrap_js
@@ -37,6 +39,8 @@ __all__ = [
     "default_backlog",
     "next_project_stage",
     "record_dataset_retention_action",
+    "record_update_install_action",
+    "record_update_validation_action",
     "refresh_bootstrap",
     "validate_sqlite_migrations",
     "write_bootstrap_js",

@@ -17,6 +17,8 @@ from emc_locus import (
     build_bootstrap,
     next_project_stage,
     record_dataset_retention_action,
+    record_update_install_action,
+    record_update_validation_action,
     write_bootstrap_js,
 )
 
@@ -332,6 +334,62 @@ class GuiActionTests(unittest.TestCase):
             self.assertEqual(events[0]["audit_event_reference"], "audit-ret-001")
             self.assertIn("RUN-ACT-001", bootstrap_text)
             self.assertIn("deletion_requested", bootstrap_text)
+
+    def test_update_actions_record_validation_install_and_refresh_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path("storage/sqlite")
+            base = Path(temporary_directory)
+            update_catalog_db = base / "update_catalog.sqlite"
+            bootstrap_output = base / "bootstrap.js"
+            update_catalog = UpdateCatalogRepository(update_catalog_db, root)
+            update_catalog.initialize()
+            update_catalog.add_update_package(
+                package_name="driver-pack-visa",
+                package_version="0.2.0",
+                component="instrument_driver",
+                compatibility_range="0.1.0..0.1.9",
+                signed_checksum="sha256:driver020",
+            )
+
+            validation = record_update_validation_action(
+                update_catalog_db=update_catalog_db,
+                package_name="driver-pack-visa",
+                package_version="0.2.0",
+                component="instrument_driver",
+                installed_version="0.1.0",
+                source="offline_bundle",
+                compatibility_minimum_version="0.1.0",
+                compatibility_maximum_version="0.1.9",
+                validated_by="qa.lead",
+                bootstrap_output=bootstrap_output,
+            )
+            install = record_update_install_action(
+                update_catalog_db=update_catalog_db,
+                package_name="driver-pack-visa",
+                package_version="0.2.0",
+                component="instrument_driver",
+                installed_by="qa.lead",
+                source="offline_bundle",
+                rollback_reference="driver-pack-visa-0.1.0",
+                validation_evidence_id=validation["validation_evidence_id"],
+                bootstrap_output=bootstrap_output,
+            )
+
+            evidence = update_catalog.get_install_validation_evidence(
+                validation["validation_evidence_id"]
+            )
+            install_records = update_catalog.list_install_records()
+            bootstrap_text = bootstrap_output.read_text()
+
+            self.assertEqual(validation["validation_status"], "accepted")
+            self.assertIsNone(validation["reason"])
+            self.assertEqual(evidence["validation_status"], "accepted")
+            self.assertEqual(install_records[0]["id"], install["install_id"])
+            self.assertEqual(
+                install_records[0]["validation_evidence_id"],
+                validation["validation_evidence_id"],
+            )
+            self.assertIn("driver-pack-visa", bootstrap_text)
 
 
 class TestDefinitionRepositoryTests(unittest.TestCase):
