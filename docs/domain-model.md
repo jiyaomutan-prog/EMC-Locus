@@ -338,8 +338,9 @@ than treating exports as loose files.
 
 The Rust core now provides a traceability view for audit and technical review.
 It links an issued report export to measurement-run evidence, raw dataset
-checksums, command-observation counts, equipment, test method reference,
-technical reviewer, approver, and the baseline traceability requirements.
+checksums, command-observation counts, exchange-attempt summaries, equipment,
+test method reference, technical reviewer, approver, and the baseline
+traceability requirements.
 
 ## Update Bundle Workflow
 

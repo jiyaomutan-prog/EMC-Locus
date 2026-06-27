@@ -113,6 +113,8 @@ change should remain traceable through Git history, session logs, and this file.
   fallback and reference-matching test coverage.
 - Rust traceability report view linking issued report exports to measurement
   run evidence, raw dataset checksums, observations, review, and approval.
+- Traceability report run summaries for total and maximum instrument exchange
+  attempts, so unstable communications remain visible during review.
 - Rust, SQLite, and Python support for revisioned processing graph instances
   bound to source dataset checksums, graph checksums, creator identity, and
   software version.

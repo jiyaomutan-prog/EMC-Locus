@@ -120,16 +120,32 @@ pub struct TraceabilityRunView {
     method: TestMethodReference,
     equipment: Vec<InstrumentCode>,
     observation_count: usize,
+    total_exchange_attempts: u64,
+    max_exchange_attempts: u16,
     raw_datasets: Vec<TraceabilityDatasetView>,
 }
 
 impl TraceabilityRunView {
     fn from_evidence(evidence: &MeasurementRunEvidence) -> Self {
+        let total_exchange_attempts = evidence
+            .observations()
+            .iter()
+            .map(|observation| u64::from(observation.exchange_attempts()))
+            .sum();
+        let max_exchange_attempts = evidence
+            .observations()
+            .iter()
+            .map(|observation| observation.exchange_attempts())
+            .max()
+            .unwrap_or(0);
+
         Self {
             run: evidence.plan().reference().clone(),
             method: evidence.plan().method().clone(),
             equipment: evidence.plan().equipment().to_vec(),
             observation_count: evidence.observations().len(),
+            total_exchange_attempts,
+            max_exchange_attempts,
             raw_datasets: evidence
                 .raw_datasets()
                 .iter()
@@ -152,6 +168,14 @@ impl TraceabilityRunView {
 
     pub fn observation_count(&self) -> usize {
         self.observation_count
+    }
+
+    pub fn total_exchange_attempts(&self) -> u64 {
+        self.total_exchange_attempts
+    }
+
+    pub fn max_exchange_attempts(&self) -> u16 {
+        self.max_exchange_attempts
     }
 
     pub fn raw_datasets(&self) -> &[TraceabilityDatasetView] {

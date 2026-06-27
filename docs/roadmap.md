@@ -79,7 +79,8 @@ Deliverables:
 - technical review workflow; initial Rust gate added;
 - approval workflow; initial Rust gate added;
 - export bundle; initial Rust evidence model added;
-- traceability report for audit; initial Rust view added.
+- traceability report for audit; initial Rust view added;
+- exchange-attempt review summaries; total and maximum attempts per run added.
 
 ## Phase 4b: Signal Acquisition and Analysis
 

@@ -2319,10 +2319,76 @@ fn traceability_report_view_links_report_export_to_run_evidence() {
     assert_eq!(view.runs()[0].method().as_str(), "EN61000-4-6");
     assert_eq!(view.runs()[0].equipment()[0].as_str(), "RX-001");
     assert_eq!(view.runs()[0].observation_count(), 1);
+    assert_eq!(view.runs()[0].total_exchange_attempts(), 1);
+    assert_eq!(view.runs()[0].max_exchange_attempts(), 1);
     assert_eq!(
         view.runs()[0].raw_datasets()[0].checksum().as_str(),
         "sha256:abc123"
     );
+}
+
+#[test]
+fn traceability_report_view_summarizes_exchange_attempts() {
+    #[derive(Clone, Debug)]
+    struct AttemptFixtureAdapter {
+        endpoint: InstrumentTransportEndpoint,
+        attempts: u16,
+    }
+
+    impl InstrumentTransportAdapter for AttemptFixtureAdapter {
+        fn endpoint(&self) -> &InstrumentTransportEndpoint {
+            &self.endpoint
+        }
+
+        fn exchange(
+            &mut self,
+            _command: &InstrumentCommand,
+        ) -> Result<InstrumentResponse, DomainError> {
+            Ok(InstrumentResponse::received("OK".to_owned()))
+        }
+
+        fn last_exchange_attempt_count(&self) -> u16 {
+            self.attempts
+        }
+    }
+
+    let report = issued_accredited_report(
+        ProjectCode::parse("CEM-2026-001").unwrap(),
+        AuditActor::parse("technical.reviewer").unwrap(),
+        AuditActor::parse("quality.manager").unwrap(),
+    );
+    let bundle = ReportExportBundle::from_issued_report(
+        &report,
+        ReportExportFormat::Pdf,
+        DatasetFileReference::parse("reports/RPT-001-A.pdf").unwrap(),
+        DatasetChecksum::parse("sha256:report123").unwrap(),
+    )
+    .unwrap();
+    let plan = accepted_measurement_plan("RUN-001");
+    let instrument = plan.equipment()[0].clone();
+    let endpoint =
+        InstrumentTransportEndpoint::new(InstrumentTransport::TcpIp, "TCPIP::127.0.0.1").unwrap();
+    let adapter = AttemptFixtureAdapter {
+        endpoint,
+        attempts: 3,
+    };
+    let mut runtime = TransportAdapterRuntime::new(instrument.clone(), adapter);
+    let observation = runtime
+        .execute(InstrumentCommand::new(
+            instrument,
+            InstrumentTransport::TcpIp,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap()
+        .clone();
+    let mut evidence = MeasurementRunEvidence::new(plan);
+    evidence.record_observation(observation);
+
+    let view = TraceabilityReportView::from_export_bundle(&bundle, &[evidence]).unwrap();
+
+    assert_eq!(view.runs()[0].observation_count(), 1);
+    assert_eq!(view.runs()[0].total_exchange_attempts(), 3);
+    assert_eq!(view.runs()[0].max_exchange_attempts(), 3);
 }
 
 #[test]
