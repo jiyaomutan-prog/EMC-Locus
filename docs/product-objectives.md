@@ -120,12 +120,11 @@ instrument runtime controls.
 
 ## Near-Term Implementation Objectives
 
-1. Add data-retention policy hooks for immutable measurement datasets.
-2. Wire the GUI shell to local Python repository services.
-3. Add IO-backed VISA, TCP/IP, and serial implementations behind the adapter
+1. Wire the GUI shell to local Python repository services.
+2. Add IO-backed VISA, TCP/IP, and serial implementations behind the adapter
    skeletons.
-4. Add a real optimized FFT implementation behind the backend boundary.
-5. Add traceability report views for audit and technical review.
+3. Add a real optimized FFT implementation behind the backend boundary.
+4. Add traceability report views for audit and technical review.
 
 ## Non-Objectives
 

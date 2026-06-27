@@ -204,7 +204,23 @@ CREATE TABLE datasets (
     file_reference TEXT NOT NULL,
     checksum TEXT NOT NULL,
     acquired_at TEXT NOT NULL,
-    immutable INTEGER NOT NULL DEFAULT 1
+    immutable INTEGER NOT NULL DEFAULT 1,
+    retention_status TEXT NOT NULL DEFAULT 'retained'
+);
+```
+
+### dataset_retention_events
+
+```sql
+CREATE TABLE dataset_retention_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dataset_id INTEGER NOT NULL REFERENCES datasets(id),
+    previous_status TEXT NOT NULL,
+    new_status TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    event_at TEXT NOT NULL,
+    audit_event_reference TEXT
 );
 ```
 

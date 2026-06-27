@@ -20,6 +20,13 @@ UPDATE_COMPONENTS = {
     "database_migration",
 }
 UPDATE_SOURCES = {"online_catalog", "offline_bundle"}
+RETENTION_STATUSES = {
+    "retained",
+    "deletion_requested",
+    "deletion_approved",
+    "deletion_rejected",
+    "deleted",
+}
 _PACKAGE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SOFTWARE_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -555,6 +562,107 @@ class MeasurementDataRepository(SQLiteDomainRepository):
                 ORDER BY acquired_at, id
                 """,
                 (measurement_run_reference,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def record_retention_event(
+        self,
+        *,
+        dataset_id: int,
+        new_status: str,
+        actor: str,
+        reason: str,
+        audit_event_reference: str | None = None,
+    ) -> int:
+        new_status = validate_retention_status(new_status)
+        actor = require_non_empty(actor, "actor")
+        reason = require_non_empty(reason, "reason")
+        if audit_event_reference is not None:
+            audit_event_reference = require_non_empty(
+                audit_event_reference, "audit_event_reference"
+            )
+
+        with closing(self.connect()) as connection:
+            with connection:
+                dataset = connection.execute(
+                    """
+                    SELECT id, immutable, retention_status
+                    FROM datasets
+                    WHERE id = ?
+                    """,
+                    (dataset_id,),
+                ).fetchone()
+                if dataset is None:
+                    raise ValueError("dataset does not exist")
+
+                previous_status = str(dataset["retention_status"])
+                immutable = bool(dataset["immutable"])
+                if not retention_transition_allowed(
+                    previous_status, new_status, immutable
+                ):
+                    raise ValueError(
+                        "invalid retention transition: "
+                        f"{previous_status} -> {new_status}"
+                    )
+
+                now = utc_timestamp()
+                cursor = connection.execute(
+                    """
+                    INSERT INTO dataset_retention_events (
+                        dataset_id,
+                        previous_status,
+                        new_status,
+                        actor,
+                        reason,
+                        event_at,
+                        audit_event_reference
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        dataset_id,
+                        previous_status,
+                        new_status,
+                        actor,
+                        reason,
+                        now,
+                        audit_event_reference,
+                    ),
+                )
+                connection.execute(
+                    """
+                    UPDATE datasets
+                    SET retention_status = ?
+                    WHERE id = ?
+                    """,
+                    (new_status, dataset_id),
+                )
+        return int(cursor.lastrowid)
+
+    def retention_events(self, dataset_id: int) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM dataset_retention_events
+                WHERE dataset_id = ?
+                ORDER BY id
+                """,
+                (dataset_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def datasets_by_retention_status(self, status: str) -> list[dict[str, object]]:
+        status = validate_retention_status(status)
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM datasets
+                WHERE retention_status = ?
+                ORDER BY acquired_at, id
+                """,
+                (status,),
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -1595,6 +1703,24 @@ def require_non_empty(value: str, field_name: str) -> str:
     if not trimmed:
         raise ValueError(f"{field_name} must not be empty")
     return trimmed
+
+
+def validate_retention_status(value: str) -> str:
+    trimmed = require_non_empty(value, "retention_status")
+    if trimmed not in RETENTION_STATUSES:
+        raise ValueError(f"unknown retention status: {trimmed}")
+    return trimmed
+
+
+def retention_transition_allowed(previous: str, next_status: str, immutable: bool) -> bool:
+    if (previous, next_status) in {
+        ("retained", "deletion_requested"),
+        ("deletion_requested", "deletion_approved"),
+        ("deletion_requested", "deletion_rejected"),
+        ("deletion_approved", "deleted"),
+    }:
+        return True
+    return not immutable and (previous, next_status) == ("retained", "deleted")
 
 
 def validate_update_package_name(value: str) -> str:

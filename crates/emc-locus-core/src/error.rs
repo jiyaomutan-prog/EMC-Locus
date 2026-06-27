@@ -79,6 +79,11 @@ pub enum DomainError {
         expected: String,
         actual: String,
     },
+    InvalidDatasetRetentionTransition {
+        dataset: String,
+        from: String,
+        to: String,
+    },
     ExecutionInstrumentNotPlanned(String),
     MeasurementRunMissingRawData,
     EmptySignalReference,

@@ -1,4 +1,5 @@
 use crate::{
+    identifiers::{AuditActor, AuditReason},
     instrument_runtime::InstrumentObservation,
     measurement::{MeasurementRunPlan, MeasurementRunReference},
     DomainError,
@@ -135,6 +136,170 @@ impl RawDatasetRecord {
 
     pub fn immutable(&self) -> bool {
         self.immutable
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DatasetRetentionStatus {
+    Retained,
+    DeletionRequested,
+    DeletionApproved,
+    DeletionRejected,
+    Deleted,
+}
+
+impl DatasetRetentionStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Retained => "retained",
+            Self::DeletionRequested => "deletion_requested",
+            Self::DeletionApproved => "deletion_approved",
+            Self::DeletionRejected => "deletion_rejected",
+            Self::Deleted => "deleted",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DatasetRetentionEvent {
+    status: DatasetRetentionStatus,
+    actor: AuditActor,
+    reason: AuditReason,
+}
+
+impl DatasetRetentionEvent {
+    fn new(status: DatasetRetentionStatus, actor: AuditActor, reason: AuditReason) -> Self {
+        Self {
+            status,
+            actor,
+            reason,
+        }
+    }
+
+    pub fn status(&self) -> DatasetRetentionStatus {
+        self.status
+    }
+
+    pub fn actor(&self) -> &AuditActor {
+        &self.actor
+    }
+
+    pub fn reason(&self) -> &AuditReason {
+        &self.reason
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DatasetRetentionRecord {
+    dataset: DatasetReference,
+    checksum: DatasetChecksum,
+    immutable: bool,
+    status: DatasetRetentionStatus,
+    events: Vec<DatasetRetentionEvent>,
+}
+
+impl DatasetRetentionRecord {
+    pub fn for_raw_dataset(dataset: &RawDatasetRecord) -> Self {
+        Self {
+            dataset: dataset.reference().clone(),
+            checksum: dataset.checksum().clone(),
+            immutable: dataset.immutable(),
+            status: DatasetRetentionStatus::Retained,
+            events: Vec::new(),
+        }
+    }
+
+    pub fn dataset(&self) -> &DatasetReference {
+        &self.dataset
+    }
+
+    pub fn checksum(&self) -> &DatasetChecksum {
+        &self.checksum
+    }
+
+    pub fn immutable(&self) -> bool {
+        self.immutable
+    }
+
+    pub fn status(&self) -> DatasetRetentionStatus {
+        self.status
+    }
+
+    pub fn events(&self) -> &[DatasetRetentionEvent] {
+        &self.events
+    }
+
+    pub fn request_deletion(
+        &mut self,
+        actor: AuditActor,
+        reason: AuditReason,
+    ) -> Result<(), DomainError> {
+        self.record_transition(DatasetRetentionStatus::DeletionRequested, actor, reason)
+    }
+
+    pub fn approve_deletion(
+        &mut self,
+        actor: AuditActor,
+        reason: AuditReason,
+    ) -> Result<(), DomainError> {
+        self.record_transition(DatasetRetentionStatus::DeletionApproved, actor, reason)
+    }
+
+    pub fn reject_deletion(
+        &mut self,
+        actor: AuditActor,
+        reason: AuditReason,
+    ) -> Result<(), DomainError> {
+        self.record_transition(DatasetRetentionStatus::DeletionRejected, actor, reason)
+    }
+
+    pub fn mark_deleted(
+        &mut self,
+        actor: AuditActor,
+        reason: AuditReason,
+    ) -> Result<(), DomainError> {
+        self.record_transition(DatasetRetentionStatus::Deleted, actor, reason)
+    }
+
+    fn record_transition(
+        &mut self,
+        next: DatasetRetentionStatus,
+        actor: AuditActor,
+        reason: AuditReason,
+    ) -> Result<(), DomainError> {
+        if !self.can_transition_to(next) {
+            return Err(DomainError::InvalidDatasetRetentionTransition {
+                dataset: self.dataset.as_str().to_owned(),
+                from: self.status.as_str().to_owned(),
+                to: next.as_str().to_owned(),
+            });
+        }
+
+        self.status = next;
+        self.events
+            .push(DatasetRetentionEvent::new(next, actor, reason));
+        Ok(())
+    }
+
+    fn can_transition_to(&self, next: DatasetRetentionStatus) -> bool {
+        matches!(
+            (self.status, next),
+            (
+                DatasetRetentionStatus::Retained,
+                DatasetRetentionStatus::DeletionRequested
+            ) | (
+                DatasetRetentionStatus::DeletionRequested,
+                DatasetRetentionStatus::DeletionApproved
+            ) | (
+                DatasetRetentionStatus::DeletionRequested,
+                DatasetRetentionStatus::DeletionRejected
+            ) | (
+                DatasetRetentionStatus::DeletionApproved,
+                DatasetRetentionStatus::Deleted
+            )
+        ) || (!self.immutable
+            && self.status == DatasetRetentionStatus::Retained
+            && next == DatasetRetentionStatus::Deleted)
     }
 }
 

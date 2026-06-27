@@ -93,6 +93,10 @@ change should remain traceable through Git history, session logs, and this file.
 - Incremental Python migration application for existing domain databases.
 - Static operator-facing GUI shell for dashboard, project, metrology, test
   definition, measurement-data, and update workflows.
+- Rust dataset retention primitives with reviewed deletion transitions for
+  immutable raw data.
+- SQLite measurement-data retention evidence migration and Python APIs for
+  retention events, current status, and reviewed deletion workflows.
 
 ### Planned
 
@@ -100,7 +104,6 @@ change should remain traceable through Git history, session logs, and this file.
 - Add IO-backed VISA/TCP/IP/serial implementations behind the adapter
   skeletons.
 - Add a real optimized FFT implementation behind the backend boundary.
-- Add data-retention policy hooks for immutable measurement datasets.
 
 ## [0.1.0] - 2026-06-26
 

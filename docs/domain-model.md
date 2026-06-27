@@ -93,7 +93,12 @@ Important fields:
 - checksum;
 - acquisition timestamp;
 - originating measurement run;
-- processing lineage.
+- processing lineage;
+- retention status.
+
+Immutable raw datasets require a reviewed retention workflow before deletion.
+The current core model records deletion requests, approvals, rejections, and
+executed deletion events with actor and reason evidence.
 
 ### Report
 

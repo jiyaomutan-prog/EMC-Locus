@@ -1727,6 +1727,83 @@ fn raw_dataset_record_is_immutable_and_linked_to_a_run() {
 }
 
 #[test]
+fn dataset_retention_record_starts_retained_for_raw_data() {
+    let dataset = raw_dataset_for_run("RUN-001");
+    let retention = DatasetRetentionRecord::for_raw_dataset(&dataset);
+
+    assert_eq!(retention.dataset().as_str(), "raw-signal-001");
+    assert_eq!(retention.checksum().as_str(), "sha256:abc123");
+    assert!(retention.immutable());
+    assert_eq!(retention.status(), DatasetRetentionStatus::Retained);
+    assert!(retention.events().is_empty());
+}
+
+#[test]
+fn immutable_dataset_deletion_requires_reviewed_retention_transition() {
+    let dataset = raw_dataset_for_run("RUN-001");
+    let mut retention = DatasetRetentionRecord::for_raw_dataset(&dataset);
+
+    let error = retention
+        .mark_deleted(
+            AuditActor::parse("data.manager").unwrap(),
+            AuditReason::parse("Free disk space").unwrap(),
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::InvalidDatasetRetentionTransition {
+            dataset: "raw-signal-001".to_owned(),
+            from: "retained".to_owned(),
+            to: "deleted".to_owned(),
+        }
+    );
+    assert_eq!(retention.status(), DatasetRetentionStatus::Retained);
+    assert!(retention.events().is_empty());
+}
+
+#[test]
+fn dataset_retention_records_reviewed_deletion_workflow() {
+    let dataset = raw_dataset_for_run("RUN-001");
+    let mut retention = DatasetRetentionRecord::for_raw_dataset(&dataset);
+
+    retention
+        .request_deletion(
+            AuditActor::parse("data.manager").unwrap(),
+            AuditReason::parse("Retention period expired").unwrap(),
+        )
+        .unwrap();
+    retention
+        .approve_deletion(
+            AuditActor::parse("quality.manager").unwrap(),
+            AuditReason::parse("Reviewed raw-data lineage and backup").unwrap(),
+        )
+        .unwrap();
+    retention
+        .mark_deleted(
+            AuditActor::parse("data.manager").unwrap(),
+            AuditReason::parse("Approved deletion executed").unwrap(),
+        )
+        .unwrap();
+
+    assert_eq!(retention.status(), DatasetRetentionStatus::Deleted);
+    assert_eq!(retention.events().len(), 3);
+    assert_eq!(
+        retention.events()[0].status(),
+        DatasetRetentionStatus::DeletionRequested
+    );
+    assert_eq!(retention.events()[0].actor().as_str(), "data.manager");
+    assert_eq!(
+        retention.events()[1].status(),
+        DatasetRetentionStatus::DeletionApproved
+    );
+    assert_eq!(
+        retention.events()[2].reason().as_str(),
+        "Approved deletion executed"
+    );
+}
+
+#[test]
 fn measurement_run_evidence_records_observations_and_raw_datasets() {
     let plan = accepted_measurement_plan("RUN-001");
     let instrument = plan.equipment()[0].clone();

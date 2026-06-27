@@ -66,7 +66,8 @@ Deliverables:
 - measurement-run execution model; initial Rust execution binding added;
 - raw dataset checksum; initial Rust dataset evidence model added;
 - SQLite measurement-data adapter; initial Python adapter added;
-- data-retention policy hooks.
+- data-retention policy hooks; initial Rust workflow, SQLite evidence, and
+  Python adapter APIs added.
 
 ## Phase 4: Reporting Pipeline
 
@@ -151,8 +152,7 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should add data-retention policy hooks for
-immutable measurement datasets and start wiring the GUI shell to local Python
+The next productive session should start wiring the GUI shell to local Python
 repository services.
 
 The parallel runtime stream should add IO-backed VISA, TCP/IP, or serial

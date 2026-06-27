@@ -39,7 +39,7 @@ criteria, processing graph definitions, and step-by-step evidence expectations.
 ### Measurement Data
 
 Owns immutable raw and processed dataset records, signal channel metadata,
-processing graph lineage, and result artifacts.
+processing graph lineage, result artifacts, and dataset retention evidence.
 
 ### Update Catalog
 
@@ -112,6 +112,7 @@ perform minimal insert/count/query operations for smoke testing:
 - update install record insert/count/list APIs with optional accepted evidence
   linkage.
 - immutable dataset insert/count/get/list-by-run APIs;
+- dataset retention event insert/list APIs and retention-status filtering;
 - signal channel insert/list APIs;
 - processing graph insert/list APIs;
 - result artifact insert/list APIs.

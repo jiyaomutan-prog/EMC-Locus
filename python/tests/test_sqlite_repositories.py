@@ -6,7 +6,140 @@ import unittest
 from contextlib import closing
 from pathlib import Path
 
-from emc_locus import SyncRepository, TestDefinitionRepository, UpdateCatalogRepository
+from emc_locus import (
+    MeasurementDataRepository,
+    SyncRepository,
+    TestDefinitionRepository,
+    UpdateCatalogRepository,
+)
+
+
+class MeasurementDataRepositoryTests(unittest.TestCase):
+    def test_records_reviewed_retention_workflow(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = MeasurementDataRepository(
+                Path(temporary_directory) / "measurement_data.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            dataset_id = repository.add_dataset(
+                project_code="CEM-2026-001",
+                campaign_reference="CAMP-001",
+                measurement_run_reference="RUN-001",
+                kind="raw_signal",
+                file_reference="data/RUN-001/raw.opendata",
+                checksum="sha256:raw001",
+            )
+
+            self.assertEqual(
+                repository.get_dataset(dataset_id)["retention_status"],
+                "retained",
+            )
+            with self.assertRaises(ValueError):
+                repository.record_retention_event(
+                    dataset_id=dataset_id,
+                    new_status="deleted",
+                    actor="data.manager",
+                    reason="Direct deletion should be blocked",
+                )
+
+            request_id = repository.record_retention_event(
+                dataset_id=dataset_id,
+                new_status="deletion_requested",
+                actor="data.manager",
+                reason="Retention period expired",
+                audit_event_reference="audit-001",
+            )
+            approve_id = repository.record_retention_event(
+                dataset_id=dataset_id,
+                new_status="deletion_approved",
+                actor="quality.manager",
+                reason="Backup and lineage reviewed",
+                audit_event_reference="audit-002",
+            )
+            delete_id = repository.record_retention_event(
+                dataset_id=dataset_id,
+                new_status="deleted",
+                actor="data.manager",
+                reason="Approved deletion executed",
+                audit_event_reference="audit-003",
+            )
+
+            dataset = repository.get_dataset(dataset_id)
+            events = repository.retention_events(dataset_id)
+            deleted_datasets = repository.datasets_by_retention_status("deleted")
+
+            self.assertEqual(dataset["retention_status"], "deleted")
+            self.assertEqual(
+                [event["id"] for event in events],
+                [request_id, approve_id, delete_id],
+            )
+            self.assertEqual(events[0]["previous_status"], "retained")
+            self.assertEqual(events[0]["new_status"], "deletion_requested")
+            self.assertEqual(events[0]["audit_event_reference"], "audit-001")
+            self.assertEqual(events[2]["reason"], "Approved deletion executed")
+            self.assertEqual(deleted_datasets[0]["id"], dataset_id)
+
+    def test_initialize_applies_retention_migration_to_existing_database(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            database_path = Path(temporary_directory) / "measurement_data.sqlite"
+            connection = sqlite3.connect(database_path)
+            try:
+                connection.executescript(
+                    Path("storage/sqlite/measurement_data/0001_measurement_data.sql").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                connection.execute(
+                    """
+                    INSERT INTO datasets (
+                        project_code,
+                        campaign_reference,
+                        measurement_run_reference,
+                        kind,
+                        file_reference,
+                        checksum,
+                        acquired_at,
+                        immutable
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "CEM-2026-001",
+                        "CAMP-001",
+                        "RUN-001",
+                        "raw_signal",
+                        "data/RUN-001/raw.opendata",
+                        "sha256:raw001",
+                        "1970-01-01T00:00:00Z",
+                        1,
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            repository = MeasurementDataRepository(database_path, Path("storage/sqlite"))
+            repository.initialize()
+
+            with closing(repository.connect()) as connection:
+                version_rows = connection.execute(
+                    "SELECT version FROM schema_migrations ORDER BY version"
+                ).fetchall()
+                retention_table = connection.execute(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name = 'dataset_retention_events'
+                    """
+                ).fetchone()
+                dataset = connection.execute("SELECT * FROM datasets").fetchone()
+
+            self.assertEqual([row["version"] for row in version_rows], [1, 2])
+            self.assertIsNotNone(retention_table)
+            self.assertEqual(dataset["retention_status"], "retained")
 
 
 class TestDefinitionRepositoryTests(unittest.TestCase):

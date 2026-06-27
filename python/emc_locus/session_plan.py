@@ -32,19 +32,6 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Measurement data retention policy",
-            objective=(
-                "Add policy hooks that protect immutable measurement datasets "
-                "through retention status and reviewable deletion requests."
-            ),
-            workstreams=(Workstream.STORAGE, Workstream.QUALITY, Workstream.SIGNAL),
-            expected_outputs=(
-                "retention policy primitives",
-                "SQLite retention evidence records",
-                "immutable dataset smoke tests",
-            ),
-        ),
-        SessionPlan(
             title="GUI service wiring",
             objective=(
                 "Wire the static operator console shell to local Python "
