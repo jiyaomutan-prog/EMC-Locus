@@ -33,6 +33,10 @@ py apps\qt-console\main.py --bootstrap apps\gui-shell\bootstrap.js
 
 ## Direction
 
-This app should evolve toward Qt model/view widgets backed by stable application
-services. The Rust core remains responsible for domain invariants, while Python
-adapters bridge local repositories, scripts, and early instrument workflows.
+The first implementation already separates Qt rendering from testable Python
+view models in `emc_locus.qt_console_models`. This keeps the GUI bridge small
+while future screens move toward real Qt model/view widgets backed by stable
+application services.
+
+The Rust core remains responsible for domain invariants, while Python adapters
+bridge local repositories, scripts, and early instrument workflows.

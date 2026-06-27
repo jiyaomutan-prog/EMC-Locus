@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from emc_locus import build_console_view_model
+
 
 QT_CONSOLE_PATH = Path(__file__).resolve().parents[2] / "apps" / "qt-console" / "main.py"
 
@@ -43,20 +45,30 @@ class QtConsoleTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 module.load_bootstrap_js(bootstrap)
 
-    def test_normalizes_rows_for_qt_table_models(self) -> None:
-        module = load_qt_console_module()
-
-        rows = module._normalize_rows(
-            [
-                {"code": "CEM-QT-001", "stage": "Measuring"},
-                ["RUN-QT-001", "raw_signal"],
-                "standalone",
-            ]
+    def test_builds_explicit_console_table_models(self) -> None:
+        model = build_console_view_model(
+            {
+                "projects": [
+                    {
+                        "code": "CEM-QT-001",
+                        "customer": "Rail Motion",
+                        "stage": "Measuring",
+                        "mode": "Accredite",
+                        "blocker": "Aucun",
+                        "run": "RUN-QT-001",
+                        "method": "Inrush",
+                    }
+                ],
+                "datasets": [["RUN-QT-001", "raw_signal", "raw.opendata", "sha256:raw", "Immutable"]],
+            }
         )
+        project_table = model.tables[0]
+        dataset_table = model.tables[3]
 
-        self.assertEqual(rows[0], ["CEM-QT-001", "Measuring"])
-        self.assertEqual(rows[1], ["RUN-QT-001", "raw_signal"])
-        self.assertEqual(rows[2], ["standalone"])
+        self.assertEqual(project_table.columns[0:3], ("Code", "Client", "Etape"))
+        self.assertEqual(project_table.rows[0][0:3], ("CEM-QT-001", "Rail Motion", "Measuring"))
+        self.assertEqual(dataset_table.columns, ("Run", "Type", "Fichier", "Checksum", "Retention"))
+        self.assertEqual(dataset_table.rows[0][1], "raw_signal")
 
 
 if __name__ == "__main__":

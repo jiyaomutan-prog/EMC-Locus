@@ -11,10 +11,17 @@ import argparse
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import sys
 from typing import Any
 
 
 BOOTSTRAP_PREFIX = "window.EMC_LOCUS_BOOTSTRAP = "
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+PYTHON_ROOT = REPOSITORY_ROOT / "python"
+if str(PYTHON_ROOT) not in sys.path:
+    sys.path.insert(0, str(PYTHON_ROOT))
+
+from emc_locus.qt_console_models import TableViewModel, build_console_view_model
 
 
 @dataclass(frozen=True)
@@ -63,6 +70,7 @@ def run(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     data = load_bootstrap_js(args.bootstrap)
+    view_model = build_console_view_model(data)
     qt = _load_qt()
 
     application = qt.QApplication([])
@@ -88,11 +96,8 @@ def run(argv: list[str] | None = None) -> int:
     layout.addLayout(header)
 
     tabs = qt.QTabWidget()
-    tabs.addTab(_table(qt, "Projets", data.get("projects", [])), "Projets")
-    tabs.addTab(_table(qt, "Instruments", data.get("instruments", [])), "Metrologie")
-    tabs.addTab(_table(qt, "Methodes", data.get("methods", [])), "Methodes")
-    tabs.addTab(_table(qt, "Donnees", data.get("datasets", [])), "Donnees")
-    tabs.addTab(_table(qt, "Mises a jour", data.get("updates", [])), "Updates")
+    for table_model in view_model.tables:
+        tabs.addTab(_table(qt, table_model), table_model.tab_label)
     layout.addWidget(tabs, 1)
 
     window.setCentralWidget(root)
@@ -143,17 +148,15 @@ def _load_qt() -> QtBindings:
     )
 
 
-def _table(qt: QtBindings, label: str, rows: Any) -> Any:
-    normalized_rows = _normalize_rows(rows)
-    column_count = max((len(row) for row in normalized_rows), default=1)
-    table = qt.QTableWidget(len(normalized_rows), column_count)
+def _table(qt: QtBindings, model: TableViewModel) -> Any:
+    table = qt.QTableWidget(model.row_count, model.column_count)
     table.setAlternatingRowColors(True)
     table.setSelectionBehavior(qt.QAbstractItemView.SelectionBehavior.SelectRows)
     table.setEditTriggers(qt.QAbstractItemView.EditTrigger.NoEditTriggers)
     table.verticalHeader().setVisible(False)
-    table.setHorizontalHeaderLabels([f"{label} {index + 1}" for index in range(column_count)])
+    table.setHorizontalHeaderLabels(list(model.columns))
 
-    for row_index, row in enumerate(normalized_rows):
+    for row_index, row in enumerate(model.rows):
         for column_index, value in enumerate(row):
             item = qt.QTableWidgetItem(value)
             item.setFlags(item.flags() & ~qt.Qt.ItemFlag.ItemIsEditable)
@@ -162,21 +165,6 @@ def _table(qt: QtBindings, label: str, rows: Any) -> Any:
     table.resizeColumnsToContents()
     table.horizontalHeader().setStretchLastSection(True)
     return table
-
-
-def _normalize_rows(rows: Any) -> list[list[str]]:
-    if not isinstance(rows, list):
-        return []
-
-    normalized: list[list[str]] = []
-    for row in rows:
-        if isinstance(row, dict):
-            normalized.append([str(value) for value in row.values()])
-        elif isinstance(row, list):
-            normalized.append([str(value) for value in row])
-        else:
-            normalized.append([str(row)])
-    return normalized
 
 
 def _stylesheet() -> str:

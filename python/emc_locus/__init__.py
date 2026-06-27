@@ -10,6 +10,7 @@ from .gui_actions import (
 )
 from .gui_bootstrap import build_bootstrap, build_fixture_bootstrap, write_bootstrap_js
 from .migrations import Migration, discover_migrations, validate_sqlite_migrations
+from .qt_console_models import ConsoleViewModel, TableViewModel, build_console_view_model
 from .session_plan import SessionPlan, Workstream, default_backlog
 from .sqlite_repositories import (
     MeasurementDataRepository,
@@ -29,11 +30,14 @@ __all__ = [
     "SessionPlan",
     "SQLiteDomainRepository",
     "SyncRepository",
+    "ConsoleViewModel",
+    "TableViewModel",
     "TestDefinitionRepository",
     "UpdateCatalogRepository",
     "Workstream",
     "advance_project_stage",
     "build_bootstrap",
+    "build_console_view_model",
     "build_fixture_bootstrap",
     "discover_migrations",
     "default_backlog",

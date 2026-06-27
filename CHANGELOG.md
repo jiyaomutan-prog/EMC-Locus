@@ -122,6 +122,8 @@ change should remain traceable through Git history, session logs, and this file.
   compatible with the optimized FFT backend.
 - Qt desktop operator-console direction with an initial PySide6 bootstrap that
   reuses local GUI bootstrap data from the static workflow prototype.
+- Testable Qt console view models for project, metrology, method, dataset, and
+  update tables with explicit business columns.
 
 ### Planned
 

@@ -30,3 +30,10 @@ not become the primary technology for instrument-facing acquisition screens.
 4. Introduce plotting and live acquisition panels only after the runtime events
    and signal-processing records are stable.
 5. Package the station app with controlled dependencies and update evidence.
+
+## Current Implementation Slice
+
+The initial Qt console uses testable Python view models for project,
+metrology, method, dataset, and update tables. The PySide6 layer renders those
+models but does not own the data shaping rules. This keeps the first UI bridge
+thin and prepares the transition to proper Qt model/view classes.
