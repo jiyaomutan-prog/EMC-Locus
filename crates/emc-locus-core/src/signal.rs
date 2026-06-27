@@ -206,6 +206,35 @@ impl ProcessingGraphRevision {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessingExecutionReference(String);
+
+impl ProcessingExecutionReference {
+    pub fn parse(value: impl Into<String>) -> Result<Self, DomainError> {
+        let value = value.into();
+        let trimmed = value.trim();
+
+        if trimmed.is_empty() {
+            return Err(DomainError::EmptyProcessingExecutionReference);
+        }
+
+        if !trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+        {
+            return Err(DomainError::InvalidProcessingExecutionReference(
+                trimmed.to_owned(),
+            ));
+        }
+
+        Ok(Self(trimmed.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SignalUnit(String);
 
 impl SignalUnit {
@@ -670,6 +699,105 @@ impl ProcessingGraphResultArtifact {
 
     pub fn raw_lineage(&self) -> &[SignalReference] {
         &self.raw_lineage
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProcessingGraphExecutionStatus {
+    Completed,
+    Failed,
+}
+
+impl ProcessingGraphExecutionStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessingGraphExecutionRecord {
+    execution: ProcessingExecutionReference,
+    graph_reference: ProcessingGraphReference,
+    graph_revision: ProcessingGraphRevision,
+    source_dataset: DatasetReference,
+    source_dataset_checksum: DatasetChecksum,
+    executed_by: AuditActor,
+    software_version: String,
+    status: ProcessingGraphExecutionStatus,
+    output_artifact_count: usize,
+}
+
+impl ProcessingGraphExecutionRecord {
+    pub fn from_instance(
+        execution: ProcessingExecutionReference,
+        instance: &ProcessingGraphInstance,
+        executed_by: AuditActor,
+        software_version: impl Into<String>,
+        status: ProcessingGraphExecutionStatus,
+        output_artifacts: &[ProcessingGraphResultArtifact],
+    ) -> Result<Self, DomainError> {
+        if status == ProcessingGraphExecutionStatus::Completed && output_artifacts.is_empty() {
+            return Err(DomainError::ProcessingGraphExecutionMissingArtifacts(
+                execution.as_str().to_owned(),
+            ));
+        }
+
+        let software_version = software_version.into();
+        let software_version = software_version.trim();
+        if software_version.is_empty() {
+            return Err(DomainError::EmptyProcessingGraphSoftwareVersion);
+        }
+
+        Ok(Self {
+            execution,
+            graph_reference: instance.reference().clone(),
+            graph_revision: instance.revision().clone(),
+            source_dataset: instance.source_dataset().clone(),
+            source_dataset_checksum: instance.source_dataset_checksum().clone(),
+            executed_by,
+            software_version: software_version.to_owned(),
+            status,
+            output_artifact_count: output_artifacts.len(),
+        })
+    }
+
+    pub fn execution(&self) -> &ProcessingExecutionReference {
+        &self.execution
+    }
+
+    pub fn graph_reference(&self) -> &ProcessingGraphReference {
+        &self.graph_reference
+    }
+
+    pub fn graph_revision(&self) -> &ProcessingGraphRevision {
+        &self.graph_revision
+    }
+
+    pub fn source_dataset(&self) -> &DatasetReference {
+        &self.source_dataset
+    }
+
+    pub fn source_dataset_checksum(&self) -> &DatasetChecksum {
+        &self.source_dataset_checksum
+    }
+
+    pub fn executed_by(&self) -> &AuditActor {
+        &self.executed_by
+    }
+
+    pub fn software_version(&self) -> &str {
+        &self.software_version
+    }
+
+    pub fn status(&self) -> ProcessingGraphExecutionStatus {
+        self.status
+    }
+
+    pub fn output_artifact_count(&self) -> usize {
+        self.output_artifact_count
     }
 }
 

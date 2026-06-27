@@ -259,6 +259,24 @@ CREATE TABLE processing_graph_instance_artifacts (
 );
 ```
 
+### processing_graph_executions
+
+```sql
+CREATE TABLE processing_graph_executions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    processing_graph_instance_id INTEGER NOT NULL
+        REFERENCES processing_graph_instances(id),
+    execution_reference TEXT NOT NULL,
+    executed_by TEXT NOT NULL,
+    executed_at TEXT NOT NULL,
+    software_version TEXT NOT NULL,
+    status TEXT NOT NULL,
+    output_artifact_count INTEGER NOT NULL,
+    notes TEXT,
+    UNIQUE(processing_graph_instance_id, execution_reference)
+);
+```
+
 ### reports
 
 ```sql

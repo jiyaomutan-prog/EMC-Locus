@@ -106,6 +106,8 @@ Deliverables:
   migration, and Python repository APIs added;
 - result artifacts linked to revisioned processing graph instances; initial
   Rust artifact model, SQLite migration, and Python repository APIs added;
+- graph-driven execution records; initial Rust model, SQLite migration, and
+  Python repository APIs added;
 - CEM time-domain test families such as railway harmonics, axle counters, and
   inrush measurements.
 
@@ -179,4 +181,5 @@ implementations behind the adapter skeletons.
 The UI stream should harden the Qt operator-console skeleton around real local
 repository data.
 
-The parallel runtime stream should add graph-driven execution records.
+The parallel runtime stream should connect graph execution records to concrete
+signal-processing engine runs.

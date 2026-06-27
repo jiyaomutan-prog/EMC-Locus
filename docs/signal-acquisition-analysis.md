@@ -152,7 +152,9 @@ Implemented in the Rust core:
 15. result artifacts linked to revisioned graph instances with output signal
     references and raw-lineage evidence;
 16. windowed FFT execution with window traceability and optimized-backend
-    compatibility.
+    compatibility;
+17. graph execution records with execution reference, actor, software version,
+    status, and output artifact count.
 
 Not yet implemented:
 

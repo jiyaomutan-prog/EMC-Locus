@@ -132,6 +132,8 @@ change should remain traceable through Git history, session logs, and this file.
   parity, and stop bits, validated by the serial transport adapter.
 - Structured Rust VISA resource parsing for TCPIP, USB, GPIB, and ASRL resource
   strings, validated by the VISA transport adapter.
+- Rust, SQLite, and Python processing graph execution records with execution
+  reference, actor, software version, status, and output artifact count.
 
 ### Planned
 

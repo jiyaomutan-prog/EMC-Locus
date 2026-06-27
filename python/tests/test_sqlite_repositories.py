@@ -160,12 +160,21 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                       AND name = 'processing_graph_instance_artifacts'
                     """
                 ).fetchone()
+                graph_execution_table = connection.execute(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name = 'processing_graph_executions'
+                    """
+                ).fetchone()
                 dataset = connection.execute("SELECT * FROM datasets").fetchone()
 
-            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4])
+            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4, 5])
             self.assertIsNotNone(retention_table)
             self.assertIsNotNone(graph_instance_table)
             self.assertIsNotNone(graph_artifact_table)
+            self.assertIsNotNone(graph_execution_table)
             self.assertEqual(dataset["retention_status"], "retained")
 
     def test_records_revisioned_processing_graph_instances(self) -> None:
@@ -218,8 +227,18 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                 checksum="sha256:resultfft001",
                 raw_lineage_json='["current_l1"]',
             )
+            execution_id = repository.add_processing_graph_execution(
+                processing_graph_instance_id=second_revision_id,
+                execution_reference="exec-fft-001",
+                executed_by="signal.engine",
+                software_version="0.1.0",
+                status="completed",
+                output_artifact_count=1,
+                notes="deterministic fixture",
+            )
             all_instances = repository.processing_graph_instances_for_dataset(dataset_id)
             artifacts = repository.processing_graph_instance_artifacts(second_revision_id)
+            executions = repository.processing_graph_executions(second_revision_id)
 
             self.assertEqual(
                 first_revision["source_dataset_checksum"],
@@ -235,6 +254,9 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
             self.assertEqual(artifacts[0]["id"], artifact_id)
             self.assertEqual(artifacts[0]["output_signal_reference"], "current_l1_fft")
             self.assertEqual(artifacts[0]["raw_lineage_json"], '["current_l1"]')
+            self.assertEqual(executions[0]["id"], execution_id)
+            self.assertEqual(executions[0]["execution_reference"], "exec-fft-001")
+            self.assertEqual(executions[0]["output_artifact_count"], 1)
 
             with self.assertRaises(ValueError):
                 repository.add_processing_graph_instance(
@@ -255,6 +277,16 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                     artifact_kind="raw_signal",
                     file_reference="data/RUN-FFT-001/raw-copy.opendata",
                     checksum="sha256:rawcopy001",
+                )
+
+            with self.assertRaises(ValueError):
+                repository.add_processing_graph_execution(
+                    processing_graph_instance_id=second_revision_id,
+                    execution_reference="exec-fft-empty",
+                    executed_by="signal.engine",
+                    software_version="0.1.0",
+                    status="completed",
+                    output_artifact_count=0,
                 )
 
 

@@ -2752,6 +2752,128 @@ fn processing_graph_result_artifact_rejects_invalid_kind_and_unknown_output() {
 }
 
 #[test]
+fn processing_graph_execution_record_links_instance_and_artifacts() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+    let current_fft = SignalReference::parse("current_l1_fft").unwrap();
+    let mut graph = SignalProcessingGraph::from_dataset(&dataset);
+    graph
+        .add_node(
+            SignalProcessingNode::new(
+                SignalReference::parse("fft_current").unwrap(),
+                SignalProcessingOperation::Fft,
+                vec![current],
+                current_fft.clone(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let instance = ProcessingGraphInstance::new(
+        ProcessingGraphReference::parse("inrush-analysis").unwrap(),
+        ProcessingGraphRevision::parse("A").unwrap(),
+        DatasetReference::parse("dataset-raw-inrush").unwrap(),
+        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        graph,
+        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        AuditActor::parse("signal.engineer").unwrap(),
+        "0.1.0",
+    )
+    .unwrap();
+    let artifact = ProcessingGraphResultArtifact::from_instance(
+        &instance,
+        current_fft,
+        DatasetKind::ProcessedSignal,
+        DatasetFileReference::parse("data/RUN-INRUSH/current_l1_fft.csv").unwrap(),
+        DatasetChecksum::parse("sha256:currentfft001").unwrap(),
+    )
+    .unwrap();
+
+    let record = ProcessingGraphExecutionRecord::from_instance(
+        ProcessingExecutionReference::parse("exec-inrush-001").unwrap(),
+        &instance,
+        AuditActor::parse("signal.engine").unwrap(),
+        "0.1.0",
+        ProcessingGraphExecutionStatus::Completed,
+        &[artifact],
+    )
+    .unwrap();
+
+    assert_eq!(record.execution().as_str(), "exec-inrush-001");
+    assert_eq!(record.graph_reference().as_str(), "inrush-analysis");
+    assert_eq!(record.graph_revision().as_str(), "A");
+    assert_eq!(record.source_dataset().as_str(), "dataset-raw-inrush");
+    assert_eq!(
+        record.source_dataset_checksum().as_str(),
+        "sha256:rawinrush001"
+    );
+    assert_eq!(record.executed_by().as_str(), "signal.engine");
+    assert_eq!(record.software_version(), "0.1.0");
+    assert_eq!(record.status(), ProcessingGraphExecutionStatus::Completed);
+    assert_eq!(record.status().as_str(), "completed");
+    assert_eq!(record.output_artifact_count(), 1);
+}
+
+#[test]
+fn processing_graph_execution_record_rejects_completed_without_artifacts() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+    let mut graph = SignalProcessingGraph::from_dataset(&dataset);
+    graph
+        .add_node(
+            SignalProcessingNode::new(
+                SignalReference::parse("fft_current").unwrap(),
+                SignalProcessingOperation::Fft,
+                vec![current],
+                SignalReference::parse("current_l1_fft").unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let instance = ProcessingGraphInstance::new(
+        ProcessingGraphReference::parse("inrush-analysis").unwrap(),
+        ProcessingGraphRevision::parse("A").unwrap(),
+        DatasetReference::parse("dataset-raw-inrush").unwrap(),
+        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        graph,
+        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        AuditActor::parse("signal.engineer").unwrap(),
+        "0.1.0",
+    )
+    .unwrap();
+
+    let error = ProcessingGraphExecutionRecord::from_instance(
+        ProcessingExecutionReference::parse("exec-inrush-empty").unwrap(),
+        &instance,
+        AuditActor::parse("signal.engine").unwrap(),
+        "0.1.0",
+        ProcessingGraphExecutionStatus::Completed,
+        &[],
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::ProcessingGraphExecutionMissingArtifacts("exec-inrush-empty".to_owned())
+    );
+
+    let failed = ProcessingGraphExecutionRecord::from_instance(
+        ProcessingExecutionReference::parse("exec-inrush-failed").unwrap(),
+        &instance,
+        AuditActor::parse("signal.engine").unwrap(),
+        "0.1.0",
+        ProcessingGraphExecutionStatus::Failed,
+        &[],
+    )
+    .unwrap();
+    assert_eq!(failed.status().as_str(), "failed");
+    assert_eq!(failed.output_artifact_count(), 0);
+}
+
+#[test]
 fn signal_processing_node_requires_inputs() {
     let error = SignalProcessingNode::new(
         SignalReference::parse("fft_current").unwrap(),

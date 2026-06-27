@@ -29,6 +29,7 @@ RETENTION_STATUSES = {
 }
 PROCESSING_GRAPH_STATUSES = {"draft", "active", "superseded", "rejected"}
 PROCESSING_GRAPH_ARTIFACT_KINDS = {"processed_signal", "result_table"}
+PROCESSING_GRAPH_EXECUTION_STATUSES = {"completed", "failed"}
 _PACKAGE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SOFTWARE_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -948,6 +949,76 @@ class MeasurementDataRepository(SQLiteDomainRepository):
                 FROM processing_graph_instance_artifacts
                 WHERE processing_graph_instance_id = ?
                 ORDER BY created_at, id
+                """,
+                (processing_graph_instance_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_processing_graph_execution(
+        self,
+        *,
+        processing_graph_instance_id: int,
+        execution_reference: str,
+        executed_by: str,
+        software_version: str,
+        status: str,
+        output_artifact_count: int,
+        notes: str | None = None,
+    ) -> int:
+        if status not in PROCESSING_GRAPH_EXECUTION_STATUSES:
+            raise ValueError(f"invalid processing graph execution status: {status}")
+        if output_artifact_count < 0:
+            raise ValueError("output artifact count must be non-negative")
+        if status == "completed" and output_artifact_count == 0:
+            raise ValueError("completed processing graph execution requires artifacts")
+
+        with closing(self.connect()) as connection:
+            with connection:
+                instance = connection.execute(
+                    "SELECT id FROM processing_graph_instances WHERE id = ?",
+                    (processing_graph_instance_id,),
+                ).fetchone()
+                if instance is None:
+                    raise ValueError("processing graph instance does not exist")
+
+                cursor = connection.execute(
+                    """
+                    INSERT INTO processing_graph_executions (
+                        processing_graph_instance_id,
+                        execution_reference,
+                        executed_by,
+                        executed_at,
+                        software_version,
+                        status,
+                        output_artifact_count,
+                        notes
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        processing_graph_instance_id,
+                        execution_reference,
+                        executed_by,
+                        utc_timestamp(),
+                        software_version,
+                        status,
+                        output_artifact_count,
+                        notes,
+                    ),
+                )
+        return int(cursor.lastrowid)
+
+    def processing_graph_executions(
+        self,
+        processing_graph_instance_id: int,
+    ) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM processing_graph_executions
+                WHERE processing_graph_instance_id = ?
+                ORDER BY executed_at, id
                 """,
                 (processing_graph_instance_id,),
             ).fetchall()
