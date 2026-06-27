@@ -136,6 +136,8 @@ change should remain traceable through Git history, session logs, and this file.
   reference, actor, software version, status, and output artifact count.
 - Qt console status metrics for active projects, metrology alerts, retained
   datasets, and updates requiring attention.
+- Qt console runtime table contract for future instrument transport endpoints,
+  runtime state, and last-observation display.
 
 ### Planned
 

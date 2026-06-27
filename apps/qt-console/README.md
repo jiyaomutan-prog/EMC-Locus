@@ -52,5 +52,9 @@ the Python action layer until the Qt command path is hardened.
 The console also exposes first status metrics for active projects, metrology
 alerts, retained datasets, and updates requiring attention.
 
+A first runtime table contract exists for future instrument workspaces. It
+expects instrument, transport, endpoint, state, and last-observation fields when
+runtime data becomes available.
+
 The Rust core remains responsible for domain invariants, while Python adapters
 bridge local repositories, scripts, and early instrument workflows.

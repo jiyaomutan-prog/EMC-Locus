@@ -71,6 +71,12 @@ def build_console_view_model(bootstrap: dict[str, Any]) -> ConsoleViewModel:
                 rows=_list_rows(bootstrap.get("instruments"), 6),
             ),
             TableViewModel(
+                tab_label="Runtime",
+                title="Instrument runtime",
+                columns=("Instrument", "Transport", "Endpoint", "Etat", "Observation"),
+                rows=_list_rows(bootstrap.get("runtime"), 5),
+            ),
+            TableViewModel(
                 tab_label="Methodes",
                 title="Methodes",
                 columns=("Code", "Nom", "Axe", "Statut", "Checksum"),

@@ -65,16 +65,21 @@ class QtConsoleTests(unittest.TestCase):
                 ],
                 "datasets": [["RUN-QT-001", "raw_signal", "raw.opendata", "sha256:raw", "Immutable"]],
                 "instruments": [["DAQ-001", "DAQ", "Available", "CERT-1", "2027-01-01", "warn"]],
+                "runtime": [["DAQ-001", "simulated", "SIM::DAQ-001", "Pret", "Aucune"]],
                 "updates": [["driver", "0.2.0", "Signed", "Available", "offline_bundle"]],
             }
         )
-        project_table = model.tables[0]
-        dataset_table = model.tables[3]
+        tables = {table.tab_label: table for table in model.tables}
+        project_table = tables["Projets"]
+        dataset_table = tables["Donnees"]
+        runtime_table = tables["Runtime"]
         actions = {action.action_id: action for action in model.actions}
         metrics = {metric.label: metric for metric in model.metrics}
 
         self.assertEqual(project_table.columns[0:3], ("Code", "Client", "Etape"))
         self.assertEqual(project_table.rows[0][0:3], ("CEM-QT-001", "Rail Motion", "Measuring"))
+        self.assertEqual(runtime_table.columns[0:3], ("Instrument", "Transport", "Endpoint"))
+        self.assertEqual(runtime_table.rows[0][2], "SIM::DAQ-001")
         self.assertEqual(dataset_table.columns, ("Run", "Type", "Fichier", "Checksum", "Retention"))
         self.assertEqual(dataset_table.rows[0][1], "raw_signal")
         self.assertTrue(actions["advance_project"].enabled)
