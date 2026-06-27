@@ -22,6 +22,7 @@ from emc_locus import (
     record_dataset_retention_action,
     record_update_install_action,
     record_update_validation_action,
+    set_metrology_instrument_availability,
     write_bootstrap_js,
 )
 
@@ -832,6 +833,74 @@ class GuiActionTests(unittest.TestCase):
 
             repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
             self.assertIsNone(repository.latest_calibration_record("DAQ-CAL-002"))
+
+    def test_set_metrology_instrument_availability_updates_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            base = Path(temporary_directory)
+            metrology_db = base / "metrology.sqlite"
+            bootstrap_output = base / "bootstrap.js"
+
+            register_metrology_instrument(
+                metrology_db=metrology_db,
+                asset_id="AMP-STATUS-001",
+                family="Amplifier",
+                manufacturer="RF Lab",
+                model="AMP",
+                serial_number="STATUS-001",
+                category_code="rf_power_amplifier",
+            )
+
+            result = set_metrology_instrument_availability(
+                metrology_db=metrology_db,
+                asset_id="AMP-STATUS-001",
+                availability="out_of_service",
+                bootstrap_output=bootstrap_output,
+            )
+
+            repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
+            instrument = repository.get_instrument("AMP-STATUS-001")
+            bootstrap_text = bootstrap_output.read_text()
+
+            self.assertEqual(result["previous_availability"], "available")
+            self.assertEqual(result["new_availability"], "out_of_service")
+            self.assertEqual(instrument["availability"], "out_of_service")
+            self.assertIn("AMP-STATUS-001", bootstrap_text)
+            self.assertIn("Out of service", bootstrap_text)
+            self.assertIn("danger", bootstrap_text)
+
+    def test_set_metrology_instrument_availability_rejects_invalid_requests(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            metrology_db = Path(temporary_directory) / "metrology.sqlite"
+
+            with self.assertRaises(ValueError):
+                set_metrology_instrument_availability(
+                    metrology_db=metrology_db,
+                    asset_id="MISSING",
+                    availability="available",
+                )
+
+            register_metrology_instrument(
+                metrology_db=metrology_db,
+                asset_id="DMM-STATUS-001",
+                family="DMM",
+                manufacturer="Bench",
+                model="DMM",
+                serial_number="STATUS-001",
+                category_code="digital_multimeter",
+            )
+
+            with self.assertRaises(ValueError):
+                set_metrology_instrument_availability(
+                    metrology_db=metrology_db,
+                    asset_id="DMM-STATUS-001",
+                    availability="unknown",
+                )
+
+            repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
+            self.assertEqual(
+                repository.get_instrument("DMM-STATUS-001")["availability"],
+                "available",
+            )
 
     def test_dataset_retention_action_records_event_and_refreshes_bootstrap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

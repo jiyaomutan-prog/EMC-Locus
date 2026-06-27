@@ -9,6 +9,7 @@ from .gui_actions import (
     record_update_install_action,
     record_update_validation_action,
     refresh_bootstrap,
+    set_metrology_instrument_availability,
 )
 from .gui_bootstrap import build_bootstrap, build_fixture_bootstrap, write_bootstrap_js
 from .migrations import Migration, discover_migrations, validate_sqlite_migrations
@@ -60,6 +61,7 @@ __all__ = [
     "record_update_install_action",
     "record_update_validation_action",
     "refresh_bootstrap",
+    "set_metrology_instrument_availability",
     "validate_sqlite_migrations",
     "write_bootstrap_js",
 ]

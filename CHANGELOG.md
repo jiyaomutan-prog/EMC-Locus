@@ -157,6 +157,8 @@ change should remain traceable through Git history, session logs, and this file.
   instruments with optional initial calibration records and bootstrap refresh.
 - Local metrology calibration action and CLI for adding renewal certificates to
   existing instruments while keeping prior calibration history.
+- Local metrology availability action and CLI for marking instruments available,
+  reserved, or out of service with bootstrap refresh.
 
 ### Planned
 

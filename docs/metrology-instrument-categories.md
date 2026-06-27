@@ -131,6 +131,20 @@ The GUI bootstrap displays the latest calibration record for each instrument,
 while older calibration rows remain in the metrology database for history and
 audit review.
 
+The operational status can be changed without modifying calibration history:
+
+```text
+$env:PYTHONPATH='python'
+python -m emc_locus.actions_cli set-instrument-availability `
+  --metrology-db local/metrology.sqlite `
+  --asset-id RX-001 `
+  --availability out_of_service `
+  --bootstrap-output apps/gui-shell/bootstrap.js
+```
+
+Allowed status values are `available`, `reserved`, and `out_of_service`.
+Out-of-service instruments remain blocking in readiness checks.
+
 ## Public Sources Used
 
 - Keysight public electronic test equipment guide:
