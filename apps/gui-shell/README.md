@@ -20,3 +20,9 @@ Advance a project locally and refresh the console data with:
 ```text
 $env:PYTHONPATH='python'; py -m emc_locus.gui_actions advance-project --projects-db data\projects.sqlite --code CEM-2026-001 --actor operator.one --reason "Contract review ready" --bootstrap-output apps\gui-shell\bootstrap.js
 ```
+
+Record a dataset retention action and refresh the console data with:
+
+```text
+$env:PYTHONPATH='python'; py -m emc_locus.gui_actions dataset-retention --measurement-data-db data\measurement_data.sqlite --dataset-id 1 --action request-deletion --actor data.manager --reason "Retention period expired" --bootstrap-output apps\gui-shell\bootstrap.js
+```

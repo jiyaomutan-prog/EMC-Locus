@@ -101,11 +101,12 @@ change should remain traceable through Git history, session logs, and this file.
   static console data contract, with a browser-loadable `bootstrap.js` file.
 - Python GUI action command for audited local project stage advancement with
   optional `bootstrap.js` regeneration.
+- Python GUI dataset-retention action command for request, approval, rejection,
+  deletion marking, and optional `bootstrap.js` regeneration.
 
 ### Planned
 
-- Add dataset-retention and update-management local actions behind the GUI
-  shell.
+- Add update-management local actions behind the GUI shell.
 - Add IO-backed VISA/TCP/IP/serial implementations behind the adapter
   skeletons.
 - Add a real optimized FFT implementation behind the backend boundary.

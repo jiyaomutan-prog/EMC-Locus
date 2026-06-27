@@ -62,7 +62,7 @@ storage/
 
 ## First Useful Milestones
 
-1. Add dataset-retention and update-management local actions behind the GUI shell.
+1. Add update-management local actions behind the GUI shell.
 2. Add IO-backed VISA/TCP/IP/serial implementations behind the adapter skeletons.
 3. Add a real optimized FFT implementation behind the backend boundary.
 4. Add traceability report views for audit and technical review.

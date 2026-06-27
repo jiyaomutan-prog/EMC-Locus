@@ -1,6 +1,11 @@
 """Python helpers for EMC Locus laboratory automation."""
 
-from .gui_actions import advance_project_stage, next_project_stage, refresh_bootstrap
+from .gui_actions import (
+    advance_project_stage,
+    next_project_stage,
+    record_dataset_retention_action,
+    refresh_bootstrap,
+)
 from .gui_bootstrap import build_bootstrap, build_fixture_bootstrap, write_bootstrap_js
 from .migrations import Migration, discover_migrations, validate_sqlite_migrations
 from .session_plan import SessionPlan, Workstream, default_backlog
@@ -31,6 +36,7 @@ __all__ = [
     "discover_migrations",
     "default_backlog",
     "next_project_stage",
+    "record_dataset_retention_action",
     "refresh_bootstrap",
     "validate_sqlite_migrations",
     "write_bootstrap_js",

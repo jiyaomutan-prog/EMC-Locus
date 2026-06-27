@@ -16,6 +16,7 @@ from emc_locus import (
     advance_project_stage,
     build_bootstrap,
     next_project_stage,
+    record_dataset_retention_action,
     write_bootstrap_js,
 )
 
@@ -284,6 +285,53 @@ class GuiActionTests(unittest.TestCase):
     def test_next_project_stage_rejects_unknown_stage(self) -> None:
         with self.assertRaises(ValueError):
             next_project_stage("unknown")
+
+    def test_dataset_retention_action_records_event_and_refreshes_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path("storage/sqlite")
+            base = Path(temporary_directory)
+            measurement_data_db = base / "measurement_data.sqlite"
+            bootstrap_output = base / "bootstrap.js"
+            measurement_data = MeasurementDataRepository(measurement_data_db, root)
+            measurement_data.initialize()
+            dataset_id = measurement_data.add_dataset(
+                project_code="CEM-ACT-001",
+                campaign_reference="CAMP-ACT-001",
+                measurement_run_reference="RUN-ACT-001",
+                kind="raw_signal",
+                file_reference="data/RUN-ACT-001/raw.opendata",
+                checksum="sha256:rawact001",
+            )
+
+            request = record_dataset_retention_action(
+                measurement_data_db=measurement_data_db,
+                dataset_id=dataset_id,
+                action="request-deletion",
+                actor="data.manager",
+                reason="Retention period expired",
+                audit_event_reference="audit-ret-001",
+                bootstrap_output=bootstrap_output,
+            )
+            approval = record_dataset_retention_action(
+                measurement_data_db=measurement_data_db,
+                dataset_id=dataset_id,
+                action="approve-deletion",
+                actor="quality.manager",
+                reason="Deletion request reviewed",
+            )
+
+            dataset = measurement_data.get_dataset(dataset_id)
+            events = measurement_data.retention_events(dataset_id)
+            bootstrap_text = bootstrap_output.read_text()
+
+            self.assertEqual(request["previous_status"], "retained")
+            self.assertEqual(request["new_status"], "deletion_requested")
+            self.assertEqual(approval["previous_status"], "deletion_requested")
+            self.assertEqual(approval["new_status"], "deletion_approved")
+            self.assertEqual(dataset["retention_status"], "deletion_approved")
+            self.assertEqual(events[0]["audit_event_reference"], "audit-ret-001")
+            self.assertIn("RUN-ACT-001", bootstrap_text)
+            self.assertIn("deletion_requested", bootstrap_text)
 
 
 class TestDefinitionRepositoryTests(unittest.TestCase):
