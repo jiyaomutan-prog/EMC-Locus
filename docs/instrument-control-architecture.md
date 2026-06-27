@@ -116,7 +116,8 @@ Implemented in the Rust core:
 15. explicit unavailable-IO errors so hardware communication is not faked;
 16. IO-backed TCP/IP command exchange with local socket coverage;
 17. structured serial endpoint parsing for port, baud rate, data bits, parity,
-    and stop bits.
+    and stop bits;
+18. structured VISA resource parsing for TCPIP, USB, GPIB, and ASRL resources.
 
 Not yet implemented:
 
@@ -133,3 +134,9 @@ Serial endpoints currently support `PORT:baud` with default 8N1 framing, or
 `PORT:baud:framing` for explicit values such as `COM4:9600:7E2`. Native serial
 IO is still intentionally unavailable until a guarded implementation and device
 test strategy are added.
+
+VISA resources currently validate common resource strings such as
+`TCPIP0::host::inst0::INSTR`, `GPIB0::12::INSTR`,
+`USB0::vendor::product::serial::INSTR`, and `ASRL3::INSTR`. Native VISA IO is
+still intentionally unavailable until a binding, packaging, and device-test
+strategy are selected.

@@ -820,6 +820,37 @@ fn serial_endpoint_settings_reject_invalid_addresses() {
 }
 
 #[test]
+fn visa_resource_address_parses_common_interfaces() {
+    let tcpip = VisaResourceAddress::parse("TCPIP0::192.0.2.10::inst0::INSTR").unwrap();
+    assert_eq!(tcpip.raw(), "TCPIP0::192.0.2.10::inst0::INSTR");
+    assert_eq!(tcpip.interface(), VisaInterface::TcpIp);
+    assert_eq!(tcpip.interface().as_str(), "tcp_ip");
+    assert_eq!(tcpip.resource_class(), "INSTR");
+
+    let gpib = VisaResourceAddress::parse("GPIB0::12::INSTR").unwrap();
+    assert_eq!(gpib.interface(), VisaInterface::Gpib);
+
+    let serial = VisaResourceAddress::parse("ASRL3::INSTR").unwrap();
+    assert_eq!(serial.interface(), VisaInterface::Serial);
+}
+
+#[test]
+fn visa_resource_address_rejects_unknown_or_incomplete_resources() {
+    assert_eq!(
+        VisaResourceAddress::parse("192.0.2.10").unwrap_err(),
+        DomainError::InvalidVisaResourceAddress("192.0.2.10".to_owned())
+    );
+    assert_eq!(
+        VisaResourceAddress::parse("PXI0::1::INSTR").unwrap_err(),
+        DomainError::InvalidVisaResourceAddress("PXI0::1::INSTR".to_owned())
+    );
+    assert_eq!(
+        VisaResourceAddress::parse("TCPIP0::192.0.2.10::RAW").unwrap_err(),
+        DomainError::InvalidVisaResourceAddress("TCPIP0::192.0.2.10::RAW".to_owned())
+    );
+}
+
+#[test]
 fn concrete_transport_adapters_validate_endpoint_transport() {
     let endpoint =
         InstrumentTransportEndpoint::new(InstrumentTransport::TcpIp, "TCPIP::192.0.2.10").unwrap();
@@ -833,6 +864,24 @@ fn concrete_transport_adapters_validate_endpoint_transport() {
             expected: "visa".to_owned(),
             actual: "tcp_ip".to_owned(),
         }
+    );
+}
+
+#[test]
+fn visa_transport_adapter_exposes_validated_resource() {
+    let endpoint = InstrumentTransportEndpoint::new(
+        InstrumentTransport::Visa,
+        "USB0::0x1234::0x5678::SN001::INSTR",
+    )
+    .unwrap();
+    let adapter =
+        VisaTransportAdapter::new(endpoint, TransportTimeoutPolicy::laboratory_default()).unwrap();
+
+    assert_eq!(adapter.resource().interface(), VisaInterface::Usb);
+    assert_eq!(adapter.resource().resource_class(), "INSTR");
+    assert_eq!(
+        adapter.resource().raw(),
+        "USB0::0x1234::0x5678::SN001::INSTR"
     );
 }
 

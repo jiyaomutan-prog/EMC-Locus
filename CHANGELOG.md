@@ -130,6 +130,8 @@ change should remain traceable through Git history, session logs, and this file.
   requests, and update validation.
 - Structured Rust serial endpoint settings for port, baud rate, data bits,
   parity, and stop bits, validated by the serial transport adapter.
+- Structured Rust VISA resource parsing for TCPIP, USB, GPIB, and ASRL resource
+  strings, validated by the VISA transport adapter.
 
 ### Planned
 

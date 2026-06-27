@@ -250,10 +250,90 @@ impl SerialEndpointSettings {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VisaInterface {
+    TcpIp,
+    Usb,
+    Gpib,
+    Serial,
+}
+
+impl VisaInterface {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::TcpIp => "tcp_ip",
+            Self::Usb => "usb",
+            Self::Gpib => "gpib",
+            Self::Serial => "serial",
+        }
+    }
+
+    fn parse(prefix: &str) -> Option<Self> {
+        let prefix = prefix.to_ascii_uppercase();
+        if prefix.starts_with("TCPIP") {
+            Some(Self::TcpIp)
+        } else if prefix.starts_with("USB") {
+            Some(Self::Usb)
+        } else if prefix.starts_with("GPIB") {
+            Some(Self::Gpib)
+        } else if prefix.starts_with("ASRL") {
+            Some(Self::Serial)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VisaResourceAddress {
+    raw: String,
+    interface: VisaInterface,
+    resource_class: String,
+}
+
+impl VisaResourceAddress {
+    pub fn parse(address: &str) -> Result<Self, DomainError> {
+        let trimmed = address.trim();
+        let parts: Vec<&str> = trimmed.split("::").collect();
+        if parts.len() < 2 || parts.iter().any(|part| part.trim().is_empty()) {
+            return Err(invalid_visa_resource(address));
+        }
+
+        let interface =
+            VisaInterface::parse(parts[0]).ok_or_else(|| invalid_visa_resource(address))?;
+        let resource_class = parts
+            .last()
+            .map(|value| value.trim().to_ascii_uppercase())
+            .ok_or_else(|| invalid_visa_resource(address))?;
+        if !matches!(resource_class.as_str(), "INSTR" | "SOCKET") {
+            return Err(invalid_visa_resource(address));
+        }
+
+        Ok(Self {
+            raw: trimmed.to_owned(),
+            interface,
+            resource_class,
+        })
+    }
+
+    pub fn raw(&self) -> &str {
+        &self.raw
+    }
+
+    pub fn interface(&self) -> VisaInterface {
+        self.interface
+    }
+
+    pub fn resource_class(&self) -> &str {
+        &self.resource_class
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VisaTransportAdapter {
     endpoint: InstrumentTransportEndpoint,
     timeout_policy: TransportTimeoutPolicy,
+    resource: VisaResourceAddress,
 }
 
 impl VisaTransportAdapter {
@@ -262,14 +342,20 @@ impl VisaTransportAdapter {
         timeout_policy: TransportTimeoutPolicy,
     ) -> Result<Self, DomainError> {
         validate_adapter_endpoint(&endpoint, InstrumentTransport::Visa)?;
+        let resource = VisaResourceAddress::parse(endpoint.address())?;
         Ok(Self {
             endpoint,
             timeout_policy,
+            resource,
         })
     }
 
     pub fn timeout_policy(&self) -> TransportTimeoutPolicy {
         self.timeout_policy
+    }
+
+    pub fn resource(&self) -> &VisaResourceAddress {
+        &self.resource
     }
 }
 
@@ -793,6 +879,10 @@ fn parse_serial_framing(
 
 fn invalid_serial_endpoint(address: &str) -> DomainError {
     DomainError::InvalidSerialEndpointAddress(address.to_owned())
+}
+
+fn invalid_visa_resource(address: &str) -> DomainError {
+    DomainError::InvalidVisaResourceAddress(address.to_owned())
 }
 
 fn external_exchange_unavailable(endpoint: &InstrumentTransportEndpoint) -> DomainError {
