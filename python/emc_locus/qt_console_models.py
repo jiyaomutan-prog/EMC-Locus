@@ -6,6 +6,18 @@ from dataclasses import dataclass
 from typing import Any
 
 
+RUNTIME_COLUMNS = (
+    "Instrument",
+    "Transport",
+    "Endpoint",
+    "Etat",
+    "Run",
+    "Sequence",
+    "Observation",
+    "Tentatives",
+)
+
+
 @dataclass(frozen=True)
 class TableViewModel:
     """A simple table contract independent from Qt bindings."""
@@ -73,8 +85,8 @@ def build_console_view_model(bootstrap: dict[str, Any]) -> ConsoleViewModel:
             TableViewModel(
                 tab_label="Runtime",
                 title="Instrument runtime",
-                columns=("Instrument", "Transport", "Endpoint", "Etat", "Observation"),
-                rows=_list_rows(bootstrap.get("runtime"), 5),
+                columns=RUNTIME_COLUMNS,
+                rows=_list_rows(bootstrap.get("runtime"), len(RUNTIME_COLUMNS)),
             ),
             TableViewModel(
                 tab_label="Methodes",
@@ -189,11 +201,14 @@ def _action_intents(bootstrap: dict[str, Any]) -> tuple[OperatorActionIntent, ..
 def _status_metrics(bootstrap: dict[str, Any]) -> tuple[StatusMetric, ...]:
     projects = _project_rows(bootstrap.get("projects"))
     instruments = _list_rows(bootstrap.get("instruments"), 6)
+    runtime = _list_rows(bootstrap.get("runtime"), len(RUNTIME_COLUMNS))
     datasets = _list_rows(bootstrap.get("datasets"), 5)
     updates = _list_rows(bootstrap.get("updates"), 5)
 
     active_projects = sum(1 for row in projects if row[2] != "Archived")
     instrument_alerts = sum(1 for row in instruments if row[5] in {"warn", "danger"})
+    runtime_failures = sum(1 for row in runtime if row[3].lower() in {"echec", "failed"})
+    max_runtime_attempts = max((_positive_int(row[7]) for row in runtime), default=0)
     retained_datasets = sum(1 for row in datasets if row[4] in {"Immutable", "retained"})
     pending_updates = sum(1 for row in updates if row[3].lower() not in {"installed", "installe"})
 
@@ -203,6 +218,16 @@ def _status_metrics(bootstrap: dict[str, Any]) -> tuple[StatusMetric, ...]:
             "Alertes metrologie",
             str(instrument_alerts),
             "warn" if instrument_alerts else "ok",
+        ),
+        StatusMetric(
+            "Erreurs runtime",
+            str(runtime_failures),
+            "warn" if runtime_failures else "ok",
+        ),
+        StatusMetric(
+            "Tentatives max",
+            str(max_runtime_attempts),
+            "warn" if max_runtime_attempts > 1 else "ok",
         ),
         StatusMetric(
             "Datasets retenus",
@@ -215,3 +240,11 @@ def _status_metrics(bootstrap: dict[str, Any]) -> tuple[StatusMetric, ...]:
             "warn" if pending_updates else "ok",
         ),
     )
+
+
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError:
+        return 0
+    return max(parsed, 0)

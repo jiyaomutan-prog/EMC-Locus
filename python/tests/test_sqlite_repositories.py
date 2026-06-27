@@ -502,7 +502,10 @@ class GuiBootstrapTests(unittest.TestCase):
             self.assertEqual(payload["datasets"][0][4], "Immutable")
             self.assertEqual(payload["runtime"][0][0], "DAQ-001")
             self.assertEqual(payload["runtime"][0][3], "OK")
-            self.assertIn("2 essais", payload["runtime"][0][4])
+            self.assertEqual(payload["runtime"][0][4], "RUN-BOOT-001")
+            self.assertEqual(payload["runtime"][0][5], "1")
+            self.assertEqual(payload["runtime"][0][6], "READ? -> OK")
+            self.assertEqual(payload["runtime"][0][7], "2")
             self.assertEqual(payload["updates"][0][0], "driver-pack-opendaq")
             self.assertIn("window.EMC_LOCUS_BOOTSTRAP", output_path.read_text())
 

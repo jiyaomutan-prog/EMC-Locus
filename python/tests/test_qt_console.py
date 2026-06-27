@@ -65,7 +65,28 @@ class QtConsoleTests(unittest.TestCase):
                 ],
                 "datasets": [["RUN-QT-001", "raw_signal", "raw.opendata", "sha256:raw", "Immutable"]],
                 "instruments": [["DAQ-001", "DAQ", "Available", "CERT-1", "2027-01-01", "warn"]],
-                "runtime": [["DAQ-001", "simulated", "SIM::DAQ-001", "Pret", "Aucune"]],
+                "runtime": [
+                    [
+                        "DAQ-001",
+                        "simulated",
+                        "SIM::DAQ-001",
+                        "OK",
+                        "RUN-QT-001",
+                        "7",
+                        "READ? -> OK",
+                        "2",
+                    ],
+                    [
+                        "RX-001",
+                        "tcp_ip",
+                        "TCPIP::127.0.0.1::5025",
+                        "Echec",
+                        "RUN-QT-001",
+                        "8",
+                        "READ? -> timeout",
+                        "3",
+                    ],
+                ],
                 "updates": [["driver", "0.2.0", "Signed", "Available", "offline_bundle"]],
             }
         )
@@ -78,8 +99,21 @@ class QtConsoleTests(unittest.TestCase):
 
         self.assertEqual(project_table.columns[0:3], ("Code", "Client", "Etape"))
         self.assertEqual(project_table.rows[0][0:3], ("CEM-QT-001", "Rail Motion", "Measuring"))
-        self.assertEqual(runtime_table.columns[0:3], ("Instrument", "Transport", "Endpoint"))
+        self.assertEqual(
+            runtime_table.columns,
+            (
+                "Instrument",
+                "Transport",
+                "Endpoint",
+                "Etat",
+                "Run",
+                "Sequence",
+                "Observation",
+                "Tentatives",
+            ),
+        )
         self.assertEqual(runtime_table.rows[0][2], "SIM::DAQ-001")
+        self.assertEqual(runtime_table.rows[0][4:8], ("RUN-QT-001", "7", "READ? -> OK", "2"))
         self.assertEqual(dataset_table.columns, ("Run", "Type", "Fichier", "Checksum", "Retention"))
         self.assertEqual(dataset_table.rows[0][1], "raw_signal")
         self.assertTrue(actions["advance_project"].enabled)
@@ -87,6 +121,10 @@ class QtConsoleTests(unittest.TestCase):
         self.assertTrue(actions["validate_update"].enabled)
         self.assertEqual(metrics["Projets actifs"].value, "1")
         self.assertEqual(metrics["Alertes metrologie"].tone, "warn")
+        self.assertEqual(metrics["Erreurs runtime"].value, "1")
+        self.assertEqual(metrics["Erreurs runtime"].tone, "warn")
+        self.assertEqual(metrics["Tentatives max"].value, "3")
+        self.assertEqual(metrics["Tentatives max"].tone, "warn")
         self.assertEqual(metrics["Datasets retenus"].value, "1")
         self.assertEqual(metrics["Updates a traiter"].value, "1")
 

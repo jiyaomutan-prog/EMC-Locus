@@ -259,18 +259,15 @@ def _dataset_row(row: dict[str, object]) -> list[str]:
 
 
 def _runtime_row(row: dict[str, object]) -> list[str]:
-    attempts = int(row["exchange_attempts"])
-    attempt_label = "essai" if attempts == 1 else "essais"
     return [
         str(row["instrument_code"]),
         str(row["transport"]),
         str(row["endpoint"]),
         "OK" if int(row["success"]) else "Echec",
-        (
-            f'{row["measurement_run_reference"]} #{row["sequence"]}: '
-            f'{row["command_message"]} -> {row["response_message"]} '
-            f"({attempts} {attempt_label})"
-        ),
+        str(row["measurement_run_reference"]),
+        str(row["sequence"]),
+        f'{row["command_message"]} -> {row["response_message"]}',
+        str(row["exchange_attempts"]),
     ]
 
 
