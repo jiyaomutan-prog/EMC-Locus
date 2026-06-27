@@ -6,9 +6,22 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 import sqlite3
 
 from .migrations import discover_migrations
+
+
+UPDATE_COMPONENTS = {
+    "core_application",
+    "instrument_driver",
+    "signal_processing_engine",
+    "report_template_pack",
+    "database_migration",
+}
+UPDATE_SOURCES = {"online_catalog", "offline_bundle"}
+_PACKAGE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+_SOFTWARE_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 
 
 def utc_timestamp() -> str:
@@ -28,17 +41,22 @@ class SQLiteDomainRepository:
     def initialize(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self.connect()) as connection:
-            if self._has_schema(connection):
-                return
-
             migrations = [
                 migration
                 for migration in discover_migrations(self.migrations_root)
                 if migration.domain == self.domain
             ]
             with connection:
+                applied_versions: set[int] = set()
+                if self._has_schema(connection):
+                    rows = connection.execute(
+                        "SELECT version FROM schema_migrations"
+                    ).fetchall()
+                    applied_versions = {int(row["version"]) for row in rows}
+
                 for migration in migrations:
-                    connection.executescript(migration.path.read_text(encoding="utf-8"))
+                    if migration.version not in applied_versions:
+                        connection.executescript(migration.path.read_text(encoding="utf-8"))
 
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
@@ -1167,6 +1185,14 @@ class UpdateCatalogRepository(SQLiteDomainRepository):
         signed_checksum: str,
         offline_install_allowed: bool = True,
     ) -> None:
+        package_name = validate_update_package_name(package_name)
+        package_version = validate_software_version(package_version)
+        component = validate_update_component(component)
+        compatibility_range = require_non_empty(
+            compatibility_range, "compatibility_range"
+        )
+        signed_checksum = require_non_empty(signed_checksum, "signed_checksum")
+
         with closing(self.connect()) as connection:
             with connection:
                 connection.execute(
@@ -1238,6 +1264,64 @@ class UpdateCatalogRepository(SQLiteDomainRepository):
                 ).fetchall()
         return [dict(row) for row in rows]
 
+    def record_install_validation(
+        self,
+        *,
+        package_name: str,
+        package_version: str,
+        component: str,
+        installed_version: str,
+        source: str,
+        compatibility_minimum_version: str,
+        validated_by: str,
+        compatibility_maximum_version: str | None = None,
+        signature_required: bool = True,
+        policy_offline_install_allowed: bool = True,
+        measurement_active: bool = False,
+        apply_during_measurement_allowed: bool = False,
+    ) -> int:
+        with closing(self.connect()) as connection:
+            with connection:
+                evidence = self._build_install_validation_evidence(
+                    connection,
+                    package_name=package_name,
+                    package_version=package_version,
+                    component=component,
+                    installed_version=installed_version,
+                    source=source,
+                    compatibility_minimum_version=compatibility_minimum_version,
+                    compatibility_maximum_version=compatibility_maximum_version,
+                    signature_required=signature_required,
+                    policy_offline_install_allowed=policy_offline_install_allowed,
+                    measurement_active=measurement_active,
+                    apply_during_measurement_allowed=apply_during_measurement_allowed,
+                    validated_by=validated_by,
+                )
+                cursor = self._insert_install_validation_evidence(connection, evidence)
+        return int(cursor.lastrowid)
+
+    def get_install_validation_evidence(
+        self,
+        validation_evidence_id: int,
+    ) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT *
+                FROM update_install_validation_evidence
+                WHERE id = ?
+                """,
+                (validation_evidence_id,),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def validation_evidence_count(self) -> int:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS count FROM update_install_validation_evidence"
+            ).fetchone()
+        return int(row["count"])
+
     def record_install(
         self,
         *,
@@ -1247,9 +1331,31 @@ class UpdateCatalogRepository(SQLiteDomainRepository):
         installed_by: str,
         source: str,
         rollback_reference: str | None = None,
+        validation_evidence_id: int | None = None,
     ) -> int:
+        package_name = validate_update_package_name(package_name)
+        package_version = validate_software_version(package_version)
+        component = validate_update_component(component)
+        source = validate_update_source(source)
+        installed_by = require_non_empty(installed_by, "installed_by")
+        rollback_reference = (
+            require_non_empty(rollback_reference, "rollback_reference")
+            if rollback_reference is not None
+            else None
+        )
+
         with closing(self.connect()) as connection:
             with connection:
+                if validation_evidence_id is not None:
+                    self._require_accepted_validation_evidence(
+                        connection,
+                        validation_evidence_id=validation_evidence_id,
+                        package_name=package_name,
+                        package_version=package_version,
+                        component=component,
+                        source=source,
+                    )
+
                 cursor = connection.execute(
                     """
                     INSERT INTO update_install_records (
@@ -1259,9 +1365,10 @@ class UpdateCatalogRepository(SQLiteDomainRepository):
                         installed_by,
                         installed_at,
                         source,
-                        rollback_reference
+                        rollback_reference,
+                        validation_evidence_id
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         package_name,
@@ -1271,6 +1378,7 @@ class UpdateCatalogRepository(SQLiteDomainRepository):
                         utc_timestamp(),
                         source,
                         rollback_reference,
+                        validation_evidence_id,
                     ),
                 )
         return int(cursor.lastrowid)
@@ -1311,8 +1419,213 @@ class UpdateCatalogRepository(SQLiteDomainRepository):
             ).fetchall()
         return [dict(row) for row in rows]
 
+    @staticmethod
+    def _build_install_validation_evidence(
+        connection: sqlite3.Connection,
+        *,
+        package_name: str,
+        package_version: str,
+        component: str,
+        installed_version: str,
+        source: str,
+        compatibility_minimum_version: str,
+        compatibility_maximum_version: str | None,
+        signature_required: bool,
+        policy_offline_install_allowed: bool,
+        measurement_active: bool,
+        apply_during_measurement_allowed: bool,
+        validated_by: str,
+    ) -> dict[str, object]:
+        package_name = validate_update_package_name(package_name)
+        package_version = validate_software_version(package_version)
+        component = validate_update_component(component)
+        installed_version = validate_software_version(installed_version)
+        source = validate_update_source(source)
+        compatibility_minimum_version = validate_software_version(
+            compatibility_minimum_version
+        )
+        if compatibility_maximum_version is not None:
+            compatibility_maximum_version = validate_software_version(
+                compatibility_maximum_version
+            )
+            if version_tuple(compatibility_maximum_version) < version_tuple(
+                compatibility_minimum_version
+            ):
+                raise ValueError("compatibility_maximum_version must not be below minimum")
+        validated_by = require_non_empty(validated_by, "validated_by")
+
+        package = connection.execute(
+            """
+            SELECT *
+            FROM update_packages
+            WHERE package_name = ? AND package_version = ? AND component = ?
+            """,
+            (package_name, package_version, component),
+        ).fetchone()
+        if package is None:
+            raise ValueError("update package must exist before validation")
+
+        signature_present = bool(str(package["signed_checksum"]).strip())
+        package_offline_install_allowed = bool(package["offline_install_allowed"])
+        reasons: list[str] = []
+
+        if signature_required and not signature_present:
+            reasons.append("unsigned_package")
+        if source == "offline_bundle" and (
+            not policy_offline_install_allowed or not package_offline_install_allowed
+        ):
+            reasons.append("offline_install_blocked")
+        if measurement_active and not apply_during_measurement_allowed:
+            reasons.append("measurement_active")
+
+        installed = version_tuple(installed_version)
+        if installed < version_tuple(compatibility_minimum_version) or (
+            compatibility_maximum_version is not None
+            and installed > version_tuple(compatibility_maximum_version)
+        ):
+            reasons.append("incompatible_installed_version")
+
+        return {
+            "package_name": package_name,
+            "package_version": package_version,
+            "component": component,
+            "installed_version": installed_version,
+            "source": source,
+            "validation_status": "rejected" if reasons else "accepted",
+            "signature_required": int(signature_required),
+            "signature_present": int(signature_present),
+            "compatibility_minimum_version": compatibility_minimum_version,
+            "compatibility_maximum_version": compatibility_maximum_version,
+            "package_offline_install_allowed": int(package_offline_install_allowed),
+            "policy_offline_install_allowed": int(policy_offline_install_allowed),
+            "measurement_active": int(measurement_active),
+            "apply_during_measurement_allowed": int(apply_during_measurement_allowed),
+            "reason": ";".join(reasons) if reasons else None,
+            "validated_by": validated_by,
+        }
+
+    @staticmethod
+    def _insert_install_validation_evidence(
+        connection: sqlite3.Connection,
+        evidence: dict[str, object],
+    ) -> sqlite3.Cursor:
+        return connection.execute(
+            """
+            INSERT INTO update_install_validation_evidence (
+                package_name,
+                package_version,
+                component,
+                installed_version,
+                source,
+                validation_status,
+                signature_required,
+                signature_present,
+                compatibility_minimum_version,
+                compatibility_maximum_version,
+                package_offline_install_allowed,
+                policy_offline_install_allowed,
+                measurement_active,
+                apply_during_measurement_allowed,
+                reason,
+                validated_by,
+                validated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                evidence["package_name"],
+                evidence["package_version"],
+                evidence["component"],
+                evidence["installed_version"],
+                evidence["source"],
+                evidence["validation_status"],
+                evidence["signature_required"],
+                evidence["signature_present"],
+                evidence["compatibility_minimum_version"],
+                evidence["compatibility_maximum_version"],
+                evidence["package_offline_install_allowed"],
+                evidence["policy_offline_install_allowed"],
+                evidence["measurement_active"],
+                evidence["apply_during_measurement_allowed"],
+                evidence["reason"],
+                evidence["validated_by"],
+                utc_timestamp(),
+            ),
+        )
+
+    @staticmethod
+    def _require_accepted_validation_evidence(
+        connection: sqlite3.Connection,
+        *,
+        validation_evidence_id: int,
+        package_name: str,
+        package_version: str,
+        component: str,
+        source: str,
+    ) -> None:
+        evidence = connection.execute(
+            """
+            SELECT *
+            FROM update_install_validation_evidence
+            WHERE id = ?
+            """,
+            (validation_evidence_id,),
+        ).fetchone()
+        if evidence is None:
+            raise ValueError("validation evidence does not exist")
+        if evidence["validation_status"] != "accepted":
+            raise ValueError("validation evidence must be accepted before install")
+        if (
+            evidence["package_name"] != package_name
+            or evidence["package_version"] != package_version
+            or evidence["component"] != component
+            or evidence["source"] != source
+        ):
+            raise ValueError("validation evidence does not match install record")
+
 
 def row_to_dict(row: sqlite3.Row | None) -> dict[str, object] | None:
     if row is None:
         return None
     return dict(row)
+
+
+def require_non_empty(value: str, field_name: str) -> str:
+    trimmed = value.strip()
+    if not trimmed:
+        raise ValueError(f"{field_name} must not be empty")
+    return trimmed
+
+
+def validate_update_package_name(value: str) -> str:
+    trimmed = require_non_empty(value, "package_name")
+    if _PACKAGE_NAME.fullmatch(trimmed) is None:
+        raise ValueError("package_name must contain only ASCII letters, digits, '.', '_', or '-'")
+    return trimmed
+
+
+def validate_software_version(value: str) -> str:
+    trimmed = require_non_empty(value, "software_version")
+    if _SOFTWARE_VERSION.fullmatch(trimmed) is None:
+        raise ValueError("software_version must use MAJOR.MINOR.PATCH")
+    return trimmed
+
+
+def validate_update_component(value: str) -> str:
+    trimmed = require_non_empty(value, "component")
+    if trimmed not in UPDATE_COMPONENTS:
+        raise ValueError(f"unknown update component: {trimmed}")
+    return trimmed
+
+
+def validate_update_source(value: str) -> str:
+    trimmed = require_non_empty(value, "source")
+    if trimmed not in UPDATE_SOURCES:
+        raise ValueError(f"unknown update source: {trimmed}")
+    return trimmed
+
+
+def version_tuple(value: str) -> tuple[int, int, int]:
+    validated = validate_software_version(value)
+    major, minor, patch = validated.split(".")
+    return int(major), int(minor), int(patch)

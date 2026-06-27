@@ -88,14 +88,16 @@ change should remain traceable through Git history, session logs, and this file.
   method revisions, processing graph metadata, and ordered evidence steps.
 - SQLite synchronization domain and Python adapter for conflict records,
   action plans, resolution outcomes, and audit-event references.
+- SQLite update-install validation evidence for signature, compatibility,
+  offline-install, and active-measurement gates.
+- Incremental Python migration application for existing domain databases.
 
 ### Planned
 
-- Add sync persistence adapters around conflict action plans.
 - Add IO-backed VISA/TCP/IP/serial implementations behind the adapter
   skeletons.
 - Add a real optimized FFT implementation behind the backend boundary.
-- Add update bundle/domain validation mapping between Rust and SQLite.
+- Add data-retention policy hooks for immutable measurement datasets.
 
 ## [0.1.0] - 2026-06-26
 

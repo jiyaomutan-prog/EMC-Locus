@@ -31,16 +31,16 @@ def default_backlog() -> list[SessionPlan]:
 
     return [
         SessionPlan(
-            title="Update bundle SQLite mapping",
+            title="Measurement data retention policy",
             objective=(
-                "Map update bundle and install-plan validation evidence between "
-                "the Rust domain model and the SQLite update catalog."
+                "Add policy hooks that protect immutable measurement datasets "
+                "through retention status and reviewable deletion requests."
             ),
-            workstreams=(Workstream.STORAGE, Workstream.QUALITY),
+            workstreams=(Workstream.STORAGE, Workstream.QUALITY, Workstream.SIGNAL),
             expected_outputs=(
-                "update validation adapter APIs",
-                "compatibility evidence records",
-                "offline bundle smoke test",
+                "retention policy primitives",
+                "SQLite retention evidence records",
+                "immutable dataset smoke tests",
             ),
         ),
         SessionPlan(

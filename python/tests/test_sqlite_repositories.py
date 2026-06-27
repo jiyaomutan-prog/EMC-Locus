@@ -3,9 +3,10 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
-from emc_locus import SyncRepository, TestDefinitionRepository
+from emc_locus import SyncRepository, TestDefinitionRepository, UpdateCatalogRepository
 
 
 class TestDefinitionRepositoryTests(unittest.TestCase):
@@ -226,6 +227,141 @@ class SyncRepositoryTests(unittest.TestCase):
                     reference_snapshot="measurement-reference.1",
                     planned_by="qa.lead",
                 )
+
+
+class UpdateCatalogRepositoryTests(unittest.TestCase):
+    def test_records_accepted_install_validation_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = UpdateCatalogRepository(
+                Path(temporary_directory) / "update_catalog.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            self.assertEqual(repository.metadata()["domain"], "update_catalog")
+
+            repository.add_update_package(
+                package_name="emc-locus-core",
+                package_version="0.2.0",
+                component="core_application",
+                compatibility_range="0.1.0..0.1.9",
+                signed_checksum="sha256:core-020",
+            )
+            evidence_id = repository.record_install_validation(
+                package_name="emc-locus-core",
+                package_version="0.2.0",
+                component="core_application",
+                installed_version="0.1.0",
+                source="offline_bundle",
+                compatibility_minimum_version="0.1.0",
+                compatibility_maximum_version="0.1.9",
+                validated_by="qa.lead",
+            )
+            install_id = repository.record_install(
+                package_name="emc-locus-core",
+                package_version="0.2.0",
+                component="core_application",
+                installed_by="qa.lead",
+                source="offline_bundle",
+                rollback_reference="emc-locus-core-0.1.0",
+                validation_evidence_id=evidence_id,
+            )
+
+            evidence = repository.get_install_validation_evidence(evidence_id)
+            install = repository.list_install_records()[0]
+
+            self.assertEqual(repository.update_package_count(), 1)
+            self.assertEqual(repository.validation_evidence_count(), 1)
+            self.assertEqual(repository.install_record_count(), 1)
+            self.assertEqual(evidence["validation_status"], "accepted")
+            self.assertIsNone(evidence["reason"])
+            self.assertEqual(evidence["signature_required"], 1)
+            self.assertEqual(evidence["signature_present"], 1)
+            self.assertEqual(install["id"], install_id)
+            self.assertEqual(install["validation_evidence_id"], evidence_id)
+
+    def test_rejects_invalid_update_metadata_and_install_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = UpdateCatalogRepository(
+                Path(temporary_directory) / "update_catalog.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            with self.assertRaises(ValueError):
+                repository.add_update_package(
+                    package_name="emc core",
+                    package_version="0.2.0",
+                    component="core_application",
+                    compatibility_range="0.1.0..0.1.9",
+                    signed_checksum="sha256:core-020",
+                )
+
+            repository.add_update_package(
+                package_name="emc-locus-core",
+                package_version="0.2.0",
+                component="core_application",
+                compatibility_range="0.1.0..0.1.9",
+                signed_checksum="sha256:core-020",
+                offline_install_allowed=False,
+            )
+            evidence_id = repository.record_install_validation(
+                package_name="emc-locus-core",
+                package_version="0.2.0",
+                component="core_application",
+                installed_version="0.2.5",
+                source="offline_bundle",
+                compatibility_minimum_version="0.1.0",
+                compatibility_maximum_version="0.1.9",
+                validated_by="qa.lead",
+            )
+
+            evidence = repository.get_install_validation_evidence(evidence_id)
+
+            self.assertEqual(evidence["validation_status"], "rejected")
+            self.assertIn("offline_install_blocked", evidence["reason"])
+            self.assertIn("incompatible_installed_version", evidence["reason"])
+            with self.assertRaises(ValueError):
+                repository.record_install(
+                    package_name="emc-locus-core",
+                    package_version="0.2.0",
+                    component="core_application",
+                    installed_by="qa.lead",
+                    source="offline_bundle",
+                    validation_evidence_id=evidence_id,
+                )
+
+    def test_initialize_applies_missing_update_catalog_migrations(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            database_path = Path(temporary_directory) / "update_catalog.sqlite"
+            connection = sqlite3.connect(database_path)
+            try:
+                connection.executescript(
+                    Path("storage/sqlite/update_catalog/0001_update_catalog.sql").read_text(
+                        encoding="utf-8"
+                    )
+                )
+            finally:
+                connection.close()
+
+            repository = UpdateCatalogRepository(database_path, Path("storage/sqlite"))
+            repository.initialize()
+
+            with closing(repository.connect()) as connection:
+                version_rows = connection.execute(
+                    "SELECT version FROM schema_migrations ORDER BY version"
+                ).fetchall()
+                evidence_table = connection.execute(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name = 'update_install_validation_evidence'
+                    """
+                ).fetchone()
+
+            self.assertEqual([row["version"] for row in version_rows], [1, 2])
+            self.assertIsNotNone(evidence_table)
 
 
 if __name__ == "__main__":

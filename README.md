@@ -59,10 +59,10 @@ storage/
 
 ## First Useful Milestones
 
-1. Add update bundle/domain validation mapping between Rust and SQLite.
-2. Add IO-backed VISA/TCP/IP/serial implementations behind the adapter skeletons.
-3. Add a real optimized FFT implementation behind the backend boundary.
-4. Add data-retention policy hooks for immutable measurement datasets.
+1. Add IO-backed VISA/TCP/IP/serial implementations behind the adapter skeletons.
+2. Add a real optimized FFT implementation behind the backend boundary.
+3. Add data-retention policy hooks for immutable measurement datasets.
+4. Add traceability report views for audit and technical review.
 
 ## Development Status
 

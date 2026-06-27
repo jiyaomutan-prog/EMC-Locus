@@ -129,11 +129,13 @@ Deliverables:
 - offline update bundles; initial Rust model added;
 - update-catalog persistence APIs; initial Python adapter added;
 - rollback and compatibility checks; initial Rust validation added.
+- update-install validation evidence mapped into SQLite; initial Python adapter
+  added.
 
 ## Near-Term Next Session
 
-The next productive session should add update bundle/domain validation mapping
-between Rust and SQLite.
+The next productive session should add data-retention policy hooks for
+immutable measurement datasets.
 
 The parallel runtime stream should add IO-backed VISA, TCP/IP, or serial
 implementations behind the adapter skeletons.

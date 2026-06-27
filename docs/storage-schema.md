@@ -259,6 +259,31 @@ CREATE TABLE sync_conflict_action_plans (
 );
 ```
 
+### update_install_validation_evidence
+
+```sql
+CREATE TABLE update_install_validation_evidence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    package_name TEXT NOT NULL,
+    package_version TEXT NOT NULL,
+    component TEXT NOT NULL,
+    installed_version TEXT NOT NULL,
+    source TEXT NOT NULL,
+    validation_status TEXT NOT NULL,
+    signature_required INTEGER NOT NULL,
+    signature_present INTEGER NOT NULL,
+    compatibility_minimum_version TEXT NOT NULL,
+    compatibility_maximum_version TEXT,
+    package_offline_install_allowed INTEGER NOT NULL,
+    policy_offline_install_allowed INTEGER NOT NULL,
+    measurement_active INTEGER NOT NULL,
+    apply_during_measurement_allowed INTEGER NOT NULL,
+    reason TEXT,
+    validated_by TEXT NOT NULL,
+    validated_at TEXT NOT NULL
+);
+```
+
 ## Next Schema Questions
 
 - Should timestamps be local laboratory time plus UTC offset, or UTC only?

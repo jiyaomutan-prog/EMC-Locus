@@ -44,7 +44,7 @@ processing graph lineage, and result artifacts.
 ### Update Catalog
 
 Owns signed package metadata, compatibility ranges, offline install permission,
-and installation records.
+install-plan validation evidence, and installation records.
 
 ### Sync
 
@@ -53,8 +53,10 @@ deferring conflicts between local and reference repository snapshots.
 
 The Rust core now mirrors these storage concepts with update bundles, semantic
 software versions, package signatures, compatibility-range validation,
-rollback references, and install-plan gates. Persistence APIs still need to map
-these domain objects to `update_packages` and `update_install_records`.
+rollback references, and install-plan gates. Python persistence APIs map package
+metadata into `update_packages`, store gate results in
+`update_install_validation_evidence`, and can link accepted evidence to
+`update_install_records`.
 
 ## Cross-Domain Links
 
@@ -75,6 +77,8 @@ $env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrat
 
 The helper checks migration filenames, detects duplicate versions per domain,
 and executes each domain's SQL in a fresh in-memory SQLite database.
+Repository initialization also applies missing domain migrations to an existing
+database that already has a `schema_migrations` table.
 
 ## Early Python Adapters
 
@@ -104,7 +108,9 @@ perform minimal insert/count/query operations for smoke testing:
 - contract-review item completion/upsert;
 - per-connection SQLite foreign-key enforcement.
 - update package insert/count/get/list APIs;
-- update install record insert/count/list APIs.
+- update-install validation evidence insert/count/get APIs;
+- update install record insert/count/list APIs with optional accepted evidence
+  linkage.
 - immutable dataset insert/count/get/list-by-run APIs;
 - signal channel insert/list APIs;
 - processing graph insert/list APIs;

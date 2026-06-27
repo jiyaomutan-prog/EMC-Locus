@@ -100,6 +100,7 @@ Owns:
 - package signatures;
 - compatibility metadata;
 - rollback metadata.
+- validation evidence for install gates.
 
 The Rust core now models update bundles with package identity, semantic package
 version, component, signed checksum, optional signature evidence, compatibility
@@ -108,6 +109,11 @@ rejects unsigned packages when the laboratory policy requires signatures,
 rejects incompatible installed versions, rejects offline bundles when either the
 policy or package disallows them, and blocks update application while a
 measurement acquisition is active.
+
+The SQLite update catalog now records validation evidence for these gates before
+an install record can reference it: installed version, source, signature status,
+compatibility bounds, offline-install permissions, measurement-active status,
+the resulting accepted/rejected decision, and the validating actor.
 
 ## Synchronization
 
