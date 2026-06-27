@@ -120,6 +120,8 @@ change should remain traceable through Git history, session logs, and this file.
   coefficients alongside rectangular and Hann windows.
 - Rust windowed FFT execution that records the selected window and remains
   compatible with the optimized FFT backend.
+- Qt desktop operator-console direction with an initial PySide6 bootstrap that
+  reuses local GUI bootstrap data from the static workflow prototype.
 
 ### Planned
 

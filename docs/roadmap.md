@@ -151,22 +151,28 @@ Goal: give the laboratory user a practical, local-first application surface.
 Deliverables:
 
 - dashboard for campaign status, readiness, datasets, and update gates; initial
-  static GUI shell added;
+  static workflow prototype added;
+- Qt desktop console for local measurement stations; initial PySide6 bootstrap
+  added;
 - project workflow view with selected campaign detail and stage movement;
   initial fixture-driven interaction added;
 - metrology, test-definition, measurement-data, and update-management views;
-  initial static views added;
+  initial static prototype views added;
 - local/offline switch visible in the operator workflow; initial UI control
   added;
 - service wiring to the Python repository adapters; initial Python bootstrap
   export and `bootstrap.js` loading path added;
 - local write actions and refresh workflow; initial audited project stage action
   and dataset-retention and update-management actions added;
+- future Qt model/view screens backed by application services;
 - future Rust-backed command execution bridge for instrument runtime actions.
 
 ## Near-Term Next Session
 
 The next productive session should expand guarded IO-backed serial or VISA
 implementations behind the adapter skeletons.
+
+The UI stream should harden the Qt operator-console skeleton around real local
+repository data.
 
 The parallel runtime stream should add graph-driven execution records.

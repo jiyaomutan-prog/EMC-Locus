@@ -84,12 +84,18 @@ Python code should call stable APIs rather than duplicate domain rules.
 
 ### 6. Application API and UI
 
-The UI should arrive after the domain model and workflow vocabulary are clear.
-Candidate directions:
+The measurement-station UI target is a Qt desktop application. Advanced EMC
+measurement work needs dense operator screens, long-running acquisition state,
+instrument panels, live warnings, local/offline operation, and future plotting
+or dockable analysis workspaces.
 
-- desktop application for local laboratory stations;
-- web UI for multi-user project tracking;
-- hybrid approach with local instrument agents and a central database.
+The static browser shell is a workflow prototype and dashboard mockup. It is
+useful for shaping information architecture, but it should not become the
+primary technology for instrument-facing measurement software.
+
+Future web UI work can still be useful for multi-user project tracking,
+report-review portals, or fleet monitoring, but acquisition should remain
+local-first and desktop-capable.
 
 ## Key Boundaries
 
@@ -116,11 +122,14 @@ User/UI
 - Preserve update rollback metadata and installed-version compatibility checks.
 - Support time-domain DAQ workflows beside frequency-domain sweep workflows.
 - Prefer openDAQ for generic DAQ integration while allowing vendor SDK bridges.
+- Use Qt as the primary desktop operator-console technology for local
+  measurement stations.
 - Keep EN ISO/IEC 17025 alignment as a design checklist, not as a legal claim.
 
 ## Open Questions
 
 - Which instruments must be supported first?
-- Should the first UI be desktop, web, or command line?
+- Which Qt binding and packaging path should be hardened first for field
+  stations?
 - What data formats are already used by the lab?
 - What report template and approval process should be modeled first?

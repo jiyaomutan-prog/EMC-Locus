@@ -109,24 +109,30 @@ Updates must be controlled like laboratory evidence:
 
 ### 8. Operator Console
 
-The GUI must be a working laboratory surface, not a marketing layer. It should
-let operators see campaign state, readiness, metrology status, test-definition
-approval, dataset lineage, update gates, and local/offline operating mode from
-one place.
+The GUI must be a working laboratory surface, not a marketing layer. The target
+operator console for measurement stations is Qt desktop, because advanced
+measurement work needs dense local controls, long-running acquisition state,
+instrument panels, alerts, future plots, and reliable offline operation.
+
+The console should let operators see campaign state, readiness, metrology
+status, test-definition approval, dataset lineage, update gates, and
+local/offline operating mode from one place.
 
 The first GUI shell is static and can load a Python-generated local bootstrap
-file from split SQLite repositories. First audited local project-stage,
-dataset-retention, and update-management actions exist. TCP/IP instrument IO
-now has a standard-library exchange path. Revisioned processing graph instances
-can be bound to source dataset checksums, software versions, and result
-artifacts. The next step is to expand guarded serial or VISA IO behind the
-existing runtime boundary.
+file from split SQLite repositories. It is now treated as a workflow prototype
+and dashboard mockup, while the Qt console becomes the application direction.
+First audited local project-stage, dataset-retention, and update-management
+actions exist. TCP/IP instrument IO now has a standard-library exchange path.
+Revisioned processing graph instances can be bound to source dataset checksums,
+software versions, and result artifacts. The next step is to expand guarded
+serial or VISA IO behind the existing runtime boundary.
 
 ## Near-Term Implementation Objectives
 
 1. Expand guarded IO-backed serial and VISA implementations behind the adapter
    skeletons.
-2. Add graph-driven execution records for revisioned signal-processing runs.
+2. Harden the Qt operator-console skeleton around real local repository data.
+3. Add graph-driven execution records for revisioned signal-processing runs.
 
 ## Non-Objectives
 

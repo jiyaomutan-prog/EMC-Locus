@@ -1,6 +1,9 @@
 # EMC Locus GUI Shell
 
-This is the first static operator-facing shell for EMC Locus.
+This is the first static operator-facing shell for EMC Locus. It is a workflow
+prototype and dashboard mockup, not the long-term technology direction for the
+measurement-station application. The desktop operator-console direction lives in
+`apps/qt-console`.
 
 Open `index.html` directly in a browser.
 

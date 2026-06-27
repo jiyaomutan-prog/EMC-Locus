@@ -30,8 +30,9 @@ technical review, report delivery, and archive.
   critical instrument-control primitives.
 - Python layer for laboratory scripting, adapters, data import/export, analysis
   pipelines, and fast prototyping.
-- A first operator-facing GUI shell exists as a static app. It should be wired
-  to stable Python and Rust services as those APIs mature.
+- Qt desktop console for the local measurement-station operator experience.
+  A static GUI shell exists as a workflow prototype and dashboard mockup, not as
+  the long-term UI technology for advanced acquisition work.
 
 ## Repository Layout
 
@@ -40,6 +41,7 @@ crates/
   emc-locus-core/        Rust domain model and core invariants
 apps/
   gui-shell/             Static operator console shell for workflow shaping
+  qt-console/            Qt desktop console bootstrap for measurement stations
 docs/
   architecture.md        System boundaries and technical direction
   product-objectives.md  Consolidated product objectives and non-objectives
@@ -51,6 +53,7 @@ docs/
   offline-first-architecture.md Local work, split stores, and sync direction
   instrument-control-architecture.md Transport-neutral instrument runtime
   signal-acquisition-analysis.md Time-domain DAQ and signal processing
+  gui-technology.md    Qt desktop direction for the operator console
   session-logs/          Dated development session records
   competitive-analysis/  Public feature baselines and product positioning
   roadmap.md             Incremental delivery plan
@@ -86,6 +89,7 @@ Revision tracking uses:
 
 ```text
 py -m compileall python\emc_locus
+py -m py_compile apps\qt-console\main.py
 $env:PYTHONPATH='python'; py -m unittest discover -s python\tests
 $env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrations import validate_sqlite_migrations; print(validate_sqlite_migrations(Path('storage/sqlite')))"
 cargo fmt --check
