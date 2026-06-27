@@ -64,7 +64,18 @@ class QtConsoleTests(unittest.TestCase):
                     }
                 ],
                 "datasets": [["RUN-QT-001", "raw_signal", "raw.opendata", "sha256:raw", "Immutable"]],
-                "instruments": [["DAQ-001", "DAQ", "Available", "CERT-1", "2027-01-01", "warn"]],
+                "instruments": [
+                    [
+                        "DAQ-001",
+                        "DAQ",
+                        "Available",
+                        "CERT-1",
+                        "2027-01-01",
+                        "warn",
+                        "DAQ chassis and modules",
+                        "channels=8",
+                    ]
+                ],
                 "runtime": [
                     [
                         "DAQ-001",
@@ -95,6 +106,7 @@ class QtConsoleTests(unittest.TestCase):
         )
         tables = {table.tab_label: table for table in model.tables}
         project_table = tables["Projets"]
+        metrology_table = tables["Metrologie"]
         category_table = tables["Categories"]
         dataset_table = tables["Donnees"]
         runtime_table = tables["Runtime"]
@@ -103,6 +115,20 @@ class QtConsoleTests(unittest.TestCase):
 
         self.assertEqual(project_table.columns[0:3], ("Code", "Client", "Etape"))
         self.assertEqual(project_table.rows[0][0:3], ("CEM-QT-001", "Rail Motion", "Measuring"))
+        self.assertEqual(
+            metrology_table.columns,
+            (
+                "Actif",
+                "Famille",
+                "Etat",
+                "Certificat",
+                "Validite",
+                "Alerte",
+                "Categorie",
+                "Capacites",
+            ),
+        )
+        self.assertEqual(metrology_table.rows[0][5:8], ("warn", "DAQ chassis and modules", "channels=8"))
         self.assertEqual(
             runtime_table.columns,
             (

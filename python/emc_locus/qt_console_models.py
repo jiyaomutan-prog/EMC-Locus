@@ -79,8 +79,17 @@ def build_console_view_model(bootstrap: dict[str, Any]) -> ConsoleViewModel:
             TableViewModel(
                 tab_label="Metrologie",
                 title="Instruments",
-                columns=("Actif", "Famille", "Etat", "Certificat", "Validite", "Alerte"),
-                rows=_list_rows(bootstrap.get("instruments"), 6),
+                columns=(
+                    "Actif",
+                    "Famille",
+                    "Etat",
+                    "Certificat",
+                    "Validite",
+                    "Alerte",
+                    "Categorie",
+                    "Capacites",
+                ),
+                rows=_list_rows(bootstrap.get("instruments"), 8),
             ),
             TableViewModel(
                 tab_label="Categories",
@@ -206,7 +215,7 @@ def _action_intents(bootstrap: dict[str, Any]) -> tuple[OperatorActionIntent, ..
 
 def _status_metrics(bootstrap: dict[str, Any]) -> tuple[StatusMetric, ...]:
     projects = _project_rows(bootstrap.get("projects"))
-    instruments = _list_rows(bootstrap.get("instruments"), 6)
+    instruments = _list_rows(bootstrap.get("instruments"), 8)
     categories = _list_rows(bootstrap.get("instrument_categories"), 5)
     runtime = _list_rows(bootstrap.get("runtime"), len(RUNTIME_COLUMNS))
     datasets = _list_rows(bootstrap.get("datasets"), 5)

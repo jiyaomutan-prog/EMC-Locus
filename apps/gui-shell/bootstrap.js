@@ -29,7 +29,9 @@ window.EMC_LOCUS_BOOTSTRAP = {
       "Available",
       "CERT-2026-001",
       "2027-01-01",
-      "ok"
+      "ok",
+      "EMI test receiver",
+      "detectors"
     ],
     [
       "GEN-002",
@@ -37,7 +39,9 @@ window.EMC_LOCUS_BOOTSTRAP = {
       "Reserved",
       "CERT-2025-044",
       "2026-07-12",
-      "warn"
+      "warn",
+      "RF signal generator",
+      "scpi"
     ],
     [
       "DAQ-OPEN-01",
@@ -45,7 +49,9 @@ window.EMC_LOCUS_BOOTSTRAP = {
       "Available",
       "CERT-2026-112",
       "2027-03-18",
-      "ok"
+      "ok",
+      "DAQ chassis and modules",
+      "8 channels"
     ],
     [
       "AMP-004",
@@ -53,7 +59,9 @@ window.EMC_LOCUS_BOOTSTRAP = {
       "Out of service",
       "CERT-2024-090",
       "2025-12-04",
-      "danger"
+      "danger",
+      "RF power amplifier",
+      "interlock"
     ]
   ],
   "instrument_categories": [

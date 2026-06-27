@@ -161,6 +161,8 @@ change should remain traceable through Git history, session logs, and this file.
   reserved, or out of service with bootstrap refresh.
 - Local metrology capability action and CLI for replacing controlled instrument
   capability JSON on existing assets.
+- Metrology inventory tables now surface instrument category and capability
+  previews in the Qt and browser bootstrap views.
 
 ### Planned
 

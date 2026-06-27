@@ -37,10 +37,10 @@ const fallbackData = {
     },
   ],
   instruments: [
-    ["RX-001", "Receiver", "Available", "CERT-2026-001", "2027-01-01", "ok"],
-    ["GEN-002", "Generator", "Reserved", "CERT-2025-044", "2026-07-12", "warn"],
-    ["DAQ-OPEN-01", "DAQ", "Available", "CERT-2026-112", "2027-03-18", "ok"],
-    ["AMP-004", "Amplifier", "Out of service", "CERT-2024-090", "2025-12-04", "danger"],
+    ["RX-001", "Receiver", "Available", "CERT-2026-001", "2027-01-01", "ok", "EMI test receiver", "detectors"],
+    ["GEN-002", "Generator", "Reserved", "CERT-2025-044", "2026-07-12", "warn", "RF signal generator", "scpi"],
+    ["DAQ-OPEN-01", "DAQ", "Available", "CERT-2026-112", "2027-03-18", "ok", "DAQ chassis and modules", "8 channels"],
+    ["AMP-004", "Amplifier", "Out of service", "CERT-2024-090", "2025-12-04", "danger", "RF power amplifier", "interlock"],
   ],
   instrument_categories: [
     ["emi_receiver", "emc", "EMI test receiver", "required", "rf"],
@@ -202,6 +202,8 @@ function renderMetrology() {
         <td>${badge(item[2], item[5])}</td>
         <td>${item[3]}</td>
         <td>${item[4]}</td>
+        <td>${item[6] || item[1]}</td>
+        <td>${item[7] || "none"}</td>
       </tr>`
     )
     .join("");

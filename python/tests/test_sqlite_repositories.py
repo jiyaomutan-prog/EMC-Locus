@@ -568,6 +568,7 @@ class GuiBootstrapTests(unittest.TestCase):
                 model="DAQ",
                 serial_number="001",
                 calibration_requirement="required",
+                capabilities_json='{"channels": 8}',
                 category_code="daq_chassis",
             )
             metrology.add_calibration_record(
@@ -633,6 +634,8 @@ class GuiBootstrapTests(unittest.TestCase):
             self.assertEqual(payload["projects"][0]["stage"], "Measuring")
             self.assertEqual(payload["instruments"][0][0], "DAQ-001")
             self.assertEqual(payload["instruments"][0][5], "ok")
+            self.assertEqual(payload["instruments"][0][6], "DAQ chassis and modules")
+            self.assertEqual(payload["instruments"][0][7], "channels=8")
             self.assertIn(
                 "daq_chassis",
                 {row[0] for row in payload["instrument_categories"]},

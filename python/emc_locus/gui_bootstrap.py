@@ -50,10 +50,10 @@ FALLBACK_BOOTSTRAP: BootstrapData = {
         },
     ],
     "instruments": [
-        ["RX-001", "Receiver", "Available", "CERT-2026-001", "2027-01-01", "ok"],
-        ["GEN-002", "Generator", "Reserved", "CERT-2025-044", "2026-07-12", "warn"],
-        ["DAQ-OPEN-01", "DAQ", "Available", "CERT-2026-112", "2027-03-18", "ok"],
-        ["AMP-004", "Amplifier", "Out of service", "CERT-2024-090", "2025-12-04", "danger"],
+        ["RX-001", "Receiver", "Available", "CERT-2026-001", "2027-01-01", "ok", "EMI test receiver", "detectors"],
+        ["GEN-002", "Generator", "Reserved", "CERT-2025-044", "2026-07-12", "warn", "RF signal generator", "scpi"],
+        ["DAQ-OPEN-01", "DAQ", "Available", "CERT-2026-112", "2027-03-18", "ok", "DAQ chassis and modules", "8 channels"],
+        ["AMP-004", "Amplifier", "Out of service", "CERT-2024-090", "2025-12-04", "danger", "RF power amplifier", "interlock"],
     ],
     "instrument_categories": [
         ["emi_receiver", "emc", "EMI test receiver", "required", "rf"],
@@ -233,6 +233,7 @@ def _instrument_row(
     calibration = repository.latest_calibration_record(str(row["asset_id"]))
     status = str(row["availability"])
     calibration_status = str(calibration["status_at_import"]) if calibration else "missing"
+    category_label = _instrument_category_label(repository, row)
     return [
         str(row["asset_id"]),
         str(row["family"]),
@@ -240,7 +241,41 @@ def _instrument_row(
         str(calibration["certificate_reference"]) if calibration else "missing",
         str(calibration["due_at"]) if calibration else "missing",
         _instrument_tone(status, calibration_status),
+        category_label,
+        _capabilities_preview(str(row["capabilities_json"])),
     ]
+
+
+def _instrument_category_label(
+    repository: MetrologyRepository,
+    row: dict[str, object],
+) -> str:
+    category_code = row.get("category_code")
+    if category_code is None:
+        return str(row["family"])
+
+    category = repository.get_instrument_category(str(category_code))
+    if category is None:
+        return str(category_code)
+    return str(category["label"])
+
+
+def _capabilities_preview(capabilities_json: str) -> str:
+    try:
+        parsed = json.loads(capabilities_json)
+    except json.JSONDecodeError:
+        return "invalid-json"
+
+    if parsed in ({}, []):
+        return "none"
+    if isinstance(parsed, dict):
+        parts = [f"{key}={parsed[key]}" for key in sorted(parsed)[:3]]
+        if len(parsed) > 3:
+            parts.append("...")
+        return ", ".join(parts)
+    if isinstance(parsed, list):
+        return ", ".join(str(item) for item in parsed[:3]) or "none"
+    return str(parsed)
 
 
 def _instrument_category_row(row: dict[str, object]) -> list[str]:
