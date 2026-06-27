@@ -151,6 +151,75 @@ def register_metrology_instrument(
     }
 
 
+def record_metrology_calibration(
+    *,
+    metrology_db: Path | str,
+    asset_id: str,
+    certificate_reference: str,
+    calibrated_at: str,
+    due_at: str,
+    provider: str,
+    status_at_import: str = "valid",
+    uncertainty_json: str = "{}",
+    file_reference: str | None = None,
+    checksum: str | None = None,
+    migrations_root: Path | str = Path("storage/sqlite"),
+    bootstrap_output: Path | str | None = None,
+    projects_db: Path | str | None = None,
+    test_definitions_db: Path | str | None = None,
+    measurement_data_db: Path | str | None = None,
+    update_catalog_db: Path | str | None = None,
+) -> dict[str, Any]:
+    """Record a calibration certificate for an existing metrology asset."""
+
+    asset_id = require_non_empty(asset_id, "asset_id")
+    certificate_reference = require_non_empty(
+        certificate_reference,
+        "certificate_reference",
+    )
+    calibrated_at = require_non_empty(calibrated_at, "calibrated_at")
+    due_at = require_non_empty(due_at, "due_at")
+    provider = require_non_empty(provider, "provider")
+    status_at_import = require_non_empty(status_at_import, "status_at_import")
+    uncertainty_json = _normalized_json(uncertainty_json, "uncertainty_json")
+
+    repository = MetrologyRepository(Path(metrology_db), Path(migrations_root))
+    repository.initialize()
+    instrument = repository.get_instrument(asset_id)
+    if instrument is None:
+        raise ValueError("instrument does not exist")
+
+    repository.add_calibration_record(
+        asset_id=asset_id,
+        certificate_reference=certificate_reference,
+        calibrated_at=calibrated_at,
+        due_at=due_at,
+        provider=provider,
+        status_at_import=status_at_import,
+        uncertainty_json=uncertainty_json,
+        file_reference=file_reference,
+        checksum=checksum,
+    )
+
+    if bootstrap_output is not None:
+        refresh_bootstrap(
+            output=bootstrap_output,
+            migrations_root=migrations_root,
+            projects_db=projects_db,
+            metrology_db=metrology_db,
+            test_definitions_db=test_definitions_db,
+            measurement_data_db=measurement_data_db,
+            update_catalog_db=update_catalog_db,
+        )
+
+    return {
+        "asset_id": asset_id,
+        "certificate_reference": certificate_reference,
+        "due_at": due_at,
+        "status_at_import": status_at_import,
+    }
+
+
 def advance_project_stage(
     *,
     projects_db: Path | str,
@@ -455,6 +524,20 @@ def main(argv: list[str] | None = None) -> int:
     register_parser.add_argument("--checksum")
     register_parser.add_argument("--bootstrap-output", type=Path)
 
+    calibration_parser = subcommands.add_parser("record-calibration")
+    _add_repository_args(calibration_parser, include_metrology=False)
+    calibration_parser.add_argument("--metrology-db", required=True, type=Path)
+    calibration_parser.add_argument("--asset-id", required=True)
+    calibration_parser.add_argument("--certificate-reference", required=True)
+    calibration_parser.add_argument("--calibrated-at", required=True)
+    calibration_parser.add_argument("--due-at", required=True)
+    calibration_parser.add_argument("--provider", required=True)
+    calibration_parser.add_argument("--status-at-import", default="valid")
+    calibration_parser.add_argument("--uncertainty-json", default="{}")
+    calibration_parser.add_argument("--file-reference")
+    calibration_parser.add_argument("--checksum")
+    calibration_parser.add_argument("--bootstrap-output", type=Path)
+
     advance_parser = subcommands.add_parser("advance-project")
     _add_repository_args(advance_parser, include_projects=False)
     advance_parser.add_argument("--projects-db", required=True, type=Path)
@@ -531,6 +614,28 @@ def main(argv: list[str] | None = None) -> int:
             calibration_requirement=args.calibration_requirement,
             availability=args.availability,
             capabilities_json=args.capabilities_json,
+            certificate_reference=args.certificate_reference,
+            calibrated_at=args.calibrated_at,
+            due_at=args.due_at,
+            provider=args.provider,
+            status_at_import=args.status_at_import,
+            uncertainty_json=args.uncertainty_json,
+            file_reference=args.file_reference,
+            checksum=args.checksum,
+            migrations_root=args.migrations_root,
+            bootstrap_output=args.bootstrap_output,
+            projects_db=args.projects_db,
+            test_definitions_db=args.test_definitions_db,
+            measurement_data_db=args.measurement_data_db,
+            update_catalog_db=args.update_catalog_db,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "record-calibration":
+        result = record_metrology_calibration(
+            metrology_db=args.metrology_db,
+            asset_id=args.asset_id,
             certificate_reference=args.certificate_reference,
             calibrated_at=args.calibrated_at,
             due_at=args.due_at,

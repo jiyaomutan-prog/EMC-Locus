@@ -155,6 +155,8 @@ change should remain traceable through Git history, session logs, and this file.
   tables.
 - Local metrology registration action and CLI for creating category-linked
   instruments with optional initial calibration records and bootstrap refresh.
+- Local metrology calibration action and CLI for adding renewal certificates to
+  existing instruments while keeping prior calibration history.
 
 ### Planned
 

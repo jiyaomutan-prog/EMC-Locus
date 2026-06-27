@@ -18,6 +18,7 @@ from emc_locus import (
     build_bootstrap,
     next_project_stage,
     register_metrology_instrument,
+    record_metrology_calibration,
     record_dataset_retention_action,
     record_update_install_action,
     record_update_validation_action,
@@ -754,6 +755,83 @@ class GuiActionTests(unittest.TestCase):
 
             repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
             self.assertIsNone(repository.get_instrument("BAD-CERT"))
+
+    def test_record_metrology_calibration_updates_existing_asset_and_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path("storage/sqlite")
+            base = Path(temporary_directory)
+            metrology_db = base / "metrology.sqlite"
+            bootstrap_output = base / "bootstrap.js"
+
+            register_metrology_instrument(
+                metrology_db=metrology_db,
+                asset_id="DAQ-CAL-001",
+                family="DAQ",
+                manufacturer="Open",
+                model="DAQ",
+                serial_number="CAL-001",
+                category_code="daq_chassis",
+            )
+
+            result = record_metrology_calibration(
+                metrology_db=metrology_db,
+                asset_id="DAQ-CAL-001",
+                certificate_reference="CERT-CAL-001",
+                calibrated_at="2026-06-15",
+                due_at="2027-06-15",
+                provider="Metrology Lab",
+                uncertainty_json='{"voltage": 0.02}',
+                bootstrap_output=bootstrap_output,
+            )
+
+            repository = MetrologyRepository(metrology_db, root)
+            calibration = repository.latest_calibration_record("DAQ-CAL-001")
+            bootstrap_text = bootstrap_output.read_text()
+
+            self.assertEqual(result["certificate_reference"], "CERT-CAL-001")
+            self.assertEqual(result["due_at"], "2027-06-15")
+            self.assertEqual(calibration["certificate_reference"], "CERT-CAL-001")
+            self.assertEqual(calibration["uncertainty_json"], '{"voltage": 0.02}')
+            self.assertIn("CERT-CAL-001", bootstrap_text)
+            self.assertIn("2027-06-15", bootstrap_text)
+
+    def test_record_metrology_calibration_rejects_missing_asset_or_bad_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            metrology_db = Path(temporary_directory) / "metrology.sqlite"
+
+            with self.assertRaises(ValueError):
+                record_metrology_calibration(
+                    metrology_db=metrology_db,
+                    asset_id="MISSING",
+                    certificate_reference="CERT-MISSING",
+                    calibrated_at="2026-06-15",
+                    due_at="2027-06-15",
+                    provider="Metrology Lab",
+                )
+
+            register_metrology_instrument(
+                metrology_db=metrology_db,
+                asset_id="DAQ-CAL-002",
+                family="DAQ",
+                manufacturer="Open",
+                model="DAQ",
+                serial_number="CAL-002",
+                category_code="daq_chassis",
+            )
+
+            with self.assertRaises(ValueError):
+                record_metrology_calibration(
+                    metrology_db=metrology_db,
+                    asset_id="DAQ-CAL-002",
+                    certificate_reference="CERT-BAD-JSON",
+                    calibrated_at="2026-06-15",
+                    due_at="2027-06-15",
+                    provider="Metrology Lab",
+                    uncertainty_json="{bad-json",
+                )
+
+            repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
+            self.assertIsNone(repository.latest_calibration_record("DAQ-CAL-002"))
 
     def test_dataset_retention_action_records_event_and_refreshes_bootstrap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

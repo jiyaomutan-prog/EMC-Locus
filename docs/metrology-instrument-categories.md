@@ -112,6 +112,25 @@ selected category. If one certificate field is supplied, the certificate
 reference, calibration date, due date, and provider are all required. The
 instrument and certificate are written in a single SQLite transaction.
 
+A later certificate can be added without recreating the instrument:
+
+```text
+$env:PYTHONPATH='python'
+python -m emc_locus.actions_cli record-calibration `
+  --metrology-db local/metrology.sqlite `
+  --asset-id RX-001 `
+  --certificate-reference CERT-RX-002 `
+  --calibrated-at 2027-05-20 `
+  --due-at 2028-05-20 `
+  --provider "Accredited Lab" `
+  --uncertainty-json '{\"level_db\":0.5}' `
+  --bootstrap-output apps/gui-shell/bootstrap.js
+```
+
+The GUI bootstrap displays the latest calibration record for each instrument,
+while older calibration rows remain in the metrology database for history and
+audit review.
+
 ## Public Sources Used
 
 - Keysight public electronic test equipment guide:
