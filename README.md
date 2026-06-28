@@ -75,7 +75,7 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.1.0`.
+Current software version: `0.2.0`.
 
 Revision tracking uses:
 

@@ -50,10 +50,15 @@ FALLBACK_BOOTSTRAP: BootstrapData = {
         },
     ],
     "instruments": [
-        ["RX-001", "Receiver", "Available", "CERT-2026-001", "2027-01-01", "ok", "EMI test receiver", "detectors"],
-        ["GEN-002", "Generator", "Reserved", "CERT-2025-044", "2026-07-12", "warn", "RF signal generator", "scpi"],
-        ["DAQ-OPEN-01", "DAQ", "Available", "CERT-2026-112", "2027-03-18", "ok", "DAQ chassis and modules", "8 channels"],
-        ["AMP-004", "Amplifier", "Out of service", "CERT-2024-090", "2025-12-04", "danger", "RF power amplifier", "interlock"],
+        ["RX-001", "Receiver", "Available", "CERT-2026-001", "2027-01-01", "ok", "EMI test receiver", "detectors", "Rohde Schwarz", "ESW", "100001", "ESW44", "2026-01-01", "12", "2"],
+        ["GEN-002", "Generator", "Reserved", "CERT-2025-044", "2026-07-12", "warn", "RF signal generator", "scpi", "Keysight", "N5183B", "100002", "N5183B-540", "2025-07-12", "12", "1"],
+        ["DAQ-OPEN-01", "DAQ", "Available", "CERT-2026-112", "2027-03-18", "ok", "DAQ chassis and modules", "8 channels", "openDAQ", "Reference DAQ", "DAQ001", "ODAQ-8", "2026-03-18", "12", "3"],
+        ["AMP-004", "Amplifier", "Out of service", "CERT-2024-090", "2025-12-04", "danger", "RF power amplifier", "interlock", "RF Lab", "AMP-250", "AMP004", "AMP-250", "2024-12-04", "12", "1"],
+    ],
+    "instrument_documents": [
+        ["RX-001", "certificate", "Certificat 2026", "metrology/RX-001/cert-2026.pdf", "A", "receiver calibration"],
+        ["RX-001", "datasheet", "Datasheet ESW", "metrology/RX-001/datasheet.pdf", "A", "technical data"],
+        ["DAQ-OPEN-01", "script", "openDAQ init", "scripts/daq/opendaq_init.py", "A", "measurement setup"],
     ],
     "instrument_categories": [
         ["emi_receiver", "emc", "EMI test receiver", "required", "rf"],
@@ -70,6 +75,18 @@ FALLBACK_BOOTSTRAP: BootstrapData = {
         ["RAIL-HARM-01", "Railway harmonics", "mixed_time_frequency", "approved", "sha256:railH"],
         ["INRUSH-DAQ-01", "Inrush current", "time_series", "draft", "sha256:inrushD"],
         ["AXLE-COUNT-01", "Axle counter", "event_triggered", "approved", "sha256:axle"],
+    ],
+    "test_categories": [
+        ["emission", "", "Emission", "active"],
+        ["emission_conducted", "emission", "Emission conduite", "active"],
+        ["emission_radiated", "emission", "Emission rayonnee", "active"],
+        ["immunity", "", "Immunite", "active"],
+        ["immunity_conducted", "immunity", "Immunite conduite", "active"],
+        ["immunity_radiated", "immunity", "Immunite rayonnee", "active"],
+    ],
+    "schedule": [
+        ["PLAN-001", "CEM-2026-001", "Pre-scan emission conduite", "emission_conducted", "2026-07-01T09:00", "2026-07-01T12:00", "operator.one", "Lab A", "planned"],
+        ["PLAN-002", "CEM-2026-001", "Immunite rayonnee", "immunity_radiated", "2026-07-02T13:00", "2026-07-02T17:00", "operator.two", "Chambre", "confirmed"],
     ],
     "datasets": [
         ["RUN-001", "raw_signal", "data/RUN-001/raw.opendata", "sha256:raw001", "Immutable"],
@@ -126,10 +143,17 @@ def build_bootstrap(
 
     if projects is not None:
         payload["projects"] = [_project_row(row) for row in projects.list_projects()]
+        payload["schedule"] = [
+            _schedule_row(row) for row in projects.list_service_schedule_items()
+        ]
 
     if metrology is not None:
-        payload["instruments"] = [
-            _instrument_row(metrology, row) for row in metrology.list_instruments()
+        instruments = metrology.list_instruments()
+        payload["instruments"] = [_instrument_row(metrology, row) for row in instruments]
+        payload["instrument_documents"] = [
+            _instrument_document_row(document)
+            for instrument in instruments
+            for document in metrology.list_instrument_documents(str(instrument["asset_id"]))
         ]
         payload["instrument_categories"] = [
             _instrument_category_row(row) for row in metrology.list_instrument_categories()
@@ -139,6 +163,9 @@ def build_bootstrap(
         payload["methods"] = [
             _method_row(test_definitions, row)
             for row in test_definitions.list_test_methods()
+        ]
+        payload["test_categories"] = [
+            _test_category_row(row) for row in test_definitions.list_all_test_categories()
         ]
 
     if measurement_data is not None:
@@ -226,6 +253,20 @@ def _project_row(row: dict[str, object]) -> dict[str, str]:
     }
 
 
+def _schedule_row(row: dict[str, object]) -> list[str]:
+    return [
+        str(row["item_code"]),
+        str(row["project_code"]),
+        str(row["title"]),
+        str(row.get("test_category_code") or ""),
+        str(row["planned_start_at"]),
+        str(row["planned_end_at"]),
+        str(row["assigned_operator"]),
+        str(row["location"]),
+        str(row["status"]),
+    ]
+
+
 def _instrument_row(
     repository: MetrologyRepository,
     row: dict[str, object],
@@ -243,6 +284,24 @@ def _instrument_row(
         _instrument_tone(status, calibration_status),
         category_label,
         _capabilities_preview(str(row["capabilities_json"])),
+        str(row.get("manufacturer") or ""),
+        str(row.get("model") or ""),
+        str(row.get("serial_number") or ""),
+        str(row.get("part_number") or ""),
+        str(calibration["calibrated_at"]) if calibration else "missing",
+        str(row.get("calibration_period_months") or ""),
+        str(len(repository.list_instrument_documents(str(row["asset_id"])))),
+    ]
+
+
+def _instrument_document_row(row: dict[str, object]) -> list[str]:
+    return [
+        str(row["asset_id"]),
+        str(row["document_kind"]),
+        str(row["title"]),
+        str(row["file_reference"]),
+        str(row.get("revision") or ""),
+        str(row.get("applies_to_function") or ""),
     ]
 
 
@@ -285,6 +344,15 @@ def _instrument_category_row(row: dict[str, object]) -> list[str]:
         str(row["label"]),
         str(row["default_calibration_requirement"]),
         str(row["calibration_profile"]),
+    ]
+
+
+def _test_category_row(row: dict[str, object]) -> list[str]:
+    return [
+        str(row["code"]),
+        str(row.get("parent_code") or ""),
+        str(row["label"]),
+        "active" if int(row["active"]) else "inactive",
     ]
 
 

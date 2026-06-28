@@ -19,6 +19,7 @@
         <nav class="nav-list" aria-label="Vues">
           <button class="nav-item active" data-view="dashboard" type="button">Tableau</button>
           <button class="nav-item" data-view="projects" type="button">Projets</button>
+          <button class="nav-item" data-view="planning" type="button">Planning</button>
           <button class="nav-item" data-view="metrology" type="button">Metrologie</button>
           <button class="nav-item" data-view="methods" type="button">Essais</button>
           <button class="nav-item" data-view="data" type="button">Donnees</button>
@@ -122,6 +123,33 @@
           </section>
         </section>
 
+        <section class="view" id="planning-view" aria-labelledby="view-title">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Planning de service</h2>
+              <span>Essais planifies</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Plan</th>
+                    <th>Projet</th>
+                    <th>Essai</th>
+                    <th>Categorie</th>
+                    <th>Debut</th>
+                    <th>Fin</th>
+                    <th>Operateur</th>
+                    <th>Lieu</th>
+                    <th>Statut</th>
+                  </tr>
+                </thead>
+                <tbody id="schedule-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
         <section class="view" id="metrology-view" aria-labelledby="view-title">
           <section class="panel">
             <div class="panel-head">
@@ -139,9 +167,37 @@
                     <th>Echeance</th>
                     <th>Categorie</th>
                     <th>Capacites</th>
+                    <th>Marque</th>
+                    <th>Modele</th>
+                    <th>Serie</th>
+                    <th>Part number</th>
+                    <th>Derniere cal</th>
+                    <th>Periodicite</th>
+                    <th>Docs</th>
                   </tr>
                 </thead>
                 <tbody id="metrology-table"></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Documents materiel</h2>
+              <span>Certificats, datasheets, scripts</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Asset</th>
+                    <th>Type</th>
+                    <th>Titre</th>
+                    <th>Fichier</th>
+                    <th>Revision</th>
+                    <th>Fonction</th>
+                  </tr>
+                </thead>
+                <tbody id="instrument-documents-table"></tbody>
               </table>
             </div>
           </section>
@@ -168,6 +224,25 @@
         </section>
 
         <section class="view" id="methods-view" aria-labelledby="view-title">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Categories d'essais</h2>
+              <span>Taxonomie ajustable</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Parent</th>
+                    <th>Nom</th>
+                    <th>Etat</th>
+                  </tr>
+                </thead>
+                <tbody id="test-categories-table"></tbody>
+              </table>
+            </div>
+          </section>
           <section class="panel">
             <div class="panel-head">
               <h2>Definitions d'essais</h2>

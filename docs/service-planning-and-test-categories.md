@@ -1,0 +1,76 @@
+# Service Planning and Test Categories
+
+EMC Locus now separates two needs that were missing from the early GUI:
+
+- planning when tests will be performed;
+- maintaining an adjustable taxonomy of tests.
+- keeping that planning tied to metrology and method references without forcing
+  a permanent online repository connection.
+
+## Service Planning
+
+The project repository owns `service_schedule_items`. A planning row records:
+
+- planning code;
+- project code;
+- test title;
+- optional test category and method references;
+- planned start and end timestamps;
+- assigned operator;
+- location;
+- equipment under test;
+- status.
+
+Allowed status values are `planned`, `confirmed`, `in_progress`, `completed`,
+and `cancelled`.
+
+Example local action:
+
+```text
+$env:PYTHONPATH='python'
+python -m emc_locus.actions_cli schedule-service-item `
+  --projects-db local/projects.sqlite `
+  --item-code PLAN-001 `
+  --project-code CEM-2026-001 `
+  --title "Emission conduite" `
+  --test-category-code emission_conducted `
+  --planned-start-at 2026-07-01T09:00 `
+  --planned-end-at 2026-07-01T12:00 `
+  --assigned-operator operator.one `
+  --location "Lab A" `
+  --equipment-under-test "EUT rail" `
+  --bootstrap-output apps/gui-shell/bootstrap.js
+```
+
+The browser and Qt bootstrap now include a `schedule` table.
+
+## Test Categories
+
+The test-definition repository owns `test_categories`. Categories are
+hierarchical and adjustable. The default seed is:
+
+- `emission`;
+- `emission_conducted`;
+- `emission_radiated`;
+- `immunity`;
+- `immunity_conducted`;
+- `immunity_radiated`;
+- additional default subfamilies for harmonics/flicker, transient time-domain
+  emission, ESD, fast transients, and power-quality immunity.
+
+Example local action:
+
+```text
+$env:PYTHONPATH='python'
+python -m emc_locus.actions_cli create-test-category `
+  --test-definitions-db local/test_definitions.sqlite `
+  --code immunity_magnetic_field `
+  --parent-code immunity_radiated `
+  --label "Champ magnetique" `
+  --description "Essais d immunite au champ magnetique basse frequence" `
+  --sort-order 30 `
+  --bootstrap-output apps/gui-shell/bootstrap.js
+```
+
+The browser and Qt bootstrap now include a `test_categories` table so the
+operator can see the taxonomy used by planning and method definitions.

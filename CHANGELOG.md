@@ -163,6 +163,18 @@ change should remain traceable through Git history, session logs, and this file.
   capability JSON on existing assets.
 - Metrology inventory tables now surface instrument category and capability
   previews in the Qt and browser bootstrap views.
+- Metrology instrument records now include part number, calibration periodicity,
+  notes, automatic next-calibration due-date calculation, and attached document
+  records for certificates, datasheets, transducer calculation sheets, scripts,
+  manuals, photos, and other evidence.
+- Project service-planning records for scheduling test execution with planned
+  start/end, operator, location, equipment under test, status, category, and
+  method references.
+- Adjustable hierarchical test categories seeded with emission/immunity,
+  conducted/radiated branches, and additional CEM families for harmonics,
+  transient time-domain measurements, ESD, fast transients, and power quality.
+- Qt and browser bootstrap views for metrology documents, service planning, and
+  test-category taxonomy.
 
 ### Fixed
 

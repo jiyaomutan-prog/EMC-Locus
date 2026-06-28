@@ -2,6 +2,8 @@
 
 from .gui_actions import (
     advance_project_stage,
+    attach_metrology_document,
+    create_test_category,
     next_project_stage,
     register_metrology_instrument,
     record_metrology_calibration,
@@ -9,6 +11,7 @@ from .gui_actions import (
     record_update_install_action,
     record_update_validation_action,
     refresh_bootstrap,
+    schedule_service_item,
     set_metrology_instrument_capabilities,
     set_metrology_instrument_availability,
 )
@@ -49,10 +52,12 @@ __all__ = [
     "UpdateCatalogRepository",
     "Workstream",
     "advance_project_stage",
+    "attach_metrology_document",
     "build_bootstrap",
     "build_console_bootstrap_from_repositories",
     "build_console_view_model",
     "build_fixture_bootstrap",
+    "create_test_category",
     "discover_migrations",
     "default_backlog",
     "next_project_stage",
@@ -62,6 +67,7 @@ __all__ = [
     "record_update_install_action",
     "record_update_validation_action",
     "refresh_bootstrap",
+    "schedule_service_item",
     "set_metrology_instrument_capabilities",
     "set_metrology_instrument_availability",
     "validate_sqlite_migrations",

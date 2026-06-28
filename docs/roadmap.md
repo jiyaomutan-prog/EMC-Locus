@@ -38,6 +38,8 @@ Deliverables:
 - SQLite test-definition adapter for standards, test methods, approved
   revisions, processing graph metadata, and evidence steps; initial Python
   adapter added.
+- Adjustable test-category taxonomy seeded with emission/immunity and
+  conducted/radiated branches; initial SQLite/Python/Qt/browser support added.
 
 ## Phase 2: Metrology Database
 
@@ -56,6 +58,10 @@ Deliverables:
 - Revisioned instrument category taxonomy for electronics, EMC, thermal,
   acoustic, shock/vibration, radio/RF, and data-monitoring equipment; initial
   SQLite/Python/Qt support added.
+- Instrument registration fields for manufacturer, model, serial, part number,
+  calibration periodicity, calculated next calibration, notes, and attached
+  certificates, datasheets, transducer sheets, and scripts; initial
+  SQLite/Python/Qt/browser support added.
 
 ## Phase 3: Measurement Runtime
 
@@ -176,6 +182,9 @@ Deliverables:
   export and `bootstrap.js` loading path added;
 - local write actions and refresh workflow; initial audited project stage action
   and dataset-retention and update-management actions added;
+- service planning table for scheduling test execution by project, operator,
+  category, location, EUT, status, and planned time window; initial
+  SQLite/Python/Qt/browser support added;
 - future Qt model/view screens backed by application services;
 - future Rust-backed command execution bridge for instrument runtime actions.
 

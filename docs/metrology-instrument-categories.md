@@ -99,18 +99,21 @@ python -m emc_locus.actions_cli register-instrument `
   --manufacturer "Rohde Schwarz" `
   --model ESW `
   --serial-number 100001 `
+  --part-number ESW44 `
   --category-code emi_receiver `
+  --calibration-period-months 12 `
   --certificate-reference CERT-RX-001 `
   --calibrated-at 2026-06-01 `
-  --due-at 2027-06-01 `
   --provider "Accredited Lab" `
   --bootstrap-output apps/gui-shell/bootstrap.js
 ```
 
 If `--calibration-requirement` is omitted, the action takes the default from the
 selected category. If one certificate field is supplied, the certificate
-reference, calibration date, due date, and provider are all required. The
-instrument and certificate are written in a single SQLite transaction.
+reference, calibration date, and provider are required. If `--due-at` is not
+supplied, EMC Locus computes it from `--calibrated-at` and
+`--calibration-period-months`. The instrument and certificate are written in a
+single SQLite transaction.
 
 A later certificate can be added without recreating the instrument:
 
@@ -156,6 +159,22 @@ python -m emc_locus.actions_cli set-instrument-capabilities `
   --asset-id DAQ-001 `
   --capabilities-json '{\"channels\":8,\"transports\":[\"opendaq\",\"ethernet\"]}' `
   --bootstrap-output apps/gui-shell/bootstrap.js
+```
+
+Documents can be attached to the asset lifecycle. Supported document kinds are:
+`certificate`, `datasheet`, `transducer_calculation`, `script`, `manual`,
+`photo`, and `other`.
+
+```text
+$env:PYTHONPATH='python'
+python -m emc_locus.actions_cli attach-instrument-document `
+  --metrology-db local/metrology.sqlite `
+  --asset-id RX-001 `
+  --document-kind datasheet `
+  --title "ESW datasheet" `
+  --file-reference metrology/RX-001/datasheet.pdf `
+  --uploaded-by metrology.admin `
+  --applies-to-function "receiver correction"
 ```
 
 ## Public Sources Used

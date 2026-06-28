@@ -107,6 +107,9 @@ class MetrologyRepository(SQLiteDomainRepository):
         availability: str = "available",
         capabilities_json: str = "[]",
         category_code: str | None = None,
+        part_number: str | None = None,
+        calibration_period_months: int | None = None,
+        metrology_notes: str = "",
     ) -> None:
         now = utc_timestamp()
         with closing(self.connect()) as connection:
@@ -123,10 +126,13 @@ class MetrologyRepository(SQLiteDomainRepository):
                         calibration_requirement,
                         capabilities_json,
                         category_code,
+                        part_number,
+                        calibration_period_months,
+                        metrology_notes,
                         created_at,
                         updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         asset_id,
@@ -138,6 +144,9 @@ class MetrologyRepository(SQLiteDomainRepository):
                         calibration_requirement,
                         capabilities_json,
                         category_code,
+                        part_number,
+                        calibration_period_months,
+                        metrology_notes,
                         now,
                         now,
                     ),
@@ -155,6 +164,9 @@ class MetrologyRepository(SQLiteDomainRepository):
         availability: str = "available",
         capabilities_json: str = "[]",
         category_code: str | None = None,
+        part_number: str | None = None,
+        calibration_period_months: int | None = None,
+        metrology_notes: str = "",
         certificate_reference: str | None = None,
         calibrated_at: str | None = None,
         due_at: str | None = None,
@@ -181,10 +193,13 @@ class MetrologyRepository(SQLiteDomainRepository):
                         calibration_requirement,
                         capabilities_json,
                         category_code,
+                        part_number,
+                        calibration_period_months,
+                        metrology_notes,
                         created_at,
                         updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         asset_id,
@@ -196,6 +211,9 @@ class MetrologyRepository(SQLiteDomainRepository):
                         calibration_requirement,
                         capabilities_json,
                         category_code,
+                        part_number,
+                        calibration_period_months,
+                        metrology_notes,
                         now,
                         now,
                     ),
@@ -277,6 +295,49 @@ class MetrologyRepository(SQLiteDomainRepository):
                     ),
                 )
 
+    def add_instrument_document(
+        self,
+        *,
+        asset_id: str,
+        document_kind: str,
+        title: str,
+        file_reference: str,
+        uploaded_by: str,
+        checksum: str | None = None,
+        revision: str | None = None,
+        applies_to_function: str | None = None,
+    ) -> int:
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO instrument_documents (
+                        asset_id,
+                        document_kind,
+                        title,
+                        file_reference,
+                        checksum,
+                        revision,
+                        applies_to_function,
+                        uploaded_by,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        asset_id,
+                        document_kind,
+                        title,
+                        file_reference,
+                        checksum,
+                        revision,
+                        applies_to_function,
+                        uploaded_by,
+                        utc_timestamp(),
+                    ),
+                )
+        return int(cursor.lastrowid)
+
     def instrument_count(self) -> int:
         with closing(self.connect()) as connection:
             row = connection.execute("SELECT COUNT(*) AS count FROM instruments").fetchone()
@@ -285,6 +346,13 @@ class MetrologyRepository(SQLiteDomainRepository):
     def calibration_count(self) -> int:
         with closing(self.connect()) as connection:
             row = connection.execute("SELECT COUNT(*) AS count FROM calibration_records").fetchone()
+        return int(row["count"])
+
+    def document_count(self) -> int:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS count FROM instrument_documents WHERE active = 1"
+            ).fetchone()
         return int(row["count"])
 
     def category_count(self) -> int:
@@ -403,6 +471,35 @@ class MetrologyRepository(SQLiteDomainRepository):
                 (asset_id,),
             ).fetchone()
         return row_to_dict(row)
+
+    def list_instrument_documents(
+        self,
+        asset_id: str,
+        *,
+        document_kind: str | None = None,
+    ) -> list[dict[str, object]]:
+        with closing(self.connect()) as connection:
+            if document_kind is None:
+                rows = connection.execute(
+                    """
+                    SELECT *
+                    FROM instrument_documents
+                    WHERE asset_id = ? AND active = 1
+                    ORDER BY document_kind, title, id
+                    """,
+                    (asset_id,),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT *
+                    FROM instrument_documents
+                    WHERE asset_id = ? AND document_kind = ? AND active = 1
+                    ORDER BY title, id
+                    """,
+                    (asset_id, document_kind),
+                ).fetchall()
+        return [dict(row) for row in rows]
 
     def update_instrument_availability(self, *, asset_id: str, availability: str) -> bool:
         now = utc_timestamp()
@@ -664,6 +761,110 @@ class ProjectRepository(SQLiteDomainRepository):
                 (project_code,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def add_service_schedule_item(
+        self,
+        *,
+        item_code: str,
+        project_code: str,
+        title: str,
+        planned_start_at: str,
+        planned_end_at: str,
+        assigned_operator: str,
+        location: str,
+        equipment_under_test: str,
+        test_category_code: str | None = None,
+        test_method_code: str | None = None,
+        status: str = "planned",
+        notes: str = "",
+    ) -> int:
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO service_schedule_items (
+                        item_code,
+                        project_code,
+                        title,
+                        test_category_code,
+                        test_method_code,
+                        planned_start_at,
+                        planned_end_at,
+                        assigned_operator,
+                        location,
+                        equipment_under_test,
+                        status,
+                        notes,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item_code,
+                        project_code,
+                        title,
+                        test_category_code,
+                        test_method_code,
+                        planned_start_at,
+                        planned_end_at,
+                        assigned_operator,
+                        location,
+                        equipment_under_test,
+                        status,
+                        notes,
+                        now,
+                        now,
+                    ),
+                )
+        return int(cursor.lastrowid)
+
+    def list_service_schedule_items(
+        self,
+        *,
+        project_code: str | None = None,
+        status: str | None = None,
+    ) -> list[dict[str, object]]:
+        filters: list[str] = []
+        parameters: list[str] = []
+        if project_code is not None:
+            filters.append("project_code = ?")
+            parameters.append(project_code)
+        if status is not None:
+            filters.append("status = ?")
+            parameters.append(status)
+
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                f"""
+                SELECT *
+                FROM service_schedule_items
+                {where_clause}
+                ORDER BY planned_start_at, planned_end_at, item_code
+                """,
+                tuple(parameters),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_service_schedule_status(
+        self,
+        *,
+        item_code: str,
+        status: str,
+    ) -> bool:
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    UPDATE service_schedule_items
+                    SET status = ?, updated_at = ?
+                    WHERE item_code = ?
+                    """,
+                    (status, utc_timestamp(), item_code),
+                )
+        return cursor.rowcount == 1
 
 
 class MeasurementDataRepository(SQLiteDomainRepository):
@@ -1478,6 +1679,7 @@ class TestDefinitionRepository(SQLiteDomainRepository):
         family: str,
         measurement_axis: str,
         controlled: bool = True,
+        category_code: str | None = None,
     ) -> None:
         now = utc_timestamp()
         with closing(self.connect()) as connection:
@@ -1491,10 +1693,11 @@ class TestDefinitionRepository(SQLiteDomainRepository):
                         family,
                         measurement_axis,
                         controlled,
+                        category_code,
                         created_at,
                         updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         code,
@@ -1503,10 +1706,99 @@ class TestDefinitionRepository(SQLiteDomainRepository):
                         family,
                         measurement_axis,
                         int(controlled),
+                        category_code,
                         now,
                         now,
                     ),
                 )
+
+    def add_test_category(
+        self,
+        *,
+        code: str,
+        label: str,
+        description: str,
+        parent_code: str | None = None,
+        active: bool = True,
+        sort_order: int = 0,
+    ) -> None:
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO test_categories (
+                        code,
+                        parent_code,
+                        label,
+                        description,
+                        active,
+                        sort_order,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        code,
+                        parent_code,
+                        label,
+                        description,
+                        int(active),
+                        sort_order,
+                        now,
+                        now,
+                    ),
+                )
+
+    def list_test_categories(
+        self,
+        *,
+        parent_code: str | None = None,
+        active_only: bool = True,
+    ) -> list[dict[str, object]]:
+        clauses: list[str] = []
+        parameters: list[str] = []
+        if parent_code is None:
+            clauses.append("parent_code IS NULL")
+        else:
+            clauses.append("parent_code = ?")
+            parameters.append(parent_code)
+        if active_only:
+            clauses.append("active = 1")
+
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                f"""
+                SELECT *
+                FROM test_categories
+                WHERE {' AND '.join(clauses)}
+                ORDER BY sort_order, label, code
+                """,
+                tuple(parameters),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_all_test_categories(self, *, active_only: bool = True) -> list[dict[str, object]]:
+        where_clause = "WHERE active = 1" if active_only else ""
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                f"""
+                SELECT *
+                FROM test_categories
+                {where_clause}
+                ORDER BY COALESCE(parent_code, ''), sort_order, label, code
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_test_category(self, code: str) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM test_categories WHERE code = ?",
+                (code,),
+            ).fetchone()
+        return row_to_dict(row)
 
     def get_test_method(self, code: str) -> dict[str, object] | None:
         with closing(self.connect()) as connection:

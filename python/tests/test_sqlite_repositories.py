@@ -15,13 +15,16 @@ from emc_locus import (
     TestDefinitionRepository,
     UpdateCatalogRepository,
     advance_project_stage,
+    attach_metrology_document,
     build_bootstrap,
+    create_test_category,
     next_project_stage,
     register_metrology_instrument,
     record_metrology_calibration,
     record_dataset_retention_action,
     record_update_install_action,
     record_update_validation_action,
+    schedule_service_item,
     set_metrology_instrument_capabilities,
     set_metrology_instrument_availability,
     write_bootstrap_js,
@@ -523,8 +526,10 @@ class MetrologyRepositoryTests(unittest.TestCase):
                     "PRAGMA table_info(instruments)"
                 ).fetchall()
 
-            self.assertEqual([row["version"] for row in version_rows], [1, 2])
+            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3])
             self.assertIn("category_code", {row["name"] for row in instrument_columns})
+            self.assertIn("part_number", {row["name"] for row in instrument_columns})
+            self.assertIn("calibration_period_months", {row["name"] for row in instrument_columns})
             self.assertEqual(repository.category_count(), 34)
             self.assertIsNone(repository.get_instrument("LEGACY-001")["category_code"])
 
@@ -561,6 +566,17 @@ class GuiBootstrapTests(unittest.TestCase):
                 execution_mode="investigation",
                 stage="measuring",
             )
+            projects.add_service_schedule_item(
+                item_code="PLAN-BOOT-001",
+                project_code="CEM-BOOT-001",
+                title="Inrush current capture",
+                test_category_code="emission_transient_time_domain",
+                planned_start_at="2026-07-03T09:00",
+                planned_end_at="2026-07-03T11:00",
+                assigned_operator="operator.boot",
+                location="Lab B",
+                equipment_under_test="EUT boot",
+            )
             metrology.add_instrument(
                 asset_id="DAQ-001",
                 family="DAQ",
@@ -570,6 +586,8 @@ class GuiBootstrapTests(unittest.TestCase):
                 calibration_requirement="required",
                 capabilities_json='{"channels": 8}',
                 category_code="daq_chassis",
+                part_number="ODAQ-8",
+                calibration_period_months=12,
             )
             metrology.add_calibration_record(
                 asset_id="DAQ-001",
@@ -578,12 +596,20 @@ class GuiBootstrapTests(unittest.TestCase):
                 due_at="2027-01-01",
                 provider="Metrology Lab",
             )
+            metrology.add_instrument_document(
+                asset_id="DAQ-001",
+                document_kind="script",
+                title="DAQ setup script",
+                file_reference="scripts/daq/setup.py",
+                uploaded_by="operator.boot",
+            )
             test_definitions.add_test_method(
                 code="INRUSH-001",
                 standard_code=None,
                 name="Inrush current",
                 family="inrush",
                 measurement_axis="time_series",
+                category_code="emission_transient_time_domain",
             )
             test_definitions.add_method_revision(
                 method_code="INRUSH-001",
@@ -636,9 +662,19 @@ class GuiBootstrapTests(unittest.TestCase):
             self.assertEqual(payload["instruments"][0][5], "ok")
             self.assertEqual(payload["instruments"][0][6], "DAQ chassis and modules")
             self.assertEqual(payload["instruments"][0][7], "channels=8")
+            self.assertEqual(payload["instruments"][0][11], "ODAQ-8")
+            self.assertEqual(payload["instruments"][0][12], "2026-01-01")
+            self.assertEqual(payload["instruments"][0][13], "12")
+            self.assertEqual(payload["instruments"][0][14], "1")
+            self.assertEqual(payload["instrument_documents"][0][2], "DAQ setup script")
+            self.assertEqual(payload["schedule"][0][0], "PLAN-BOOT-001")
             self.assertIn(
                 "daq_chassis",
                 {row[0] for row in payload["instrument_categories"]},
+            )
+            self.assertIn(
+                "emission_transient_time_domain",
+                {row[0] for row in payload["test_categories"]},
             )
             self.assertEqual(payload["methods"][0][3], "approved")
             self.assertEqual(payload["datasets"][0][4], "Immutable")
@@ -693,6 +729,45 @@ class GuiActionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             next_project_stage("unknown")
 
+    def test_schedule_service_item_records_planned_test_and_refreshes_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path("storage/sqlite")
+            base = Path(temporary_directory)
+            projects_db = base / "projects.sqlite"
+            bootstrap_output = base / "bootstrap.js"
+            projects = ProjectRepository(projects_db, root)
+            projects.initialize()
+            projects.create_project(
+                code="CEM-SCH-001",
+                customer_name="Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            result = schedule_service_item(
+                projects_db=projects_db,
+                item_code="PLAN-SCH-001",
+                project_code="CEM-SCH-001",
+                title="Emission conduite",
+                test_category_code="emission_conducted",
+                test_method_code="EN55032-CE",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+                bootstrap_output=bootstrap_output,
+            )
+
+            schedule = projects.list_service_schedule_items(project_code="CEM-SCH-001")
+            bootstrap_text = bootstrap_output.read_text()
+
+            self.assertEqual(result["item_code"], "PLAN-SCH-001")
+            self.assertEqual(schedule[0]["title"], "Emission conduite")
+            self.assertEqual(schedule[0]["status"], "planned")
+            self.assertIn("PLAN-SCH-001", bootstrap_text)
+            self.assertIn("Emission conduite", bootstrap_text)
+
     def test_register_metrology_instrument_records_asset_certificate_and_bootstrap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path("storage/sqlite")
@@ -708,10 +783,11 @@ class GuiActionTests(unittest.TestCase):
                 model="ESW",
                 serial_number="100001",
                 category_code="emi_receiver",
+                part_number="ESW44",
+                calibration_period_months=12,
                 capabilities_json='{"frequency_max_hz": 44000000000}',
                 certificate_reference="CERT-RX-001",
                 calibrated_at="2026-06-01",
-                due_at="2027-06-01",
                 provider="Accredited Lab",
                 uncertainty_json='{"level_db": 0.6}',
                 bootstrap_output=bootstrap_output,
@@ -724,12 +800,33 @@ class GuiActionTests(unittest.TestCase):
 
             self.assertEqual(result["category_code"], "emi_receiver")
             self.assertEqual(result["category_label"], "EMI test receiver")
+            self.assertEqual(result["part_number"], "ESW44")
+            self.assertEqual(result["calibration_period_months"], 12)
             self.assertEqual(result["calibration_requirement"], "required")
             self.assertTrue(result["calibration_recorded"])
             self.assertEqual(instrument["category_code"], "emi_receiver")
+            self.assertEqual(instrument["part_number"], "ESW44")
+            self.assertEqual(instrument["calibration_period_months"], 12)
             self.assertEqual(calibration["certificate_reference"], "CERT-RX-001")
+            self.assertEqual(calibration["due_at"], "2027-06-01")
             self.assertIn("RX-ACT-001", bootstrap_text)
             self.assertIn("EMI test receiver", bootstrap_text)
+
+            document = attach_metrology_document(
+                metrology_db=metrology_db,
+                asset_id="RX-ACT-001",
+                document_kind="datasheet",
+                title="ESW datasheet",
+                file_reference="metrology/RX-ACT-001/datasheet.pdf",
+                uploaded_by="metrology.admin",
+                applies_to_function="receiver limits",
+                bootstrap_output=bootstrap_output,
+            )
+            documents = repository.list_instrument_documents("RX-ACT-001")
+
+            self.assertEqual(document["document_kind"], "datasheet")
+            self.assertEqual(documents[0]["title"], "ESW datasheet")
+            self.assertIn("ESW datasheet", bootstrap_output.read_text())
 
     def test_register_metrology_instrument_rejects_unknown_or_incomplete_data(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -1082,6 +1179,32 @@ class GuiActionTests(unittest.TestCase):
 
 
 class TestDefinitionRepositoryTests(unittest.TestCase):
+    def test_lists_default_and_custom_test_categories(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            test_definitions_db = Path(temporary_directory) / "test_definitions.sqlite"
+            repository = TestDefinitionRepository(test_definitions_db, Path("storage/sqlite"))
+            repository.initialize()
+
+            roots = repository.list_test_categories()
+            emission_children = repository.list_test_categories(parent_code="emission")
+            custom = create_test_category(
+                test_definitions_db=test_definitions_db,
+                code="immunity_magnetic_field",
+                parent_code="immunity_radiated",
+                label="Champ magnetique",
+                description="Essais d immunite au champ magnetique basse frequence.",
+                sort_order=30,
+            )
+
+            self.assertIn("emission", {row["code"] for row in roots})
+            self.assertIn("immunity", {row["code"] for row in roots})
+            self.assertIn("emission_conducted", {row["code"] for row in emission_children})
+            self.assertEqual(custom["parent_code"], "immunity_radiated")
+            self.assertEqual(
+                repository.get_test_category("immunity_magnetic_field")["label"],
+                "Champ magnetique",
+            )
+
     def test_records_method_revision_steps_and_approval(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = TestDefinitionRepository(

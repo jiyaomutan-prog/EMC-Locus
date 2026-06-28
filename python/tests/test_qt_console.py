@@ -74,6 +74,29 @@ class QtConsoleTests(unittest.TestCase):
                         "warn",
                         "DAQ chassis and modules",
                         "channels=8",
+                        "openDAQ",
+                        "Reference DAQ",
+                        "DAQ001",
+                        "ODAQ-8",
+                        "2026-03-18",
+                        "12",
+                        "2",
+                    ]
+                ],
+                "instrument_documents": [
+                    ["DAQ-001", "script", "setup.py", "scripts/setup.py", "A", "setup"]
+                ],
+                "schedule": [
+                    [
+                        "PLAN-QT-001",
+                        "CEM-QT-001",
+                        "Inrush",
+                        "emission_transient_time_domain",
+                        "2026-07-01T09:00",
+                        "2026-07-01T12:00",
+                        "operator.one",
+                        "Lab A",
+                        "planned",
                     ]
                 ],
                 "runtime": [
@@ -102,12 +125,19 @@ class QtConsoleTests(unittest.TestCase):
                 "instrument_categories": [
                     ["daq_chassis", "data_monitoring", "DAQ chassis and modules", "required", "data_acquisition"]
                 ],
+                "test_categories": [
+                    ["emission", "", "Emission", "active"],
+                    ["emission_conducted", "emission", "Emission conduite", "active"],
+                ],
             }
         )
         tables = {table.tab_label: table for table in model.tables}
         project_table = tables["Projets"]
         metrology_table = tables["Metrologie"]
+        document_table = tables["Docs metro"]
         category_table = tables["Categories"]
+        schedule_table = tables["Planning"]
+        test_category_table = tables["Categories essais"]
         dataset_table = tables["Donnees"]
         runtime_table = tables["Runtime"]
         actions = {action.action_id: action for action in model.actions}
@@ -126,9 +156,20 @@ class QtConsoleTests(unittest.TestCase):
                 "Alerte",
                 "Categorie",
                 "Capacites",
+                "Marque",
+                "Modele",
+                "Serie",
+                "Part number",
+                "Derniere cal",
+                "Periodicite",
+                "Docs",
             ),
         )
         self.assertEqual(metrology_table.rows[0][5:8], ("warn", "DAQ chassis and modules", "channels=8"))
+        self.assertEqual(metrology_table.rows[0][8:15], ("openDAQ", "Reference DAQ", "DAQ001", "ODAQ-8", "2026-03-18", "12", "2"))
+        self.assertEqual(document_table.rows[0][0:3], ("DAQ-001", "script", "setup.py"))
+        self.assertEqual(schedule_table.rows[0][0:4], ("PLAN-QT-001", "CEM-QT-001", "Inrush", "emission_transient_time_domain"))
+        self.assertEqual(test_category_table.rows[1][0:3], ("emission_conducted", "emission", "Emission conduite"))
         self.assertEqual(
             runtime_table.columns,
             (
@@ -154,6 +195,8 @@ class QtConsoleTests(unittest.TestCase):
         self.assertEqual(metrics["Projets actifs"].value, "1")
         self.assertEqual(metrics["Alertes metrologie"].tone, "warn")
         self.assertEqual(metrics["Categories instruments"].value, "1")
+        self.assertEqual(metrics["Docs materiel"].value, "1")
+        self.assertEqual(metrics["Planning"].value, "1")
         self.assertEqual(metrics["Erreurs runtime"].value, "1")
         self.assertEqual(metrics["Erreurs runtime"].tone, "warn")
         self.assertEqual(metrics["Tentatives max"].value, "3")

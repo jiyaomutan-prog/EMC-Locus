@@ -16,6 +16,23 @@ RUNTIME_COLUMNS = (
     "Observation",
     "Tentatives",
 )
+INSTRUMENT_COLUMNS = (
+    "Actif",
+    "Famille",
+    "Etat",
+    "Certificat",
+    "Validite",
+    "Alerte",
+    "Categorie",
+    "Capacites",
+    "Marque",
+    "Modele",
+    "Serie",
+    "Part number",
+    "Derniere cal",
+    "Periodicite",
+    "Docs",
+)
 
 
 @dataclass(frozen=True)
@@ -79,23 +96,36 @@ def build_console_view_model(bootstrap: dict[str, Any]) -> ConsoleViewModel:
             TableViewModel(
                 tab_label="Metrologie",
                 title="Instruments",
-                columns=(
-                    "Actif",
-                    "Famille",
-                    "Etat",
-                    "Certificat",
-                    "Validite",
-                    "Alerte",
-                    "Categorie",
-                    "Capacites",
-                ),
-                rows=_list_rows(bootstrap.get("instruments"), 8),
+                columns=INSTRUMENT_COLUMNS,
+                rows=_list_rows(bootstrap.get("instruments"), len(INSTRUMENT_COLUMNS)),
+            ),
+            TableViewModel(
+                tab_label="Docs metro",
+                title="Documents materiel",
+                columns=("Actif", "Type", "Titre", "Fichier", "Revision", "Fonction"),
+                rows=_list_rows(bootstrap.get("instrument_documents"), 6),
             ),
             TableViewModel(
                 tab_label="Categories",
                 title="Categories instruments",
                 columns=("Code", "Domaine", "Nom", "Calibration", "Profil"),
                 rows=_list_rows(bootstrap.get("instrument_categories"), 5),
+            ),
+            TableViewModel(
+                tab_label="Planning",
+                title="Planning de service",
+                columns=(
+                    "Plan",
+                    "Projet",
+                    "Essai",
+                    "Categorie",
+                    "Debut",
+                    "Fin",
+                    "Operateur",
+                    "Lieu",
+                    "Statut",
+                ),
+                rows=_list_rows(bootstrap.get("schedule"), 9),
             ),
             TableViewModel(
                 tab_label="Runtime",
@@ -108,6 +138,12 @@ def build_console_view_model(bootstrap: dict[str, Any]) -> ConsoleViewModel:
                 title="Methodes",
                 columns=("Code", "Nom", "Axe", "Statut", "Checksum"),
                 rows=_list_rows(bootstrap.get("methods"), 5),
+            ),
+            TableViewModel(
+                tab_label="Categories essais",
+                title="Categories essais",
+                columns=("Code", "Parent", "Nom", "Etat"),
+                rows=_list_rows(bootstrap.get("test_categories"), 4),
             ),
             TableViewModel(
                 tab_label="Donnees",
@@ -215,8 +251,10 @@ def _action_intents(bootstrap: dict[str, Any]) -> tuple[OperatorActionIntent, ..
 
 def _status_metrics(bootstrap: dict[str, Any]) -> tuple[StatusMetric, ...]:
     projects = _project_rows(bootstrap.get("projects"))
-    instruments = _list_rows(bootstrap.get("instruments"), 8)
+    instruments = _list_rows(bootstrap.get("instruments"), len(INSTRUMENT_COLUMNS))
+    documents = _list_rows(bootstrap.get("instrument_documents"), 6)
     categories = _list_rows(bootstrap.get("instrument_categories"), 5)
+    schedule = _list_rows(bootstrap.get("schedule"), 9)
     runtime = _list_rows(bootstrap.get("runtime"), len(RUNTIME_COLUMNS))
     datasets = _list_rows(bootstrap.get("datasets"), 5)
     updates = _list_rows(bootstrap.get("updates"), 5)
@@ -239,6 +277,16 @@ def _status_metrics(bootstrap: dict[str, Any]) -> tuple[StatusMetric, ...]:
             "Categories instruments",
             str(len(categories)),
             "ok" if categories else "neutral",
+        ),
+        StatusMetric(
+            "Docs materiel",
+            str(len(documents)),
+            "ok" if documents else "neutral",
+        ),
+        StatusMetric(
+            "Planning",
+            str(len(schedule)),
+            "warn" if any(row[8] in {"planned", "confirmed"} for row in schedule) else "ok",
         ),
         StatusMetric(
             "Erreurs runtime",

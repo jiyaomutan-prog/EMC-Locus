@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import calendar
+from datetime import date
 import json
 from pathlib import Path
 from typing import Any
@@ -35,6 +37,22 @@ DATASET_RETENTION_ACTIONS = {
     "mark-deleted": "deleted",
 }
 INSTRUMENT_AVAILABILITY_STATUSES = {"available", "reserved", "out_of_service"}
+INSTRUMENT_DOCUMENT_KINDS = {
+    "certificate",
+    "datasheet",
+    "transducer_calculation",
+    "script",
+    "manual",
+    "photo",
+    "other",
+}
+SERVICE_SCHEDULE_STATUSES = {
+    "planned",
+    "confirmed",
+    "in_progress",
+    "completed",
+    "cancelled",
+}
 
 
 def register_metrology_instrument(
@@ -49,6 +67,9 @@ def register_metrology_instrument(
     calibration_requirement: str | None = None,
     availability: str = "available",
     capabilities_json: str = "[]",
+    part_number: str | None = None,
+    calibration_period_months: int | None = None,
+    metrology_notes: str = "",
     certificate_reference: str | None = None,
     calibrated_at: str | None = None,
     due_at: str | None = None,
@@ -75,6 +96,10 @@ def register_metrology_instrument(
     availability = require_non_empty(availability, "availability")
     capabilities_json = _normalized_json(capabilities_json, "capabilities_json")
     uncertainty_json = _normalized_json(uncertainty_json, "uncertainty_json")
+    calibration_period_months = _positive_optional_int(
+        calibration_period_months,
+        "calibration_period_months",
+    )
 
     repository = MetrologyRepository(Path(metrology_db), Path(migrations_root))
     repository.initialize()
@@ -98,7 +123,11 @@ def register_metrology_instrument(
             "certificate_reference",
         )
         calibrated_at = require_non_empty(str(calibrated_at or ""), "calibrated_at")
-        due_at = require_non_empty(str(due_at or ""), "due_at")
+        due_at = _due_at_from_period(
+            calibrated_at=calibrated_at,
+            due_at=due_at,
+            calibration_period_months=calibration_period_months,
+        )
         provider = require_non_empty(str(provider or ""), "provider")
     else:
         certificate_reference = None
@@ -116,6 +145,9 @@ def register_metrology_instrument(
         availability=availability,
         capabilities_json=capabilities_json,
         category_code=category_code,
+        part_number=part_number,
+        calibration_period_months=calibration_period_months,
+        metrology_notes=metrology_notes,
         certificate_reference=certificate_reference,
         calibrated_at=calibrated_at,
         due_at=due_at,
@@ -142,6 +174,8 @@ def register_metrology_instrument(
         "asset_id": asset_id,
         "category_code": category_code,
         "category_label": str(category["label"]),
+        "part_number": part_number,
+        "calibration_period_months": calibration_period_months,
         "calibration_requirement": calibration_requirement,
         "calibration_recorded": latest_calibration is not None,
         "certificate_reference": (
@@ -158,7 +192,7 @@ def record_metrology_calibration(
     asset_id: str,
     certificate_reference: str,
     calibrated_at: str,
-    due_at: str,
+    due_at: str | None = None,
     provider: str,
     status_at_import: str = "valid",
     uncertainty_json: str = "{}",
@@ -179,7 +213,6 @@ def record_metrology_calibration(
         "certificate_reference",
     )
     calibrated_at = require_non_empty(calibrated_at, "calibrated_at")
-    due_at = require_non_empty(due_at, "due_at")
     provider = require_non_empty(provider, "provider")
     status_at_import = require_non_empty(status_at_import, "status_at_import")
     uncertainty_json = _normalized_json(uncertainty_json, "uncertainty_json")
@@ -189,6 +222,13 @@ def record_metrology_calibration(
     instrument = repository.get_instrument(asset_id)
     if instrument is None:
         raise ValueError("instrument does not exist")
+    period = instrument.get("calibration_period_months")
+    calibration_period_months = int(period) if period is not None else None
+    due_at = _due_at_from_period(
+        calibrated_at=calibrated_at,
+        due_at=due_at,
+        calibration_period_months=calibration_period_months,
+    )
 
     repository.add_calibration_record(
         asset_id=asset_id,
@@ -218,6 +258,198 @@ def record_metrology_calibration(
         "certificate_reference": certificate_reference,
         "due_at": due_at,
         "status_at_import": status_at_import,
+    }
+
+
+def attach_metrology_document(
+    *,
+    metrology_db: Path | str,
+    asset_id: str,
+    document_kind: str,
+    title: str,
+    file_reference: str,
+    uploaded_by: str,
+    checksum: str | None = None,
+    revision: str | None = None,
+    applies_to_function: str | None = None,
+    migrations_root: Path | str = Path("storage/sqlite"),
+    bootstrap_output: Path | str | None = None,
+    projects_db: Path | str | None = None,
+    test_definitions_db: Path | str | None = None,
+    measurement_data_db: Path | str | None = None,
+    update_catalog_db: Path | str | None = None,
+) -> dict[str, Any]:
+    """Attach one certificate, datasheet, script, or other document to an asset."""
+
+    asset_id = require_non_empty(asset_id, "asset_id")
+    document_kind = require_non_empty(document_kind, "document_kind")
+    if document_kind not in INSTRUMENT_DOCUMENT_KINDS:
+        raise ValueError(f"unknown instrument document kind: {document_kind}")
+    title = require_non_empty(title, "title")
+    file_reference = require_non_empty(file_reference, "file_reference")
+    uploaded_by = require_non_empty(uploaded_by, "uploaded_by")
+
+    repository = MetrologyRepository(Path(metrology_db), Path(migrations_root))
+    repository.initialize()
+    if repository.get_instrument(asset_id) is None:
+        raise ValueError("instrument does not exist")
+
+    document_id = repository.add_instrument_document(
+        asset_id=asset_id,
+        document_kind=document_kind,
+        title=title,
+        file_reference=file_reference,
+        uploaded_by=uploaded_by,
+        checksum=checksum,
+        revision=revision,
+        applies_to_function=applies_to_function,
+    )
+
+    if bootstrap_output is not None:
+        refresh_bootstrap(
+            output=bootstrap_output,
+            migrations_root=migrations_root,
+            projects_db=projects_db,
+            metrology_db=metrology_db,
+            test_definitions_db=test_definitions_db,
+            measurement_data_db=measurement_data_db,
+            update_catalog_db=update_catalog_db,
+        )
+
+    return {
+        "document_id": document_id,
+        "asset_id": asset_id,
+        "document_kind": document_kind,
+        "title": title,
+    }
+
+
+def schedule_service_item(
+    *,
+    projects_db: Path | str,
+    item_code: str,
+    project_code: str,
+    title: str,
+    planned_start_at: str,
+    planned_end_at: str,
+    assigned_operator: str,
+    location: str,
+    equipment_under_test: str,
+    test_category_code: str | None = None,
+    test_method_code: str | None = None,
+    status: str = "planned",
+    notes: str = "",
+    migrations_root: Path | str = Path("storage/sqlite"),
+    bootstrap_output: Path | str | None = None,
+    metrology_db: Path | str | None = None,
+    test_definitions_db: Path | str | None = None,
+    measurement_data_db: Path | str | None = None,
+    update_catalog_db: Path | str | None = None,
+) -> dict[str, Any]:
+    """Plan one service/test execution item for the laboratory schedule."""
+
+    item_code = require_non_empty(item_code, "item_code")
+    project_code = require_non_empty(project_code, "project_code")
+    title = require_non_empty(title, "title")
+    planned_start_at = require_non_empty(planned_start_at, "planned_start_at")
+    planned_end_at = require_non_empty(planned_end_at, "planned_end_at")
+    if planned_end_at <= planned_start_at:
+        raise ValueError("planned_end_at must be after planned_start_at")
+    assigned_operator = require_non_empty(assigned_operator, "assigned_operator")
+    location = require_non_empty(location, "location")
+    equipment_under_test = require_non_empty(equipment_under_test, "equipment_under_test")
+    status = require_non_empty(status, "status")
+    if status not in SERVICE_SCHEDULE_STATUSES:
+        raise ValueError(f"unknown service schedule status: {status}")
+
+    repository = ProjectRepository(Path(projects_db), Path(migrations_root))
+    repository.initialize()
+    if repository.get_project(project_code) is None:
+        raise ValueError("project does not exist")
+    schedule_id = repository.add_service_schedule_item(
+        item_code=item_code,
+        project_code=project_code,
+        title=title,
+        test_category_code=test_category_code,
+        test_method_code=test_method_code,
+        planned_start_at=planned_start_at,
+        planned_end_at=planned_end_at,
+        assigned_operator=assigned_operator,
+        location=location,
+        equipment_under_test=equipment_under_test,
+        status=status,
+        notes=notes,
+    )
+
+    if bootstrap_output is not None:
+        refresh_bootstrap(
+            output=bootstrap_output,
+            migrations_root=migrations_root,
+            projects_db=projects_db,
+            metrology_db=metrology_db,
+            test_definitions_db=test_definitions_db,
+            measurement_data_db=measurement_data_db,
+            update_catalog_db=update_catalog_db,
+        )
+
+    return {
+        "schedule_id": schedule_id,
+        "item_code": item_code,
+        "project_code": project_code,
+        "status": status,
+    }
+
+
+def create_test_category(
+    *,
+    test_definitions_db: Path | str,
+    code: str,
+    label: str,
+    description: str,
+    parent_code: str | None = None,
+    active: bool = True,
+    sort_order: int = 0,
+    migrations_root: Path | str = Path("storage/sqlite"),
+    bootstrap_output: Path | str | None = None,
+    projects_db: Path | str | None = None,
+    metrology_db: Path | str | None = None,
+    measurement_data_db: Path | str | None = None,
+    update_catalog_db: Path | str | None = None,
+) -> dict[str, Any]:
+    """Create one adjustable test category for the method taxonomy."""
+
+    code = require_non_empty(code, "code")
+    label = require_non_empty(label, "label")
+    description = require_non_empty(description, "description")
+    repository = TestDefinitionRepository(Path(test_definitions_db), Path(migrations_root))
+    repository.initialize()
+    if parent_code is not None and repository.get_test_category(parent_code) is None:
+        raise ValueError("parent test category does not exist")
+    repository.add_test_category(
+        code=code,
+        parent_code=parent_code,
+        label=label,
+        description=description,
+        active=active,
+        sort_order=sort_order,
+    )
+
+    if bootstrap_output is not None:
+        refresh_bootstrap(
+            output=bootstrap_output,
+            migrations_root=migrations_root,
+            projects_db=projects_db,
+            metrology_db=metrology_db,
+            test_definitions_db=test_definitions_db,
+            measurement_data_db=measurement_data_db,
+            update_catalog_db=update_catalog_db,
+        )
+
+    return {
+        "code": code,
+        "parent_code": parent_code,
+        "label": label,
+        "active": active,
     }
 
 
@@ -613,6 +845,9 @@ def main(argv: list[str] | None = None) -> int:
     register_parser.add_argument("--calibration-requirement")
     register_parser.add_argument("--availability", default="available")
     register_parser.add_argument("--capabilities-json", default="[]")
+    register_parser.add_argument("--part-number")
+    register_parser.add_argument("--calibration-period-months", type=int)
+    register_parser.add_argument("--metrology-notes", default="")
     register_parser.add_argument("--certificate-reference")
     register_parser.add_argument("--calibrated-at")
     register_parser.add_argument("--due-at")
@@ -629,13 +864,30 @@ def main(argv: list[str] | None = None) -> int:
     calibration_parser.add_argument("--asset-id", required=True)
     calibration_parser.add_argument("--certificate-reference", required=True)
     calibration_parser.add_argument("--calibrated-at", required=True)
-    calibration_parser.add_argument("--due-at", required=True)
+    calibration_parser.add_argument("--due-at")
     calibration_parser.add_argument("--provider", required=True)
     calibration_parser.add_argument("--status-at-import", default="valid")
     calibration_parser.add_argument("--uncertainty-json", default="{}")
     calibration_parser.add_argument("--file-reference")
     calibration_parser.add_argument("--checksum")
     calibration_parser.add_argument("--bootstrap-output", type=Path)
+
+    document_parser = subcommands.add_parser("attach-instrument-document")
+    _add_repository_args(document_parser, include_metrology=False)
+    document_parser.add_argument("--metrology-db", required=True, type=Path)
+    document_parser.add_argument("--asset-id", required=True)
+    document_parser.add_argument(
+        "--document-kind",
+        required=True,
+        choices=sorted(INSTRUMENT_DOCUMENT_KINDS),
+    )
+    document_parser.add_argument("--title", required=True)
+    document_parser.add_argument("--file-reference", required=True)
+    document_parser.add_argument("--uploaded-by", required=True)
+    document_parser.add_argument("--checksum")
+    document_parser.add_argument("--revision")
+    document_parser.add_argument("--applies-to-function")
+    document_parser.add_argument("--bootstrap-output", type=Path)
 
     availability_parser = subcommands.add_parser("set-instrument-availability")
     _add_repository_args(availability_parser, include_metrology=False)
@@ -654,6 +906,42 @@ def main(argv: list[str] | None = None) -> int:
     capabilities_parser.add_argument("--asset-id", required=True)
     capabilities_parser.add_argument("--capabilities-json", required=True)
     capabilities_parser.add_argument("--bootstrap-output", type=Path)
+
+    schedule_parser = subcommands.add_parser("schedule-service-item")
+    _add_repository_args(schedule_parser, include_projects=False)
+    schedule_parser.add_argument("--projects-db", required=True, type=Path)
+    schedule_parser.add_argument("--item-code", required=True)
+    schedule_parser.add_argument("--project-code", required=True)
+    schedule_parser.add_argument("--title", required=True)
+    schedule_parser.add_argument("--planned-start-at", required=True)
+    schedule_parser.add_argument("--planned-end-at", required=True)
+    schedule_parser.add_argument("--assigned-operator", required=True)
+    schedule_parser.add_argument("--location", required=True)
+    schedule_parser.add_argument("--equipment-under-test", required=True)
+    schedule_parser.add_argument("--test-category-code")
+    schedule_parser.add_argument("--test-method-code")
+    schedule_parser.add_argument(
+        "--status",
+        default="planned",
+        choices=sorted(SERVICE_SCHEDULE_STATUSES),
+    )
+    schedule_parser.add_argument("--notes", default="")
+    schedule_parser.add_argument("--bootstrap-output", type=Path)
+
+    category_parser = subcommands.add_parser("create-test-category")
+    _add_repository_args(
+        category_parser,
+        include_test_definitions=False,
+        include_update_catalog=False,
+    )
+    category_parser.add_argument("--test-definitions-db", required=True, type=Path)
+    category_parser.add_argument("--code", required=True)
+    category_parser.add_argument("--label", required=True)
+    category_parser.add_argument("--description", required=True)
+    category_parser.add_argument("--parent-code")
+    category_parser.add_argument("--inactive", action="store_true")
+    category_parser.add_argument("--sort-order", type=int, default=0)
+    category_parser.add_argument("--bootstrap-output", type=Path)
 
     advance_parser = subcommands.add_parser("advance-project")
     _add_repository_args(advance_parser, include_projects=False)
@@ -731,6 +1019,9 @@ def main(argv: list[str] | None = None) -> int:
             calibration_requirement=args.calibration_requirement,
             availability=args.availability,
             capabilities_json=args.capabilities_json,
+            part_number=args.part_number,
+            calibration_period_months=args.calibration_period_months,
+            metrology_notes=args.metrology_notes,
             certificate_reference=args.certificate_reference,
             calibrated_at=args.calibrated_at,
             due_at=args.due_at,
@@ -771,6 +1062,27 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, sort_keys=True))
         return 0
 
+    if args.command == "attach-instrument-document":
+        result = attach_metrology_document(
+            metrology_db=args.metrology_db,
+            asset_id=args.asset_id,
+            document_kind=args.document_kind,
+            title=args.title,
+            file_reference=args.file_reference,
+            uploaded_by=args.uploaded_by,
+            checksum=args.checksum,
+            revision=args.revision,
+            applies_to_function=args.applies_to_function,
+            migrations_root=args.migrations_root,
+            bootstrap_output=args.bootstrap_output,
+            projects_db=args.projects_db,
+            test_definitions_db=args.test_definitions_db,
+            measurement_data_db=args.measurement_data_db,
+            update_catalog_db=args.update_catalog_db,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
     if args.command == "set-instrument-availability":
         result = set_metrology_instrument_availability(
             metrology_db=args.metrology_db,
@@ -795,6 +1107,50 @@ def main(argv: list[str] | None = None) -> int:
             bootstrap_output=args.bootstrap_output,
             projects_db=args.projects_db,
             test_definitions_db=args.test_definitions_db,
+            measurement_data_db=args.measurement_data_db,
+            update_catalog_db=args.update_catalog_db,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "schedule-service-item":
+        result = schedule_service_item(
+            projects_db=args.projects_db,
+            item_code=args.item_code,
+            project_code=args.project_code,
+            title=args.title,
+            planned_start_at=args.planned_start_at,
+            planned_end_at=args.planned_end_at,
+            assigned_operator=args.assigned_operator,
+            location=args.location,
+            equipment_under_test=args.equipment_under_test,
+            test_category_code=args.test_category_code,
+            test_method_code=args.test_method_code,
+            status=args.status,
+            notes=args.notes,
+            migrations_root=args.migrations_root,
+            bootstrap_output=args.bootstrap_output,
+            metrology_db=args.metrology_db,
+            test_definitions_db=args.test_definitions_db,
+            measurement_data_db=args.measurement_data_db,
+            update_catalog_db=args.update_catalog_db,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "create-test-category":
+        result = create_test_category(
+            test_definitions_db=args.test_definitions_db,
+            code=args.code,
+            label=args.label,
+            description=args.description,
+            parent_code=args.parent_code,
+            active=not args.inactive,
+            sort_order=args.sort_order,
+            migrations_root=args.migrations_root,
+            bootstrap_output=args.bootstrap_output,
+            projects_db=args.projects_db,
+            metrology_db=args.metrology_db,
             measurement_data_db=args.measurement_data_db,
             update_catalog_db=args.update_catalog_db,
         )
@@ -885,6 +1241,7 @@ def _add_repository_args(
     *,
     include_projects: bool = True,
     include_metrology: bool = True,
+    include_test_definitions: bool = True,
     include_measurement_data: bool = True,
     include_update_catalog: bool = True,
 ) -> None:
@@ -893,7 +1250,8 @@ def _add_repository_args(
         parser.add_argument("--projects-db", type=Path)
     if include_metrology:
         parser.add_argument("--metrology-db", type=Path)
-    parser.add_argument("--test-definitions-db", type=Path)
+    if include_test_definitions:
+        parser.add_argument("--test-definitions-db", type=Path)
     if include_measurement_data:
         parser.add_argument("--measurement-data-db", type=Path)
     if include_update_catalog:
@@ -907,6 +1265,37 @@ def _normalized_json(value: str, field_name: str) -> str:
     except json.JSONDecodeError as error:
         raise ValueError(f"{field_name} must contain valid JSON") from error
     return json.dumps(parsed, sort_keys=True)
+
+
+def _positive_optional_int(value: int | None, field_name: str) -> int | None:
+    if value is None:
+        return None
+    if value <= 0:
+        raise ValueError(f"{field_name} must be positive")
+    return value
+
+
+def _due_at_from_period(
+    *,
+    calibrated_at: str,
+    due_at: str | None,
+    calibration_period_months: int | None,
+) -> str:
+    if _has_text(due_at):
+        return require_non_empty(str(due_at), "due_at")
+    if calibration_period_months is None:
+        raise ValueError("due_at is required when no calibration period is set")
+    calibrated_date = date.fromisoformat(calibrated_at)
+    due_date = _add_months(calibrated_date, calibration_period_months)
+    return due_date.isoformat()
+
+
+def _add_months(value: date, months: int) -> date:
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
 
 
 def _has_text(value: str | None) -> bool:

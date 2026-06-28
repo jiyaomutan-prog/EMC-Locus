@@ -22,48 +22,6 @@ window.EMC_LOCUS_BOOTSTRAP = {
       "Immutable"
     ]
   ],
-  "instruments": [
-    [
-      "RX-001",
-      "Receiver",
-      "Available",
-      "CERT-2026-001",
-      "2027-01-01",
-      "ok",
-      "EMI test receiver",
-      "detectors"
-    ],
-    [
-      "GEN-002",
-      "Generator",
-      "Reserved",
-      "CERT-2025-044",
-      "2026-07-12",
-      "warn",
-      "RF signal generator",
-      "scpi"
-    ],
-    [
-      "DAQ-OPEN-01",
-      "DAQ",
-      "Available",
-      "CERT-2026-112",
-      "2027-03-18",
-      "ok",
-      "DAQ chassis and modules",
-      "8 channels"
-    ],
-    [
-      "AMP-004",
-      "Amplifier",
-      "Out of service",
-      "CERT-2024-090",
-      "2025-12-04",
-      "danger",
-      "RF power amplifier",
-      "interlock"
-    ]
-  ],
   "instrument_categories": [
     [
       "emi_receiver",
@@ -120,6 +78,102 @@ window.EMC_LOCUS_BOOTSTRAP = {
       "DAQ chassis and modules",
       "required",
       "data_acquisition"
+    ]
+  ],
+  "instrument_documents": [
+    [
+      "RX-001",
+      "certificate",
+      "Certificat 2026",
+      "metrology/RX-001/cert-2026.pdf",
+      "A",
+      "receiver calibration"
+    ],
+    [
+      "RX-001",
+      "datasheet",
+      "Datasheet ESW",
+      "metrology/RX-001/datasheet.pdf",
+      "A",
+      "technical data"
+    ],
+    [
+      "DAQ-OPEN-01",
+      "script",
+      "openDAQ init",
+      "scripts/daq/opendaq_init.py",
+      "A",
+      "measurement setup"
+    ]
+  ],
+  "instruments": [
+    [
+      "RX-001",
+      "Receiver",
+      "Available",
+      "CERT-2026-001",
+      "2027-01-01",
+      "ok",
+      "EMI test receiver",
+      "detectors",
+      "Rohde Schwarz",
+      "ESW",
+      "100001",
+      "ESW44",
+      "2026-01-01",
+      "12",
+      "2"
+    ],
+    [
+      "GEN-002",
+      "Generator",
+      "Reserved",
+      "CERT-2025-044",
+      "2026-07-12",
+      "warn",
+      "RF signal generator",
+      "scpi",
+      "Keysight",
+      "N5183B",
+      "100002",
+      "N5183B-540",
+      "2025-07-12",
+      "12",
+      "1"
+    ],
+    [
+      "DAQ-OPEN-01",
+      "DAQ",
+      "Available",
+      "CERT-2026-112",
+      "2027-03-18",
+      "ok",
+      "DAQ chassis and modules",
+      "8 channels",
+      "openDAQ",
+      "Reference DAQ",
+      "DAQ001",
+      "ODAQ-8",
+      "2026-03-18",
+      "12",
+      "3"
+    ],
+    [
+      "AMP-004",
+      "Amplifier",
+      "Out of service",
+      "CERT-2024-090",
+      "2025-12-04",
+      "danger",
+      "RF power amplifier",
+      "interlock",
+      "RF Lab",
+      "AMP-250",
+      "AMP004",
+      "AMP-250",
+      "2024-12-04",
+      "12",
+      "1"
     ]
   ],
   "methods": [
@@ -180,6 +234,68 @@ window.EMC_LOCUS_BOOTSTRAP = {
       "run": "RUN-007",
       "stage": "Investigation"
     }
+  ],
+  "schedule": [
+    [
+      "PLAN-001",
+      "CEM-2026-001",
+      "Pre-scan emission conduite",
+      "emission_conducted",
+      "2026-07-01T09:00",
+      "2026-07-01T12:00",
+      "operator.one",
+      "Lab A",
+      "planned"
+    ],
+    [
+      "PLAN-002",
+      "CEM-2026-001",
+      "Immunite rayonnee",
+      "immunity_radiated",
+      "2026-07-02T13:00",
+      "2026-07-02T17:00",
+      "operator.two",
+      "Chambre",
+      "confirmed"
+    ]
+  ],
+  "test_categories": [
+    [
+      "emission",
+      "",
+      "Emission",
+      "active"
+    ],
+    [
+      "emission_conducted",
+      "emission",
+      "Emission conduite",
+      "active"
+    ],
+    [
+      "emission_radiated",
+      "emission",
+      "Emission rayonnee",
+      "active"
+    ],
+    [
+      "immunity",
+      "",
+      "Immunite",
+      "active"
+    ],
+    [
+      "immunity_conducted",
+      "immunity",
+      "Immunite conduite",
+      "active"
+    ],
+    [
+      "immunity_radiated",
+      "immunity",
+      "Immunite rayonnee",
+      "active"
+    ]
   ],
   "updates": [
     [

@@ -25,17 +25,20 @@ project records or raw measurement data.
 
 Owns instrument identities, instrument categories, families, availability,
 calibration requirements, calibration certificates, and category source
-provenance.
+provenance. Version 3 adds part numbers, calibration periodicity, metrology
+notes, and controlled instrument document attachments.
 
 ### Projects
 
 Owns customer projects, audit events, contract review, campaigns, measurement
-run references, equipment selections, and report workflow state.
+run references, equipment selections, report workflow state, and service
+planning items used to schedule test execution.
 
 ### Test Definitions
 
 Owns standards, methods, method revisions, approved parameters, acceptance
-criteria, processing graph definitions, and step-by-step evidence expectations.
+criteria, processing graph definitions, step-by-step evidence expectations, and
+the adjustable test-category taxonomy used by planning and methods.
 
 ### Measurement Data
 
@@ -108,8 +111,10 @@ perform minimal insert/count/query operations for smoke testing:
 - ordered project audit-event listing.
 - instrument availability and capability updates;
 - calibration attachment updates;
+- instrument document insert/list APIs;
 - project stage changes with an audit event in the same transaction;
 - contract-review item completion/upsert;
+- service schedule insert/list/status APIs;
 - per-connection SQLite foreign-key enforcement.
 - update package insert/count/get/list APIs;
 - update-install validation evidence insert/count/get APIs;
@@ -121,6 +126,7 @@ perform minimal insert/count/query operations for smoke testing:
 - processing graph insert/list APIs;
 - result artifact insert/list APIs.
 - standard insert/get/list APIs;
+- test category insert/get/list APIs with seeded emission/immunity taxonomy;
 - test method insert/get/list APIs;
 - method revision insert/approval/list APIs;
 - ordered test-step insert/list APIs with duplicate-sequence rejection.
