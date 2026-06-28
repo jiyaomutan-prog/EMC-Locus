@@ -103,6 +103,15 @@ class QtConsoleTests(unittest.TestCase):
                         "planned",
                     ]
                 ],
+                "contract_review_items": [
+                    [
+                        "CEM-QT-001",
+                        "requirements_reviewed",
+                        "yes",
+                        "quality.lead",
+                        "Accepted",
+                    ]
+                ],
                 "runtime": [
                     [
                         "DAQ-001",
@@ -137,6 +146,7 @@ class QtConsoleTests(unittest.TestCase):
         )
         tables = {table.tab_label: table for table in model.tables}
         project_table = tables["Projets"]
+        contract_table = tables["Revue contrat"]
         metrology_table = tables["Metrologie"]
         document_table = tables["Docs metro"]
         category_table = tables["Categories"]
@@ -149,6 +159,7 @@ class QtConsoleTests(unittest.TestCase):
 
         self.assertEqual(project_table.columns[0:3], ("Code", "Client", "Etape"))
         self.assertEqual(project_table.rows[0][0:3], ("CEM-QT-001", "Rail Motion", "Measuring"))
+        self.assertEqual(contract_table.rows[0][0:3], ("CEM-QT-001", "requirements_reviewed", "yes"))
         self.assertEqual(
             metrology_table.columns,
             (
@@ -197,6 +208,7 @@ class QtConsoleTests(unittest.TestCase):
         self.assertTrue(actions["request_dataset_deletion"].enabled)
         self.assertTrue(actions["validate_update"].enabled)
         self.assertEqual(metrics["Projets actifs"].value, "1")
+        self.assertEqual(metrics["Items revue"].value, "1")
         self.assertEqual(metrics["Alertes metrologie"].tone, "warn")
         self.assertEqual(metrics["Categories instruments"].value, "1")
         self.assertEqual(metrics["Docs materiel"].value, "1")
@@ -243,6 +255,7 @@ class QtConsoleTests(unittest.TestCase):
         by_id = {spec.action_id: spec for spec in specs}
 
         self.assertTrue(by_id["create_project"].enabled)
+        self.assertTrue(by_id["complete_contract_review_item"].enabled)
         self.assertTrue(by_id["register_instrument"].enabled)
         self.assertTrue(by_id["attach_instrument_document"].enabled)
         self.assertTrue(by_id["schedule_service_item"].enabled)
@@ -362,6 +375,16 @@ class QtConsoleTests(unittest.TestCase):
             )
             module._execute_form_action(
                 args,
+                "complete_contract_review_item",
+                {
+                    "project_code": "CEM-QT-SCHEDULE",
+                    "item": "requirements_reviewed",
+                    "completed_by": "quality.lead",
+                    "comment": "Qt form contract review",
+                },
+            )
+            module._execute_form_action(
+                args,
                 "create_test_category",
                 {
                     "code": "immunity_magnetic_field_qt",
@@ -376,6 +399,7 @@ class QtConsoleTests(unittest.TestCase):
             project_repository.initialize()
             schedule = project_repository.list_service_schedule_items()
             events = project_repository.audit_events("CEM-QT-SCHEDULE")
+            contract_items = project_repository.contract_review_items("CEM-QT-SCHEDULE")
             test_repository = TestDefinitionRepository(
                 test_definitions_db,
                 Path("storage/sqlite"),
@@ -386,6 +410,8 @@ class QtConsoleTests(unittest.TestCase):
         self.assertEqual(schedule[0]["item_code"], "PLAN-QT-FORM")
         self.assertEqual(schedule[0]["test_category_code"], "emission_conducted")
         self.assertEqual(events[0]["action"], "project_created")
+        self.assertEqual(events[1]["action"], "contract_review_item_completed")
+        self.assertEqual(contract_items[0]["item"], "requirements_reviewed")
         self.assertEqual(category["parent_code"], "immunity_radiated")
 
     def test_builds_qt_console_bootstrap_from_local_repository_paths(self) -> None:

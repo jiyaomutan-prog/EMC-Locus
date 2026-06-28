@@ -17,6 +17,7 @@ from emc_locus import (
     advance_project_stage,
     attach_metrology_document,
     build_bootstrap,
+    complete_contract_review_item_action,
     create_project_record,
     create_test_category,
     next_project_stage,
@@ -567,6 +568,12 @@ class GuiBootstrapTests(unittest.TestCase):
                 execution_mode="investigation",
                 stage="measuring",
             )
+            projects.complete_contract_review_item(
+                project_code="CEM-BOOT-001",
+                item="requirements_reviewed",
+                completed_by="quality.boot",
+                comment="Accepted investigation scope",
+            )
             projects.add_service_schedule_item(
                 item_code="PLAN-BOOT-001",
                 project_code="CEM-BOOT-001",
@@ -659,6 +666,9 @@ class GuiBootstrapTests(unittest.TestCase):
 
             self.assertEqual(payload["projects"][0]["code"], "CEM-BOOT-001")
             self.assertEqual(payload["projects"][0]["stage"], "Measuring")
+            self.assertEqual(payload["contract_review_items"][0][0], "CEM-BOOT-001")
+            self.assertEqual(payload["contract_review_items"][0][1], "requirements_reviewed")
+            self.assertEqual(payload["contract_review_items"][0][2], "yes")
             self.assertEqual(payload["instruments"][0][0], "DAQ-001")
             self.assertEqual(payload["instruments"][0][5], "ok")
             self.assertEqual(payload["instruments"][0][6], "DAQ chassis and modules")
@@ -719,6 +729,40 @@ class GuiActionTests(unittest.TestCase):
             self.assertEqual(events[0]["action"], "project_created")
             self.assertIn("Initial field investigation request", events[0]["reason"])
             self.assertIn("CEM-CREATE-001", bootstrap_text)
+
+    def test_complete_contract_review_item_records_audit_and_refreshes_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            base = Path(temporary_directory)
+            projects_db = base / "projects.sqlite"
+            bootstrap_output = base / "bootstrap.js"
+            projects = ProjectRepository(projects_db, Path("storage/sqlite"))
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REVIEW-001",
+                customer_name="Review Customer",
+                execution_mode="accredited",
+                stage="contract_review",
+            )
+
+            result = complete_contract_review_item_action(
+                projects_db=projects_db,
+                project_code="CEM-REVIEW-001",
+                item="method_available",
+                completed_by="quality.lead",
+                comment="Approved method is available",
+                bootstrap_output=bootstrap_output,
+            )
+
+            items = projects.contract_review_items("CEM-REVIEW-001")
+            events = projects.audit_events("CEM-REVIEW-001")
+            bootstrap_text = bootstrap_output.read_text()
+
+            self.assertEqual(result["audit_sequence"], 1)
+            self.assertEqual(items[0]["item"], "method_available")
+            self.assertEqual(items[0]["completed"], 1)
+            self.assertEqual(events[0]["action"], "contract_review_item_completed")
+            self.assertIn("method_available", events[0]["payload_json"])
+            self.assertIn("method_available", bootstrap_text)
 
     def test_advance_project_stage_records_audit_and_refreshes_bootstrap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

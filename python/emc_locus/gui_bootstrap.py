@@ -49,6 +49,10 @@ FALLBACK_BOOTSTRAP: BootstrapData = {
             "method": "Inrush current",
         },
     ],
+    "contract_review_items": [
+        ["CEM-2026-002", "requirements_reviewed", "yes", "quality.lead", "Mode non accredite accepte"],
+        ["CEM-2026-002", "method_available", "yes", "technical.lead", "Methode conduite disponible"],
+    ],
     "instruments": [
         ["RX-001", "Receiver", "Available", "CERT-2026-001", "2027-01-01", "ok", "EMI test receiver", "detectors", "Rohde Schwarz", "ESW", "100001", "ESW44", "2026-01-01", "12", "2"],
         ["GEN-002", "Generator", "Reserved", "CERT-2025-044", "2026-07-12", "warn", "RF signal generator", "scpi", "Keysight", "N5183B", "100002", "N5183B-540", "2025-07-12", "12", "1"],
@@ -142,7 +146,13 @@ def build_bootstrap(
     payload = build_fixture_bootstrap()
 
     if projects is not None:
-        payload["projects"] = [_project_row(row) for row in projects.list_projects()]
+        project_rows = projects.list_projects()
+        payload["projects"] = [_project_row(row) for row in project_rows]
+        payload["contract_review_items"] = [
+            _contract_review_item_row(row)
+            for project in project_rows
+            for row in projects.contract_review_items(str(project["code"]))
+        ]
         payload["schedule"] = [
             _schedule_row(row) for row in projects.list_service_schedule_items()
         ]
@@ -264,6 +274,16 @@ def _schedule_row(row: dict[str, object]) -> list[str]:
         str(row["assigned_operator"]),
         str(row["location"]),
         str(row["status"]),
+    ]
+
+
+def _contract_review_item_row(row: dict[str, object]) -> list[str]:
+    return [
+        str(row["project_code"]),
+        str(row["item"]),
+        "yes" if int(row["completed"]) else "no",
+        str(row.get("completed_by") or ""),
+        str(row.get("comment") or ""),
     ]
 
 

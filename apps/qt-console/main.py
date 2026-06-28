@@ -24,6 +24,7 @@ if str(PYTHON_ROOT) not in sys.path:
 from emc_locus.qt_console_data import build_console_bootstrap_from_repositories
 from emc_locus.gui_actions import (
     attach_metrology_document,
+    complete_contract_review_item_action,
     create_project_record,
     create_test_category,
     register_metrology_instrument,
@@ -357,6 +358,17 @@ def _execute_form_action(
             stage=values["stage"],
             actor=values["actor"],
             reason=values["reason"],
+        )
+        return
+
+    if action_id == "complete_contract_review_item":
+        complete_contract_review_item_action(
+            projects_db=_required_path(args.projects_db, "projects"),
+            migrations_root=args.migrations_root,
+            project_code=values["project_code"],
+            item=values["item"],
+            completed_by=values["completed_by"],
+            comment=_optional(values["comment"]),
         )
         return
 

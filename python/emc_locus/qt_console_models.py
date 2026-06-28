@@ -118,6 +118,12 @@ def build_console_view_model(bootstrap: dict[str, Any]) -> ConsoleViewModel:
                 rows=_project_rows(bootstrap.get("projects")),
             ),
             TableViewModel(
+                tab_label="Revue contrat",
+                title="Revue contrat",
+                columns=("Projet", "Item", "Fait", "Par", "Commentaire"),
+                rows=_list_rows(bootstrap.get("contract_review_items"), 5),
+            ),
+            TableViewModel(
                 tab_label="Metrologie",
                 title="Instruments",
                 columns=INSTRUMENT_COLUMNS,
@@ -293,6 +299,30 @@ def build_operator_form_specs(
                 FormFieldSpec("file_reference", "Fichier certificat", "text"),
                 FormFieldSpec("capabilities_json", "Capacites JSON", "multiline", default="[]"),
                 FormFieldSpec("metrology_notes", "Notes", "multiline"),
+            ),
+        ),
+        OperatorFormSpec(
+            action_id="complete_contract_review_item",
+            title="Revue contrat",
+            submit_label="Valider item",
+            enabled=has_projects and bool(projects),
+            disabled_reason=_disabled_reason(
+                has_projects,
+                bool(projects),
+                "Depot projets requis",
+                "Aucun projet disponible",
+            ),
+            fields=(
+                FormFieldSpec(
+                    "project_code",
+                    "Projet",
+                    "choice",
+                    required=True,
+                    choices=projects,
+                ),
+                FormFieldSpec("item", "Item", "text", required=True),
+                FormFieldSpec("completed_by", "Complete par", "text", required=True),
+                FormFieldSpec("comment", "Commentaire", "multiline"),
             ),
         ),
         OperatorFormSpec(
@@ -546,6 +576,7 @@ def _action_intents(bootstrap: dict[str, Any]) -> tuple[OperatorActionIntent, ..
 
 def _status_metrics(bootstrap: dict[str, Any]) -> tuple[StatusMetric, ...]:
     projects = _project_rows(bootstrap.get("projects"))
+    contract_items = _list_rows(bootstrap.get("contract_review_items"), 5)
     instruments = _list_rows(bootstrap.get("instruments"), len(INSTRUMENT_COLUMNS))
     documents = _list_rows(bootstrap.get("instrument_documents"), 6)
     categories = _list_rows(bootstrap.get("instrument_categories"), 5)
@@ -563,6 +594,11 @@ def _status_metrics(bootstrap: dict[str, Any]) -> tuple[StatusMetric, ...]:
 
     return (
         StatusMetric("Projets actifs", str(active_projects), "ok" if active_projects else "neutral"),
+        StatusMetric(
+            "Items revue",
+            str(len(contract_items)),
+            "ok" if contract_items else "neutral",
+        ),
         StatusMetric(
             "Alertes metrologie",
             str(instrument_alerts),

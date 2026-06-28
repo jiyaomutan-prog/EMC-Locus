@@ -1,4 +1,20 @@
 window.EMC_LOCUS_BOOTSTRAP = {
+  "contract_review_items": [
+    [
+      "CEM-2026-002",
+      "requirements_reviewed",
+      "yes",
+      "quality.lead",
+      "Mode non accredite accepte"
+    ],
+    [
+      "CEM-2026-002",
+      "method_available",
+      "yes",
+      "technical.lead",
+      "Methode conduite disponible"
+    ]
+  ],
   "datasets": [
     [
       "RUN-001",

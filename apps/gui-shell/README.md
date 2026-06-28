@@ -24,6 +24,12 @@ Create an audited project locally and refresh the console data with:
 $env:PYTHONPATH='python'; py -m emc_locus.gui_actions create-project --projects-db data\projects.sqlite --code CEM-2026-001 --customer-name "Rail Motion" --execution-mode accredited --actor operator.one --reason "New EMC campaign opened" --bootstrap-output apps\gui-shell\bootstrap.js
 ```
 
+Complete a contract-review checklist item and refresh the console data with:
+
+```text
+$env:PYTHONPATH='python'; py -m emc_locus.gui_actions complete-contract-review-item --projects-db data\projects.sqlite --project-code CEM-2026-001 --item method_available --completed-by quality.lead --comment "Approved method is available" --bootstrap-output apps\gui-shell\bootstrap.js
+```
+
 Advance a project locally and refresh the console data with:
 
 ```text

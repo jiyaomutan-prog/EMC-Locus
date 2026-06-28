@@ -3,6 +3,7 @@
 from .gui_actions import (
     advance_project_stage,
     attach_metrology_document,
+    complete_contract_review_item_action,
     create_project_record,
     create_test_category,
     next_project_stage,
@@ -64,6 +65,7 @@ __all__ = [
     "build_console_view_model",
     "build_fixture_bootstrap",
     "build_operator_form_specs",
+    "complete_contract_review_item_action",
     "create_project_record",
     "create_test_category",
     "discover_migrations",

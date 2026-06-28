@@ -180,6 +180,8 @@ change should remain traceable through Git history, session logs, and this file.
   local SQLite repositories.
 - Audited local project creation action, CLI, and Qt form so service planning
   can start from a new campaign record.
+- Audited contract-review item completion action, CLI, Qt form, bootstrap
+  export, and Qt/browser tables.
 
 ### Fixed
 

@@ -810,6 +810,87 @@ class ProjectRepository(SQLiteDomainRepository):
                     (project_code, item, completed_by, now, comment),
                 )
 
+    def complete_contract_review_item_with_audit(
+        self,
+        *,
+        project_code: str,
+        item: str,
+        completed_by: str,
+        comment: str | None = None,
+    ) -> int | None:
+        """Complete a contract-review item and append audit evidence."""
+
+        now = utc_timestamp()
+        payload_json = json.dumps(
+            {
+                "item": item,
+                "completed": True,
+                "comment": comment,
+            },
+            sort_keys=True,
+        )
+        with closing(self.connect()) as connection:
+            with connection:
+                project = connection.execute(
+                    "SELECT code FROM projects WHERE code = ?",
+                    (project_code,),
+                ).fetchone()
+                if project is None:
+                    return None
+
+                connection.execute(
+                    """
+                    INSERT INTO contract_review_items (
+                        project_code,
+                        item,
+                        completed,
+                        completed_by,
+                        completed_at,
+                        comment
+                    )
+                    VALUES (?, ?, 1, ?, ?, ?)
+                    ON CONFLICT(project_code, item) DO UPDATE SET
+                        completed = 1,
+                        completed_by = excluded.completed_by,
+                        completed_at = excluded.completed_at,
+                        comment = excluded.comment
+                    """,
+                    (project_code, item, completed_by, now, comment),
+                )
+                sequence_row = connection.execute(
+                    """
+                    SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+                    FROM project_audit_events
+                    WHERE project_code = ?
+                    """,
+                    (project_code,),
+                ).fetchone()
+                sequence = int(sequence_row["next_sequence"])
+                connection.execute(
+                    """
+                    INSERT INTO project_audit_events (
+                        project_code,
+                        sequence,
+                        actor,
+                        action,
+                        reason,
+                        payload_json,
+                        occurred_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        project_code,
+                        sequence,
+                        completed_by,
+                        "contract_review_item_completed",
+                        comment,
+                        payload_json,
+                        now,
+                    ),
+                )
+        return sequence
+
     def contract_review_items(self, project_code: str) -> list[dict[str, object]]:
         with closing(self.connect()) as connection:
             rows = connection.execute(

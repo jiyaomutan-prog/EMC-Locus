@@ -118,6 +118,57 @@ def create_project_record(
     }
 
 
+def complete_contract_review_item_action(
+    *,
+    projects_db: Path | str,
+    project_code: str,
+    item: str,
+    completed_by: str,
+    comment: str | None = None,
+    migrations_root: Path | str = Path("storage/sqlite"),
+    bootstrap_output: Path | str | None = None,
+    metrology_db: Path | str | None = None,
+    test_definitions_db: Path | str | None = None,
+    measurement_data_db: Path | str | None = None,
+    update_catalog_db: Path | str | None = None,
+) -> dict[str, Any]:
+    """Complete one contract-review checklist item with audit evidence."""
+
+    project_code = require_non_empty(project_code, "project_code")
+    item = require_non_empty(item, "item")
+    completed_by = require_non_empty(completed_by, "completed_by")
+    comment = comment.strip() if comment is not None else None
+
+    repository = ProjectRepository(Path(projects_db), Path(migrations_root))
+    repository.initialize()
+    sequence = repository.complete_contract_review_item_with_audit(
+        project_code=project_code,
+        item=item,
+        completed_by=completed_by,
+        comment=comment,
+    )
+    if sequence is None:
+        raise ValueError("project does not exist")
+
+    if bootstrap_output is not None:
+        refresh_bootstrap(
+            output=bootstrap_output,
+            migrations_root=migrations_root,
+            projects_db=projects_db,
+            metrology_db=metrology_db,
+            test_definitions_db=test_definitions_db,
+            measurement_data_db=measurement_data_db,
+            update_catalog_db=update_catalog_db,
+        )
+
+    return {
+        "project_code": project_code,
+        "item": item,
+        "completed_by": completed_by,
+        "audit_sequence": sequence,
+    }
+
+
 def register_metrology_instrument(
     *,
     metrology_db: Path | str,
@@ -915,6 +966,15 @@ def main(argv: list[str] | None = None) -> int:
     project_parser.add_argument("--reason", required=True)
     project_parser.add_argument("--bootstrap-output", type=Path)
 
+    contract_parser = subcommands.add_parser("complete-contract-review-item")
+    _add_repository_args(contract_parser, include_projects=False)
+    contract_parser.add_argument("--projects-db", required=True, type=Path)
+    contract_parser.add_argument("--project-code", required=True)
+    contract_parser.add_argument("--item", required=True)
+    contract_parser.add_argument("--completed-by", required=True)
+    contract_parser.add_argument("--comment")
+    contract_parser.add_argument("--bootstrap-output", type=Path)
+
     register_parser = subcommands.add_parser("register-instrument")
     _add_repository_args(register_parser, include_metrology=False)
     register_parser.add_argument("--metrology-db", required=True, type=Path)
@@ -1098,6 +1158,23 @@ def main(argv: list[str] | None = None) -> int:
             stage=args.stage,
             actor=args.actor,
             reason=args.reason,
+            migrations_root=args.migrations_root,
+            bootstrap_output=args.bootstrap_output,
+            metrology_db=args.metrology_db,
+            test_definitions_db=args.test_definitions_db,
+            measurement_data_db=args.measurement_data_db,
+            update_catalog_db=args.update_catalog_db,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "complete-contract-review-item":
+        result = complete_contract_review_item_action(
+            projects_db=args.projects_db,
+            project_code=args.project_code,
+            item=args.item,
+            completed_by=args.completed_by,
+            comment=args.comment,
             migrations_root=args.migrations_root,
             bootstrap_output=args.bootstrap_output,
             metrology_db=args.metrology_db,

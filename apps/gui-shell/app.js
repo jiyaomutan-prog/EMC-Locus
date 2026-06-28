@@ -36,6 +36,10 @@ const fallbackData = {
       method: "Inrush current",
     },
   ],
+  contract_review_items: [
+    ["CEM-2026-002", "requirements_reviewed", "yes", "quality.lead", "Mode non accredite accepte"],
+    ["CEM-2026-002", "method_available", "yes", "technical.lead", "Methode conduite disponible"],
+  ],
   instruments: [
     ["RX-001", "Receiver", "Available", "CERT-2026-001", "2027-01-01", "ok", "EMI test receiver", "detectors", "Rohde Schwarz", "ESW", "100001", "ESW44", "2026-01-01", "12", "2"],
     ["GEN-002", "Generator", "Reserved", "CERT-2025-044", "2026-07-12", "warn", "RF signal generator", "scpi", "Keysight", "N5183B", "100002", "N5183B-540", "2025-07-12", "12", "1"],
@@ -129,6 +133,7 @@ function renderStatus() {
   const approvedMethods = data.methods.filter((item) => item[3] === "approved").length;
   const immutableDatasets = data.datasets.filter((item) => item[4] === "Immutable").length;
   const instrumentCategories = (data.instrument_categories || []).length;
+  const contractReviewItems = (data.contract_review_items || []).length;
   const scheduleItems = (data.schedule || []).length;
   const updateGate = data.updates.every((item) => item[2] === "Signed") ? "Strict" : "Review";
 
@@ -136,6 +141,7 @@ function renderStatus() {
     ["Projets", activeProjects],
     ["Mode qualite", state.qualityMode],
     ["Instruments prets", readyInstruments],
+    ["Revue", contractReviewItems],
     ["Planning", scheduleItems],
     ["Categories metro", instrumentCategories],
     ["Methodes approuvees", approvedMethods],
@@ -194,6 +200,19 @@ function renderProjects() {
     )
     .join("");
   document.querySelector("#projects-table").innerHTML = rows;
+  document.querySelector("#contract-review-table").innerHTML = (data.contract_review_items || [])
+    .filter((item) => matchesSearch(item))
+    .map(
+      (item) => `
+        <tr>
+          <td>${item[0]}</td>
+          <td>${item[1]}</td>
+          <td>${badge(item[2], item[2] === "yes" ? "ok" : "warn")}</td>
+          <td>${item[3]}</td>
+          <td>${item[4]}</td>
+        </tr>`
+    )
+    .join("");
   renderProjectDetail();
 }
 
