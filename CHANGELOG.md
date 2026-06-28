@@ -172,6 +172,10 @@ change should remain traceable through Git history, session logs, and this file.
 - Malformed VISA-style TCP/IP `SOCKET` resources with missing hosts, nonnumeric
   ports, or unknown resource classes are now rejected instead of silently
   falling back to the default SCPI port.
+- VISA resource validation now rejects incomplete or interface-incompatible
+  descriptors, including TCP/IP `SOCKET` resources without numeric ports,
+  non-TCP/IP `SOCKET` resources, nonnumeric GPIB addresses, and missing ASRL
+  port indexes.
 
 ### Planned
 

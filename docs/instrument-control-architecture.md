@@ -148,4 +148,6 @@ VISA resources currently validate common resource strings such as
 `TCPIP0::host::inst0::INSTR`, `GPIB0::12::INSTR`,
 `USB0::vendor::product::serial::INSTR`, and `ASRL3::INSTR`. Native VISA IO is
 still intentionally unavailable until a binding, packaging, and device-test
-strategy are selected.
+strategy are selected. Validation is interface-aware: `SOCKET` resources are
+limited to TCP/IP resources with numeric ports, GPIB addresses must be numeric,
+and ASRL resources must include a serial port index.

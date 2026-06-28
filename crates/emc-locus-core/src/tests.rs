@@ -827,8 +827,15 @@ fn visa_resource_address_parses_common_interfaces() {
     assert_eq!(tcpip.interface().as_str(), "tcp_ip");
     assert_eq!(tcpip.resource_class(), "INSTR");
 
+    let tcp_socket = VisaResourceAddress::parse("TCPIP0::192.0.2.10::5025::SOCKET").unwrap();
+    assert_eq!(tcp_socket.interface(), VisaInterface::TcpIp);
+    assert_eq!(tcp_socket.resource_class(), "SOCKET");
+
     let gpib = VisaResourceAddress::parse("GPIB0::12::INSTR").unwrap();
     assert_eq!(gpib.interface(), VisaInterface::Gpib);
+
+    let gpib_secondary = VisaResourceAddress::parse("GPIB0::12::1::INSTR").unwrap();
+    assert_eq!(gpib_secondary.interface(), VisaInterface::Gpib);
 
     let serial = VisaResourceAddress::parse("ASRL3::INSTR").unwrap();
     assert_eq!(serial.interface(), VisaInterface::Serial);
@@ -847,6 +854,26 @@ fn visa_resource_address_rejects_unknown_or_incomplete_resources() {
     assert_eq!(
         VisaResourceAddress::parse("TCPIP0::192.0.2.10::RAW").unwrap_err(),
         DomainError::InvalidVisaResourceAddress("TCPIP0::192.0.2.10::RAW".to_owned())
+    );
+    assert_eq!(
+        VisaResourceAddress::parse("TCPIP0::192.0.2.10::SOCKET").unwrap_err(),
+        DomainError::InvalidVisaResourceAddress("TCPIP0::192.0.2.10::SOCKET".to_owned())
+    );
+    assert_eq!(
+        VisaResourceAddress::parse("GPIB0::12::SOCKET").unwrap_err(),
+        DomainError::InvalidVisaResourceAddress("GPIB0::12::SOCKET".to_owned())
+    );
+    assert_eq!(
+        VisaResourceAddress::parse("GPIB0::primary::INSTR").unwrap_err(),
+        DomainError::InvalidVisaResourceAddress("GPIB0::primary::INSTR".to_owned())
+    );
+    assert_eq!(
+        VisaResourceAddress::parse("ASRL::INSTR").unwrap_err(),
+        DomainError::InvalidVisaResourceAddress("ASRL::INSTR".to_owned())
+    );
+    assert_eq!(
+        VisaResourceAddress::parse("TCPIPX::192.0.2.10::INSTR").unwrap_err(),
+        DomainError::InvalidVisaResourceAddress("TCPIPX::192.0.2.10::INSTR".to_owned())
     );
 }
 

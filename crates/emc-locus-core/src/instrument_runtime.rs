@@ -274,13 +274,13 @@ impl VisaInterface {
 
     fn parse(prefix: &str) -> Option<Self> {
         let prefix = prefix.to_ascii_uppercase();
-        if prefix.starts_with("TCPIP") {
+        if visa_prefix_matches(&prefix, "TCPIP", false) {
             Some(Self::TcpIp)
-        } else if prefix.starts_with("USB") {
+        } else if visa_prefix_matches(&prefix, "USB", false) {
             Some(Self::Usb)
-        } else if prefix.starts_with("GPIB") {
+        } else if visa_prefix_matches(&prefix, "GPIB", false) {
             Some(Self::Gpib)
-        } else if prefix.starts_with("ASRL") {
+        } else if visa_prefix_matches(&prefix, "ASRL", true) {
             Some(Self::Serial)
         } else {
             None
@@ -312,6 +312,7 @@ impl VisaResourceAddress {
         if !matches!(resource_class.as_str(), "INSTR" | "SOCKET") {
             return Err(invalid_visa_resource(address));
         }
+        validate_visa_resource_shape(interface, &parts, &resource_class, address)?;
 
         Ok(Self {
             raw: trimmed.to_owned(),
@@ -904,6 +905,70 @@ fn parse_serial_framing(
     }
 
     Ok((data_bits, parity, stop_bits))
+}
+
+fn visa_prefix_matches(prefix: &str, expected: &str, require_index: bool) -> bool {
+    let Some(index) = prefix.strip_prefix(expected) else {
+        return false;
+    };
+
+    (!require_index || !index.is_empty()) && index.chars().all(|value| value.is_ascii_digit())
+}
+
+fn validate_visa_resource_shape(
+    interface: VisaInterface,
+    parts: &[&str],
+    resource_class: &str,
+    original_address: &str,
+) -> Result<(), DomainError> {
+    match (interface, resource_class) {
+        (VisaInterface::TcpIp, "SOCKET") => {
+            if parts.len() == 4 && parse_tcp_port(parts[2]).is_some() {
+                Ok(())
+            } else {
+                Err(invalid_visa_resource(original_address))
+            }
+        }
+        (_, "SOCKET") => Err(invalid_visa_resource(original_address)),
+        (VisaInterface::TcpIp, "INSTR") => {
+            if matches!(parts.len(), 3 | 4) {
+                Ok(())
+            } else {
+                Err(invalid_visa_resource(original_address))
+            }
+        }
+        (VisaInterface::Usb, "INSTR") => {
+            if matches!(parts.len(), 5 | 6) {
+                Ok(())
+            } else {
+                Err(invalid_visa_resource(original_address))
+            }
+        }
+        (VisaInterface::Gpib, "INSTR") => validate_gpib_resource_parts(parts, original_address),
+        (VisaInterface::Serial, "INSTR") => {
+            if parts.len() == 2 {
+                Ok(())
+            } else {
+                Err(invalid_visa_resource(original_address))
+            }
+        }
+        _ => Err(invalid_visa_resource(original_address)),
+    }
+}
+
+fn validate_gpib_resource_parts(parts: &[&str], original_address: &str) -> Result<(), DomainError> {
+    if !matches!(parts.len(), 3 | 4) || parse_gpib_address(parts[1]).is_none() {
+        return Err(invalid_visa_resource(original_address));
+    }
+    if parts.len() == 4 && parse_gpib_address(parts[2]).is_none() {
+        return Err(invalid_visa_resource(original_address));
+    }
+
+    Ok(())
+}
+
+fn parse_gpib_address(value: &str) -> Option<u8> {
+    value.trim().parse::<u8>().ok()
 }
 
 fn invalid_serial_endpoint(address: &str) -> DomainError {
