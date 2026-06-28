@@ -7,6 +7,7 @@ use std::{
 use crate::{instrument::InstrumentTransport, metrology::InstrumentCode, DomainError};
 
 const DEFAULT_SCPI_TCP_PORT: u16 = 5025;
+const MAX_GPIB_ADDRESS: u8 = 30;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstrumentCommandMessage(String);
@@ -968,7 +969,11 @@ fn validate_gpib_resource_parts(parts: &[&str], original_address: &str) -> Resul
 }
 
 fn parse_gpib_address(value: &str) -> Option<u8> {
-    value.trim().parse::<u8>().ok()
+    value
+        .trim()
+        .parse::<u8>()
+        .ok()
+        .filter(|address| *address <= MAX_GPIB_ADDRESS)
 }
 
 fn invalid_serial_endpoint(address: &str) -> DomainError {
@@ -1120,5 +1125,5 @@ fn deterministic_response(message: &InstrumentCommandMessage) -> InstrumentRespo
 }
 
 fn parse_tcp_port(value: &str) -> Option<u16> {
-    value.trim().parse::<u16>().ok()
+    value.trim().parse::<u16>().ok().filter(|port| *port > 0)
 }

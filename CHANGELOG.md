@@ -176,6 +176,8 @@ change should remain traceable through Git history, session logs, and this file.
   descriptors, including TCP/IP `SOCKET` resources without numeric ports,
   non-TCP/IP `SOCKET` resources, nonnumeric GPIB addresses, and missing ASRL
   port indexes.
+- VISA and TCP/IP endpoint validation now rejects zero-valued TCP socket ports,
+  plus GPIB primary or secondary addresses outside the valid 0-30 range.
 
 ### Planned
 

@@ -136,8 +136,8 @@ default SCPI port until a full VISA implementation is selected. Adapter-backed
 observations retain the exchange attempt count, so retry behavior remains
 visible in run evidence. Malformed VISA-style TCP/IP resources are rejected when
 the host is missing, a `SOCKET` port is not numeric, or the resource class is
-unknown, so invalid endpoints do not silently fall back to the default SCPI
-port.
+unknown. Zero-valued socket ports are also rejected, so invalid endpoints do not
+silently fall back to the default SCPI port.
 
 Serial endpoints currently support `PORT:baud` with default 8N1 framing, or
 `PORT:baud:framing` for explicit values such as `COM4:9600:7E2`. Native serial
@@ -149,5 +149,6 @@ VISA resources currently validate common resource strings such as
 `USB0::vendor::product::serial::INSTR`, and `ASRL3::INSTR`. Native VISA IO is
 still intentionally unavailable until a binding, packaging, and device-test
 strategy are selected. Validation is interface-aware: `SOCKET` resources are
-limited to TCP/IP resources with numeric ports, GPIB addresses must be numeric,
-and ASRL resources must include a serial port index.
+limited to TCP/IP resources with nonzero numeric ports, GPIB primary and
+secondary addresses must be numeric values from 0 to 30, and ASRL resources
+must include a serial port index.

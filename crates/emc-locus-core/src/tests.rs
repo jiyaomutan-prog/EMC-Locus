@@ -860,12 +860,24 @@ fn visa_resource_address_rejects_unknown_or_incomplete_resources() {
         DomainError::InvalidVisaResourceAddress("TCPIP0::192.0.2.10::SOCKET".to_owned())
     );
     assert_eq!(
+        VisaResourceAddress::parse("TCPIP0::192.0.2.10::0::SOCKET").unwrap_err(),
+        DomainError::InvalidVisaResourceAddress("TCPIP0::192.0.2.10::0::SOCKET".to_owned())
+    );
+    assert_eq!(
         VisaResourceAddress::parse("GPIB0::12::SOCKET").unwrap_err(),
         DomainError::InvalidVisaResourceAddress("GPIB0::12::SOCKET".to_owned())
     );
     assert_eq!(
         VisaResourceAddress::parse("GPIB0::primary::INSTR").unwrap_err(),
         DomainError::InvalidVisaResourceAddress("GPIB0::primary::INSTR".to_owned())
+    );
+    assert_eq!(
+        VisaResourceAddress::parse("GPIB0::31::INSTR").unwrap_err(),
+        DomainError::InvalidVisaResourceAddress("GPIB0::31::INSTR".to_owned())
+    );
+    assert_eq!(
+        VisaResourceAddress::parse("GPIB0::12::31::INSTR").unwrap_err(),
+        DomainError::InvalidVisaResourceAddress("GPIB0::12::31::INSTR".to_owned())
     );
     assert_eq!(
         VisaResourceAddress::parse("ASRL::INSTR").unwrap_err(),
@@ -1037,6 +1049,10 @@ fn tcp_ip_socket_target_rejects_malformed_visa_resources() {
     assert_eq!(
         tcp_socket_target("TCPIP0::192.0.2.10::inst0::SOCKET").unwrap_err(),
         DomainError::InvalidVisaResourceAddress("TCPIP0::192.0.2.10::inst0::SOCKET".to_owned())
+    );
+    assert_eq!(
+        tcp_socket_target("TCPIP0::192.0.2.10::0::SOCKET").unwrap_err(),
+        DomainError::InvalidVisaResourceAddress("TCPIP0::192.0.2.10::0::SOCKET".to_owned())
     );
     assert_eq!(
         tcp_socket_target("TCPIP0::192.0.2.10::RAW").unwrap_err(),
