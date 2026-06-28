@@ -998,25 +998,43 @@ fn read_tcp_response(stream: &mut TcpStream) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(&response).trim().to_owned())
 }
 
-fn tcp_socket_target(address: &str) -> Result<String, DomainError> {
+pub(crate) fn tcp_socket_target(address: &str) -> Result<String, DomainError> {
     let trimmed = address.trim();
     if trimmed.is_empty() {
         return Err(DomainError::EmptyTransportEndpointAddress);
     }
 
-    let tcp_address = trimmed.strip_prefix("TCPIP::").unwrap_or(trimmed);
-    if tcp_address.contains("::") {
-        let parts: Vec<&str> = tcp_address.split("::").collect();
-        if parts.len() >= 2 {
-            return Ok(format!("{}:{}", parts[0], parts[1]));
+    if let Some(target) = visa_tcp_socket_target(trimmed) {
+        return Ok(target);
+    }
+
+    if trimmed.contains(':') {
+        return Ok(trimmed.to_owned());
+    }
+
+    Ok(format!("{trimmed}:{DEFAULT_SCPI_TCP_PORT}"))
+}
+
+fn visa_tcp_socket_target(address: &str) -> Option<String> {
+    let parts: Vec<&str> = address.split("::").collect();
+    let interface = parts.first()?.trim();
+    if !interface.to_ascii_uppercase().starts_with("TCPIP") || parts.len() < 2 {
+        return None;
+    }
+
+    let host = parts[1].trim();
+    let explicit_port = match parts.as_slice() {
+        [_, _, port] => parse_tcp_port(port),
+        [_, _, port, resource_class] if resource_class.trim().eq_ignore_ascii_case("SOCKET") => {
+            parse_tcp_port(port)
         }
-    }
-
-    if tcp_address.contains(':') {
-        return Ok(tcp_address.to_owned());
-    }
-
-    Ok(format!("{tcp_address}:{DEFAULT_SCPI_TCP_PORT}"))
+        _ => None,
+    };
+    Some(format!(
+        "{}:{}",
+        host,
+        explicit_port.unwrap_or(DEFAULT_SCPI_TCP_PORT)
+    ))
 }
 
 fn deterministic_response(message: &InstrumentCommandMessage) -> InstrumentResponse {
@@ -1025,4 +1043,8 @@ fn deterministic_response(message: &InstrumentCommandMessage) -> InstrumentRespo
     } else {
         InstrumentResponse::simulated(format!("OK:{}", message.as_str()))
     }
+}
+
+fn parse_tcp_port(value: &str) -> Option<u16> {
+    value.trim().parse::<u16>().ok()
 }

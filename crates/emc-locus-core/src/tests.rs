@@ -949,6 +949,55 @@ fn tcp_ip_transport_adapter_exchanges_with_local_socket() {
 }
 
 #[test]
+fn tcp_ip_transport_adapter_accepts_visa_socket_resource() {
+    use std::io::{Read, Write};
+
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = [0_u8; 64];
+        let read = stream.read(&mut buffer).unwrap();
+        assert_eq!(std::str::from_utf8(&buffer[..read]).unwrap(), "SYST:ERR?\n");
+        stream.write_all(b"0,No error\n").unwrap();
+    });
+
+    let endpoint = InstrumentTransportEndpoint::new(
+        InstrumentTransport::TcpIp,
+        format!("TCPIP0::{}::{}::SOCKET", address.ip(), address.port()),
+    )
+    .unwrap();
+    let timeout_policy = TransportTimeoutPolicy::new(100, 1_000, 0).unwrap();
+    let mut adapter = TcpIpTransportAdapter::new(endpoint, timeout_policy).unwrap();
+
+    let response = adapter
+        .exchange(&InstrumentCommand::new(
+            code,
+            InstrumentTransport::TcpIp,
+            InstrumentCommandMessage::parse("SYST:ERR?").unwrap(),
+        ))
+        .unwrap();
+
+    assert_eq!(response.as_str(), "0,No error");
+    assert_eq!(adapter.last_exchange_attempt_count(), 1);
+    handle.join().unwrap();
+}
+
+#[test]
+fn tcp_ip_socket_target_accepts_visa_instr_and_plain_forms() {
+    assert_eq!(
+        tcp_socket_target("TCPIP0::192.0.2.10::inst0::INSTR").unwrap(),
+        "192.0.2.10:5025"
+    );
+    assert_eq!(
+        tcp_socket_target("TCPIP::192.0.2.11::5026").unwrap(),
+        "192.0.2.11:5026"
+    );
+    assert_eq!(tcp_socket_target("192.0.2.12").unwrap(), "192.0.2.12:5025");
+}
+
+#[test]
 fn tcp_ip_transport_adapter_tracks_failed_retry_attempts() {
     let code = InstrumentCode::parse("RX-001").unwrap();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

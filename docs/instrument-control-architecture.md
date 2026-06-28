@@ -128,9 +128,11 @@ Not yet implemented:
 - automatic parsing of string commands into typed setpoints;
 - IO-backed VISA, serial, and vendor SDK implementations.
 
-TCP/IP currently supports `TCPIP::host::port`, `TCPIP::host`, and `host:port`
-endpoints, writes newline-terminated commands, and reads responses until a
-newline or closed socket under the configured timeout policy. Adapter-backed
+TCP/IP currently supports `TCPIP::host::port`, `TCPIP::host`, `host:port`, and
+VISA-style `TCPIP0::host::port::SOCKET` endpoints, writes newline-terminated
+commands, and reads responses until a newline or closed socket under the
+configured timeout policy. `TCPIP0::host::inst::INSTR` resources resolve to the
+default SCPI port until a full VISA implementation is selected. Adapter-backed
 observations retain the exchange attempt count, so retry behavior remains
 visible in run evidence.
 

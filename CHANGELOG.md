@@ -164,6 +164,12 @@ change should remain traceable through Git history, session logs, and this file.
 - Metrology inventory tables now surface instrument category and capability
   previews in the Qt and browser bootstrap views.
 
+### Fixed
+
+- TCP/IP instrument endpoints now resolve VISA-style `TCPIP0::host::port::SOCKET`
+  resources and `TCPIP0::host::inst::INSTR` resources without misreading the
+  interface or resource class as the socket target.
+
 ### Planned
 
 - Expand guarded IO-backed serial and VISA implementations behind the adapter
