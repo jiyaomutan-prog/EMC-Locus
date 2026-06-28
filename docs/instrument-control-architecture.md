@@ -134,7 +134,10 @@ commands, and reads responses until a newline or closed socket under the
 configured timeout policy. `TCPIP0::host::inst::INSTR` resources resolve to the
 default SCPI port until a full VISA implementation is selected. Adapter-backed
 observations retain the exchange attempt count, so retry behavior remains
-visible in run evidence.
+visible in run evidence. Malformed VISA-style TCP/IP resources are rejected when
+the host is missing, a `SOCKET` port is not numeric, or the resource class is
+unknown, so invalid endpoints do not silently fall back to the default SCPI
+port.
 
 Serial endpoints currently support `PORT:baud` with default 8N1 framing, or
 `PORT:baud:framing` for explicit values such as `COM4:9600:7E2`. Native serial

@@ -1004,7 +1004,7 @@ pub(crate) fn tcp_socket_target(address: &str) -> Result<String, DomainError> {
         return Err(DomainError::EmptyTransportEndpointAddress);
     }
 
-    if let Some(target) = visa_tcp_socket_target(trimmed) {
+    if let Some(target) = visa_tcp_socket_target(trimmed)? {
         return Ok(target);
     }
 
@@ -1015,26 +1015,35 @@ pub(crate) fn tcp_socket_target(address: &str) -> Result<String, DomainError> {
     Ok(format!("{trimmed}:{DEFAULT_SCPI_TCP_PORT}"))
 }
 
-fn visa_tcp_socket_target(address: &str) -> Option<String> {
+fn visa_tcp_socket_target(address: &str) -> Result<Option<String>, DomainError> {
     let parts: Vec<&str> = address.split("::").collect();
-    let interface = parts.first()?.trim();
+    let Some(interface) = parts.first().map(|part| part.trim()) else {
+        return Ok(None);
+    };
     if !interface.to_ascii_uppercase().starts_with("TCPIP") || parts.len() < 2 {
-        return None;
+        return Ok(None);
     }
 
     let host = parts[1].trim();
+    if host.is_empty() {
+        return Err(invalid_visa_resource(address));
+    }
+
     let explicit_port = match parts.as_slice() {
-        [_, _, port] => parse_tcp_port(port),
+        [_, _] => None,
+        [_, _, value] if value.trim().eq_ignore_ascii_case("INSTR") => None,
+        [_, _, port] => Some(parse_tcp_port(port).ok_or_else(|| invalid_visa_resource(address))?),
         [_, _, port, resource_class] if resource_class.trim().eq_ignore_ascii_case("SOCKET") => {
-            parse_tcp_port(port)
+            Some(parse_tcp_port(port).ok_or_else(|| invalid_visa_resource(address))?)
         }
-        _ => None,
+        [_, _, _, resource_class] if resource_class.trim().eq_ignore_ascii_case("INSTR") => None,
+        _ => return Err(invalid_visa_resource(address)),
     };
-    Some(format!(
+    Ok(Some(format!(
         "{}:{}",
         host,
         explicit_port.unwrap_or(DEFAULT_SCPI_TCP_PORT)
-    ))
+    )))
 }
 
 fn deterministic_response(message: &InstrumentCommandMessage) -> InstrumentResponse {

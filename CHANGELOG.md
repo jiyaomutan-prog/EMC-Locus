@@ -169,6 +169,9 @@ change should remain traceable through Git history, session logs, and this file.
 - TCP/IP instrument endpoints now resolve VISA-style `TCPIP0::host::port::SOCKET`
   resources and `TCPIP0::host::inst::INSTR` resources without misreading the
   interface or resource class as the socket target.
+- Malformed VISA-style TCP/IP `SOCKET` resources with missing hosts, nonnumeric
+  ports, or unknown resource classes are now rejected instead of silently
+  falling back to the default SCPI port.
 
 ### Planned
 

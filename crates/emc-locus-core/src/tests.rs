@@ -991,10 +991,30 @@ fn tcp_ip_socket_target_accepts_visa_instr_and_plain_forms() {
         "192.0.2.10:5025"
     );
     assert_eq!(
+        tcp_socket_target("TCPIP0::192.0.2.10::5026::SOCKET").unwrap(),
+        "192.0.2.10:5026"
+    );
+    assert_eq!(
         tcp_socket_target("TCPIP::192.0.2.11::5026").unwrap(),
         "192.0.2.11:5026"
     );
     assert_eq!(tcp_socket_target("192.0.2.12").unwrap(), "192.0.2.12:5025");
+}
+
+#[test]
+fn tcp_ip_socket_target_rejects_malformed_visa_resources() {
+    assert_eq!(
+        tcp_socket_target("TCPIP0::::5025::SOCKET").unwrap_err(),
+        DomainError::InvalidVisaResourceAddress("TCPIP0::::5025::SOCKET".to_owned())
+    );
+    assert_eq!(
+        tcp_socket_target("TCPIP0::192.0.2.10::inst0::SOCKET").unwrap_err(),
+        DomainError::InvalidVisaResourceAddress("TCPIP0::192.0.2.10::inst0::SOCKET".to_owned())
+    );
+    assert_eq!(
+        tcp_socket_target("TCPIP0::192.0.2.10::RAW").unwrap_err(),
+        DomainError::InvalidVisaResourceAddress("TCPIP0::192.0.2.10::RAW".to_owned())
+    );
 }
 
 #[test]
