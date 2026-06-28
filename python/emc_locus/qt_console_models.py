@@ -223,6 +223,45 @@ def build_operator_form_specs(
 
     return (
         OperatorFormSpec(
+            action_id="create_project",
+            title="Nouveau projet",
+            submit_label="Creer projet",
+            enabled=has_projects,
+            disabled_reason="" if has_projects else "Depot projets requis",
+            fields=(
+                FormFieldSpec("code", "Code", "text", required=True),
+                FormFieldSpec("customer_name", "Client", "text", required=True),
+                FormFieldSpec(
+                    "execution_mode",
+                    "Mode",
+                    "choice",
+                    required=True,
+                    choices=(
+                        ("accredited", "Accredite"),
+                        ("non_accredited", "Non accredite"),
+                        ("investigation", "Investigation"),
+                    ),
+                ),
+                FormFieldSpec(
+                    "stage",
+                    "Etape",
+                    "choice",
+                    required=True,
+                    choices=(
+                        ("quotation", "Devis"),
+                        ("contract_review", "Revue contrat"),
+                        ("test_planning", "Planning essais"),
+                        ("measuring", "Mesure"),
+                        ("technical_review", "Revue technique"),
+                        ("report_issued", "Rapport fourni"),
+                        ("archived", "Archive"),
+                    ),
+                ),
+                FormFieldSpec("actor", "Acteur", "text", required=True),
+                FormFieldSpec("reason", "Raison", "multiline", required=True),
+            ),
+        ),
+        OperatorFormSpec(
             action_id="register_instrument",
             title="Nouveau materiel",
             submit_label="Enregistrer",

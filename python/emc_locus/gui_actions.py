@@ -29,6 +29,7 @@ PROJECT_STAGE_FLOW = (
     "report_issued",
     "archived",
 )
+PROJECT_EXECUTION_MODES = {"accredited", "non_accredited", "investigation"}
 
 DATASET_RETENTION_ACTIONS = {
     "request-deletion": "deletion_requested",
@@ -53,6 +54,68 @@ SERVICE_SCHEDULE_STATUSES = {
     "completed",
     "cancelled",
 }
+
+
+def create_project_record(
+    *,
+    projects_db: Path | str,
+    code: str,
+    customer_name: str,
+    execution_mode: str,
+    actor: str,
+    reason: str,
+    stage: str = "quotation",
+    migrations_root: Path | str = Path("storage/sqlite"),
+    bootstrap_output: Path | str | None = None,
+    metrology_db: Path | str | None = None,
+    test_definitions_db: Path | str | None = None,
+    measurement_data_db: Path | str | None = None,
+    update_catalog_db: Path | str | None = None,
+) -> dict[str, Any]:
+    """Create a project with first audit evidence."""
+
+    code = require_non_empty(code, "code")
+    customer_name = require_non_empty(customer_name, "customer_name")
+    execution_mode = require_non_empty(execution_mode, "execution_mode")
+    if execution_mode not in PROJECT_EXECUTION_MODES:
+        raise ValueError(f"unknown project execution mode: {execution_mode}")
+    stage = require_non_empty(stage, "stage")
+    if stage not in PROJECT_STAGE_FLOW:
+        raise ValueError(f"unknown project stage: {stage}")
+    actor = require_non_empty(actor, "actor")
+    reason = require_non_empty(reason, "reason")
+
+    repository = ProjectRepository(Path(projects_db), Path(migrations_root))
+    repository.initialize()
+    if repository.get_project(code) is not None:
+        raise ValueError("project already exists")
+    audit_event_id = repository.create_project_with_audit(
+        code=code,
+        customer_name=customer_name,
+        execution_mode=execution_mode,
+        stage=stage,
+        actor=actor,
+        reason=reason,
+    )
+
+    if bootstrap_output is not None:
+        refresh_bootstrap(
+            output=bootstrap_output,
+            migrations_root=migrations_root,
+            projects_db=projects_db,
+            metrology_db=metrology_db,
+            test_definitions_db=test_definitions_db,
+            measurement_data_db=measurement_data_db,
+            update_catalog_db=update_catalog_db,
+        )
+
+    return {
+        "code": code,
+        "customer_name": customer_name,
+        "execution_mode": execution_mode,
+        "stage": stage,
+        "audit_event_id": audit_event_id,
+    }
 
 
 def register_metrology_instrument(
@@ -833,6 +896,25 @@ def main(argv: list[str] | None = None) -> int:
     _add_repository_args(refresh_parser)
     refresh_parser.add_argument("--output", required=True, type=Path)
 
+    project_parser = subcommands.add_parser("create-project")
+    _add_repository_args(project_parser, include_projects=False)
+    project_parser.add_argument("--projects-db", required=True, type=Path)
+    project_parser.add_argument("--code", required=True)
+    project_parser.add_argument("--customer-name", required=True)
+    project_parser.add_argument(
+        "--execution-mode",
+        required=True,
+        choices=sorted(PROJECT_EXECUTION_MODES),
+    )
+    project_parser.add_argument(
+        "--stage",
+        default="quotation",
+        choices=PROJECT_STAGE_FLOW,
+    )
+    project_parser.add_argument("--actor", required=True)
+    project_parser.add_argument("--reason", required=True)
+    project_parser.add_argument("--bootstrap-output", type=Path)
+
     register_parser = subcommands.add_parser("register-instrument")
     _add_repository_args(register_parser, include_metrology=False)
     register_parser.add_argument("--metrology-db", required=True, type=Path)
@@ -1005,6 +1087,25 @@ def main(argv: list[str] | None = None) -> int:
             measurement_data_db=args.measurement_data_db,
             update_catalog_db=args.update_catalog_db,
         )
+        return 0
+
+    if args.command == "create-project":
+        result = create_project_record(
+            projects_db=args.projects_db,
+            code=args.code,
+            customer_name=args.customer_name,
+            execution_mode=args.execution_mode,
+            stage=args.stage,
+            actor=args.actor,
+            reason=args.reason,
+            migrations_root=args.migrations_root,
+            bootstrap_output=args.bootstrap_output,
+            metrology_db=args.metrology_db,
+            test_definitions_db=args.test_definitions_db,
+            measurement_data_db=args.measurement_data_db,
+            update_catalog_db=args.update_catalog_db,
+        )
+        print(json.dumps(result, sort_keys=True))
         return 0
 
     if args.command == "register-instrument":

@@ -585,6 +585,67 @@ class ProjectRepository(SQLiteDomainRepository):
                     (code, customer_name, stage, execution_mode, utc_timestamp()),
                 )
 
+    def create_project_with_audit(
+        self,
+        *,
+        code: str,
+        customer_name: str,
+        execution_mode: str,
+        actor: str,
+        reason: str,
+        stage: str = "quotation",
+    ) -> int:
+        """Create a project and its first audit event in one transaction."""
+
+        now = utc_timestamp()
+        payload_json = json.dumps(
+            {
+                "customer_name": customer_name,
+                "execution_mode": execution_mode,
+                "stage": stage,
+            },
+            sort_keys=True,
+        )
+        with closing(self.connect()) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO projects (
+                        code,
+                        customer_name,
+                        stage,
+                        execution_mode,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (code, customer_name, stage, execution_mode, now),
+                )
+                cursor = connection.execute(
+                    """
+                    INSERT INTO project_audit_events (
+                        project_code,
+                        sequence,
+                        actor,
+                        action,
+                        reason,
+                        payload_json,
+                        occurred_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        code,
+                        1,
+                        actor,
+                        "project_created",
+                        reason,
+                        payload_json,
+                        now,
+                    ),
+                )
+        return int(cursor.lastrowid)
+
     def append_audit_event(
         self,
         *,

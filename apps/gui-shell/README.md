@@ -18,6 +18,12 @@ Pass `--projects-db`, `--metrology-db`, `--test-definitions-db`,
 `--measurement-data-db`, or `--update-catalog-db` to export data from local
 SQLite repositories.
 
+Create an audited project locally and refresh the console data with:
+
+```text
+$env:PYTHONPATH='python'; py -m emc_locus.gui_actions create-project --projects-db data\projects.sqlite --code CEM-2026-001 --customer-name "Rail Motion" --execution-mode accredited --actor operator.one --reason "New EMC campaign opened" --bootstrap-output apps\gui-shell\bootstrap.js
+```
+
 Advance a project locally and refresh the console data with:
 
 ```text

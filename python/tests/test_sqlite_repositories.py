@@ -17,6 +17,7 @@ from emc_locus import (
     advance_project_stage,
     attach_metrology_document,
     build_bootstrap,
+    create_project_record,
     create_test_category,
     next_project_stage,
     register_metrology_instrument,
@@ -689,6 +690,36 @@ class GuiBootstrapTests(unittest.TestCase):
 
 
 class GuiActionTests(unittest.TestCase):
+    def test_create_project_record_writes_initial_audit_and_refreshes_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            base = Path(temporary_directory)
+            projects_db = base / "projects.sqlite"
+            bootstrap_output = base / "bootstrap.js"
+
+            result = create_project_record(
+                projects_db=projects_db,
+                code="CEM-CREATE-001",
+                customer_name="Create Customer",
+                execution_mode="investigation",
+                actor="operator.one",
+                reason="Initial field investigation request",
+                bootstrap_output=bootstrap_output,
+            )
+
+            projects = ProjectRepository(projects_db, Path("storage/sqlite"))
+            projects.initialize()
+            project = projects.get_project("CEM-CREATE-001")
+            events = projects.audit_events("CEM-CREATE-001")
+            bootstrap_text = bootstrap_output.read_text()
+
+            self.assertEqual(result["stage"], "quotation")
+            self.assertEqual(result["audit_event_id"], events[0]["id"])
+            self.assertEqual(project["execution_mode"], "investigation")
+            self.assertEqual(events[0]["sequence"], 1)
+            self.assertEqual(events[0]["action"], "project_created")
+            self.assertIn("Initial field investigation request", events[0]["reason"])
+            self.assertIn("CEM-CREATE-001", bootstrap_text)
+
     def test_advance_project_stage_records_audit_and_refreshes_bootstrap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path("storage/sqlite")

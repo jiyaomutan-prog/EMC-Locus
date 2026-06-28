@@ -242,6 +242,7 @@ class QtConsoleTests(unittest.TestCase):
         )
         by_id = {spec.action_id: spec for spec in specs}
 
+        self.assertTrue(by_id["create_project"].enabled)
         self.assertTrue(by_id["register_instrument"].enabled)
         self.assertTrue(by_id["attach_instrument_document"].enabled)
         self.assertTrue(by_id["schedule_service_item"].enabled)
@@ -257,7 +258,7 @@ class QtConsoleTests(unittest.TestCase):
 
         disabled = build_operator_form_specs({}, set())
         self.assertFalse(disabled[0].enabled)
-        self.assertEqual(disabled[0].disabled_reason, "Depot metrologie requis")
+        self.assertEqual(disabled[0].disabled_reason, "Depot projets requis")
 
     def test_qt_form_action_registers_instrument_and_document_without_pyside(self) -> None:
         module = load_qt_console_module()
@@ -322,13 +323,6 @@ class QtConsoleTests(unittest.TestCase):
             base = Path(temporary_directory)
             projects_db = base / "projects.sqlite"
             test_definitions_db = base / "test_definitions.sqlite"
-            project_repository = ProjectRepository(projects_db, Path("storage/sqlite"))
-            project_repository.initialize()
-            project_repository.create_project(
-                code="CEM-QT-SCHEDULE",
-                customer_name="Rail Motion",
-                execution_mode="accredited",
-            )
             args = SimpleNamespace(
                 metrology_db=None,
                 projects_db=projects_db,
@@ -336,6 +330,18 @@ class QtConsoleTests(unittest.TestCase):
                 migrations_root=Path("storage/sqlite"),
             )
 
+            module._execute_form_action(
+                args,
+                "create_project",
+                {
+                    "code": "CEM-QT-SCHEDULE",
+                    "customer_name": "Rail Motion",
+                    "execution_mode": "accredited",
+                    "stage": "quotation",
+                    "actor": "operator.one",
+                    "reason": "Qt form project creation",
+                },
+            )
             module._execute_form_action(
                 args,
                 "schedule_service_item",
@@ -366,7 +372,10 @@ class QtConsoleTests(unittest.TestCase):
                 },
             )
 
+            project_repository = ProjectRepository(projects_db, Path("storage/sqlite"))
+            project_repository.initialize()
             schedule = project_repository.list_service_schedule_items()
+            events = project_repository.audit_events("CEM-QT-SCHEDULE")
             test_repository = TestDefinitionRepository(
                 test_definitions_db,
                 Path("storage/sqlite"),
@@ -376,6 +385,7 @@ class QtConsoleTests(unittest.TestCase):
 
         self.assertEqual(schedule[0]["item_code"], "PLAN-QT-FORM")
         self.assertEqual(schedule[0]["test_category_code"], "emission_conducted")
+        self.assertEqual(events[0]["action"], "project_created")
         self.assertEqual(category["parent_code"], "immunity_radiated")
 
     def test_builds_qt_console_bootstrap_from_local_repository_paths(self) -> None:

@@ -44,4 +44,5 @@ centralized in tested Python action services.
 
 The current Qt slice adds a `Saisie` tab backed by testable form contracts. The
 forms can register instruments, attach material documents, schedule service
-items, and create test categories when local repository paths are supplied.
+items, create projects, and create test categories when local repository paths
+are supplied.

@@ -33,7 +33,7 @@ py apps\qt-console\main.py --bootstrap apps\gui-shell\bootstrap.js
 
 It can also load local SQLite repositories directly. When repository paths are
 provided, the `Saisie` tab enables local write forms for material registration,
-material documents, service planning, and test categories:
+material documents, project creation, service planning, and test categories:
 
 ```text
 py apps\qt-console\main.py --projects-db data\projects.sqlite --metrology-db data\metrology.sqlite --test-definitions-db data\test_definitions.sqlite --measurement-data-db data\measurement_data.sqlite
@@ -49,8 +49,8 @@ application services.
 The same view-model layer exposes initial operator action intents for project
 advancement, dataset-retention requests, and update validation. The first Qt
 write path now covers metrology material creation, document attachment,
-service scheduling, and test-category creation by calling the same Python
-action layer used by the CLI.
+project creation, service scheduling, and test-category creation by calling the
+same Python action layer used by the CLI.
 
 The console also exposes first status metrics for active projects, metrology
 alerts, retained datasets, and updates requiring attention.

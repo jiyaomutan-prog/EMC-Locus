@@ -178,6 +178,8 @@ change should remain traceable through Git history, session logs, and this file.
 - Qt operator entry forms for registering instruments, attaching material
   documents, scheduling service items, and creating test categories against
   local SQLite repositories.
+- Audited local project creation action, CLI, and Qt form so service planning
+  can start from a new campaign record.
 
 ### Fixed
 
