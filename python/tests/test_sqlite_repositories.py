@@ -800,6 +800,85 @@ class GuiActionTests(unittest.TestCase):
             self.assertIn("CEM-ACT-001", bootstrap_text)
             self.assertIn("Contract review", bootstrap_text)
 
+    def test_accredited_project_cannot_enter_planning_without_contract_review_items(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects_db = Path(temporary_directory) / "projects.sqlite"
+            projects = ProjectRepository(projects_db, Path("storage/sqlite"))
+            projects.initialize()
+            projects.create_project(
+                code="CEM-GATE-ACC",
+                customer_name="Gate Customer",
+                execution_mode="accredited",
+                stage="contract_review",
+            )
+
+            with self.assertRaisesRegex(ValueError, "requirements_reviewed"):
+                advance_project_stage(
+                    projects_db=projects_db,
+                    code="CEM-GATE-ACC",
+                    actor="quality.lead",
+                    reason="Trying to enter planning too early",
+                )
+
+            for item in (
+                "requirements_reviewed",
+                "method_available",
+                "resources_available",
+                "impartiality_risk_reviewed",
+            ):
+                complete_contract_review_item_action(
+                    projects_db=projects_db,
+                    project_code="CEM-GATE-ACC",
+                    item=item,
+                    completed_by="quality.lead",
+                    comment="Required for accredited planning",
+                )
+
+            result = advance_project_stage(
+                projects_db=projects_db,
+                code="CEM-GATE-ACC",
+                actor="quality.lead",
+                reason="Contract review checklist complete",
+            )
+
+            self.assertEqual(result["new_stage"], "test_planning")
+
+    def test_investigation_project_uses_reduced_contract_review_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects_db = Path(temporary_directory) / "projects.sqlite"
+            projects = ProjectRepository(projects_db, Path("storage/sqlite"))
+            projects.initialize()
+            projects.create_project(
+                code="CEM-GATE-INV",
+                customer_name="Investigation Customer",
+                execution_mode="investigation",
+                stage="contract_review",
+            )
+
+            with self.assertRaisesRegex(ValueError, "investigation_goal_defined"):
+                advance_project_stage(
+                    projects_db=projects_db,
+                    code="CEM-GATE-INV",
+                    actor="operator.one",
+                    reason="Need an investigation goal",
+                )
+
+            complete_contract_review_item_action(
+                projects_db=projects_db,
+                project_code="CEM-GATE-INV",
+                item="investigation_goal_defined",
+                completed_by="operator.one",
+                comment="Find root cause of transient reset",
+            )
+            result = advance_project_stage(
+                projects_db=projects_db,
+                code="CEM-GATE-INV",
+                actor="operator.one",
+                reason="Investigation gate complete",
+            )
+
+            self.assertEqual(result["new_stage"], "test_planning")
+
     def test_next_project_stage_rejects_unknown_stage(self) -> None:
         with self.assertRaises(ValueError):
             next_project_stage("unknown")

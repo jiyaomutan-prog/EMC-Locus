@@ -30,6 +30,21 @@ PROJECT_STAGE_FLOW = (
     "archived",
 )
 PROJECT_EXECUTION_MODES = {"accredited", "non_accredited", "investigation"}
+CONTRACT_REVIEW_REQUIRED_ITEMS = {
+    "accredited": (
+        "requirements_reviewed",
+        "method_available",
+        "resources_available",
+        "impartiality_risk_reviewed",
+    ),
+    "non_accredited": (
+        "scope_confirmed",
+        "constraints_accepted",
+    ),
+    "investigation": (
+        "investigation_goal_defined",
+    ),
+}
 
 DATASET_RETENTION_ACTIONS = {
     "request-deletion": "deletion_requested",
@@ -692,6 +707,15 @@ def advance_project_stage(
 
     current_stage = str(project["stage"])
     next_stage = next_project_stage(current_stage)
+    missing_review_items = _missing_contract_review_items(projects, project)
+    if (
+        current_stage == "contract_review"
+        and next_stage == "test_planning"
+        and missing_review_items
+    ):
+        raise ValueError(
+            "contract review incomplete: " + ", ".join(missing_review_items)
+        )
     sequence = projects.set_project_stage_with_audit(
         code=code,
         stage=next_stage,
@@ -1478,6 +1502,21 @@ def _add_months(value: date, months: int) -> date:
 
 def _has_text(value: str | None) -> bool:
     return value is not None and bool(value.strip())
+
+
+def _missing_contract_review_items(
+    repository: ProjectRepository,
+    project: dict[str, object],
+) -> tuple[str, ...]:
+    required = CONTRACT_REVIEW_REQUIRED_ITEMS.get(str(project["execution_mode"]), ())
+    if not required:
+        return ()
+    completed = {
+        str(row["item"])
+        for row in repository.contract_review_items(str(project["code"]))
+        if int(row["completed"])
+    }
+    return tuple(item for item in required if item not in completed)
 
 
 def _open_repository(

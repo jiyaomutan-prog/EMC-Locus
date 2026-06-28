@@ -44,6 +44,11 @@ python -m emc_locus.actions_cli schedule-service-item `
 
 The browser and Qt bootstrap now include a `schedule` table.
 
+Before a project moves from contract review to test planning, EMC Locus checks
+the completed contract-review items. Accredited projects require a stricter
+set of items than non-accredited and investigation projects, so the workflow can
+stay controlled without forcing Cofrac-style constraints on exploratory work.
+
 ## Test Categories
 
 The test-definition repository owns `test_categories`. Categories are

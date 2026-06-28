@@ -182,6 +182,9 @@ change should remain traceable through Git history, session logs, and this file.
   can start from a new campaign record.
 - Audited contract-review item completion action, CLI, Qt form, bootstrap
   export, and Qt/browser tables.
+- Contract-review advancement gate requiring a complete checklist before
+  planning, with reduced required items for non-accredited and investigation
+  projects.
 
 ### Fixed
 
