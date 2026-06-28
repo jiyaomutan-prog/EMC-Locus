@@ -22,7 +22,19 @@ if str(PYTHON_ROOT) not in sys.path:
     sys.path.insert(0, str(PYTHON_ROOT))
 
 from emc_locus.qt_console_data import build_console_bootstrap_from_repositories
-from emc_locus.qt_console_models import TableViewModel, build_console_view_model
+from emc_locus.gui_actions import (
+    attach_metrology_document,
+    create_test_category,
+    register_metrology_instrument,
+    schedule_service_item,
+)
+from emc_locus.qt_console_models import (
+    FormFieldSpec,
+    OperatorFormSpec,
+    TableViewModel,
+    build_console_view_model,
+    build_operator_form_specs,
+)
 
 
 @dataclass(frozen=True)
@@ -32,10 +44,17 @@ class QtBindings:
     Qt: Any
     QAbstractItemView: Any
     QApplication: Any
+    QComboBox: Any
+    QFormLayout: Any
+    QGroupBox: Any
     QHBoxLayout: Any
     QLabel: Any
+    QLineEdit: Any
     QMainWindow: Any
+    QMessageBox: Any
+    QPlainTextEdit: Any
     QPushButton: Any
+    QScrollArea: Any
     QStatusBar: Any
     QTabWidget: Any
     QTableWidget: Any
@@ -79,11 +98,13 @@ def run(argv: list[str] | None = None) -> int:
     data = _load_console_data(args)
     view_model = build_console_view_model(data)
     qt = _load_qt()
+    state = {"data": data, "view_model": view_model}
 
     application = qt.QApplication([])
     window = qt.QMainWindow()
     window.setWindowTitle("EMC Locus")
     window.resize(1320, 820)
+    window.setStatusBar(qt.QStatusBar())
 
     root = qt.QWidget()
     layout = qt.QVBoxLayout(root)
@@ -106,18 +127,30 @@ def run(argv: list[str] | None = None) -> int:
 
     metrics = qt.QHBoxLayout()
     metrics.setSpacing(10)
-    for metric in view_model.metrics:
-        metrics.addWidget(_metric(qt, metric.label, metric.value, metric.tone))
-    metrics.addStretch(1)
     layout.addLayout(metrics)
 
     tabs = qt.QTabWidget()
-    for table_model in view_model.tables:
-        tabs.addTab(_table(qt, table_model), table_model.tab_label)
     layout.addWidget(tabs, 1)
 
     window.setCentralWidget(root)
-    window.setStatusBar(qt.QStatusBar())
+
+    def refresh_console(message: str | None = None) -> None:
+        state["data"] = _load_console_data(args)
+        state["view_model"] = build_console_view_model(state["data"])
+        _populate_metrics(qt, metrics, state["view_model"])
+        _populate_tabs(
+            qt,
+            tabs,
+            args,
+            state["data"],
+            state["view_model"],
+            refresh_console,
+        )
+        if message:
+            window.statusBar().showMessage(message)
+
+    _populate_metrics(qt, metrics, state["view_model"])
+    _populate_tabs(qt, tabs, args, state["data"], state["view_model"], refresh_console)
     window.statusBar().showMessage(_status_message(args))
     window.setStyleSheet(_stylesheet())
     window.show()
@@ -136,6 +169,271 @@ def _metric(qt: QtBindings, label: str, value: str, tone: str) -> Any:
     layout.addWidget(value_label)
     layout.addWidget(text_label)
     return widget
+
+
+def _populate_metrics(qt: QtBindings, layout: Any, view_model: Any) -> None:
+    while layout.count():
+        item = layout.takeAt(0)
+        widget = item.widget() if item is not None else None
+        if widget is not None:
+            widget.deleteLater()
+
+    for metric in view_model.metrics:
+        layout.addWidget(_metric(qt, metric.label, metric.value, metric.tone))
+    layout.addStretch(1)
+
+
+def _populate_tabs(
+    qt: QtBindings,
+    tabs: Any,
+    args: argparse.Namespace,
+    bootstrap: dict[str, Any],
+    view_model: Any,
+    on_completed: Any,
+) -> None:
+    tabs.clear()
+    form_specs = build_operator_form_specs(bootstrap, _writable_repositories(args))
+    tabs.addTab(_forms_tab(qt, args, form_specs, on_completed), "Saisie")
+    for table_model in view_model.tables:
+        tabs.addTab(_table(qt, table_model), table_model.tab_label)
+
+
+def _forms_tab(
+    qt: QtBindings,
+    args: argparse.Namespace,
+    form_specs: tuple[OperatorFormSpec, ...],
+    on_completed: Any,
+) -> Any:
+    scroll = qt.QScrollArea()
+    scroll.setWidgetResizable(True)
+    content = qt.QWidget()
+    layout = qt.QVBoxLayout(content)
+    layout.setContentsMargins(10, 10, 10, 10)
+    layout.setSpacing(12)
+
+    for form_spec in form_specs:
+        layout.addWidget(_action_form(qt, args, form_spec, on_completed))
+    layout.addStretch(1)
+
+    scroll.setWidget(content)
+    return scroll
+
+
+def _action_form(
+    qt: QtBindings,
+    args: argparse.Namespace,
+    form_spec: OperatorFormSpec,
+    on_completed: Any,
+) -> Any:
+    group = qt.QGroupBox(form_spec.title)
+    group.setEnabled(form_spec.enabled)
+    if form_spec.disabled_reason:
+        group.setToolTip(form_spec.disabled_reason)
+
+    layout = qt.QFormLayout(group)
+    layout.setContentsMargins(12, 12, 12, 12)
+    layout.setSpacing(8)
+    widgets: dict[str, Any] = {}
+
+    for field in form_spec.fields:
+        widget = _field_widget(qt, field)
+        widget.setEnabled(form_spec.enabled)
+        widgets[field.field_id] = widget
+        layout.addRow(field.label, widget)
+
+    button = qt.QPushButton(form_spec.submit_label)
+    button.setEnabled(form_spec.enabled)
+    if form_spec.disabled_reason:
+        button.setToolTip(form_spec.disabled_reason)
+    button.clicked.connect(
+        lambda checked=False, spec=form_spec, fields=widgets: _submit_action_form(
+            qt,
+            args,
+            spec,
+            fields,
+            on_completed,
+        )
+    )
+    layout.addRow("", button)
+    return group
+
+
+def _field_widget(qt: QtBindings, field: FormFieldSpec) -> Any:
+    if field.widget == "choice":
+        widget = qt.QComboBox()
+        for value, label in field.choices:
+            widget.addItem(label, value)
+        return widget
+
+    if field.widget == "multiline":
+        widget = qt.QPlainTextEdit()
+        widget.setPlainText(field.default)
+        widget.setMaximumHeight(82)
+        return widget
+
+    widget = qt.QLineEdit()
+    widget.setText(field.default)
+    return widget
+
+
+def _submit_action_form(
+    qt: QtBindings,
+    args: argparse.Namespace,
+    form_spec: OperatorFormSpec,
+    widgets: dict[str, Any],
+    on_completed: Any,
+) -> None:
+    try:
+        values = _form_values(form_spec, widgets)
+        _execute_form_action(args, form_spec.action_id, values)
+    except Exception as error:  # noqa: BLE001 - GUI boundary must show failures.
+        qt.QMessageBox.critical(None, "EMC Locus", str(error))
+        return
+
+    on_completed(f"{form_spec.title}: enregistrement effectue")
+    qt.QMessageBox.information(None, "EMC Locus", "Enregistrement effectue")
+
+
+def _form_values(
+    form_spec: OperatorFormSpec,
+    widgets: dict[str, Any],
+) -> dict[str, str]:
+    values: dict[str, str] = {}
+    fields = {field.field_id: field for field in form_spec.fields}
+    for field_id, widget in widgets.items():
+        value = _widget_value(widget)
+        if fields[field_id].required and not value.strip():
+            raise ValueError(f"{fields[field_id].label}: valeur requise")
+        values[field_id] = value.strip()
+    return values
+
+
+def _widget_value(widget: Any) -> str:
+    if hasattr(widget, "currentData"):
+        data = widget.currentData()
+        return "" if data is None else str(data)
+    if hasattr(widget, "toPlainText"):
+        return str(widget.toPlainText())
+    return str(widget.text())
+
+
+def _execute_form_action(
+    args: argparse.Namespace,
+    action_id: str,
+    values: dict[str, str],
+) -> None:
+    if action_id == "register_instrument":
+        register_metrology_instrument(
+            metrology_db=_required_path(args.metrology_db, "metrology"),
+            migrations_root=args.migrations_root,
+            asset_id=values["asset_id"],
+            family=values["family"],
+            manufacturer=values["manufacturer"],
+            model=values["model"],
+            serial_number=values["serial_number"],
+            category_code=values["category_code"],
+            part_number=_optional(values["part_number"]),
+            calibration_period_months=_optional_int(
+                values["calibration_period_months"],
+                "Periodicite mois",
+            ),
+            metrology_notes=values["metrology_notes"],
+            certificate_reference=_optional(values["certificate_reference"]),
+            calibrated_at=_optional(values["calibrated_at"]),
+            provider=_optional(values["provider"]),
+            file_reference=_optional(values["file_reference"]),
+            capabilities_json=values["capabilities_json"] or "[]",
+        )
+        return
+
+    if action_id == "attach_instrument_document":
+        attach_metrology_document(
+            metrology_db=_required_path(args.metrology_db, "metrology"),
+            migrations_root=args.migrations_root,
+            asset_id=values["asset_id"],
+            document_kind=values["document_kind"],
+            title=values["title"],
+            file_reference=values["file_reference"],
+            uploaded_by=values["uploaded_by"],
+            checksum=_optional(values["checksum"]),
+            revision=_optional(values["revision"]),
+            applies_to_function=_optional(values["applies_to_function"]),
+        )
+        return
+
+    if action_id == "schedule_service_item":
+        schedule_service_item(
+            projects_db=_required_path(args.projects_db, "projects"),
+            migrations_root=args.migrations_root,
+            item_code=values["item_code"],
+            project_code=values["project_code"],
+            title=values["title"],
+            planned_start_at=values["planned_start_at"],
+            planned_end_at=values["planned_end_at"],
+            assigned_operator=values["assigned_operator"],
+            location=values["location"],
+            equipment_under_test=values["equipment_under_test"],
+            test_category_code=_optional(values["test_category_code"]),
+            test_method_code=_optional(values["test_method_code"]),
+            status=values["status"],
+            notes=values["notes"],
+        )
+        return
+
+    if action_id == "create_test_category":
+        create_test_category(
+            test_definitions_db=_required_path(
+                args.test_definitions_db,
+                "test_definitions",
+            ),
+            migrations_root=args.migrations_root,
+            code=values["code"],
+            parent_code=_optional(values["parent_code"]),
+            label=values["label"],
+            description=values["description"],
+            sort_order=_int_or_zero(values["sort_order"], "Ordre"),
+        )
+        return
+
+    raise ValueError(f"unknown form action: {action_id}")
+
+
+def _required_path(path: Path | None, domain: str) -> Path:
+    if path is None:
+        raise ValueError(f"missing {domain} database path")
+    return path
+
+
+def _optional(value: str) -> str | None:
+    stripped = value.strip()
+    return stripped if stripped else None
+
+
+def _optional_int(value: str, label: str) -> int | None:
+    stripped = value.strip()
+    if not stripped:
+        return None
+    try:
+        parsed = int(stripped)
+    except ValueError as error:
+        raise ValueError(f"{label}: nombre entier attendu") from error
+    return parsed
+
+
+def _int_or_zero(value: str, label: str) -> int:
+    parsed = _optional_int(value, label)
+    return 0 if parsed is None else parsed
+
+
+def _writable_repositories(args: argparse.Namespace) -> set[str]:
+    writable: set[str] = set()
+    if args.metrology_db is not None:
+        writable.add("metrology")
+    if args.projects_db is not None:
+        writable.add("projects")
+    if args.test_definitions_db is not None:
+        writable.add("test_definitions")
+    return writable
 
 
 def _load_console_data(args: argparse.Namespace) -> dict[str, Any]:
@@ -179,10 +477,17 @@ def _load_qt() -> QtBindings:
         from PySide6.QtWidgets import (
             QAbstractItemView,
             QApplication,
+            QComboBox,
+            QFormLayout,
+            QGroupBox,
             QHBoxLayout,
             QLabel,
+            QLineEdit,
             QMainWindow,
+            QMessageBox,
+            QPlainTextEdit,
             QPushButton,
+            QScrollArea,
             QStatusBar,
             QTabWidget,
             QTableWidget,
@@ -200,10 +505,17 @@ def _load_qt() -> QtBindings:
         Qt=Qt,
         QAbstractItemView=QAbstractItemView,
         QApplication=QApplication,
+        QComboBox=QComboBox,
+        QFormLayout=QFormLayout,
+        QGroupBox=QGroupBox,
         QHBoxLayout=QHBoxLayout,
         QLabel=QLabel,
+        QLineEdit=QLineEdit,
         QMainWindow=QMainWindow,
+        QMessageBox=QMessageBox,
+        QPlainTextEdit=QPlainTextEdit,
         QPushButton=QPushButton,
+        QScrollArea=QScrollArea,
         QStatusBar=QStatusBar,
         QTabWidget=QTabWidget,
         QTableWidget=QTableWidget,
@@ -295,6 +607,24 @@ def _stylesheet() -> str:
     }
     QPushButton:disabled {
         background: #9aa59e;
+    }
+    QGroupBox {
+        background: #ffffff;
+        border: 1px solid #d6d9d2;
+        margin-top: 9px;
+        padding-top: 12px;
+        font-weight: 700;
+    }
+    QGroupBox::title {
+        subcontrol-origin: margin;
+        left: 10px;
+        padding: 0 4px;
+    }
+    QLineEdit, QPlainTextEdit, QComboBox {
+        border: 1px solid #cbd0c8;
+        padding: 6px;
+        background: white;
+        selection-background-color: #2f6f5e;
     }
     """
 

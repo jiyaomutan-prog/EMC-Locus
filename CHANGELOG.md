@@ -175,6 +175,9 @@ change should remain traceable through Git history, session logs, and this file.
   transient time-domain measurements, ESD, fast transients, and power quality.
 - Qt and browser bootstrap views for metrology documents, service planning, and
   test-category taxonomy.
+- Qt operator entry forms for registering instruments, attaching material
+  documents, scheduling service items, and creating test categories against
+  local SQLite repositories.
 
 ### Fixed
 

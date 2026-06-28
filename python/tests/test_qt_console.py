@@ -5,11 +5,15 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from emc_locus import (
+    MetrologyRepository,
     ProjectRepository,
+    TestDefinitionRepository,
     build_console_bootstrap_from_repositories,
     build_console_view_model,
+    build_operator_form_specs,
 )
 
 
@@ -220,6 +224,159 @@ class QtConsoleTests(unittest.TestCase):
         self.assertFalse(actions["validate_update"].enabled)
         self.assertEqual(metrics["Projets actifs"].value, "0")
         self.assertEqual(metrics["Updates a traiter"].tone, "ok")
+
+    def test_builds_operator_form_specs_for_local_write_repositories(self) -> None:
+        specs = build_operator_form_specs(
+            {
+                "instruments": [["DAQ-001", "DAQ"]],
+                "instrument_categories": [
+                    ["daq_chassis", "data_monitoring", "DAQ chassis and modules"]
+                ],
+                "projects": [{"code": "CEM-QT-001", "customer": "Rail Motion"}],
+                "test_categories": [
+                    ["emission", "", "Emission", "active"],
+                    ["emission_conducted", "emission", "Emission conduite", "active"],
+                ],
+            },
+            {"metrology", "projects", "test_definitions"},
+        )
+        by_id = {spec.action_id: spec for spec in specs}
+
+        self.assertTrue(by_id["register_instrument"].enabled)
+        self.assertTrue(by_id["attach_instrument_document"].enabled)
+        self.assertTrue(by_id["schedule_service_item"].enabled)
+        self.assertTrue(by_id["create_test_category"].enabled)
+        self.assertIn(
+            ("daq_chassis", "daq_chassis - DAQ chassis and modules"),
+            by_id["register_instrument"].fields[5].choices,
+        )
+        self.assertIn(
+            ("CEM-QT-001", "CEM-QT-001 - Rail Motion"),
+            by_id["schedule_service_item"].fields[1].choices,
+        )
+
+        disabled = build_operator_form_specs({}, set())
+        self.assertFalse(disabled[0].enabled)
+        self.assertEqual(disabled[0].disabled_reason, "Depot metrologie requis")
+
+    def test_qt_form_action_registers_instrument_and_document_without_pyside(self) -> None:
+        module = load_qt_console_module()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            metrology_db = Path(temporary_directory) / "metrology.sqlite"
+            args = SimpleNamespace(
+                metrology_db=metrology_db,
+                projects_db=None,
+                test_definitions_db=None,
+                migrations_root=Path("storage/sqlite"),
+            )
+
+            module._execute_form_action(
+                args,
+                "register_instrument",
+                {
+                    "asset_id": "DAQ-QT-FORM",
+                    "family": "DAQ",
+                    "manufacturer": "openDAQ",
+                    "model": "Reference",
+                    "serial_number": "QT001",
+                    "category_code": "daq_chassis",
+                    "part_number": "ODAQ-QT",
+                    "calibration_period_months": "12",
+                    "certificate_reference": "CERT-QT-001",
+                    "calibrated_at": "2026-06-28",
+                    "provider": "cal.lab",
+                    "file_reference": "certs/CERT-QT-001.pdf",
+                    "capabilities_json": '["time_series"]',
+                    "metrology_notes": "Qt form smoke test",
+                },
+            )
+            module._execute_form_action(
+                args,
+                "attach_instrument_document",
+                {
+                    "asset_id": "DAQ-QT-FORM",
+                    "document_kind": "script",
+                    "title": "Setup script",
+                    "file_reference": "scripts/daq_setup.py",
+                    "uploaded_by": "operator.one",
+                    "checksum": "",
+                    "revision": "A",
+                    "applies_to_function": "setup",
+                },
+            )
+
+            repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
+            repository.initialize()
+            instrument = repository.get_instrument("DAQ-QT-FORM")
+            calibration = repository.latest_calibration_record("DAQ-QT-FORM")
+            documents = repository.list_instrument_documents("DAQ-QT-FORM")
+
+        self.assertEqual(instrument["part_number"], "ODAQ-QT")
+        self.assertEqual(instrument["calibration_period_months"], 12)
+        self.assertEqual(calibration["due_at"], "2027-06-28")
+        self.assertEqual(documents[0]["document_kind"], "script")
+
+    def test_qt_form_action_schedules_service_and_creates_category_without_pyside(self) -> None:
+        module = load_qt_console_module()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            base = Path(temporary_directory)
+            projects_db = base / "projects.sqlite"
+            test_definitions_db = base / "test_definitions.sqlite"
+            project_repository = ProjectRepository(projects_db, Path("storage/sqlite"))
+            project_repository.initialize()
+            project_repository.create_project(
+                code="CEM-QT-SCHEDULE",
+                customer_name="Rail Motion",
+                execution_mode="accredited",
+            )
+            args = SimpleNamespace(
+                metrology_db=None,
+                projects_db=projects_db,
+                test_definitions_db=test_definitions_db,
+                migrations_root=Path("storage/sqlite"),
+            )
+
+            module._execute_form_action(
+                args,
+                "schedule_service_item",
+                {
+                    "item_code": "PLAN-QT-FORM",
+                    "project_code": "CEM-QT-SCHEDULE",
+                    "title": "Emission conduite",
+                    "test_category_code": "emission_conducted",
+                    "test_method_code": "",
+                    "planned_start_at": "2026-07-01T09:00",
+                    "planned_end_at": "2026-07-01T12:00",
+                    "assigned_operator": "operator.one",
+                    "location": "Lab A",
+                    "equipment_under_test": "EUT rail",
+                    "status": "planned",
+                    "notes": "Qt form smoke test",
+                },
+            )
+            module._execute_form_action(
+                args,
+                "create_test_category",
+                {
+                    "code": "immunity_magnetic_field_qt",
+                    "parent_code": "immunity_radiated",
+                    "label": "Champ magnetique",
+                    "description": "Categorie creee depuis la console Qt.",
+                    "sort_order": "30",
+                },
+            )
+
+            schedule = project_repository.list_service_schedule_items()
+            test_repository = TestDefinitionRepository(
+                test_definitions_db,
+                Path("storage/sqlite"),
+            )
+            test_repository.initialize()
+            category = test_repository.get_test_category("immunity_magnetic_field_qt")
+
+        self.assertEqual(schedule[0]["item_code"], "PLAN-QT-FORM")
+        self.assertEqual(schedule[0]["test_category_code"], "emission_conducted")
+        self.assertEqual(category["parent_code"], "immunity_radiated")
 
     def test_builds_qt_console_bootstrap_from_local_repository_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

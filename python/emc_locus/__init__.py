@@ -20,10 +20,13 @@ from .migrations import Migration, discover_migrations, validate_sqlite_migratio
 from .qt_console_data import build_console_bootstrap_from_repositories
 from .qt_console_models import (
     ConsoleViewModel,
+    FormFieldSpec,
     OperatorActionIntent,
+    OperatorFormSpec,
     StatusMetric,
     TableViewModel,
     build_console_view_model,
+    build_operator_form_specs,
 )
 from .session_plan import SessionPlan, Workstream, default_backlog
 from .sqlite_repositories import (
@@ -45,7 +48,9 @@ __all__ = [
     "SQLiteDomainRepository",
     "SyncRepository",
     "ConsoleViewModel",
+    "FormFieldSpec",
     "OperatorActionIntent",
+    "OperatorFormSpec",
     "StatusMetric",
     "TableViewModel",
     "TestDefinitionRepository",
@@ -57,6 +62,7 @@ __all__ = [
     "build_console_bootstrap_from_repositories",
     "build_console_view_model",
     "build_fixture_bootstrap",
+    "build_operator_form_specs",
     "create_test_category",
     "discover_migrations",
     "default_backlog",

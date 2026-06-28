@@ -31,10 +31,12 @@ $env:PYTHONPATH='python'; py -m emc_locus.gui_actions refresh-bootstrap --output
 py apps\qt-console\main.py --bootstrap apps\gui-shell\bootstrap.js
 ```
 
-It can also load local SQLite repositories directly:
+It can also load local SQLite repositories directly. When repository paths are
+provided, the `Saisie` tab enables local write forms for material registration,
+material documents, service planning, and test categories:
 
 ```text
-py apps\qt-console\main.py --projects-db data\projects.sqlite --metrology-db data\metrology.sqlite --measurement-data-db data\measurement_data.sqlite
+py apps\qt-console\main.py --projects-db data\projects.sqlite --metrology-db data\metrology.sqlite --test-definitions-db data\test_definitions.sqlite --measurement-data-db data\measurement_data.sqlite
 ```
 
 ## Direction
@@ -45,9 +47,10 @@ while future screens move toward real Qt model/view widgets backed by stable
 application services.
 
 The same view-model layer exposes initial operator action intents for project
-advancement, dataset-retention requests, and update validation. These are
-display-only command affordances for now; audited write execution remains in
-the Python action layer until the Qt command path is hardened.
+advancement, dataset-retention requests, and update validation. The first Qt
+write path now covers metrology material creation, document attachment,
+service scheduling, and test-category creation by calling the same Python
+action layer used by the CLI.
 
 The console also exposes first status metrics for active projects, metrology
 alerts, retained datasets, and updates requiring attention.

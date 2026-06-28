@@ -39,5 +39,9 @@ models but does not own the data shaping rules. This keeps the first UI bridge
 thin and prepares the transition to proper Qt model/view classes.
 
 The view-model layer also exposes operator action intents. These describe which
-high-level commands can be shown to the operator before the Qt layer is allowed
-to perform audited writes directly.
+high-level commands can be shown to the operator while write execution remains
+centralized in tested Python action services.
+
+The current Qt slice adds a `Saisie` tab backed by testable form contracts. The
+forms can register instruments, attach material documents, schedule service
+items, and create test categories when local repository paths are supplied.

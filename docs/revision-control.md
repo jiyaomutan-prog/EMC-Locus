@@ -90,7 +90,7 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.2.0` was validated on 2026-06-28 with:
+Version `0.2.1` was validated on 2026-06-28 with:
 
 ```text
 $env:PYTHONPATH='python'; py -m unittest discover -s python\tests
