@@ -2352,6 +2352,74 @@ class SyncRepository(SQLiteDomainRepository):
                     ),
                 )
 
+    def apply_pending_operation_snapshot(
+        self,
+        *,
+        operation_id: str,
+        snapshot_id: str,
+        snapshot_checksum: str,
+        payload_json: str = "{}",
+        captured_at: str | None = None,
+    ) -> bool:
+        payload_json = normalized_json_text(payload_json, "payload_json")
+        snapshot_id = require_non_empty(snapshot_id, "snapshot_id")
+        snapshot_checksum = require_sha256_checksum(snapshot_checksum, "snapshot_checksum")
+        applied_at = utc_timestamp()
+        captured_at = require_non_empty(captured_at or applied_at, "captured_at")
+        with closing(self.connect()) as connection:
+            with connection:
+                operation = connection.execute(
+                    """
+                    SELECT *
+                    FROM sync_operations
+                    WHERE operation_id = ?
+                      AND status = 'pending'
+                    """,
+                    (require_non_empty(operation_id, "operation_id"),),
+                ).fetchone()
+                if operation is None:
+                    return False
+
+                connection.execute(
+                    """
+                    INSERT INTO sync_entity_snapshots (
+                        snapshot_id,
+                        domain,
+                        entity_type,
+                        entity_id,
+                        revision,
+                        snapshot_checksum,
+                        payload_json,
+                        source_operation_id,
+                        captured_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        snapshot_id,
+                        operation["domain"],
+                        operation["entity_type"],
+                        operation["entity_id"],
+                        operation["resulting_revision"],
+                        snapshot_checksum,
+                        payload_json,
+                        operation["operation_id"],
+                        captured_at,
+                    ),
+                )
+                cursor = connection.execute(
+                    """
+                    UPDATE sync_operations
+                    SET status = 'applied',
+                        applied_at = ?,
+                        error_message = NULL
+                    WHERE operation_id = ?
+                      AND status = 'pending'
+                    """,
+                    (applied_at, operation_id),
+                )
+        return cursor.rowcount == 1
+
     def get_entity_snapshot(self, snapshot_id: str) -> dict[str, object] | None:
         with closing(self.connect()) as connection:
             row = connection.execute(

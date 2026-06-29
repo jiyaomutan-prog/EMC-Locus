@@ -211,6 +211,8 @@ change should remain traceable through Git history, session logs, and this file.
   snapshots, and upserting/listing sync checkpoints.
 - Rust `EntitySnapshot` contract coverage for revisioned local-first entity
   baselines.
+- Python local replay API that applies a pending sync operation as an entity
+  snapshot and marks the operation applied in the same SQLite transaction.
 
 ### Fixed
 

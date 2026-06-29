@@ -475,6 +475,25 @@ Invariant impact:
 - Adds peer/domain/direction checkpoints without claiming conflict-free merge.
 - Keeps replay and central synchronization as explicit future work.
 
+## PR Bundle 4 - Local Operation Replay
+
+Objective: create the first local replay step by turning a pending operation
+into a resulting entity snapshot inside one SQLite transaction.
+
+Files changed in this bundle:
+
+- `python/emc_locus/sqlite_repositories.py`
+- `python/tests/test_sqlite_repositories.py`
+- `docs/storage-migrations.md`
+
+Invariant impact:
+
+- Prevents a replayed operation from creating a second snapshot after it is no
+  longer pending.
+- Preserves transactionality between snapshot insertion and operation status.
+- Keeps merge/conflict policy out of this helper; it only materializes a known
+  local operation result.
+
 ## Acceptance Checklist
 
 - [ ] Rust application services own critical write command validation.

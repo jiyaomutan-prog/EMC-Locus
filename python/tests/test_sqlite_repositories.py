@@ -1757,6 +1757,76 @@ class SyncRepositoryTests(unittest.TestCase):
                     checkpoint_token="rev-0003",
                 )
 
+    def test_applies_pending_operation_as_entity_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = SyncRepository(
+                Path(temporary_directory) / "sync.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            repository.record_operation(
+                operation_id="op-project-003",
+                domain="project_records",
+                entity_type="project",
+                entity_id="CEM-2026-003",
+                operation_kind="project_stage_advanced",
+                base_revision="rev-0001",
+                resulting_revision="rev-0002",
+                actor_id="quality.lead",
+                device_id="station-lab-a",
+                correlation_id="corr-003",
+                payload_checksum="sha256:6123456789abcdef6123456789abcdef6123456789abcdef6123456789abcdef",
+            )
+
+            applied = repository.apply_pending_operation_snapshot(
+                operation_id="op-project-003",
+                snapshot_id="snap-project-003-a",
+                snapshot_checksum="sha256:7123456789abcdef7123456789abcdef7123456789abcdef7123456789abcdef",
+                payload_json='{"stage":"test_planning"}',
+                captured_at="2026-07-01T07:20:00Z",
+            )
+            replayed = repository.apply_pending_operation_snapshot(
+                operation_id="op-project-003",
+                snapshot_id="snap-project-003-b",
+                snapshot_checksum="sha256:8123456789abcdef8123456789abcdef8123456789abcdef8123456789abcdef",
+                payload_json='{"stage":"test_planning"}',
+            )
+
+            operation = repository.get_operation("op-project-003")
+            snapshot = repository.get_entity_snapshot("snap-project-003-a")
+
+            self.assertTrue(applied)
+            self.assertFalse(replayed)
+            self.assertEqual(operation["status"], "applied")
+            self.assertEqual(repository.snapshot_count("project_records"), 1)
+            self.assertEqual(snapshot["revision"], "rev-0002")
+            self.assertEqual(snapshot["source_operation_id"], "op-project-003")
+            self.assertEqual(snapshot["payload_json"], '{"stage": "test_planning"}')
+
+            repository.record_operation(
+                operation_id="op-project-004",
+                domain="project_records",
+                entity_type="project",
+                entity_id="CEM-2026-004",
+                operation_kind="project_stage_advanced",
+                base_revision="rev-0001",
+                resulting_revision="rev-0002",
+                actor_id="quality.lead",
+                device_id="station-lab-a",
+                correlation_id="corr-004",
+                payload_checksum="sha256:9123456789abcdef9123456789abcdef9123456789abcdef9123456789abcdef",
+            )
+
+            with self.assertRaises(ValueError):
+                repository.apply_pending_operation_snapshot(
+                    operation_id="op-project-004",
+                    snapshot_id="snap-project-004-a",
+                    snapshot_checksum="sha256:too-short",
+                )
+
+            self.assertEqual(repository.get_operation("op-project-004")["status"], "pending")
+
     def test_initialize_applies_operation_journal_migration_to_existing_sync_database(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             database_path = Path(temporary_directory) / "sync.sqlite"
