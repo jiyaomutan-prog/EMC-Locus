@@ -79,7 +79,7 @@ offline-first SQLite workflows.
 | P1 | Planning | Planning rows are persisted but not yet validated against readiness. | Schedule can be confirmed with invalid resources. |
 | P2 | Reporting | Report workflow core exists, but no package contract end-to-end. | Traceability from run to issued report is incomplete. |
 | P2 | UI | Qt is still a prototype; web apps are not started. | Operator workflows remain fragmented. |
-| P2 | Packaging | No local agent packaging, update service, or Windows station package. | Deployment cannot yet be controlled. |
+| P2 | Packaging | Local agent CLI skeleton exists, but no packaging, update service, or Windows station package. | Deployment cannot yet be controlled. |
 
 ## Architecture Cible
 
@@ -530,6 +530,28 @@ Invariant impact:
 - Reuses an existing unapplied plan for idempotent suggestion calls.
 - Maps checksum/concurrent conflicts to manual merge, while deletion/schema
   conflicts are deferred for review.
+
+## PR Bundle 7 - Local Agent Executable Skeleton
+
+Objective: introduce the first Rust executable that will become the owner of
+local SQLite lifecycle, health checks, synchronization, and future local API
+hosting.
+
+Files changed in this bundle:
+
+- `Cargo.toml`
+- `Cargo.lock`
+- `crates/emc-locus-agent/Cargo.toml`
+- `crates/emc-locus-agent/src/lib.rs`
+- `crates/emc-locus-agent/src/main.rs`
+- `docs/local-agent.md`
+- `README.md`
+
+Invariant impact:
+
+- Keeps the first agent command read-only.
+- Reuses Rust repository-domain vocabulary from `emc-locus-core`.
+- Avoids adding network/API behavior before local storage ownership is ready.
 
 ## Acceptance Checklist
 

@@ -90,7 +90,7 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.3.5` was validated on 2026-06-29 with:
+Version `0.4.0` was validated on 2026-06-29 with:
 
 ```text
 $env:PYTHONPATH='python'; py -m compileall -q python\emc_locus python\tests
@@ -100,5 +100,6 @@ $env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrat
 node --check apps\gui-shell\app.js
 cargo fmt --check
 cargo test
+cargo run -q -p emc-locus-agent -- health --storage-root storage
 git diff --check
 ```

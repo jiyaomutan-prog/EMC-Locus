@@ -217,6 +217,9 @@ change should remain traceable through Git history, session logs, and this file.
   mismatching entity snapshots without applying an automatic merge policy.
 - Python conflict action-plan suggestion API that proposes an idempotent manual
   merge/defer plan while keeping the conflict unresolved for audit review.
+- Rust `emc-locus-agent` binary crate with a testable `health` command that
+  reports agent version, storage-root availability, and supported repository
+  domains as JSON.
 
 ### Fixed
 

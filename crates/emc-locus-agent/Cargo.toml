@@ -1,0 +1,9 @@
+[package]
+name = "emc-locus-agent"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+emc-locus-core = { path = "../emc-locus-core" }
