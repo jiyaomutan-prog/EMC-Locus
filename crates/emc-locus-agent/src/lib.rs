@@ -1,5 +1,8 @@
 mod local_api;
 mod project_agent;
+mod project_dto;
+mod project_repository;
+mod project_service;
 
 use emc_locus_core::{baseline_repository_domains, RepositoryDomain};
 pub use local_api::{run_local_api_server, ApiServerConfig};

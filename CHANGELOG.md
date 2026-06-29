@@ -8,6 +8,17 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-06-29
+
+### Changed
+
+- Split the project agent internals into explicit modules: CLI/API orchestration
+  in `project_agent.rs`, service workflow logic in `project_service.rs`, Serde
+  response DTOs in `project_dto.rs`, and SQLite project/sync persistence in
+  `project_repository.rs`.
+- Preserved the existing project vertical-slice behavior and tests while
+  reducing `project_agent.rs` to argument parsing and command dispatch.
+
 ## [0.5.2] - 2026-06-29
 
 ### Changed
