@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validation:
+    name: Local validation matrix
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.96.0
+          components: rustfmt, clippy
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check Rust formatting
+        run: cargo fmt --check
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run Rust tests
+        run: cargo test --workspace
+
+      - name: Compile Python package
+        run: py -m compileall python\emc_locus
+
+      - name: Compile Qt console
+        run: py -m py_compile apps\qt-console\main.py
+
+      - name: Run Python tests
+        env:
+          PYTHONPATH: python
+        run: py -m unittest discover -s python\tests
+
+      - name: Validate SQLite migrations
+        env:
+          PYTHONPATH: python
+        run: py -c "from pathlib import Path; from emc_locus.migrations import validate_sqlite_migrations; print(validate_sqlite_migrations(Path('storage/sqlite')))"
+
+      - name: Check GUI shell JavaScript
+        run: node --check apps\gui-shell\app.js
+
+      - name: Check release consistency
+        env:
+          PYTHONPATH: python
+        run: py -m unittest python.tests.test_release_consistency
+
+      - name: Check whitespace
+        run: git diff --check

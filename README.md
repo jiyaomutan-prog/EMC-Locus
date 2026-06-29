@@ -79,7 +79,7 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.5.5`.
+Current software version: `0.5.6`.
 
 Version `0.5.0` delivers the first agent-backed project vertical slice:
 initialized local project storage, loopback API, project creation,
@@ -107,6 +107,10 @@ Version `0.5.5` moves Qt/Python project reads to the local agent when
 `agent_url` is configured: project lists, contract-review status, project audit
 events, and pending outbox data no longer require direct project SQLite access
 for the migrated slice.
+
+Version `0.5.6` adds the first GitHub Actions CI workflow for the same Rust,
+Python, SQLite migration, JavaScript, release-consistency, and whitespace checks
+used locally before release commits.
 
 Revision tracking uses:
 

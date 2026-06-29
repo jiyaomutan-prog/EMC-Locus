@@ -8,6 +8,15 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-06-29
+
+### Added
+
+- Added a minimal GitHub Actions CI workflow for `push` to `main` and
+  `pull_request`, with read-only repository permissions and the same Rust,
+  Python, SQLite migration, JavaScript, release-consistency, and whitespace
+  checks used locally.
+
 ## [0.5.5] - 2026-06-29
 
 ### Changed
