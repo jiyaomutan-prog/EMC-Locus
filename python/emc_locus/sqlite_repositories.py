@@ -34,6 +34,7 @@ PROCESSING_GRAPH_ARTIFACT_KINDS = {"processed_signal", "result_table"}
 PROCESSING_GRAPH_EXECUTION_STATUSES = {"completed", "failed"}
 _PACKAGE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SOFTWARE_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
+_SHA256_CHECKSUM = re.compile(r"^sha256:[0-9A-Fa-f]{64}$")
 
 
 def utc_timestamp() -> str:
@@ -2143,6 +2144,151 @@ class SyncRepository(SQLiteDomainRepository):
             ).fetchone()
         return int(row["count"])
 
+    def operation_count(self, status: str | None = None) -> int:
+        with closing(self.connect()) as connection:
+            if status is None:
+                row = connection.execute(
+                    "SELECT COUNT(*) AS count FROM sync_operations"
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM sync_operations
+                    WHERE status = ?
+                    """,
+                    (status,),
+                ).fetchone()
+        return int(row["count"])
+
+    def record_operation(
+        self,
+        *,
+        operation_id: str,
+        domain: str,
+        entity_type: str,
+        entity_id: str,
+        operation_kind: str,
+        base_revision: str,
+        resulting_revision: str,
+        actor_id: str,
+        device_id: str,
+        correlation_id: str,
+        payload_checksum: str,
+        payload_json: str = "{}",
+        occurred_at: str | None = None,
+    ) -> None:
+        payload_json = normalized_json_text(payload_json, "payload_json")
+        now = utc_timestamp()
+        occurred_at = require_non_empty(occurred_at or now, "occurred_at")
+        with closing(self.connect()) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO sync_operations (
+                        operation_id,
+                        domain,
+                        entity_type,
+                        entity_id,
+                        operation_kind,
+                        base_revision,
+                        resulting_revision,
+                        actor_id,
+                        device_id,
+                        correlation_id,
+                        payload_json,
+                        payload_checksum,
+                        status,
+                        occurred_at,
+                        recorded_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                    """,
+                    (
+                        require_non_empty(operation_id, "operation_id"),
+                        require_non_empty(domain, "domain"),
+                        require_non_empty(entity_type, "entity_type"),
+                        require_non_empty(entity_id, "entity_id"),
+                        require_non_empty(operation_kind, "operation_kind"),
+                        require_non_empty(base_revision, "base_revision"),
+                        require_non_empty(resulting_revision, "resulting_revision"),
+                        require_non_empty(actor_id, "actor_id"),
+                        require_non_empty(device_id, "device_id"),
+                        require_non_empty(correlation_id, "correlation_id"),
+                        payload_json,
+                        require_sha256_checksum(payload_checksum, "payload_checksum"),
+                        occurred_at,
+                        now,
+                    ),
+                )
+
+    def get_operation(self, operation_id: str) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM sync_operations WHERE operation_id = ?",
+                (operation_id,),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def list_operations(
+        self,
+        *,
+        status: str | None = None,
+        domain: str | None = None,
+    ) -> list[dict[str, object]]:
+        clauses: list[str] = []
+        values: list[str] = []
+        if status is not None:
+            clauses.append("status = ?")
+            values.append(status)
+        if domain is not None:
+            clauses.append("domain = ?")
+            values.append(domain)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                f"""
+                SELECT *
+                FROM sync_operations
+                {where}
+                ORDER BY recorded_at, operation_id
+                """,
+                tuple(values),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_operation_applied(self, operation_id: str) -> bool:
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    UPDATE sync_operations
+                    SET status = 'applied',
+                        applied_at = ?,
+                        error_message = NULL
+                    WHERE operation_id = ? AND status = 'pending'
+                    """,
+                    (now, operation_id),
+                )
+        return cursor.rowcount == 1
+
+    def mark_operation_failed(self, *, operation_id: str, error_message: str) -> bool:
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    UPDATE sync_operations
+                    SET status = 'failed',
+                        applied_at = ?,
+                        error_message = ?
+                    WHERE operation_id = ? AND status = 'pending'
+                    """,
+                    (now, require_non_empty(error_message, "error_message"), operation_id),
+                )
+        return cursor.rowcount == 1
+
     def get_conflict(self, conflict_id: str) -> dict[str, object] | None:
         with closing(self.connect()) as connection:
             row = connection.execute(
@@ -2749,6 +2895,22 @@ def require_non_empty(value: str, field_name: str) -> str:
     trimmed = value.strip()
     if not trimmed:
         raise ValueError(f"{field_name} must not be empty")
+    return trimmed
+
+
+def normalized_json_text(value: str, field_name: str) -> str:
+    text = require_non_empty(value, field_name)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{field_name} must contain valid JSON") from error
+    return json.dumps(parsed, sort_keys=True)
+
+
+def require_sha256_checksum(value: str, field_name: str) -> str:
+    trimmed = require_non_empty(value, field_name)
+    if not _SHA256_CHECKSUM.fullmatch(trimmed):
+        raise ValueError(f"{field_name} must be a sha256 checksum")
     return trimmed
 
 

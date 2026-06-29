@@ -360,6 +360,130 @@ fn application_service_records_deviation_for_relaxed_incomplete_review() {
 }
 
 #[test]
+fn content_checksum_requires_full_sha256_hex_payload() {
+    assert_eq!(
+        ContentChecksum::parse("not-a-checksum").unwrap_err(),
+        DomainError::InvalidContentChecksum("not-a-checksum".to_owned())
+    );
+    assert_eq!(
+        ContentChecksum::parse("sha256:abcdef0123456789").unwrap_err(),
+        DomainError::InvalidContentChecksum("sha256:abcdef0123456789".to_owned())
+    );
+    assert_eq!(
+        ContentChecksum::parse("sha256:not_hex").unwrap_err(),
+        DomainError::InvalidContentChecksum("sha256:not_hex".to_owned())
+    );
+
+    let checksum = ContentChecksum::parse(
+        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    )
+    .unwrap();
+    assert_eq!(
+        checksum.as_str(),
+        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    );
+}
+
+#[test]
+fn object_manifest_requires_non_empty_payload_and_keeps_worm_flag() {
+    let schema = ContractSchemaVersion::parse("object-manifest.v1").unwrap();
+    let object_id = StableId::parse("obj-sha256-raw001").unwrap();
+    let checksum = ContentChecksum::parse(
+        "sha256:1123456789abcdef1123456789abcdef1123456789abcdef1123456789abcdef",
+    )
+    .unwrap();
+    let created_at = UtcTimestamp::parse("2026-07-01T07:12:01Z").unwrap();
+
+    let manifest = ObjectManifest::new(
+        schema.clone(),
+        object_id.clone(),
+        "projects/CEM-2026-001/RUN-001/raw/current_l1.h5",
+        "application/x-hdf5",
+        32768,
+        checksum.clone(),
+        true,
+        created_at.clone(),
+    )
+    .unwrap();
+
+    assert_eq!(manifest.object_id(), &object_id);
+    assert_eq!(manifest.checksum(), &checksum);
+    assert!(manifest.worm_locked());
+    assert_eq!(
+        ObjectManifest::new(
+            schema,
+            object_id,
+            "path",
+            "application/octet-stream",
+            0,
+            checksum,
+            true,
+            created_at,
+        )
+        .unwrap_err(),
+        DomainError::EmptyObjectPayload
+    );
+}
+
+#[test]
+fn change_operation_requires_distinct_base_and_resulting_revisions() {
+    let operation_id = StableId::parse("op-01J2-CEM-001").unwrap();
+    let entity_id = StableId::parse("CEM-2026-001").unwrap();
+    let base_revision = EntityRevision::parse("rev-0004").unwrap();
+    let resulting_revision = EntityRevision::parse("rev-0005").unwrap();
+    let actor = StableId::parse("quality.lead").unwrap();
+    let device = StableId::parse("station-lab-a").unwrap();
+    let correlation = StableId::parse("corr-20260701-001").unwrap();
+    let occurred_at = UtcTimestamp::parse("2026-07-01T06:55:00Z").unwrap();
+    let checksum = ContentChecksum::parse(
+        "sha256:2123456789abcdef2123456789abcdef2123456789abcdef2123456789abcdef",
+    )
+    .unwrap();
+
+    let operation = ChangeOperation::new(
+        operation_id.clone(),
+        RepositoryDomain::ProjectRecords,
+        "project",
+        entity_id.clone(),
+        ChangeOperationKind::ContractReviewItemCompleted,
+        base_revision.clone(),
+        resulting_revision.clone(),
+        actor.clone(),
+        device.clone(),
+        correlation.clone(),
+        occurred_at.clone(),
+        checksum.clone(),
+    )
+    .unwrap();
+
+    assert_eq!(operation.operation_id(), &operation_id);
+    assert_eq!(
+        operation.operation_kind(),
+        ChangeOperationKind::ContractReviewItemCompleted
+    );
+    assert_eq!(operation.base_revision(), &base_revision);
+    assert_eq!(operation.resulting_revision(), &resulting_revision);
+    assert_eq!(
+        ChangeOperation::new(
+            operation_id,
+            RepositoryDomain::ProjectRecords,
+            "project",
+            entity_id,
+            ChangeOperationKind::ProjectStageAdvanced,
+            base_revision.clone(),
+            base_revision,
+            actor,
+            device,
+            correlation,
+            occurred_at,
+            checksum,
+        )
+        .unwrap_err(),
+        DomainError::UnchangedEntityRevision("rev-0004".to_owned())
+    );
+}
+
+#[test]
 fn authorized_deviation_allows_incomplete_contract_review_to_reach_planning() {
     let code = ProjectCode::parse("CEM-2026-001").unwrap();
     let project = Project::new(code.clone(), "Example Customer").unwrap();

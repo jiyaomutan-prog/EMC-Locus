@@ -30,7 +30,7 @@ offline-first SQLite workflows.
 | Storage | Versioned SQLite domains: metrology, projects, test definitions, measurement data, update catalog, sync. | Preserve migrations while adding Postgres central and object manifests. |
 | Desktop UI | PySide6 console with repository-backed forms and tables. | Keep as Test Station shell; move critical writes to Rust services. |
 | Web UI | Static browser shell only. | Add local/intranet web apps for Metrology and Lab Management. |
-| Sync | Rust conflict models plus SQLite sync repository. | Add operation journal, entity snapshots, three-way merge, object sync. |
+| Sync | Rust conflict models, first contract value objects, SQLite conflict repository, and SQLite operation journal. | Add replay, entity snapshots persistence, three-way merge, object sync. |
 
 ### Rust Invariants Already Present
 
@@ -72,7 +72,7 @@ offline-first SQLite workflows.
 | Criticality | Area | Debt | Consequence |
 | --- | --- | --- | --- |
 | P0 | Architecture | No application-service Rust write boundary. | Business writes can bypass domain invariants. |
-| P0 | Sync | No durable operation journal/base/resulting revision chain. | Offline merges remain under-specified. |
+| P0 | Sync | Durable operation journal has started, but replay, merge policy, and snapshot persistence are not implemented yet. | Offline merges remain under-specified. |
 | P0 | Raw data | No object manifest/WORM contract yet. | Large files and emitted evidence are hard to prove. |
 | P1 | Runtime | Runtime exists in Rust but is not separated into station binary/service. | UI can grow too much execution responsibility. |
 | P1 | Metrology | Python can register/alter instruments directly. | Calibration rules can drift from Rust. |
@@ -280,7 +280,7 @@ flowchart LR
   "method_revision": {
     "method_code": "EN61000-4-6-CS",
     "revision": "A",
-    "checksum": "sha256:method001"
+    "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   },
   "metrology_snapshot_id": "snap-metrology-2026-06-29",
   "planned_window": {
@@ -290,7 +290,7 @@ flowchart LR
   "actor_id": "operator.one",
   "device_id": "station-lab-a",
   "correlation_id": "corr-20260701-001",
-  "checksum": "sha256:execpkg001"
+  "checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 }
 ```
 
@@ -307,8 +307,8 @@ flowchart LR
   "raw_datasets": ["dataset-raw-current-l1"],
   "processing_graph_instances": ["graph-inrush-fft-A"],
   "verdict": "requires_review",
-  "observation_log_checksum": "sha256:obslog001",
-  "checksum": "sha256:testrun001"
+  "observation_log_checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "checksum": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 }
 ```
 
@@ -321,7 +321,7 @@ flowchart LR
   "logical_path": "projects/CEM-2026-001/RUN-001/raw/current_l1.h5",
   "media_type": "application/x-hdf5",
   "size_bytes": 32768,
-  "sha256": "raw001",
+  "checksum": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
   "storage_class": "local-first",
   "worm_locked": true,
   "created_at_utc": "2026-07-01T07:12:01Z"
@@ -343,7 +343,7 @@ flowchart LR
   "device_id": "station-lab-a",
   "correlation_id": "corr-20260701-001",
   "occurred_at_utc": "2026-07-01T06:55:00Z",
-  "payload_checksum": "sha256:opPayload001"
+  "payload_checksum": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 }
 ```
 
@@ -426,6 +426,34 @@ Invariant impact:
 - Adds mode-specific contract-review requirements to Rust instead of Python.
 - Does not remove existing Python adapters; marks them as transitional.
 - Keeps SQLite migrations compatible.
+
+## PR Bundle 2 - Sync Operation Contracts And Journal
+
+Objective: make local-first changes durable and replayable at the contract
+level before adding a central merge engine.
+
+Files changed in this bundle:
+
+- `crates/emc-locus-core/src/contracts.rs`
+- `crates/emc-locus-core/src/error.rs`
+- `crates/emc-locus-core/src/lib.rs`
+- `crates/emc-locus-core/src/tests.rs`
+- `storage/sqlite/sync/0002_operation_journal.sql`
+- `python/emc_locus/sqlite_repositories.py`
+- `python/tests/test_sqlite_repositories.py`
+- `docs/core-structure.md`
+- `docs/storage-migrations.md`
+
+Invariant impact:
+
+- Requires full `sha256:` payload checksums for Rust contract manifests and
+  journaled sync operations.
+- Records local operations with base and resulting revisions instead of
+  overwriting current state blindly.
+- Keeps operation recording separate from conflict resolution and future merge
+  policy.
+- Does not introduce central replication yet; replay, snapshot persistence, and
+  three-way merge remain future P0/P1 work.
 
 ## Acceptance Checklist
 

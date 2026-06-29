@@ -197,6 +197,14 @@ change should remain traceable through Git history, session logs, and this file.
   command service, command receipt, and application-level errors.
 - Mode-specific contract-review requirements in the Rust quality domain for
   accredited, non-accredited, and investigation workflows.
+- Rust sync/data contract value objects for schema versions, stable ids, entity
+  revisions, full SHA-256 content checksums, object manifests, entity snapshots,
+  and idempotent change operations.
+- SQLite sync operation journal migration for local-first operations with
+  actor/device/correlation evidence, base/resulting revisions, normalized JSON
+  payloads, full SHA-256 payload checksums, and replay statuses.
+- Python `SyncRepository` operation-journal APIs for record/count/get/list and
+  applied/failed status transitions.
 
 ### Fixed
 

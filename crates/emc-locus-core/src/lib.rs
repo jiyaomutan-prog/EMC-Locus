@@ -5,6 +5,7 @@
 
 pub mod application_services;
 pub mod audit;
+pub mod contracts;
 pub mod datasets;
 pub mod error;
 pub mod execution;
@@ -23,6 +24,7 @@ pub mod updates;
 
 pub use application_services::*;
 pub use audit::*;
+pub use contracts::*;
 pub use datasets::*;
 pub use error::*;
 pub use execution::*;

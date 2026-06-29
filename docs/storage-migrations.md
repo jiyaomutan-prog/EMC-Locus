@@ -53,7 +53,10 @@ install-plan validation evidence, and installation records.
 ### Sync
 
 Owns synchronization conflict records and action-plan evidence for resolving or
-deferring conflicts between local and reference repository snapshots.
+deferring conflicts between local and reference repository snapshots. Version 2
+adds a durable operation journal for idempotent local-first changes, with
+actor, device, correlation, base revision, resulting revision, normalized JSON
+payload, SHA-256 payload checksum, and pending/applied/failed statuses.
 
 The Rust core now mirrors these storage concepts with update bundles, semantic
 software versions, package signatures, compatibility-range validation,
@@ -134,6 +137,9 @@ perform minimal insert/count/query operations for smoke testing:
 - synchronization action-plan insert/list APIs;
 - transactional conflict resolution/defer APIs with optional audit-event
   references.
+- synchronization operation-journal insert/count/get/list APIs;
+- synchronization operation status transitions for applied and failed replay
+  outcomes.
 
 These adapters are intentionally small. They prove that the migration domains
 are usable from application code before broader query APIs, synchronization, or

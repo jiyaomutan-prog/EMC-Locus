@@ -1577,6 +1577,104 @@ class SyncRepositoryTests(unittest.TestCase):
                     planned_by="qa.lead",
                 )
 
+    def test_records_operation_journal_with_status_transitions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = SyncRepository(
+                Path(temporary_directory) / "sync.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            repository.record_operation(
+                operation_id="op-project-001",
+                domain="project_records",
+                entity_type="project",
+                entity_id="CEM-2026-001",
+                operation_kind="contract_review_item_completed",
+                base_revision="rev-0001",
+                resulting_revision="rev-0002",
+                actor_id="quality.lead",
+                device_id="station-lab-a",
+                correlation_id="corr-001",
+                payload_json='{"item":"method_available"}',
+                payload_checksum="sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                occurred_at="2026-07-01T06:55:00Z",
+            )
+
+            operation = repository.get_operation("op-project-001")
+            pending = repository.list_operations(status="pending")
+
+            self.assertEqual(repository.operation_count(), 1)
+            self.assertEqual(repository.operation_count("pending"), 1)
+            self.assertEqual(operation["entity_id"], "CEM-2026-001")
+            self.assertEqual(operation["payload_json"], '{"item": "method_available"}')
+            self.assertEqual(pending[0]["operation_id"], "op-project-001")
+            self.assertTrue(repository.mark_operation_applied("op-project-001"))
+            self.assertFalse(repository.mark_operation_applied("op-project-001"))
+            self.assertEqual(repository.get_operation("op-project-001")["status"], "applied")
+
+            with self.assertRaises(ValueError):
+                repository.record_operation(
+                    operation_id="op-project-invalid-checksum",
+                    domain="project_records",
+                    entity_type="project",
+                    entity_id="CEM-2026-001",
+                    operation_kind="contract_review_item_completed",
+                    base_revision="rev-0002",
+                    resulting_revision="rev-0003",
+                    actor_id="quality.lead",
+                    device_id="station-lab-a",
+                    correlation_id="corr-001",
+                    payload_checksum="sha256:too-short",
+                )
+
+            with self.assertRaises(sqlite3.IntegrityError):
+                repository.record_operation(
+                    operation_id="op-project-001",
+                    domain="project_records",
+                    entity_type="project",
+                    entity_id="CEM-2026-001",
+                    operation_kind="duplicate",
+                    base_revision="rev-0002",
+                    resulting_revision="rev-0003",
+                    actor_id="quality.lead",
+                    device_id="station-lab-a",
+                    correlation_id="corr-001",
+                    payload_checksum="sha256:1123456789abcdef1123456789abcdef1123456789abcdef1123456789abcdef",
+                )
+
+    def test_initialize_applies_operation_journal_migration_to_existing_sync_database(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            database_path = Path(temporary_directory) / "sync.sqlite"
+            connection = sqlite3.connect(database_path)
+            try:
+                connection.executescript(
+                    Path("storage/sqlite/sync/0001_sync_conflicts.sql").read_text(
+                        encoding="utf-8"
+                    )
+                )
+            finally:
+                connection.close()
+
+            repository = SyncRepository(database_path, Path("storage/sqlite"))
+            repository.initialize()
+
+            with closing(repository.connect()) as connection:
+                version_rows = connection.execute(
+                    "SELECT version FROM schema_migrations ORDER BY version"
+                ).fetchall()
+                operation_table = connection.execute(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name = 'sync_operations'
+                    """
+                ).fetchone()
+
+            self.assertEqual([row["version"] for row in version_rows], [1, 2])
+            self.assertIsNotNone(operation_table)
+
 
 class UpdateCatalogRepositoryTests(unittest.TestCase):
     def test_records_accepted_install_validation_evidence(self) -> None:

@@ -90,12 +90,15 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.3.0` was validated on 2026-06-29 with:
+Version `0.3.1` was validated on 2026-06-29 with:
 
 ```text
+$env:PYTHONPATH='python'; py -m compileall -q python\emc_locus python\tests
+$env:PYTHONPATH='python'; py -m py_compile apps\qt-console\main.py
 $env:PYTHONPATH='python'; py -m unittest discover -s python\tests
 $env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrations import validate_sqlite_migrations; print(validate_sqlite_migrations(Path('storage/sqlite')))"
 node --check apps\gui-shell\app.js
 cargo fmt --check
 cargo test
+git diff --check
 ```
