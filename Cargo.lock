@@ -94,10 +94,11 @@ dependencies = [
 
 [[package]]
 name = "emc-locus-agent"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "emc-locus-core",
  "rusqlite",
+ "serde",
  "serde_json",
  "sha2",
  "time",
@@ -106,7 +107,7 @@ dependencies = [
 
 [[package]]
 name = "emc-locus-core"
-version = "0.5.1"
+version = "0.5.2"
 
 [[package]]
 name = "fallible-iterator"
@@ -258,6 +259,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]

@@ -1,11 +1,11 @@
 use super::{
-    build_health_report, json_string, run_project_command, run_storage_action, run_sync_command,
+    build_health_report, render_json, run_project_command, run_storage_action, run_sync_command,
     AgentCommand, AgentError, ProjectAction, StorageAction, SyncAction,
 };
 use crate::project_agent::{
     AdvanceToTestPlanningInput, CompleteReviewItemInput, CreateProjectInput,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::{collections::BTreeMap, path::PathBuf};
 use tiny_http::{Header, Response, Server, StatusCode};
 
@@ -63,9 +63,13 @@ pub fn run_local_api_server(config: ApiServerConfig) -> Result<(), AgentError> {
     let server = Server::http(&config.bind)
         .map_err(|error| AgentError::new("api_bind_failed", error.to_string()))?;
     println!(
-        "{{\"agent\":\"emc-locus-agent\",\"api\":\"v1\",\"bind\":{},\"storage_root\":{}}}",
-        json_string(&server.server_addr().to_string()),
-        json_string(&config.storage_root.to_string_lossy())
+        "{}",
+        render_json(&json!({
+            "agent": "emc-locus-agent",
+            "api": "v1",
+            "bind": server.server_addr().to_string(),
+            "storage_root": config.storage_root.to_string_lossy(),
+        }))
     );
 
     for (handled, mut request) in server.incoming_requests().enumerate() {
@@ -292,7 +296,7 @@ fn required_string(payload: &Value, key: &'static str) -> Result<String, AgentEr
         AgentError::with_details(
             "missing_json_field",
             format!("missing required JSON field: {key}"),
-            format!("{{\"field\":{}}}", json_string(key)),
+            json!({ "field": key }),
         )
     })
 }
@@ -393,8 +397,8 @@ mod tests {
         assert_eq!(initialized.status, 200);
         let storage_status = handle_api_request("GET", "/api/v1/storage/status", "", &config);
         assert_eq!(storage_status.status, 200);
-        assert!(storage_status.body.contains("\"action\": \"status\""));
-        assert!(storage_status.body.contains("\"status\": \"current\""));
+        assert!(storage_status.body.contains("\"action\":\"status\""));
+        assert!(storage_status.body.contains("\"status\":\"current\""));
 
         let created = handle_api_request(
             "POST",
@@ -495,7 +499,7 @@ mod tests {
         let response = handle_api_request("GET", "/api/v1/storage/status", "", &config);
 
         assert_eq!(response.status, 200);
-        assert!(response.body.contains("\"status\": \"missing\""));
+        assert!(response.body.contains("\"status\":\"missing\""));
         remove_temporary_storage_root(&storage_root);
     }
 
@@ -720,7 +724,7 @@ mod tests {
             r#"{"actor":"quality.lead","reason":"review complete","operation_id":"op-e2e-transition"}"#,
         );
         assert_eq!(transition_replay.0, 200);
-        assert!(transition_replay.1.contains("\"replayed\": true"));
+        assert!(transition_replay.1.contains("\"replayed\":true"));
         let outbox = http_request("GET", &first_address, "/api/v1/sync/outbox", "");
         let audit = http_request(
             "GET",

@@ -1,10 +1,12 @@
-use super::{json_option_string, json_string, AgentCommand, AgentError};
+use super::{render_json, AgentCommand, AgentError};
 use emc_locus_core::{
     can_transition, required_contract_review_items, AuditActor, AuditReason,
     ContractReviewChecklist, ContractReviewItem, DomainError, ExecutionMode, Project, ProjectCode,
     ProjectStage, StableId,
 };
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
@@ -113,6 +115,108 @@ struct OperationFingerprintInput<'a> {
     device_id: &'a str,
     correlation_id: &'a str,
     payload_json: &'a str,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ProjectDto {
+    code: String,
+    customer_name: String,
+    stage: String,
+    execution_mode: String,
+    created_at: String,
+    archived_at: Option<String>,
+    revision: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ProjectEnvelopeDto {
+    project: ProjectDto,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ProjectListDto {
+    projects: Vec<ProjectDto>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ProjectOperationResultDto {
+    operation: String,
+    operation_id: String,
+    replayed: bool,
+    project: ProjectDto,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ReviewItemOperationResultDto {
+    operation: String,
+    operation_id: String,
+    replayed: bool,
+    already_completed: bool,
+    resulting_revision: String,
+    contract_review: ContractReviewDto,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ContractReviewEnvelopeDto {
+    contract_review: ContractReviewDto,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ContractReviewDto {
+    project_code: String,
+    execution_mode: String,
+    required_items: Vec<String>,
+    completed_items: Vec<CompletedReviewItemDto>,
+    missing_items: Vec<String>,
+    complete: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct CompletedReviewItemDto {
+    item: String,
+    completed_by: Option<String>,
+    completed_at: Option<String>,
+    comment: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct AuditEventsDto {
+    project_code: String,
+    audit_events: Vec<AuditEventDto>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct AuditEventDto {
+    sequence: u64,
+    actor: String,
+    action: String,
+    reason: Option<String>,
+    payload_json: String,
+    occurred_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct SyncOutboxDto {
+    sync_outbox: Vec<SyncOperationDto>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct SyncOperationDto {
+    operation_id: String,
+    domain: String,
+    entity_type: String,
+    entity_id: String,
+    operation_kind: String,
+    base_revision: String,
+    resulting_revision: String,
+    actor_id: String,
+    device_id: String,
+    correlation_id: String,
+    payload_json: String,
+    payload_checksum: String,
+    status: String,
+    occurred_at: String,
+    recorded_at: String,
 }
 
 pub(crate) fn parse_project_args<I>(mut args: I) -> Result<AgentCommand, AgentError>
@@ -389,15 +493,9 @@ fn create_project(storage_root: &Path, input: CreateProjectInput) -> Result<Stri
 fn list_projects(storage_root: &Path) -> Result<String, AgentError> {
     let connection = open_project_connection(storage_root)?;
     let projects = load_projects(&connection)?;
-    let projects_json = projects
-        .iter()
-        .map(project_json)
-        .collect::<Vec<_>>()
-        .join(",\n    ");
-    Ok(format!(
-        "{{\n  \"projects\": [\n    {}\n  ]\n}}",
-        projects_json
-    ))
+    Ok(render_json(&ProjectListDto {
+        projects: projects.iter().map(project_dto).collect(),
+    }))
 }
 
 fn get_project(storage_root: &Path, code: &str) -> Result<String, AgentError> {
@@ -405,7 +503,9 @@ fn get_project(storage_root: &Path, code: &str) -> Result<String, AgentError> {
     let connection = open_project_connection(storage_root)?;
     let project = load_project(&connection, code.as_str())?
         .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
-    Ok(format!("{{\n  \"project\": {}\n}}", project_json(&project)))
+    Ok(render_json(&ProjectEnvelopeDto {
+        project: project_dto(&project),
+    }))
 }
 
 fn get_contract_review(storage_root: &Path, code: &str) -> Result<String, AgentError> {
@@ -584,10 +684,7 @@ fn advance_to_test_planning(
         return Err(AgentError::with_details(
             "invalid_project_transition",
             "project cannot transition to test_planning from its current stage",
-            format!(
-                "{{\"from\":{},\"to\":\"test_planning\"}}",
-                json_string(&project.stage)
-            ),
+            json!({ "from": project.stage, "to": "test_planning" }),
         ));
     }
 
@@ -692,29 +789,24 @@ fn list_audit_events(storage_root: &Path, code: &str) -> Result<String, AgentErr
         .map_err(|error| AgentError::new("audit_query_failed", error.to_string()))?;
     let rows = statement
         .query_map(params![code.as_str()], |row| {
-            Ok(format!(
-                concat!(
-                    "{{\"sequence\":{},\"actor\":{},\"action\":{},",
-                    "\"reason\":{},\"payload_json\":{},\"occurred_at\":{}}}"
-                ),
-                row.get::<_, u64>(0)?,
-                json_string(&row.get::<_, String>(1)?),
-                json_string(&row.get::<_, String>(2)?),
-                json_option_string(row.get::<_, Option<String>>(3)?.as_deref()),
-                json_string(&row.get::<_, String>(4)?),
-                json_string(&row.get::<_, String>(5)?)
-            ))
+            Ok(AuditEventDto {
+                sequence: row.get(0)?,
+                actor: row.get(1)?,
+                action: row.get(2)?,
+                reason: row.get(3)?,
+                payload_json: row.get(4)?,
+                occurred_at: row.get(5)?,
+            })
         })
         .map_err(|error| AgentError::new("audit_query_failed", error.to_string()))?;
     let mut events = Vec::new();
     for row in rows {
         events.push(row.map_err(|error| AgentError::new("audit_query_failed", error.to_string()))?);
     }
-    Ok(format!(
-        "{{\n  \"project_code\": {},\n  \"audit_events\": [\n    {}\n  ]\n}}",
-        json_string(code.as_str()),
-        events.join(",\n    ")
-    ))
+    Ok(render_json(&AuditEventsDto {
+        project_code: code.as_str().to_owned(),
+        audit_events: events,
+    }))
 }
 
 fn list_sync_outbox(storage_root: &Path) -> Result<String, AgentError> {
@@ -731,30 +823,23 @@ fn list_sync_outbox(storage_root: &Path) -> Result<String, AgentError> {
         .map_err(|error| AgentError::new("sync_outbox_query_failed", error.to_string()))?;
     let rows = statement
         .query_map([], |row| {
-            Ok(format!(
-                concat!(
-                    "{{\"operation_id\":{},\"domain\":{},\"entity_type\":{},\"entity_id\":{},",
-                    "\"operation_kind\":{},\"base_revision\":{},\"resulting_revision\":{},",
-                    "\"actor_id\":{},\"device_id\":{},\"correlation_id\":{},",
-                    "\"payload_json\":{},\"payload_checksum\":{},\"status\":{},",
-                    "\"occurred_at\":{},\"recorded_at\":{}}}"
-                ),
-                json_string(&row.get::<_, String>(0)?),
-                json_string(&row.get::<_, String>(1)?),
-                json_string(&row.get::<_, String>(2)?),
-                json_string(&row.get::<_, String>(3)?),
-                json_string(&row.get::<_, String>(4)?),
-                json_string(&row.get::<_, String>(5)?),
-                json_string(&row.get::<_, String>(6)?),
-                json_string(&row.get::<_, String>(7)?),
-                json_string(&row.get::<_, String>(8)?),
-                json_string(&row.get::<_, String>(9)?),
-                json_string(&row.get::<_, String>(10)?),
-                json_string(&row.get::<_, String>(11)?),
-                json_string(&row.get::<_, String>(12)?),
-                json_string(&row.get::<_, String>(13)?),
-                json_string(&row.get::<_, String>(14)?)
-            ))
+            Ok(SyncOperationDto {
+                operation_id: row.get(0)?,
+                domain: row.get(1)?,
+                entity_type: row.get(2)?,
+                entity_id: row.get(3)?,
+                operation_kind: row.get(4)?,
+                base_revision: row.get(5)?,
+                resulting_revision: row.get(6)?,
+                actor_id: row.get(7)?,
+                device_id: row.get(8)?,
+                correlation_id: row.get(9)?,
+                payload_json: row.get(10)?,
+                payload_checksum: row.get(11)?,
+                status: row.get(12)?,
+                occurred_at: row.get(13)?,
+                recorded_at: row.get(14)?,
+            })
         })
         .map_err(|error| AgentError::new("sync_outbox_query_failed", error.to_string()))?;
     let mut operations = Vec::new();
@@ -763,10 +848,9 @@ fn list_sync_outbox(storage_root: &Path) -> Result<String, AgentError> {
             row.map_err(|error| AgentError::new("sync_outbox_query_failed", error.to_string()))?,
         );
     }
-    Ok(format!(
-        "{{\n  \"sync_outbox\": [\n    {}\n  ]\n}}",
-        operations.join(",\n    ")
-    ))
+    Ok(render_json(&SyncOutboxDto {
+        sync_outbox: operations,
+    }))
 }
 
 fn open_project_connection(storage_root: &Path) -> Result<Connection, AgentError> {
@@ -982,19 +1066,14 @@ fn ensure_operation_replay(
     Err(AgentError::with_details(
         "operation_replay_mismatch",
         "operation_id is already used for a different canonical operation fingerprint",
-        format!(
-            concat!(
-                "{{\"operation_id\":{},\"existing_entity_id\":{},",
-                "\"existing_operation_kind\":{},\"existing_base_revision\":{},",
-                "\"expected_fingerprint\":{},\"stored_fingerprint\":{}}}"
-            ),
-            json_string(operation_id),
-            json_string(&operation.entity_id),
-            json_string(&operation.operation_kind),
-            json_string(&operation.base_revision),
-            json_string(&expected_fingerprint),
-            json_string(&operation.payload_checksum)
-        ),
+        json!({
+            "operation_id": operation_id,
+            "existing_entity_id": operation.entity_id,
+            "existing_operation_kind": operation.operation_kind,
+            "existing_base_revision": operation.base_revision,
+            "expected_fingerprint": expected_fingerprint,
+            "stored_fingerprint": operation.payload_checksum,
+        }),
     ))
 }
 
@@ -1307,11 +1386,7 @@ fn domain_error(error: DomainError) -> AgentError {
         DomainError::InvalidProjectTransition { from, to } => AgentError::with_details(
             "invalid_project_transition",
             "invalid project stage transition",
-            format!(
-                "{{\"from\":{},\"to\":{}}}",
-                json_string(project_stage_slug(from)),
-                json_string(project_stage_slug(to))
-            ),
+            json!({ "from": project_stage_slug(from), "to": project_stage_slug(to) }),
         ),
         DomainError::IncompleteContractReview { missing_items } => AgentError::with_details(
             "contract_review_incomplete",
@@ -1342,21 +1417,19 @@ fn operation_fingerprint(input: &OperationFingerprintInput<'_>) -> String {
 }
 
 fn operation_fingerprint_json(input: &OperationFingerprintInput<'_>) -> String {
-    format!(
-        concat!(
-            "{{\"domain\":\"project_records\",\"entity_type\":\"project\",",
-            "\"entity_id\":{},\"operation_kind\":{},\"base_revision\":{},",
-            "\"actor_id\":{},\"device_id\":{},\"correlation_id\":{},",
-            "\"payload\":{}}}"
-        ),
-        json_string(input.entity_id),
-        json_string(input.operation_kind),
-        json_string(input.base_revision),
-        json_string(input.actor_id),
-        json_string(input.device_id),
-        json_string(input.correlation_id),
-        input.payload_json
-    )
+    let payload = serde_json::from_str::<serde_json::Value>(input.payload_json)
+        .expect("canonical operation payload must be valid JSON");
+    render_json(&json!({
+        "domain": "project_records",
+        "entity_type": "project",
+        "entity_id": input.entity_id,
+        "operation_kind": input.operation_kind,
+        "base_revision": input.base_revision,
+        "actor_id": input.actor_id,
+        "device_id": input.device_id,
+        "correlation_id": input.correlation_id,
+        "payload": payload,
+    }))
 }
 
 fn project_payload_json(
@@ -1365,29 +1438,27 @@ fn project_payload_json(
     execution_mode: &str,
     stage: &str,
 ) -> String {
-    format!(
-        "{{\"code\":{},\"customer_name\":{},\"execution_mode\":{},\"stage\":{}}}",
-        json_string(code),
-        json_string(customer_name.trim()),
-        json_string(execution_mode),
-        json_string(stage)
-    )
+    render_json(&json!({
+        "code": code,
+        "customer_name": customer_name.trim(),
+        "execution_mode": execution_mode,
+        "stage": stage,
+    }))
 }
 
 fn review_item_payload_json(item: &str, comment: Option<&str>) -> String {
-    format!(
-        "{{\"item\":{},\"completed\":true,\"comment\":{}}}",
-        json_string(item),
-        json_option_string(comment)
-    )
+    render_json(&json!({
+        "item": item,
+        "completed": true,
+        "comment": comment,
+    }))
 }
 
 fn transition_payload_json(from: &str, to: &str) -> String {
-    format!(
-        "{{\"from\":{},\"to\":{}}}",
-        json_string(from),
-        json_string(to)
-    )
+    render_json(&json!({
+        "from": from,
+        "to": to,
+    }))
 }
 
 fn transition_command_payload_json(
@@ -1396,31 +1467,22 @@ fn transition_command_payload_json(
     deviation_authorized_by: Option<&str>,
     deviation_reason: Option<&str>,
 ) -> String {
-    format!(
-        concat!(
-            "{{\"to\":{},\"reason\":{},\"deviation_authorized_by\":{},",
-            "\"deviation_reason\":{}}}"
-        ),
-        json_string(to),
-        json_string(reason.trim()),
-        json_option_string(
-            deviation_authorized_by
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        ),
-        json_option_string(
-            deviation_reason
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        )
-    )
+    render_json(&json!({
+        "to": to,
+        "reason": reason.trim(),
+        "deviation_authorized_by": deviation_authorized_by
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+        "deviation_reason": deviation_reason
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    }))
 }
 
 fn deviation_payload_json(missing_items: &[ContractReviewItem]) -> String {
-    format!(
-        "{{\"missing_items\":[{}]}}",
-        missing_items_json_array(missing_items)
-    )
+    render_json(&json!({
+        "missing_items": contract_review_item_slugs(missing_items),
+    }))
 }
 
 fn project_result_json(
@@ -1429,13 +1491,12 @@ fn project_result_json(
     replayed: bool,
     operation_id: &str,
 ) -> String {
-    format!(
-        "{{\n  \"operation\": {},\n  \"operation_id\": {},\n  \"replayed\": {},\n  \"project\": {}\n}}",
-        json_string(operation),
-        json_string(operation_id),
+    render_json(&ProjectOperationResultDto {
+        operation: operation.to_owned(),
+        operation_id: operation_id.to_owned(),
         replayed,
-        project_json(project)
-    )
+        project: project_dto(project),
+    })
 }
 
 fn review_item_result_json(
@@ -1445,93 +1506,65 @@ fn review_item_result_json(
     resulting_revision: &str,
     operation_id: &str,
 ) -> String {
-    format!(
-        concat!(
-            "{{\n",
-            "  \"operation\": \"contract_review_item_completed\",\n",
-            "  \"operation_id\": {},\n",
-            "  \"replayed\": {},\n",
-            "  \"already_completed\": {},\n",
-            "  \"resulting_revision\": {},\n",
-            "  \"contract_review\": {}\n",
-            "}}"
-        ),
-        json_string(operation_id),
+    render_json(&ReviewItemOperationResultDto {
+        operation: "contract_review_item_completed".to_owned(),
+        operation_id: operation_id.to_owned(),
         replayed,
         already_completed,
-        json_string(resulting_revision),
-        contract_review_json_compact(status)
-    )
+        resulting_revision: resulting_revision.to_owned(),
+        contract_review: contract_review_dto(status),
+    })
 }
 
-fn project_json(project: &StoredProject) -> String {
-    format!(
-        concat!(
-            "{{\"code\":{},\"customer_name\":{},\"stage\":{},\"execution_mode\":{},",
-            "\"created_at\":{},\"archived_at\":{},\"revision\":{}}}"
-        ),
-        json_string(&project.code),
-        json_string(&project.customer_name),
-        json_string(&project.stage),
-        json_string(&project.execution_mode),
-        json_string(&project.created_at),
-        json_option_string(project.archived_at.as_deref()),
-        json_string(&revision_text(project.revision_sequence))
-    )
+fn project_dto(project: &StoredProject) -> ProjectDto {
+    ProjectDto {
+        code: project.code.clone(),
+        customer_name: project.customer_name.clone(),
+        stage: project.stage.clone(),
+        execution_mode: project.execution_mode.clone(),
+        created_at: project.created_at.clone(),
+        archived_at: project.archived_at.clone(),
+        revision: revision_text(project.revision_sequence),
+    }
 }
 
 fn contract_review_json(status: &ContractReviewStatus) -> String {
-    format!(
-        "{{\n  \"contract_review\": {}\n}}",
-        contract_review_json_compact(status)
-    )
+    render_json(&ContractReviewEnvelopeDto {
+        contract_review: contract_review_dto(status),
+    })
 }
 
-fn contract_review_json_compact(status: &ContractReviewStatus) -> String {
-    let completed = status
-        .completed_items
-        .iter()
-        .map(|item| {
-            format!(
-                concat!(
-                    "{{\"item\":{},\"completed_by\":{},\"completed_at\":{},",
-                    "\"comment\":{}}}"
-                ),
-                json_string(&item.item),
-                json_option_string(item.completed_by.as_deref()),
-                json_option_string(item.completed_at.as_deref()),
-                json_option_string(item.comment.as_deref())
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    format!(
-        concat!(
-            "{{\"project_code\":{},\"execution_mode\":{},\"required_items\":[{}],",
-            "\"completed_items\":[{}],\"missing_items\":[{}],\"complete\":{}}}"
-        ),
-        json_string(&status.project_code),
-        json_string(execution_mode_slug(status.execution_mode)),
-        missing_items_json_array(&status.required_items),
-        completed,
-        missing_items_json_array(&status.missing_items),
-        status.missing_items.is_empty()
-    )
+fn contract_review_dto(status: &ContractReviewStatus) -> ContractReviewDto {
+    ContractReviewDto {
+        project_code: status.project_code.clone(),
+        execution_mode: execution_mode_slug(status.execution_mode).to_owned(),
+        required_items: contract_review_item_slugs(&status.required_items),
+        completed_items: status
+            .completed_items
+            .iter()
+            .map(|item| CompletedReviewItemDto {
+                item: item.item.clone(),
+                completed_by: item.completed_by.clone(),
+                completed_at: item.completed_at.clone(),
+                comment: item.comment.clone(),
+            })
+            .collect(),
+        missing_items: contract_review_item_slugs(&status.missing_items),
+        complete: status.missing_items.is_empty(),
+    }
 }
 
-fn missing_items_details_json(missing_items: &[ContractReviewItem]) -> String {
-    format!(
-        "{{\"missing_items\":[{}]}}",
-        missing_items_json_array(missing_items)
-    )
+fn missing_items_details_json(missing_items: &[ContractReviewItem]) -> serde_json::Value {
+    json!({
+        "missing_items": contract_review_item_slugs(missing_items),
+    })
 }
 
-fn missing_items_json_array(items: &[ContractReviewItem]) -> String {
+fn contract_review_item_slugs(items: &[ContractReviewItem]) -> Vec<String> {
     items
         .iter()
-        .map(|item| json_string(contract_review_item_slug(*item)))
+        .map(|item| contract_review_item_slug(*item).to_owned())
         .collect::<Vec<_>>()
-        .join(",")
 }
 
 #[cfg(test)]
@@ -1606,9 +1639,9 @@ mod tests {
         let outbox = list_sync_outbox(&storage_root).unwrap();
         let audits = list_audit_events(&storage_root, "CEM-AGENT-001").unwrap();
 
-        assert!(output.contains("\"operation\": \"project_created\""));
+        assert!(output.contains("\"operation\":\"project_created\""));
         assert!(output.contains("\"revision\":\"rev-0001\""));
-        assert!(replay.contains("\"replayed\": true"));
+        assert!(replay.contains("\"replayed\":true"));
         assert!(outbox.contains("\"operation_kind\":\"project_created\""));
         assert!(audits.contains("\"action\":\"project_created\""));
 
@@ -1634,8 +1667,8 @@ mod tests {
         let first = create_project(&storage_root, input.clone()).unwrap();
         let replay = create_project(&storage_root, input).unwrap();
 
-        assert!(first.contains("\"replayed\": false"));
-        assert!(replay.contains("\"replayed\": true"));
+        assert!(first.contains("\"replayed\":false"));
+        assert!(replay.contains("\"replayed\":true"));
         remove_temporary_storage_root(&storage_root);
     }
 

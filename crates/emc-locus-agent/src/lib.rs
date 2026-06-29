@@ -5,6 +5,8 @@ use emc_locus_core::{baseline_repository_domains, RepositoryDomain};
 pub use local_api::{run_local_api_server, ApiServerConfig};
 pub use project_agent::{run_project_command, run_sync_command, ProjectAction, SyncAction};
 use rusqlite::Connection;
+use serde::Serialize;
+use serde_json::Value;
 use std::{
     error::Error,
     fmt, fs,
@@ -47,7 +49,7 @@ pub enum StorageAction {
 pub struct AgentError {
     pub(crate) code: &'static str,
     pub(crate) message: String,
-    details_json: Option<String>,
+    details: Option<Value>,
 }
 
 impl AgentError {
@@ -55,35 +57,31 @@ impl AgentError {
         Self {
             code,
             message: message.into(),
-            details_json: None,
+            details: None,
         }
     }
 
     pub(crate) fn with_details(
         code: &'static str,
         message: impl Into<String>,
-        details_json: String,
+        details: Value,
     ) -> Self {
         Self {
             code,
             message: message.into(),
-            details_json: Some(details_json),
+            details: Some(details),
         }
     }
 
     pub fn to_json(&self) -> String {
-        let details = self
-            .details_json
-            .as_ref()
-            .map_or_else(String::new, |details| {
-                format!(",\n    \"details\": {details}")
-            });
-        format!(
-            "{{\n  \"error\": {{\n    \"code\": {},\n    \"message\": {}{}\n  }}\n}}",
-            json_string(self.code),
-            json_string(&self.message),
-            details
-        )
+        let error = AgentErrorEnvelope {
+            error: AgentErrorDto {
+                code: self.code,
+                message: &self.message,
+                details: self.details.as_ref(),
+            },
+        };
+        render_json(&error)
     }
 }
 
@@ -91,6 +89,19 @@ impl fmt::Display for AgentError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.message)
     }
+}
+
+#[derive(Serialize)]
+struct AgentErrorEnvelope<'a> {
+    error: AgentErrorDto<'a>,
+}
+
+#[derive(Serialize)]
+struct AgentErrorDto<'a> {
+    code: &'a str,
+    message: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    details: Option<&'a Value>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -103,26 +114,30 @@ pub struct StorageReport {
 
 impl StorageReport {
     pub fn to_json(&self) -> String {
-        let domains = self
-            .domains
-            .iter()
-            .map(StorageDomainReport::to_json)
-            .collect::<Vec<_>>()
-            .join(",\n    ");
-        format!(
-            concat!(
-                "{{\n",
-                "  \"action\": {},\n",
-                "  \"storage_root\": {},\n",
-                "  \"migrations_root\": {},\n",
-                "  \"domains\": [\n    {}\n  ]\n",
-                "}}"
-            ),
-            json_string(self.action.as_str()),
-            json_string(&self.storage_root.to_string_lossy()),
-            json_string(&self.migrations_root.to_string_lossy()),
-            domains
-        )
+        render_json(&StorageReportDto::from(self))
+    }
+}
+
+#[derive(Serialize)]
+struct StorageReportDto {
+    action: &'static str,
+    storage_root: String,
+    migrations_root: String,
+    domains: Vec<StorageDomainReportDto>,
+}
+
+impl From<&StorageReport> for StorageReportDto {
+    fn from(report: &StorageReport) -> Self {
+        Self {
+            action: report.action.as_str(),
+            storage_root: report.storage_root.to_string_lossy().to_string(),
+            migrations_root: report.migrations_root.to_string_lossy().to_string(),
+            domains: report
+                .domains
+                .iter()
+                .map(StorageDomainReportDto::from)
+                .collect(),
+        }
     }
 }
 
@@ -138,30 +153,30 @@ pub struct StorageDomainReport {
     pub integrity_check: Option<String>,
 }
 
-impl StorageDomainReport {
-    fn to_json(&self) -> String {
-        format!(
-            concat!(
-                "{{\n",
-                "      \"domain\": {},\n",
-                "      \"database_path\": {},\n",
-                "      \"exists\": {},\n",
-                "      \"schema_version\": {},\n",
-                "      \"latest_migration\": {},\n",
-                "      \"status\": {},\n",
-                "      \"foreign_keys_enabled\": {},\n",
-                "      \"integrity_check\": {}\n",
-                "    }}"
-            ),
-            json_string(self.domain),
-            json_string(&self.database_path.to_string_lossy()),
-            self.exists,
-            json_option_u32(self.schema_version),
-            self.latest_migration,
-            json_string(self.status.as_str()),
-            json_option_bool(self.foreign_keys_enabled),
-            json_option_string(self.integrity_check.as_deref())
-        )
+#[derive(Serialize)]
+struct StorageDomainReportDto {
+    domain: &'static str,
+    database_path: String,
+    exists: bool,
+    schema_version: Option<u32>,
+    latest_migration: u32,
+    status: &'static str,
+    foreign_keys_enabled: Option<bool>,
+    integrity_check: Option<String>,
+}
+
+impl From<&StorageDomainReport> for StorageDomainReportDto {
+    fn from(report: &StorageDomainReport) -> Self {
+        Self {
+            domain: report.domain,
+            database_path: report.database_path.to_string_lossy().to_string(),
+            exists: report.exists,
+            schema_version: report.schema_version,
+            latest_migration: report.latest_migration,
+            status: report.status.as_str(),
+            foreign_keys_enabled: report.foreign_keys_enabled,
+            integrity_check: report.integrity_check.clone(),
+        }
     }
 }
 
@@ -207,28 +222,28 @@ pub struct HealthReport {
 
 impl HealthReport {
     pub fn to_json(&self) -> String {
-        let domains = self
-            .domains
-            .iter()
-            .map(|domain| json_string(domain))
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!(
-            concat!(
-                "{{\n",
-                "  \"agent\": {},\n",
-                "  \"version\": {},\n",
-                "  \"storage_root\": {},\n",
-                "  \"storage_root_exists\": {},\n",
-                "  \"domains\": [{}]\n",
-                "}}"
-            ),
-            json_string(self.agent),
-            json_string(self.version),
-            json_string(&self.storage_root.to_string_lossy()),
-            self.storage_root_exists,
-            domains
-        )
+        render_json(&HealthReportDto::from(self))
+    }
+}
+
+#[derive(Serialize)]
+struct HealthReportDto {
+    agent: &'static str,
+    version: &'static str,
+    storage_root: String,
+    storage_root_exists: bool,
+    domains: Vec<&'static str>,
+}
+
+impl From<&HealthReport> for HealthReportDto {
+    fn from(report: &HealthReport) -> Self {
+        Self {
+            agent: report.agent,
+            version: report.version,
+            storage_root: report.storage_root.to_string_lossy().to_string(),
+            storage_root_exists: report.storage_root_exists,
+            domains: report.domains.clone(),
+        }
     }
 }
 
@@ -661,33 +676,8 @@ fn integrity_check(connection: &Connection) -> Result<Option<String>, AgentError
     Ok(Some(value))
 }
 
-pub(crate) fn json_string(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len() + 2);
-    escaped.push('"');
-    for character in value.chars() {
-        match character {
-            '\\' => escaped.push_str("\\\\"),
-            '"' => escaped.push_str("\\\""),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            other => escaped.push(other),
-        }
-    }
-    escaped.push('"');
-    escaped
-}
-
-fn json_option_u32(value: Option<u32>) -> String {
-    value.map_or_else(|| "null".to_owned(), |value| value.to_string())
-}
-
-fn json_option_bool(value: Option<bool>) -> String {
-    value.map_or_else(|| "null".to_owned(), |value| value.to_string())
-}
-
-pub(crate) fn json_option_string(value: Option<&str>) -> String {
-    value.map_or_else(|| "null".to_owned(), json_string)
+pub(crate) fn render_json(value: &impl Serialize) -> String {
+    serde_json::to_string(value).expect("agent DTO serialization should not fail")
 }
 
 #[cfg(test)]
@@ -815,10 +805,10 @@ mod tests {
 
         let json = report.to_json();
 
-        assert!(json.contains("\"agent\": \"emc-locus-agent\""));
-        assert!(json.contains("\"storage_root\": \"E:/lab \\\"A\\\"\""));
-        assert!(json.contains("\"storage_root_exists\": false"));
-        assert!(json.contains("\"domains\": [\"metrology\", \"project_records\"]"));
+        assert!(json.contains("\"agent\":\"emc-locus-agent\""));
+        assert!(json.contains("\"storage_root\":\"E:/lab \\\"A\\\"\""));
+        assert!(json.contains("\"storage_root_exists\":false"));
+        assert!(json.contains("\"domains\":[\"metrology\",\"project_records\"]"));
     }
 
     #[test]

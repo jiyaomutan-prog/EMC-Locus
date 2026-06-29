@@ -79,7 +79,7 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.5.1`.
+Current software version: `0.5.2`.
 
 Version `0.5.0` delivers the first agent-backed project vertical slice:
 initialized local project storage, loopback API, project creation,
@@ -91,6 +91,9 @@ worker so the operator UI remains responsive.
 
 Version `0.5.1` hardens that slice by making idempotent replays depend on a
 canonical operation fingerprint instead of only operation kind and entity id.
+
+Version `0.5.2` replaces hand-built agent response JSON with explicit Serde DTOs
+for the project slice, local API, storage reports, health reports, and errors.
 
 Revision tracking uses:
 

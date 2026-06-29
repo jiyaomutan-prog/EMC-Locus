@@ -8,6 +8,17 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-06-29
+
+### Changed
+
+- Replaced hand-built agent response JSON with explicit Serde DTO rendering for
+  health, storage reports, structured errors, project results, contract-review
+  status, audit events, and sync outbox listings.
+- Replaced canonical project-slice payload JSON builders with `serde_json`
+  values so escaping and null handling no longer depend on custom string
+  assembly.
+
 ## [0.5.1] - 2026-06-29
 
 ### Changed
