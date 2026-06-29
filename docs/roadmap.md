@@ -162,6 +162,8 @@ Deliverables:
   adapter added;
 - local agent storage initialization/status/verification for the project
   vertical slice; initial Rust CLI support added for project and sync databases;
+- project/sync multi-SQLite atomicity policy; rollback journal enforcement and
+  status reporting added for the agent-owned vertical slice;
 - local agent project write path; initial Rust CLI support added for project
   creation, contract-review completion, transition to test planning, audit
   inspection, and pending outbox inspection;

@@ -79,7 +79,7 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.5.3`.
+Current software version: `0.5.4`.
 
 Version `0.5.0` delivers the first agent-backed project vertical slice:
 initialized local project storage, loopback API, project creation,
@@ -98,6 +98,10 @@ for the project slice, local API, storage reports, health reports, and errors.
 Version `0.5.3` splits the project agent into API orchestration, project service,
 Serde DTO, and SQLite repository modules while preserving the 0.5.0 vertical
 slice behavior.
+
+Version `0.5.4` enforces the project/sync multi-SQLite atomicity policy: storage
+initialization uses rollback journal mode, storage status reports journal
+compatibility, and project commands refuse incompatible WAL-style configurations.
 
 Revision tracking uses:
 

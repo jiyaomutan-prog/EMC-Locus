@@ -8,6 +8,17 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-06-29
+
+### Changed
+
+- Enforced the project/sync multi-SQLite atomicity policy by initializing the
+  project slice with rollback journal mode and rejecting incompatible journal
+  modes such as WAL before project commands use attached databases.
+- Extended storage status JSON with `journal_mode` and
+  `atomicity_compatible` fields for the project and sync databases.
+- Documented the SQLite atomicity decision in ADR 0003.
+
 ## [0.5.3] - 2026-06-29
 
 ### Changed

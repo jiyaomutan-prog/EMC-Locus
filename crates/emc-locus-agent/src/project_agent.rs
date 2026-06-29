@@ -252,6 +252,7 @@ mod tests {
     use super::*;
     use crate::{run_storage_action, StorageAction};
     use emc_locus_core::baseline_contract_review_items;
+    use rusqlite::Connection;
 
     #[test]
     fn parses_project_create_command() {
@@ -395,6 +396,34 @@ mod tests {
     }
 
     #[test]
+    fn project_commands_reject_incompatible_journal_mode() {
+        let storage_root = temporary_storage_root("agent-project-wal-policy");
+        initialize_storage(&storage_root);
+        force_journal_mode(&storage_root.join("projects.sqlite"), "WAL");
+
+        let error = create_project(
+            &storage_root,
+            CreateProjectInput {
+                code: "CEM-WAL-001".to_owned(),
+                customer_name: "Wal Customer".to_owned(),
+                execution_mode: "accredited".to_owned(),
+                stage: "contract_review".to_owned(),
+                actor: "quality.lead".to_owned(),
+                reason: "contract accepted".to_owned(),
+                operation_id: "op-wal-create".to_owned(),
+                correlation_id: "corr-wal-create".to_owned(),
+                device_id: "station-a".to_owned(),
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "storage_journal_mode_incompatible");
+        assert!(error.to_json().contains("\"journal_mode\":\"wal\""));
+        assert!(error.to_json().contains("projects.sqlite"));
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
     fn rejects_planning_until_contract_review_is_complete() {
         let storage_root = temporary_storage_root("agent-project-gate");
         initialize_storage(&storage_root);
@@ -522,6 +551,13 @@ mod tests {
             remove_temporary_storage_root(&root);
         }
         root
+    }
+
+    fn force_journal_mode(database_path: &Path, mode: &str) {
+        let connection = Connection::open(database_path).unwrap();
+        let pragma = format!("PRAGMA journal_mode = {mode}");
+        let observed: String = connection.query_row(&pragma, [], |row| row.get(0)).unwrap();
+        assert_eq!(observed, mode.to_ascii_lowercase());
     }
 
     fn remove_temporary_storage_root(root: &Path) {

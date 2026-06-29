@@ -3,6 +3,7 @@ mod project_agent;
 mod project_dto;
 mod project_repository;
 mod project_service;
+mod sqlite_policy;
 
 use emc_locus_core::{baseline_repository_domains, RepositoryDomain};
 pub use local_api::{run_local_api_server, ApiServerConfig};
@@ -10,6 +11,7 @@ pub use project_agent::{run_project_command, run_sync_command, ProjectAction, Sy
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
+use sqlite_policy::{initialize_project_slice_journal_mode, journal_mode, AttachedDatabase};
 use std::{
     error::Error,
     fmt, fs,
@@ -154,6 +156,8 @@ pub struct StorageDomainReport {
     pub status: StorageDomainStatus,
     pub foreign_keys_enabled: Option<bool>,
     pub integrity_check: Option<String>,
+    pub journal_mode: Option<String>,
+    pub atomicity_compatible: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -166,6 +170,8 @@ struct StorageDomainReportDto {
     status: &'static str,
     foreign_keys_enabled: Option<bool>,
     integrity_check: Option<String>,
+    journal_mode: Option<String>,
+    atomicity_compatible: Option<bool>,
 }
 
 impl From<&StorageDomainReport> for StorageDomainReportDto {
@@ -179,6 +185,8 @@ impl From<&StorageDomainReport> for StorageDomainReportDto {
             status: report.status.as_str(),
             foreign_keys_enabled: report.foreign_keys_enabled,
             integrity_check: report.integrity_check.clone(),
+            journal_mode: report.journal_mode.clone(),
+            atomicity_compatible: report.atomicity_compatible,
         }
     }
 }
@@ -478,6 +486,8 @@ fn inspect_or_initialize_domain(
             status: StorageDomainStatus::Missing,
             foreign_keys_enabled: None,
             integrity_check: None,
+            journal_mode: None,
+            atomicity_compatible: None,
         });
     }
 
@@ -500,17 +510,27 @@ fn inspect_or_initialize_domain(
         })?;
 
     if matches!(action, StorageAction::Init) {
+        initialize_project_slice_journal_mode(
+            &connection,
+            AttachedDatabase::Main,
+            domain.database_file,
+        )?;
         apply_missing_migrations(&connection, &migrations)?;
     }
 
     let schema_version = current_schema_version(&connection)?;
     let foreign_keys_enabled = pragma_foreign_keys(&connection)?;
     let integrity_check = integrity_check(&connection)?;
+    let journal_mode = journal_mode(&connection, AttachedDatabase::Main)?;
+    let atomicity_compatible = sqlite_policy::supports_multi_database_atomicity(&journal_mode);
     let status = if schema_version.is_none() {
         StorageDomainStatus::Invalid
     } else if schema_version.unwrap_or(0) < latest_migration {
         StorageDomainStatus::MigrationRequired
-    } else if integrity_check.as_deref() == Some("ok") && foreign_keys_enabled {
+    } else if integrity_check.as_deref() == Some("ok")
+        && foreign_keys_enabled
+        && atomicity_compatible
+    {
         StorageDomainStatus::Current
     } else {
         StorageDomainStatus::Invalid
@@ -532,6 +552,8 @@ fn inspect_or_initialize_domain(
         status,
         foreign_keys_enabled: Some(foreign_keys_enabled),
         integrity_check,
+        journal_mode: Some(journal_mode),
+        atomicity_compatible: Some(atomicity_compatible),
     })
 }
 
@@ -750,6 +772,10 @@ mod tests {
             .domains
             .iter()
             .all(|domain| domain.status == StorageDomainStatus::Current));
+        assert!(report.domains.iter().all(|domain| {
+            domain.journal_mode.as_deref() == Some("delete")
+                && domain.atomicity_compatible == Some(true)
+        }));
         assert_eq!(
             second_report
                 .domains
@@ -759,6 +785,47 @@ mod tests {
                 .schema_version,
             Some(2)
         );
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn project_storage_status_reports_incompatible_journal_mode() {
+        let storage_root = temporary_storage_root("agent-storage-wal-policy");
+        let migrations_root = repo_root().join("storage/sqlite");
+        run_storage_action(
+            StorageAction::Init,
+            storage_root.clone(),
+            migrations_root.clone(),
+        )
+        .unwrap();
+        force_journal_mode(&storage_root.join("projects.sqlite"), "WAL");
+
+        let report = run_storage_action(
+            StorageAction::Status,
+            storage_root.clone(),
+            migrations_root.clone(),
+        )
+        .unwrap();
+        let projects = report
+            .domains
+            .iter()
+            .find(|domain| domain.domain == "projects")
+            .unwrap();
+        let sync = report
+            .domains
+            .iter()
+            .find(|domain| domain.domain == "sync")
+            .unwrap();
+        let verify_error =
+            run_storage_action(StorageAction::Verify, storage_root.clone(), migrations_root)
+                .unwrap_err();
+
+        assert_eq!(projects.status, StorageDomainStatus::Invalid);
+        assert_eq!(projects.journal_mode.as_deref(), Some("wal"));
+        assert_eq!(projects.atomicity_compatible, Some(false));
+        assert_eq!(sync.status, StorageDomainStatus::Current);
+        assert_eq!(verify_error.code, "storage_verify_failed");
 
         remove_temporary_storage_root(&storage_root);
     }
@@ -776,6 +843,9 @@ mod tests {
             .domains
             .iter()
             .all(|domain| domain.status == StorageDomainStatus::Missing));
+        assert!(report.domains.iter().all(|domain| {
+            domain.journal_mode.is_none() && domain.atomicity_compatible.is_none()
+        }));
 
         remove_temporary_storage_root(&storage_root);
     }
@@ -845,6 +915,13 @@ mod tests {
             remove_temporary_storage_root(&root);
         }
         root
+    }
+
+    fn force_journal_mode(database_path: &Path, mode: &str) {
+        let connection = Connection::open(database_path).unwrap();
+        let pragma = format!("PRAGMA journal_mode = {mode}");
+        let observed: String = connection.query_row(&pragma, [], |row| row.get(0)).unwrap();
+        assert_eq!(observed, mode.to_ascii_lowercase());
     }
 
     fn remove_temporary_storage_root(root: &Path) {

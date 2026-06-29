@@ -27,7 +27,9 @@ GET  /api/v1/sync/outbox
 `GET /api/v1/storage/status` returns the same project/sync schema report as the
 agent CLI `storage status` command. Qt uses it to show whether the local agent
 is connected, storage is missing, a migration is required, or integrity checks
-are failing.
+are failing. Each domain also reports `journal_mode` and
+`atomicity_compatible`; the project vertical slice rejects incompatible modes
+such as `wal` because project and outbox writes span attached SQLite databases.
 
 ## Create Project
 
@@ -107,6 +109,11 @@ Each successful write creates:
 - a project or contract-review/stage update in `projects.sqlite`;
 - a project audit event in `project_audit_events`;
 - a pending `sync_operations` row in `sync.sqlite`.
+
+These writes require rollback-journal modes (`delete`, `truncate`, or
+`persist`) on both SQLite files. `storage init` sets `journal_mode=DELETE`, and
+project commands return a structured `storage_journal_mode_incompatible` error
+if an operator or external tool switches either file to an incompatible mode.
 
 This API is the local boundary for the project vertical slice. Metrology,
 planning, documents, instrument control, and acquisition remain legacy or

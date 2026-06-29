@@ -1,4 +1,8 @@
-use crate::{render_json, AgentError};
+use crate::{
+    render_json,
+    sqlite_policy::{enforce_project_slice_journal_mode, AttachedDatabase},
+    AgentError,
+};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -83,6 +87,8 @@ pub(crate) fn open_project_connection(storage_root: &Path) -> Result<Connection,
     connection
         .execute("ATTACH DATABASE ?1 AS sync_db", params![sync_path])
         .map_err(|error| AgentError::new("database_attach_error", error.to_string()))?;
+    enforce_project_slice_journal_mode(&connection, AttachedDatabase::Main, "projects.sqlite")?;
+    enforce_project_slice_journal_mode(&connection, AttachedDatabase::SyncDb, "sync.sqlite")?;
     ensure_project_tables(&connection)?;
     Ok(connection)
 }

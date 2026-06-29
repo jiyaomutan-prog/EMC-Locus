@@ -43,6 +43,12 @@ project/sync migrations. `storage status` reports whether the databases are
 missing, current, invalid, or need migration. `storage verify` fails when a
 database is not current or fails SQLite integrity checks.
 
+For the project vertical slice, `projects.sqlite` and `sync.sqlite` stay as two
+files but must use rollback journal modes so attached-database commits remain
+atomic. `storage init` sets `journal_mode=DELETE`; `storage status` reports
+`journal_mode` and `atomicity_compatible`; `storage verify` and project commands
+refuse incompatible modes such as `wal`.
+
 ## Project Vertical Slice Commands
 
 Version `0.4.4` adds the first write path owned by the local agent. The commands
