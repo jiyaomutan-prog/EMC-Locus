@@ -76,6 +76,9 @@ class LocalAgentClient:
     def health(self) -> dict[str, Any]:
         return self.request_json("GET", "/api/v1/health")
 
+    def storage_status(self) -> dict[str, Any]:
+        return self.request_json("GET", "/api/v1/storage/status")
+
     def create_project(
         self,
         *,

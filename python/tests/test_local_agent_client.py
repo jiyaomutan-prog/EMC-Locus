@@ -108,6 +108,36 @@ class LocalAgentClientTests(unittest.TestCase):
 
         self.assertRegex(operation_id, r"^project-create-CEM-001-[0-9a-f]{32}$")
 
+    def test_reads_storage_status(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            captured["timeout"] = timeout
+            return _FakeResponse(
+                {
+                    "action": "status",
+                    "domains": [
+                        {
+                            "domain": "projects",
+                            "status": "current",
+                        }
+                    ],
+                }
+            )
+
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            response = LocalAgentClient(
+                "http://127.0.0.1:8765",
+                timeout_seconds=1.0,
+            ).storage_status()
+
+        self.assertEqual(captured["url"], "http://127.0.0.1:8765/api/v1/storage/status")
+        self.assertEqual(captured["method"], "GET")
+        self.assertEqual(captured["timeout"], 1.0)
+        self.assertEqual(response["domains"][0]["status"], "current")
+
 
 class GuiActionAgentPathTests(unittest.TestCase):
     def test_create_project_uses_agent_without_project_repository(self) -> None:

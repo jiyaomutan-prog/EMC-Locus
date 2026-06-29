@@ -354,6 +354,52 @@ class QtConsoleTests(unittest.TestCase):
         advance.assert_called_once()
         self.assertEqual(advance.call_args.kwargs["agent_url"], "http://127.0.0.1:8765")
 
+    def test_qt_agent_status_maps_storage_state_without_pyside(self) -> None:
+        module = load_qt_console_module()
+
+        connected = module._agent_status_from_storage_report(
+            {
+                "domains": [
+                    {"domain": "projects", "status": "current"},
+                    {"domain": "sync", "status": "current"},
+                ]
+            }
+        )
+        missing = module._agent_status_from_storage_report(
+            {"domains": [{"domain": "projects", "status": "missing"}]}
+        )
+        migration = module._agent_status_from_storage_report(
+            {"domains": [{"domain": "projects", "status": "migration_required"}]}
+        )
+        invalid = module._agent_status_from_storage_report(
+            {"domains": [{"domain": "projects", "status": "invalid"}]}
+        )
+
+        self.assertEqual(connected.label, "Agent local: connecte")
+        self.assertEqual(connected.tone, "ok")
+        self.assertEqual(missing.label, "Agent local: stockage non initialise")
+        self.assertEqual(migration.label, "Agent local: migration requise")
+        self.assertEqual(invalid.label, "Agent local: erreur integrite")
+        self.assertEqual(invalid.tone, "bad")
+
+    def test_qt_agent_status_queries_local_agent_client(self) -> None:
+        module = load_qt_console_module()
+
+        with patch.object(module, "LocalAgentClient") as client_type:
+            client = client_type.return_value
+            client.storage_status.return_value = {
+                "domains": [
+                    {"domain": "projects", "status": "current"},
+                    {"domain": "sync", "status": "current"},
+                ]
+            }
+
+            status = module._agent_status("http://127.0.0.1:8765")
+
+        client_type.assert_called_once_with("http://127.0.0.1:8765", timeout_seconds=1.0)
+        client.storage_status.assert_called_once()
+        self.assertEqual(status.label, "Agent local: connecte")
+
     def test_qt_form_action_schedules_service_and_creates_category_without_pyside(self) -> None:
         module = load_qt_console_module()
         with tempfile.TemporaryDirectory() as temporary_directory:

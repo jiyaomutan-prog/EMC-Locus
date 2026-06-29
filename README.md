@@ -79,7 +79,15 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.4.8`.
+Current software version: `0.5.0`.
+
+Version `0.5.0` delivers the first agent-backed project vertical slice:
+initialized local project storage, loopback API, project creation,
+contract-review completion, transition to test planning, audit events, sync
+outbox records, restart/persistence verification, Python client support, and Qt
+project forms that can call the local agent when configured. The Qt console also
+shows local-agent/storage state and submits agent-backed project forms through a
+worker so the operator UI remains responsive.
 
 Revision tracking uses:
 
@@ -92,11 +100,12 @@ Revision tracking uses:
 ## Validation
 
 ```text
-py -m compileall python\emc_locus
-py -m py_compile apps\qt-console\main.py
+$env:PYTHONPATH='python'; py -m compileall -q python\emc_locus python\tests
+$env:PYTHONPATH='python'; py -m py_compile apps\qt-console\main.py
 $env:PYTHONPATH='python'; py -m unittest discover -s python\tests
 $env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrations import validate_sqlite_migrations; print(validate_sqlite_migrations(Path('storage/sqlite')))"
 cargo fmt --check
-cargo test
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 node --check apps\gui-shell\app.js
 ```

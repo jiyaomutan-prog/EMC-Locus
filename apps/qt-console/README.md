@@ -40,14 +40,19 @@ contract-review checklist completion.
 py apps\qt-console\main.py --projects-db data\projects.sqlite --metrology-db data\metrology.sqlite --test-definitions-db data\test_definitions.sqlite --measurement-data-db data\measurement_data.sqlite
 ```
 
-Project creation and contract-review item completion can be routed through the
-local Rust agent while the console continues to read repository data for the
-current prototype:
+Project creation, contract-review item completion, and transition to planning
+can be routed through the local Rust agent while the console continues to read
+repository data for the current prototype:
 
 ```text
 cargo run -q -p emc-locus-agent -- serve --storage-root data\agent --migrations-root storage\sqlite --bind 127.0.0.1:8765
 py apps\qt-console\main.py --projects-db data\agent\projects.sqlite --metrology-db data\metrology.sqlite --test-definitions-db data\test_definitions.sqlite --agent-url http://127.0.0.1:8765
 ```
+
+When `--agent-url` is configured, the header displays the local-agent state:
+connected, unavailable, storage not initialized, migration required, or local
+integrity error. Project form submissions run through a Qt worker so agent calls
+do not block the main UI thread.
 
 Agent-backed:
 

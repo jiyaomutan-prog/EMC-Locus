@@ -31,6 +31,7 @@ from emc_locus.gui_actions import (
     register_metrology_instrument,
     schedule_service_item,
 )
+from emc_locus.local_agent_client import LocalAgentClient, LocalAgentError
 from emc_locus.qt_console_models import (
     FormFieldSpec,
     OperatorFormSpec,
@@ -41,10 +42,21 @@ from emc_locus.qt_console_models import (
 
 
 @dataclass(frozen=True)
+class AgentStatus:
+    """Operator-facing local-agent state."""
+
+    label: str
+    tone: str
+    detail: str
+
+
+@dataclass(frozen=True)
 class QtBindings:
     """PySide6 objects used by the console, loaded lazily."""
 
     Qt: Any
+    QObject: Any
+    QRunnable: Any
     QAbstractItemView: Any
     QApplication: Any
     QComboBox: Any
@@ -58,12 +70,15 @@ class QtBindings:
     QPlainTextEdit: Any
     QPushButton: Any
     QScrollArea: Any
+    Signal: Any
     QStatusBar: Any
     QTabWidget: Any
     QTableWidget: Any
     QTableWidgetItem: Any
+    QThreadPool: Any
     QVBoxLayout: Any
     QWidget: Any
+    Slot: Any
 
 
 def load_bootstrap_js(path: Path) -> dict[str, Any]:
@@ -127,6 +142,10 @@ def run(argv: list[str] | None = None) -> int:
         button.setEnabled(action.enabled)
         button.setToolTip(action.reason)
         header.addWidget(button)
+    agent_status_label = qt.QLabel()
+    agent_status_label.setMinimumWidth(210)
+    _apply_agent_status(qt, agent_status_label, args)
+    header.addWidget(agent_status_label)
     layout.addLayout(header)
 
     metrics = qt.QHBoxLayout()
@@ -141,6 +160,7 @@ def run(argv: list[str] | None = None) -> int:
     def refresh_console(message: str | None = None) -> None:
         state["data"] = _load_console_data(args)
         state["view_model"] = build_console_view_model(state["data"])
+        _apply_agent_status(qt, agent_status_label, args)
         _populate_metrics(qt, metrics, state["view_model"])
         _populate_tabs(
             qt,
@@ -159,6 +179,85 @@ def run(argv: list[str] | None = None) -> int:
     window.setStyleSheet(_stylesheet())
     window.show()
     return application.exec()
+
+
+def _apply_agent_status(qt: QtBindings, label: Any, args: argparse.Namespace) -> None:
+    status = _agent_status(getattr(args, "agent_url", None))
+    label.setText(status.label)
+    label.setToolTip(status.detail)
+    label.setObjectName(f"AgentStatus-{status.tone}")
+    if hasattr(label, "style"):
+        label.style().unpolish(label)
+        label.style().polish(label)
+
+
+def _agent_status(agent_url: str | None) -> AgentStatus:
+    if not agent_url or not agent_url.strip():
+        return AgentStatus(
+            label="Agent local: non configure",
+            tone="neutral",
+            detail="Aucun --agent-url fourni.",
+        )
+    try:
+        report = LocalAgentClient(agent_url.strip(), timeout_seconds=1.0).storage_status()
+    except LocalAgentError as error:
+        if error.code == "local_agent_unavailable":
+            label = "Agent local: indisponible"
+        else:
+            label = f"Agent local: {error.code}"
+        return AgentStatus(label=label, tone="warn", detail=error.message)
+    except Exception as error:  # noqa: BLE001 - startup status must not crash Qt.
+        return AgentStatus(
+            label="Agent local: statut inconnu",
+            tone="warn",
+            detail=str(error),
+        )
+    return _agent_status_from_storage_report(report)
+
+
+def _agent_status_from_storage_report(report: dict[str, Any]) -> AgentStatus:
+    domains = report.get("domains")
+    if not isinstance(domains, list):
+        return AgentStatus(
+            label="Agent local: reponse invalide",
+            tone="warn",
+            detail="Le statut stockage ne contient pas de liste domains.",
+        )
+
+    statuses = {
+        str(domain.get("status", "unknown"))
+        for domain in domains
+        if isinstance(domain, dict)
+    }
+    if "invalid" in statuses:
+        return AgentStatus(
+            label="Agent local: erreur integrite",
+            tone="bad",
+            detail="Au moins une base locale est invalide.",
+        )
+    if "migration_required" in statuses:
+        return AgentStatus(
+            label="Agent local: migration requise",
+            tone="warn",
+            detail="Au moins une base locale doit etre migree.",
+        )
+    if "missing" in statuses:
+        return AgentStatus(
+            label="Agent local: stockage non initialise",
+            tone="warn",
+            detail="Initialiser le stockage local avant les operations projet.",
+        )
+    if statuses == {"current"}:
+        return AgentStatus(
+            label="Agent local: connecte",
+            tone="ok",
+            detail="Agent joignable et bases project/sync a jour.",
+        )
+    return AgentStatus(
+        label="Agent local: statut partiel",
+        tone="warn",
+        detail=f"Statuts stockage: {', '.join(sorted(statuses)) or 'aucun'}",
+    )
 
 
 def _metric(qt: QtBindings, label: str, value: str, tone: str) -> Any:
@@ -250,12 +349,13 @@ def _action_form(
     if form_spec.disabled_reason:
         button.setToolTip(form_spec.disabled_reason)
     button.clicked.connect(
-        lambda checked=False, spec=form_spec, fields=widgets: _submit_action_form(
+        lambda checked=False, spec=form_spec, fields=widgets, submit_button=button: _submit_action_form(
             qt,
             args,
             spec,
             fields,
             on_completed,
+            submit_button,
         )
     )
     layout.addRow("", button)
@@ -286,9 +386,83 @@ def _submit_action_form(
     form_spec: OperatorFormSpec,
     widgets: dict[str, Any],
     on_completed: Any,
+    submit_button: Any | None = None,
 ) -> None:
     try:
         values = _form_values(form_spec, widgets)
+    except Exception as error:  # noqa: BLE001 - GUI boundary must show failures.
+        qt.QMessageBox.critical(None, "EMC Locus", str(error))
+        return
+
+    _run_form_action_worker(qt, args, form_spec, values, on_completed, submit_button)
+
+
+def _run_form_action_worker(
+    qt: QtBindings,
+    args: argparse.Namespace,
+    form_spec: OperatorFormSpec,
+    values: dict[str, str],
+    on_completed: Any,
+    submit_button: Any | None,
+) -> None:
+    if not all(
+        hasattr(qt, name)
+        for name in ("QObject", "QRunnable", "QThreadPool", "Signal", "Slot")
+    ):
+        _submit_action_form_synchronously(qt, args, form_spec, values, on_completed)
+        return
+
+    if submit_button is not None:
+        submit_button.setEnabled(False)
+
+    class WorkerSignals(qt.QObject):
+        completed = qt.Signal()
+        failed = qt.Signal(str)
+
+    class FormActionWorker(qt.QRunnable):
+        def __init__(self) -> None:
+            super().__init__()
+            self.signals = WorkerSignals()
+
+        @qt.Slot()
+        def run(self) -> None:
+            try:
+                _execute_form_action(args, form_spec.action_id, values)
+            except Exception as error:  # noqa: BLE001 - report through Qt boundary.
+                self.signals.failed.emit(str(error))
+                return
+            self.signals.completed.emit()
+
+    worker = FormActionWorker()
+
+    def complete() -> None:
+        if submit_button is not None:
+            submit_button.setEnabled(form_spec.enabled)
+            setattr(submit_button, "_emc_locus_worker", None)
+        on_completed(f"{form_spec.title}: enregistrement effectue")
+        qt.QMessageBox.information(None, "EMC Locus", "Enregistrement effectue")
+
+    def fail(message: str) -> None:
+        if submit_button is not None:
+            submit_button.setEnabled(form_spec.enabled)
+            setattr(submit_button, "_emc_locus_worker", None)
+        qt.QMessageBox.critical(None, "EMC Locus", message)
+
+    worker.signals.completed.connect(complete)
+    worker.signals.failed.connect(fail)
+    if submit_button is not None:
+        setattr(submit_button, "_emc_locus_worker", worker)
+    qt.QThreadPool.globalInstance().start(worker)
+
+
+def _submit_action_form_synchronously(
+    qt: QtBindings,
+    args: argparse.Namespace,
+    form_spec: OperatorFormSpec,
+    values: dict[str, str],
+    on_completed: Any,
+) -> None:
+    try:
         _execute_form_action(args, form_spec.action_id, values)
     except Exception as error:  # noqa: BLE001 - GUI boundary must show failures.
         qt.QMessageBox.critical(None, "EMC Locus", str(error))
@@ -514,7 +688,7 @@ def _status_message(args: argparse.Namespace) -> str:
 
 def _load_qt() -> QtBindings:
     try:
-        from PySide6.QtCore import Qt
+        from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal, Slot
         from PySide6.QtWidgets import (
             QAbstractItemView,
             QApplication,
@@ -544,6 +718,8 @@ def _load_qt() -> QtBindings:
 
     return QtBindings(
         Qt=Qt,
+        QObject=QObject,
+        QRunnable=QRunnable,
         QAbstractItemView=QAbstractItemView,
         QApplication=QApplication,
         QComboBox=QComboBox,
@@ -557,12 +733,15 @@ def _load_qt() -> QtBindings:
         QPlainTextEdit=QPlainTextEdit,
         QPushButton=QPushButton,
         QScrollArea=QScrollArea,
+        Signal=Signal,
         QStatusBar=QStatusBar,
         QTabWidget=QTabWidget,
         QTableWidget=QTableWidget,
         QTableWidgetItem=QTableWidgetItem,
+        QThreadPool=QThreadPool,
         QVBoxLayout=QVBoxLayout,
         QWidget=QWidget,
+        Slot=Slot,
     )
 
 
@@ -598,6 +777,34 @@ def _stylesheet() -> str:
     QLabel#Subtitle {
         color: #59635d;
         font-size: 13px;
+    }
+    QLabel#AgentStatus-ok {
+        background: #e8f3ec;
+        border: 1px solid #b7d5c0;
+        color: #17211b;
+        padding: 6px 10px;
+        font-weight: 700;
+    }
+    QLabel#AgentStatus-warn {
+        background: #fff5dc;
+        border: 1px solid #dec777;
+        color: #4c3b06;
+        padding: 6px 10px;
+        font-weight: 700;
+    }
+    QLabel#AgentStatus-bad {
+        background: #fde8e5;
+        border: 1px solid #dd9a91;
+        color: #651f18;
+        padding: 6px 10px;
+        font-weight: 700;
+    }
+    QLabel#AgentStatus-neutral {
+        background: #eef0ed;
+        border: 1px solid #d4d8d2;
+        color: #3f4842;
+        padding: 6px 10px;
+        font-weight: 700;
     }
     QTabWidget::pane {
         border: 1px solid #d6d9d2;

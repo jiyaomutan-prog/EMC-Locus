@@ -92,6 +92,7 @@ The implemented routes are:
 
 ```text
 GET  /api/v1/health
+GET  /api/v1/storage/status
 POST /api/v1/storage/initialize
 POST /api/v1/projects
 GET  /api/v1/projects
@@ -102,6 +103,10 @@ POST /api/v1/projects/{code}/transitions/to-test-planning
 GET  /api/v1/projects/{code}/audit-events
 GET  /api/v1/sync/outbox
 ```
+
+`GET /api/v1/storage/status` returns the project/sync storage status used by Qt
+to display connected, unavailable, storage-not-initialized, migration-required,
+and integrity-error states without opening SQLite directly.
 
 The API is intentionally local and narrow. It does not expose central
 synchronization, PostgreSQL, object storage, instrument control, or acquisition
@@ -122,6 +127,10 @@ The Qt console accepts:
 ```text
 py apps\qt-console\main.py --projects-db data\agent\projects.sqlite --agent-url http://127.0.0.1:8765
 ```
+
+With `--agent-url`, the console header shows the local-agent state and the
+agent-backed project forms are submitted through a Qt worker so the main UI
+thread remains responsive.
 
 The remaining Qt write forms for metrology, service planning, test categories,
 measurement data, updates, and runtime actions remain legacy direct SQLite until

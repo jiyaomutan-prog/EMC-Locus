@@ -10,6 +10,7 @@ cargo run -q -p emc-locus-agent -- serve --storage-root data\agent --migrations-
 
 ```text
 GET  /api/v1/health
+GET  /api/v1/storage/status
 POST /api/v1/storage/initialize
 POST /api/v1/projects
 GET  /api/v1/projects
@@ -20,6 +21,13 @@ POST /api/v1/projects/{code}/transitions/to-test-planning
 GET  /api/v1/projects/{code}/audit-events
 GET  /api/v1/sync/outbox
 ```
+
+## Storage Status
+
+`GET /api/v1/storage/status` returns the same project/sync schema report as the
+agent CLI `storage status` command. Qt uses it to show whether the local agent
+is connected, storage is missing, a migration is required, or integrity checks
+are failing.
 
 ## Create Project
 

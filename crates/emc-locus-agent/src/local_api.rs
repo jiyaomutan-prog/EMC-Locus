@@ -136,6 +136,14 @@ fn route_api_request(
         )
         .map(|report| report.to_json());
     }
+    if parts.as_slice() == ["api", "v1", "storage", "status"] && method == "GET" {
+        return run_storage_action(
+            StorageAction::Status,
+            config.storage_root.clone(),
+            config.migrations_root.clone(),
+        )
+        .map(|report| report.to_json());
+    }
     if parts.as_slice() == ["api", "v1", "projects"] && method == "GET" {
         return run_project_command(AgentCommand::Projects {
             action: ProjectAction::List,
@@ -383,6 +391,10 @@ mod tests {
         };
         let initialized = handle_api_request("POST", "/api/v1/storage/initialize", "", &config);
         assert_eq!(initialized.status, 200);
+        let storage_status = handle_api_request("GET", "/api/v1/storage/status", "", &config);
+        assert_eq!(storage_status.status, 200);
+        assert!(storage_status.body.contains("\"action\": \"status\""));
+        assert!(storage_status.body.contains("\"status\": \"current\""));
 
         let created = handle_api_request(
             "POST",
@@ -471,12 +483,159 @@ mod tests {
     }
 
     #[test]
+    fn local_api_reports_storage_status_before_initialization() {
+        let storage_root = temporary_storage_root("agent-api-storage-status");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            max_requests: None,
+        };
+
+        let response = handle_api_request("GET", "/api/v1/storage/status", "", &config);
+
+        assert_eq!(response.status, 200);
+        assert!(response.body.contains("\"status\": \"missing\""));
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
     fn local_api_reports_not_found_for_unknown_routes() {
         let config = ApiServerConfig::default_for(PathBuf::from("unused"));
         let response = handle_api_request("GET", "/api/v1/unknown", "", &config);
 
         assert_eq!(response.status, 404);
         assert!(response.body.contains("api_route_not_found"));
+    }
+
+    #[test]
+    fn local_api_rejects_invalid_json_payloads() {
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: PathBuf::from("unused"),
+            migrations_root: repo_root().join("storage/sqlite"),
+            max_requests: None,
+        };
+
+        let response = handle_api_request("POST", "/api/v1/projects", "{bad-json", &config);
+
+        assert_eq!(response.status, 400);
+        assert!(response.body.contains("invalid_json_body"));
+    }
+
+    #[test]
+    fn local_api_accepts_investigation_project_with_reduced_review_gate() {
+        let storage_root = temporary_storage_root("agent-api-investigation");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            max_requests: None,
+        };
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+        assert_eq!(
+            handle_api_request(
+                "POST",
+                "/api/v1/projects",
+                r#"{"code":"CEM-INV-001","customer_name":"Investigation Customer","execution_mode":"investigation","actor":"quality.lead","reason":"field investigation","operation_id":"op-inv-create"}"#,
+                &config,
+            )
+            .status,
+            200
+        );
+
+        for (index, item) in ["customer_request_defined", "deviations_recorded"]
+            .iter()
+            .enumerate()
+        {
+            let body = format!(
+                r#"{{"actor":"quality.lead","comment":"ok","operation_id":"op-inv-review-{index}"}}"#
+            );
+            assert_eq!(
+                handle_api_request(
+                    "POST",
+                    &format!("/api/v1/projects/CEM-INV-001/contract-review/items/{item}/complete"),
+                    &body,
+                    &config,
+                )
+                .status,
+                200
+            );
+        }
+
+        let transition = handle_api_request(
+            "POST",
+            "/api/v1/projects/CEM-INV-001/transitions/to-test-planning",
+            r#"{"actor":"quality.lead","reason":"investigation scope accepted","operation_id":"op-inv-transition"}"#,
+            &config,
+        );
+
+        assert_eq!(transition.status, 200);
+        assert!(transition.body.contains("\"stage\":\"test_planning\""));
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn local_api_accepts_non_accredited_project_with_reduced_review_gate() {
+        let storage_root = temporary_storage_root("agent-api-non-accredited");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            max_requests: None,
+        };
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+        assert_eq!(
+            handle_api_request(
+                "POST",
+                "/api/v1/projects",
+                r#"{"code":"CEM-NAC-001","customer_name":"Non Accredited Customer","execution_mode":"non_accredited","actor":"quality.lead","reason":"non accredited service","operation_id":"op-nac-create"}"#,
+                &config,
+            )
+            .status,
+            200
+        );
+
+        for (index, item) in [
+            "customer_request_defined",
+            "test_method_selected",
+            "laboratory_capability_confirmed",
+            "deviations_recorded",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let body = format!(
+                r#"{{"actor":"quality.lead","comment":"ok","operation_id":"op-nac-review-{index}"}}"#
+            );
+            assert_eq!(
+                handle_api_request(
+                    "POST",
+                    &format!("/api/v1/projects/CEM-NAC-001/contract-review/items/{item}/complete"),
+                    &body,
+                    &config,
+                )
+                .status,
+                200
+            );
+        }
+
+        let transition = handle_api_request(
+            "POST",
+            "/api/v1/projects/CEM-NAC-001/transitions/to-test-planning",
+            r#"{"actor":"quality.lead","reason":"non accredited review complete","operation_id":"op-nac-transition"}"#,
+            &config,
+        );
+
+        assert_eq!(transition.status, 200);
+        assert!(transition.body.contains("\"stage\":\"test_planning\""));
+        remove_temporary_storage_root(&storage_root);
     }
 
     #[test]
@@ -489,7 +648,7 @@ mod tests {
             bind: first_address.clone(),
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
-            max_requests: Some(16),
+            max_requests: Some(17),
         });
 
         let health = wait_for_http(&first_address, "/api/v1/health");
@@ -554,6 +713,14 @@ mod tests {
         );
         assert_eq!(transition.0, 200);
         assert!(transition.1.contains("\"stage\":\"test_planning\""));
+        let transition_replay = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/projects/CEM-E2E-001/transitions/to-test-planning",
+            r#"{"actor":"quality.lead","reason":"review complete","operation_id":"op-e2e-transition"}"#,
+        );
+        assert_eq!(transition_replay.0, 200);
+        assert!(transition_replay.1.contains("\"replayed\": true"));
         let outbox = http_request("GET", &first_address, "/api/v1/sync/outbox", "");
         let audit = http_request(
             "GET",

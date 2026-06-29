@@ -8,6 +8,25 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-29
+
+### Added
+
+- First complete agent-backed project vertical slice:
+  - local project/sync storage initialization;
+  - versioned loopback API;
+  - storage status route for Qt/automation health display;
+  - project create/list/read;
+  - contract-review status and item completion;
+  - transition to `test_planning`;
+  - audit event inspection;
+  - pending sync outbox inspection;
+  - real HTTP E2E idempotence and restart/persistence coverage;
+  - Python local-agent client;
+  - Qt project forms for creation, contract review, and planning transition when
+    `--agent-url` is configured;
+  - visible Qt local-agent status and worker-backed project form submission.
+
 ### Added
 
 - Qt operator form for project transition to test planning, routed through the
