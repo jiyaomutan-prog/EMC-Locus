@@ -365,6 +365,12 @@ fn ensure_no_unknown_flags(flags: BTreeMap<String, String>) -> Result<(), AgentE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        io::{Read, Write},
+        net::{TcpListener, TcpStream},
+        thread,
+        time::{Duration, Instant},
+    };
 
     #[test]
     fn local_api_runs_project_vertical_slice_through_routes() {
@@ -473,6 +479,117 @@ mod tests {
         assert!(response.body.contains("api_route_not_found"));
     }
 
+    #[test]
+    fn real_http_server_persists_project_slice_after_restart() {
+        let storage_root = temporary_storage_root("agent-api-real-server");
+        let migrations_root = repo_root().join("storage/sqlite");
+        let first_port = free_loopback_port();
+        let first_address = format!("127.0.0.1:{first_port}");
+        let first_server = spawn_server(ApiServerConfig {
+            bind: first_address.clone(),
+            storage_root: storage_root.clone(),
+            migrations_root: migrations_root.clone(),
+            max_requests: Some(16),
+        });
+
+        let health = wait_for_http(&first_address, "/api/v1/health");
+        assert_eq!(health.0, 200);
+        assert_eq!(
+            http_request("POST", &first_address, "/api/v1/storage/initialize", "").0,
+            200
+        );
+        assert_eq!(
+            http_request(
+                "POST",
+                &first_address,
+                "/api/v1/projects",
+                r#"{"code":"CEM-E2E-001","customer_name":"E2E Customer","execution_mode":"accredited","actor":"quality.lead","reason":"contract accepted","operation_id":"op-e2e-create"}"#,
+            )
+            .0,
+            200
+        );
+        let early = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/projects/CEM-E2E-001/transitions/to-test-planning",
+            r#"{"actor":"quality.lead","reason":"too early","operation_id":"op-e2e-early"}"#,
+        );
+        assert_eq!(early.0, 409);
+        assert!(early.1.contains("contract_review_incomplete"));
+
+        for (index, item) in [
+            "customer_request_defined",
+            "test_method_selected",
+            "laboratory_capability_confirmed",
+            "equipment_availability_checked",
+            "calibration_status_reviewed",
+            "impartiality_risks_reviewed",
+            "data_retention_agreed",
+            "report_requirements_agreed",
+            "deviations_recorded",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let body = format!(
+                r#"{{"actor":"quality.lead","comment":"ok","operation_id":"op-e2e-review-{index}"}}"#
+            );
+            assert_eq!(
+                http_request(
+                    "POST",
+                    &first_address,
+                    &format!("/api/v1/projects/CEM-E2E-001/contract-review/items/{item}/complete"),
+                    &body,
+                )
+                .0,
+                200
+            );
+        }
+
+        let transition = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/projects/CEM-E2E-001/transitions/to-test-planning",
+            r#"{"actor":"quality.lead","reason":"review complete","operation_id":"op-e2e-transition"}"#,
+        );
+        assert_eq!(transition.0, 200);
+        assert!(transition.1.contains("\"stage\":\"test_planning\""));
+        let outbox = http_request("GET", &first_address, "/api/v1/sync/outbox", "");
+        let audit = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/projects/CEM-E2E-001/audit-events",
+            "",
+        );
+        assert_eq!(outbox.0, 200);
+        assert_eq!(audit.0, 200);
+        assert_eq!(outbox.1.matches("\"operation_id\"").count(), 11);
+        assert_eq!(audit.1.matches("\"sequence\"").count(), 11);
+        first_server
+            .join()
+            .expect("server thread panicked")
+            .unwrap();
+
+        let second_port = free_loopback_port();
+        let second_address = format!("127.0.0.1:{second_port}");
+        let second_server = spawn_server(ApiServerConfig {
+            bind: second_address.clone(),
+            storage_root: storage_root.clone(),
+            migrations_root,
+            max_requests: Some(2),
+        });
+        assert_eq!(wait_for_http(&second_address, "/api/v1/health").0, 200);
+        let reloaded = http_request("GET", &second_address, "/api/v1/projects/CEM-E2E-001", "");
+        assert_eq!(reloaded.0, 200);
+        assert!(reloaded.1.contains("\"stage\":\"test_planning\""));
+        second_server
+            .join()
+            .expect("server thread panicked")
+            .unwrap();
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
     fn repo_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -500,5 +617,61 @@ mod tests {
         if root.exists() {
             std::fs::remove_dir_all(root).unwrap();
         }
+    }
+
+    fn spawn_server(config: ApiServerConfig) -> thread::JoinHandle<Result<(), AgentError>> {
+        thread::spawn(move || run_local_api_server(config))
+    }
+
+    fn wait_for_http(address: &str, path: &str) -> (u16, String) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            match try_http_request("GET", address, path, "") {
+                Ok(response) => return response,
+                Err(error) if Instant::now() < deadline => {
+                    let _ = error;
+                    thread::sleep(Duration::from_millis(25));
+                }
+                Err(error) => panic!("server did not become ready: {error}"),
+            }
+        }
+    }
+
+    fn http_request(method: &str, address: &str, path: &str, body: &str) -> (u16, String) {
+        try_http_request(method, address, path, body).unwrap()
+    }
+
+    fn try_http_request(
+        method: &str,
+        address: &str,
+        path: &str,
+        body: &str,
+    ) -> std::io::Result<(u16, String)> {
+        let mut stream = TcpStream::connect(address)?;
+        let request = format!(
+            "{method} {path} HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(request.as_bytes())?;
+        let mut response = String::new();
+        stream.read_to_string(&mut response)?;
+        let status = response
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|value| value.parse::<u16>().ok())
+            .unwrap_or(0);
+        let body = response
+            .split_once("\r\n\r\n")
+            .map_or_else(String::new, |(_, body)| body.to_owned());
+        Ok((status, body))
+    }
+
+    fn free_loopback_port() -> u16 {
+        TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
     }
 }

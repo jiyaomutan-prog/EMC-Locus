@@ -170,6 +170,8 @@ Deliverables:
 - Python/Qt project client path; initial thin Python client added so project
   creation, contract-review completion, and planning transition can call the
   local agent when configured;
+- real local-agent E2E coverage; initial automated HTTP server test added for
+  the project vertical slice, including restart and persistence verification;
 - offline update bundles; initial Rust model added;
 - update-catalog persistence APIs; initial Python adapter added;
 - rollback and compatibility checks; initial Rust validation added.

@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Added
 
+- Automated real HTTP server E2E test for the project vertical slice, including
+  storage initialization, contract-review refusal, review completion, transition
+  to planning, audit/outbox checks, restart, and persistence verification.
 - Thin Python `LocalAgentClient` for the loopback API, with structured error
   handling and UUID-backed operation identifiers.
 - Optional `agent_url` project action path for Python/Qt project creation,
