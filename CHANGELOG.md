@@ -223,6 +223,9 @@ change should remain traceable through Git history, session logs, and this file.
 - Automated release-consistency test covering `VERSION`, Cargo workspace
   version, crate lockfile versions, Python package version, README, and revision
   baseline.
+- `emc-locus-agent` storage commands for the first project vertical slice:
+  initializing, inspecting, and verifying `projects.sqlite` and `sync.sqlite`
+  from versioned SQLite migrations with stable JSON reports.
 
 ### Fixed
 

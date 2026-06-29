@@ -160,6 +160,8 @@ Deliverables:
 - synchronization conflict records; initial Rust model added;
 - synchronization conflict persistence; initial SQLite migration and Python
   adapter added;
+- local agent storage initialization/status/verification for the project
+  vertical slice; initial Rust CLI support added for project and sync databases;
 - offline update bundles; initial Rust model added;
 - update-catalog persistence APIs; initial Python adapter added;
 - rollback and compatibility checks; initial Rust validation added.
