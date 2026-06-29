@@ -138,6 +138,8 @@ Deliverables:
   validation added;
 - structured VISA resource settings; initial Rust parser and adapter validation
   added;
+- VISA TCP/IP resources exchanged through the guarded TCP socket path; initial
+  Rust local socket coverage added;
 - instrument capability declarations;
 - command templates;
 - validation against simulated baseline;

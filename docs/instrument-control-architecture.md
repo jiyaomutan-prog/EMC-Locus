@@ -120,13 +120,14 @@ Implemented in the Rust core:
 18. structured VISA resource parsing for TCPIP, USB, GPIB, and ASRL resources;
 19. exchange-attempt traceability on adapter-backed observations and TCP/IP
     retry attempts.
+20. IO-backed VISA TCP/IP resource exchange through the guarded TCP socket path.
 
 Not yet implemented:
 
 - typed SCPI command model;
 - broader retry classification for connected write/read failures;
 - automatic parsing of string commands into typed setpoints;
-- IO-backed VISA, serial, and vendor SDK implementations.
+- native USB/GPIB/ASRL VISA, serial, and vendor SDK implementations.
 
 TCP/IP currently supports `TCPIP::host::port`, `TCPIP::host`, `host:port`, and
 VISA-style `TCPIP0::host::port::SOCKET` endpoints, writes newline-terminated
@@ -142,13 +143,18 @@ silently fall back to the default SCPI port.
 Serial endpoints currently support `PORT:baud` with default 8N1 framing, or
 `PORT:baud:framing` for explicit values such as `COM4:9600:7E2`. Native serial
 IO is still intentionally unavailable until a guarded implementation and device
-test strategy are added.
+test strategy are added. Serial port names are kept to local device forms and
+reject whitespace plus transport-reserved prefixes such as TCPIP, GPIB, USB,
+and ASRL, so bus or VISA aliases do not enter the native serial adapter path.
 
 VISA resources currently validate common resource strings such as
 `TCPIP0::host::inst0::INSTR`, `GPIB0::12::INSTR`,
 `USB0::vendor::product::serial::INSTR`, and `ASRL3::INSTR`. Native VISA IO is
-still intentionally unavailable until a binding, packaging, and device-test
-strategy are selected. Validation is interface-aware: `SOCKET` resources are
-limited to TCP/IP resources with nonzero numeric ports, GPIB primary and
-secondary addresses must be numeric values from 0 to 30, and ASRL resources
-must include a serial port index.
+still intentionally unavailable for USB, GPIB, and ASRL until a binding,
+packaging, and device-test strategy are selected. VISA TCP/IP resources use the
+same guarded TCP socket exchange path as direct TCP/IP endpoints, including
+newline-terminated writes, response reads, timeout policy, and exchange-attempt
+traceability. Validation is interface-aware: `SOCKET` resources are limited to
+TCP/IP resources with nonzero numeric ports, GPIB primary and secondary
+addresses must be numeric values from 0 to 30, and ASRL resources must include
+a serial port index.

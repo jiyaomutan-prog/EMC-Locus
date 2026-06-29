@@ -208,7 +208,7 @@ impl SerialEndpointSettings {
         }
 
         let port = parts[0].trim();
-        if port.is_empty() {
+        if !is_valid_serial_port_name(port) {
             return Err(invalid_serial_endpoint(address));
         }
 
@@ -340,6 +340,7 @@ pub struct VisaTransportAdapter {
     endpoint: InstrumentTransportEndpoint,
     timeout_policy: TransportTimeoutPolicy,
     resource: VisaResourceAddress,
+    last_exchange_attempt_count: u16,
 }
 
 impl VisaTransportAdapter {
@@ -353,6 +354,7 @@ impl VisaTransportAdapter {
             endpoint,
             timeout_policy,
             resource,
+            last_exchange_attempt_count: 0,
         })
     }
 
@@ -371,8 +373,21 @@ impl InstrumentTransportAdapter for VisaTransportAdapter {
     }
 
     fn exchange(&mut self, command: &InstrumentCommand) -> Result<InstrumentResponse, DomainError> {
+        self.last_exchange_attempt_count = 0;
         validate_command_transport(self.endpoint(), command)?;
-        Err(external_exchange_unavailable(self.endpoint()))
+        if self.resource.interface() == VisaInterface::TcpIp {
+            let (result, attempt_count) =
+                exchange_tcp_ip(self.endpoint(), self.timeout_policy(), command);
+            self.last_exchange_attempt_count = attempt_count;
+            result
+        } else {
+            self.last_exchange_attempt_count = 1;
+            Err(external_exchange_unavailable(self.endpoint()))
+        }
+    }
+
+    fn last_exchange_attempt_count(&self) -> u16 {
+        self.last_exchange_attempt_count
     }
 }
 
@@ -906,6 +921,26 @@ fn parse_serial_framing(
     }
 
     Ok((data_bits, parity, stop_bits))
+}
+
+fn is_valid_serial_port_name(port: &str) -> bool {
+    if port.is_empty()
+        || port.chars().any(char::is_whitespace)
+        || port.contains("::")
+        || is_reserved_transport_prefix(port)
+    {
+        return false;
+    }
+
+    port.chars()
+        .all(|value| value.is_ascii_alphanumeric() || matches!(value, '/' | '\\' | '.' | '_' | '-'))
+}
+
+fn is_reserved_transport_prefix(port: &str) -> bool {
+    let uppercase = port.to_ascii_uppercase();
+    ["TCPIP", "GPIB", "USB", "ASRL"]
+        .iter()
+        .any(|prefix| uppercase.starts_with(prefix))
 }
 
 fn visa_prefix_matches(prefix: &str, expected: &str, require_index: bool) -> bool {

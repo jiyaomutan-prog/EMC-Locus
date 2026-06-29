@@ -797,6 +797,10 @@ fn serial_endpoint_settings_parse_default_and_explicit_framing() {
     assert_eq!(explicit.data_bits(), 7);
     assert_eq!(explicit.parity(), SerialParity::Even);
     assert_eq!(explicit.stop_bits(), SerialStopBits::Two);
+
+    let linux_port = SerialEndpointSettings::parse("/dev/ttyUSB0:115200:8N1").unwrap();
+    assert_eq!(linux_port.port(), "/dev/ttyUSB0");
+    assert_eq!(linux_port.baud_rate(), 115_200);
 }
 
 #[test]
@@ -816,6 +820,26 @@ fn serial_endpoint_settings_reject_invalid_addresses() {
     assert_eq!(
         SerialEndpointSettings::parse("COM3:115200:8X1").unwrap_err(),
         DomainError::InvalidSerialEndpointAddress("COM3:115200:8X1".to_owned())
+    );
+    assert_eq!(
+        SerialEndpointSettings::parse("COM 3:115200").unwrap_err(),
+        DomainError::InvalidSerialEndpointAddress("COM 3:115200".to_owned())
+    );
+    assert_eq!(
+        SerialEndpointSettings::parse("TCPIP0:115200").unwrap_err(),
+        DomainError::InvalidSerialEndpointAddress("TCPIP0:115200".to_owned())
+    );
+    assert_eq!(
+        SerialEndpointSettings::parse("GPIB0:115200").unwrap_err(),
+        DomainError::InvalidSerialEndpointAddress("GPIB0:115200".to_owned())
+    );
+    assert_eq!(
+        SerialEndpointSettings::parse("USB0:115200").unwrap_err(),
+        DomainError::InvalidSerialEndpointAddress("USB0:115200".to_owned())
+    );
+    assert_eq!(
+        SerialEndpointSettings::parse("ASRL3:115200").unwrap_err(),
+        DomainError::InvalidSerialEndpointAddress("ASRL3:115200".to_owned())
     );
 }
 
@@ -921,6 +945,71 @@ fn visa_transport_adapter_exposes_validated_resource() {
     assert_eq!(
         adapter.resource().raw(),
         "USB0::0x1234::0x5678::SN001::INSTR"
+    );
+}
+
+#[test]
+fn visa_transport_adapter_exchanges_tcpip_socket_resources() {
+    use std::io::{Read, Write};
+
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = [0_u8; 64];
+        let read = stream.read(&mut buffer).unwrap();
+        assert_eq!(std::str::from_utf8(&buffer[..read]).unwrap(), "*IDN?\n");
+        stream.write_all(b"EMC LOCUS,VISA TCPIP FIXTURE\n").unwrap();
+    });
+
+    let endpoint = InstrumentTransportEndpoint::new(
+        InstrumentTransport::Visa,
+        format!("TCPIP0::{}::{}::SOCKET", address.ip(), address.port()),
+    )
+    .unwrap();
+    let timeout_policy = TransportTimeoutPolicy::new(100, 1_000, 0).unwrap();
+    let mut adapter = VisaTransportAdapter::new(endpoint, timeout_policy).unwrap();
+
+    let response = adapter
+        .exchange(&InstrumentCommand::new(
+            code,
+            InstrumentTransport::Visa,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap();
+
+    assert_eq!(response.as_str(), "EMC LOCUS,VISA TCPIP FIXTURE");
+    assert_eq!(adapter.last_exchange_attempt_count(), 1);
+    handle.join().unwrap();
+}
+
+#[test]
+fn visa_transport_adapter_keeps_non_tcpip_io_unavailable() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let endpoint = InstrumentTransportEndpoint::new(
+        InstrumentTransport::Visa,
+        "USB0::0x1234::0x5678::SN001::INSTR",
+    )
+    .unwrap();
+    let mut adapter =
+        VisaTransportAdapter::new(endpoint, TransportTimeoutPolicy::laboratory_default()).unwrap();
+
+    let error = adapter
+        .exchange(&InstrumentCommand::new(
+            code,
+            InstrumentTransport::Visa,
+            InstrumentCommandMessage::parse("*IDN?").unwrap(),
+        ))
+        .unwrap_err();
+
+    assert_eq!(adapter.last_exchange_attempt_count(), 1);
+    assert_eq!(
+        error,
+        DomainError::ExternalTransportExchangeUnavailable {
+            transport: "visa".to_owned(),
+            address: "USB0::0x1234::0x5678::SN001::INSTR".to_owned(),
+        }
     );
 }
 

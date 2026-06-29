@@ -143,6 +143,8 @@ change should remain traceable through Git history, session logs, and this file.
   parity, and stop bits, validated by the serial transport adapter.
 - Structured Rust VISA resource parsing for TCPIP, USB, GPIB, and ASRL resource
   strings, validated by the VISA transport adapter.
+- IO-backed VISA TCP/IP resource exchange using the guarded TCP socket path,
+  with exchange-attempt traceability and local socket test coverage.
 - Rust, SQLite, and Python processing graph execution records with execution
   reference, actor, software version, status, and output artifact count.
 - Qt console status metrics for active projects, metrology alerts, retained
@@ -188,6 +190,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Serial endpoint parsing now rejects whitespace-bearing port names and
+  transport-reserved prefixes such as TCPIP, GPIB, USB, and ASRL, so serial
+  adapters cannot silently accept bus or VISA aliases as native serial ports.
 - TCP/IP instrument endpoints now resolve VISA-style `TCPIP0::host::port::SOCKET`
   resources and `TCPIP0::host::inst::INSTR` resources without misreading the
   interface or resource class as the socket target.
