@@ -326,6 +326,29 @@ def build_operator_form_specs(
             ),
         ),
         OperatorFormSpec(
+            action_id="advance_project",
+            title="Passage planning",
+            submit_label="Passer au planning",
+            enabled=has_projects and bool(projects),
+            disabled_reason=_disabled_reason(
+                has_projects,
+                bool(projects),
+                "Depot projets requis",
+                "Aucun projet disponible",
+            ),
+            fields=(
+                FormFieldSpec(
+                    "code",
+                    "Projet",
+                    "choice",
+                    required=True,
+                    choices=projects,
+                ),
+                FormFieldSpec("actor", "Acteur", "text", required=True),
+                FormFieldSpec("reason", "Raison", "multiline", required=True),
+            ),
+        ),
+        OperatorFormSpec(
             action_id="attach_instrument_document",
             title="Document materiel",
             submit_label="Ajouter document",

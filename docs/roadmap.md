@@ -172,6 +172,8 @@ Deliverables:
   local agent when configured;
 - real local-agent E2E coverage; initial automated HTTP server test added for
   the project vertical slice, including restart and persistence verification;
+- Qt project transition form; initial operator form added for the agent-backed
+  transition to `test_planning`;
 - offline update bundles; initial Rust model added;
 - update-catalog persistence APIs; initial Python adapter added;
 - rollback and compatibility checks; initial Rust validation added.

@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from emc_locus import (
     MetrologyRepository,
@@ -256,6 +257,7 @@ class QtConsoleTests(unittest.TestCase):
 
         self.assertTrue(by_id["create_project"].enabled)
         self.assertTrue(by_id["complete_contract_review_item"].enabled)
+        self.assertTrue(by_id["advance_project"].enabled)
         self.assertTrue(by_id["register_instrument"].enabled)
         self.assertTrue(by_id["attach_instrument_document"].enabled)
         self.assertTrue(by_id["schedule_service_item"].enabled)
@@ -329,6 +331,28 @@ class QtConsoleTests(unittest.TestCase):
         self.assertEqual(instrument["calibration_period_months"], 12)
         self.assertEqual(calibration["due_at"], "2027-06-28")
         self.assertEqual(documents[0]["document_kind"], "script")
+
+    def test_qt_form_action_advances_project_through_agent_without_pyside(self) -> None:
+        module = load_qt_console_module()
+        args = SimpleNamespace(
+            projects_db=Path("data/agent/projects.sqlite"),
+            migrations_root=Path("storage/sqlite"),
+            agent_url="http://127.0.0.1:8765",
+        )
+
+        with patch.object(module, "advance_project_stage") as advance:
+            module._execute_form_action(
+                args,
+                "advance_project",
+                {
+                    "code": "CEM-QT-AGENT",
+                    "actor": "quality.lead",
+                    "reason": "Contract review complete",
+                },
+            )
+
+        advance.assert_called_once()
+        self.assertEqual(advance.call_args.kwargs["agent_url"], "http://127.0.0.1:8765")
 
     def test_qt_form_action_schedules_service_and_creates_category_without_pyside(self) -> None:
         module = load_qt_console_module()

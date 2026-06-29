@@ -53,7 +53,8 @@ Agent-backed:
 
 - project creation;
 - contract-review item completion;
-- transition to `test_planning` when called through the Python action layer.
+- transition to `test_planning` through the Qt `Passage planning` form or the
+  Python action layer.
 
 Legacy direct SQLite:
 

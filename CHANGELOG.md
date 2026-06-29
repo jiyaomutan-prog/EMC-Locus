@@ -10,6 +10,8 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Added
 
+- Qt operator form for project transition to test planning, routed through the
+  Python action layer and local agent when `--agent-url` is configured.
 - Automated real HTTP server E2E test for the project vertical slice, including
   storage initialization, contract-review refusal, review completion, transition
   to planning, audit/outbox checks, restart, and persistence verification.

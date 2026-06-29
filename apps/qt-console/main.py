@@ -23,6 +23,7 @@ if str(PYTHON_ROOT) not in sys.path:
 
 from emc_locus.qt_console_data import build_console_bootstrap_from_repositories
 from emc_locus.gui_actions import (
+    advance_project_stage,
     attach_metrology_document,
     complete_contract_review_item_action,
     create_project_record,
@@ -371,6 +372,17 @@ def _execute_form_action(
             item=values["item"],
             completed_by=values["completed_by"],
             comment=_optional(values["comment"]),
+            agent_url=getattr(args, "agent_url", None),
+        )
+        return
+
+    if action_id == "advance_project":
+        advance_project_stage(
+            projects_db=args.projects_db,
+            migrations_root=args.migrations_root,
+            code=values["code"],
+            actor=values["actor"],
+            reason=values["reason"],
             agent_url=getattr(args, "agent_url", None),
         )
         return
