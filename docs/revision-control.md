@@ -90,7 +90,7 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.4.5` was validated on 2026-06-29 with:
+Version `0.4.6` was validated on 2026-06-29 with:
 
 ```text
 $env:PYTHONPATH='python'; py -m compileall -q python\emc_locus python\tests

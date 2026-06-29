@@ -94,7 +94,7 @@ dependencies = [
 
 [[package]]
 name = "emc-locus-agent"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "emc-locus-core",
  "rusqlite",
@@ -106,7 +106,7 @@ dependencies = [
 
 [[package]]
 name = "emc-locus-core"
-version = "0.4.5"
+version = "0.4.6"
 
 [[package]]
 name = "fallible-iterator"

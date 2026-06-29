@@ -40,6 +40,28 @@ contract-review checklist completion.
 py apps\qt-console\main.py --projects-db data\projects.sqlite --metrology-db data\metrology.sqlite --test-definitions-db data\test_definitions.sqlite --measurement-data-db data\measurement_data.sqlite
 ```
 
+Project creation and contract-review item completion can be routed through the
+local Rust agent while the console continues to read repository data for the
+current prototype:
+
+```text
+cargo run -q -p emc-locus-agent -- serve --storage-root data\agent --migrations-root storage\sqlite --bind 127.0.0.1:8765
+py apps\qt-console\main.py --projects-db data\agent\projects.sqlite --metrology-db data\metrology.sqlite --test-definitions-db data\test_definitions.sqlite --agent-url http://127.0.0.1:8765
+```
+
+Agent-backed:
+
+- project creation;
+- contract-review item completion;
+- transition to `test_planning` when called through the Python action layer.
+
+Legacy direct SQLite:
+
+- metrology entry and documents;
+- service scheduling;
+- test-category maintenance;
+- measurement-data, update, and runtime actions not yet migrated.
+
 ## Direction
 
 The first implementation already separates Qt rendering from testable Python

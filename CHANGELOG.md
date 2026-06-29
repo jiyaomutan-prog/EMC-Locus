@@ -10,6 +10,10 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Added
 
+- Thin Python `LocalAgentClient` for the loopback API, with structured error
+  handling and UUID-backed operation identifiers.
+- Optional `agent_url` project action path for Python/Qt project creation,
+  contract-review item completion, and transition to test planning.
 - Versioned loopback HTTP API for the local agent project slice, served by
   `emc-locus-agent serve` on `127.0.0.1` by default.
 - API routes for health, storage initialization, project creation/list/read,

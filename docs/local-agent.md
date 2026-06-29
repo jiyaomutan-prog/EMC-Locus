@@ -104,6 +104,25 @@ GET  /api/v1/sync/outbox
 ```
 
 The API is intentionally local and narrow. It does not expose central
-synchronization, PostgreSQL, object storage, instrument control, or Qt migration
-yet. Qt should call this API in the next project-workflow migration slice rather
-than adding new direct Python SQLite writes.
+synchronization, PostgreSQL, object storage, instrument control, or acquisition
+runtime features.
+
+## Python And Qt Client Path
+
+Version `0.4.6` adds `emc_locus.local_agent_client.LocalAgentClient`, a thin
+standard-library HTTP client for the loopback API. Python/Qt project actions can
+now pass `agent_url` to route these writes through the agent:
+
+- project creation;
+- contract-review item completion;
+- transition to `test_planning` through `advance_project_stage`.
+
+The Qt console accepts:
+
+```text
+py apps\qt-console\main.py --projects-db data\agent\projects.sqlite --agent-url http://127.0.0.1:8765
+```
+
+The remaining Qt write forms for metrology, service planning, test categories,
+measurement data, updates, and runtime actions remain legacy direct SQLite until
+their own migration slices.

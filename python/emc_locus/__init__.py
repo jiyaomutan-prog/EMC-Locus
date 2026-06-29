@@ -18,6 +18,7 @@ from .gui_actions import (
     set_metrology_instrument_availability,
 )
 from .gui_bootstrap import build_bootstrap, build_fixture_bootstrap, write_bootstrap_js
+from .local_agent_client import LocalAgentClient, LocalAgentError, generate_operation_id
 from .migrations import Migration, discover_migrations, validate_sqlite_migrations
 from .qt_console_data import build_console_bootstrap_from_repositories
 from .qt_console_models import (
@@ -51,6 +52,8 @@ __all__ = [
     "SyncRepository",
     "ConsoleViewModel",
     "FormFieldSpec",
+    "LocalAgentClient",
+    "LocalAgentError",
     "OperatorActionIntent",
     "OperatorFormSpec",
     "StatusMetric",
@@ -70,6 +73,7 @@ __all__ = [
     "create_test_category",
     "discover_migrations",
     "default_backlog",
+    "generate_operation_id",
     "next_project_stage",
     "register_metrology_instrument",
     "record_metrology_calibration",

@@ -96,6 +96,7 @@ def run(argv: list[str] | None = None) -> int:
     parser.add_argument("--test-definitions-db", type=Path)
     parser.add_argument("--measurement-data-db", type=Path)
     parser.add_argument("--update-catalog-db", type=Path)
+    parser.add_argument("--agent-url")
     args = parser.parse_args(argv)
     data = _load_console_data(args)
     view_model = build_console_view_model(data)
@@ -358,6 +359,7 @@ def _execute_form_action(
             stage=values["stage"],
             actor=values["actor"],
             reason=values["reason"],
+            agent_url=getattr(args, "agent_url", None),
         )
         return
 
@@ -369,6 +371,7 @@ def _execute_form_action(
             item=values["item"],
             completed_by=values["completed_by"],
             comment=_optional(values["comment"]),
+            agent_url=getattr(args, "agent_url", None),
         )
         return
 

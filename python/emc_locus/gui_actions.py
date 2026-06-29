@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .gui_bootstrap import build_bootstrap, write_bootstrap_js
+from .local_agent_client import LocalAgentClient
 from .sqlite_repositories import (
     MeasurementDataRepository,
     MetrologyRepository,
@@ -101,7 +102,7 @@ def _validate_service_schedule_block(
 
 def create_project_record(
     *,
-    projects_db: Path | str,
+    projects_db: Path | str | None,
     code: str,
     customer_name: str,
     execution_mode: str,
@@ -114,6 +115,10 @@ def create_project_record(
     test_definitions_db: Path | str | None = None,
     measurement_data_db: Path | str | None = None,
     update_catalog_db: Path | str | None = None,
+    agent_url: str | None = None,
+    operation_id: str | None = None,
+    correlation_id: str | None = None,
+    device_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a project with first audit evidence."""
 
@@ -128,6 +133,40 @@ def create_project_record(
     actor = require_non_empty(actor, "actor")
     reason = require_non_empty(reason, "reason")
 
+    if _has_text(agent_url):
+        response = LocalAgentClient(str(agent_url)).create_project(
+            code=code,
+            customer_name=customer_name,
+            execution_mode=execution_mode,
+            stage=stage,
+            actor=actor,
+            reason=reason,
+            operation_id=operation_id,
+            correlation_id=correlation_id,
+            device_id=device_id,
+        )
+        project = response["project"]
+        if bootstrap_output is not None and projects_db is not None:
+            refresh_bootstrap(
+                output=bootstrap_output,
+                migrations_root=migrations_root,
+                projects_db=projects_db,
+                metrology_db=metrology_db,
+                test_definitions_db=test_definitions_db,
+                measurement_data_db=measurement_data_db,
+                update_catalog_db=update_catalog_db,
+            )
+        return {
+            "code": project["code"],
+            "customer_name": project["customer_name"],
+            "execution_mode": project["execution_mode"],
+            "stage": project["stage"],
+            "operation_id": response["operation_id"],
+            "replayed": response["replayed"],
+        }
+
+    if projects_db is None:
+        raise ValueError("projects_db is required when no agent_url is configured")
     repository = ProjectRepository(Path(projects_db), Path(migrations_root))
     repository.initialize()
     if repository.get_project(code) is not None:
@@ -163,7 +202,7 @@ def create_project_record(
 
 def complete_contract_review_item_action(
     *,
-    projects_db: Path | str,
+    projects_db: Path | str | None,
     project_code: str,
     item: str,
     completed_by: str,
@@ -174,6 +213,10 @@ def complete_contract_review_item_action(
     test_definitions_db: Path | str | None = None,
     measurement_data_db: Path | str | None = None,
     update_catalog_db: Path | str | None = None,
+    agent_url: str | None = None,
+    operation_id: str | None = None,
+    correlation_id: str | None = None,
+    device_id: str | None = None,
 ) -> dict[str, Any]:
     """Complete one contract-review checklist item with audit evidence."""
 
@@ -182,6 +225,37 @@ def complete_contract_review_item_action(
     completed_by = require_non_empty(completed_by, "completed_by")
     comment = comment.strip() if comment is not None else None
 
+    if _has_text(agent_url):
+        response = LocalAgentClient(str(agent_url)).complete_contract_review_item(
+            project_code=project_code,
+            item=item,
+            actor=completed_by,
+            comment=comment,
+            operation_id=operation_id,
+            correlation_id=correlation_id,
+            device_id=device_id,
+        )
+        if bootstrap_output is not None and projects_db is not None:
+            refresh_bootstrap(
+                output=bootstrap_output,
+                migrations_root=migrations_root,
+                projects_db=projects_db,
+                metrology_db=metrology_db,
+                test_definitions_db=test_definitions_db,
+                measurement_data_db=measurement_data_db,
+                update_catalog_db=update_catalog_db,
+            )
+        return {
+            "project_code": project_code,
+            "item": item,
+            "completed_by": completed_by,
+            "operation_id": response["operation_id"],
+            "replayed": response["replayed"],
+            "already_completed": response["already_completed"],
+        }
+
+    if projects_db is None:
+        raise ValueError("projects_db is required when no agent_url is configured")
     repository = ProjectRepository(Path(projects_db), Path(migrations_root))
     repository.initialize()
     sequence = repository.complete_contract_review_item_with_audit(
@@ -709,7 +783,7 @@ def set_metrology_instrument_capabilities(
 
 def advance_project_stage(
     *,
-    projects_db: Path | str,
+    projects_db: Path | str | None,
     code: str,
     actor: str,
     reason: str,
@@ -719,12 +793,46 @@ def advance_project_stage(
     test_definitions_db: Path | str | None = None,
     measurement_data_db: Path | str | None = None,
     update_catalog_db: Path | str | None = None,
+    agent_url: str | None = None,
+    operation_id: str | None = None,
+    correlation_id: str | None = None,
+    device_id: str | None = None,
 ) -> dict[str, Any]:
     """Advance one project to the next workflow stage with audit evidence."""
 
     code = require_non_empty(code, "code")
     actor = require_non_empty(actor, "actor")
     reason = require_non_empty(reason, "reason")
+
+    if _has_text(agent_url):
+        response = LocalAgentClient(str(agent_url)).advance_to_test_planning(
+            project_code=code,
+            actor=actor,
+            reason=reason,
+            operation_id=operation_id,
+            correlation_id=correlation_id,
+            device_id=device_id,
+        )
+        project = response["project"]
+        if bootstrap_output is not None and projects_db is not None:
+            refresh_bootstrap(
+                output=bootstrap_output,
+                migrations_root=migrations_root,
+                projects_db=projects_db,
+                metrology_db=metrology_db,
+                test_definitions_db=test_definitions_db,
+                measurement_data_db=measurement_data_db,
+                update_catalog_db=update_catalog_db,
+            )
+        return {
+            "project_code": code,
+            "new_stage": project["stage"],
+            "operation_id": response["operation_id"],
+            "replayed": response["replayed"],
+        }
+
+    if projects_db is None:
+        raise ValueError("projects_db is required when no agent_url is configured")
     projects = ProjectRepository(Path(projects_db), Path(migrations_root))
     projects.initialize()
 
@@ -1000,7 +1108,7 @@ def main(argv: list[str] | None = None) -> int:
 
     project_parser = subcommands.add_parser("create-project")
     _add_repository_args(project_parser, include_projects=False)
-    project_parser.add_argument("--projects-db", required=True, type=Path)
+    project_parser.add_argument("--projects-db", type=Path)
     project_parser.add_argument("--code", required=True)
     project_parser.add_argument("--customer-name", required=True)
     project_parser.add_argument(
@@ -1016,15 +1124,17 @@ def main(argv: list[str] | None = None) -> int:
     project_parser.add_argument("--actor", required=True)
     project_parser.add_argument("--reason", required=True)
     project_parser.add_argument("--bootstrap-output", type=Path)
+    _add_agent_args(project_parser)
 
     contract_parser = subcommands.add_parser("complete-contract-review-item")
     _add_repository_args(contract_parser, include_projects=False)
-    contract_parser.add_argument("--projects-db", required=True, type=Path)
+    contract_parser.add_argument("--projects-db", type=Path)
     contract_parser.add_argument("--project-code", required=True)
     contract_parser.add_argument("--item", required=True)
     contract_parser.add_argument("--completed-by", required=True)
     contract_parser.add_argument("--comment")
     contract_parser.add_argument("--bootstrap-output", type=Path)
+    _add_agent_args(contract_parser)
 
     register_parser = subcommands.add_parser("register-instrument")
     _add_repository_args(register_parser, include_metrology=False)
@@ -1138,11 +1248,12 @@ def main(argv: list[str] | None = None) -> int:
 
     advance_parser = subcommands.add_parser("advance-project")
     _add_repository_args(advance_parser, include_projects=False)
-    advance_parser.add_argument("--projects-db", required=True, type=Path)
+    advance_parser.add_argument("--projects-db", type=Path)
     advance_parser.add_argument("--code", required=True)
     advance_parser.add_argument("--actor", required=True)
     advance_parser.add_argument("--reason", required=True)
     advance_parser.add_argument("--bootstrap-output", type=Path)
+    _add_agent_args(advance_parser)
 
     retention_parser = subcommands.add_parser("dataset-retention")
     _add_repository_args(retention_parser, include_measurement_data=False)
@@ -1197,6 +1308,10 @@ def main(argv: list[str] | None = None) -> int:
             test_definitions_db=args.test_definitions_db,
             measurement_data_db=args.measurement_data_db,
             update_catalog_db=args.update_catalog_db,
+            agent_url=args.agent_url,
+            operation_id=args.operation_id,
+            correlation_id=args.correlation_id,
+            device_id=args.device_id,
         )
         return 0
 
@@ -1215,6 +1330,10 @@ def main(argv: list[str] | None = None) -> int:
             test_definitions_db=args.test_definitions_db,
             measurement_data_db=args.measurement_data_db,
             update_catalog_db=args.update_catalog_db,
+            agent_url=args.agent_url,
+            operation_id=args.operation_id,
+            correlation_id=args.correlation_id,
+            device_id=args.device_id,
         )
         print(json.dumps(result, sort_keys=True))
         return 0
@@ -1460,6 +1579,10 @@ def main(argv: list[str] | None = None) -> int:
         test_definitions_db=args.test_definitions_db,
         measurement_data_db=args.measurement_data_db,
         update_catalog_db=args.update_catalog_db,
+        agent_url=args.agent_url,
+        operation_id=args.operation_id,
+        correlation_id=args.correlation_id,
+        device_id=args.device_id,
     )
     print(json.dumps(result, sort_keys=True))
     return 0
@@ -1485,6 +1608,13 @@ def _add_repository_args(
         parser.add_argument("--measurement-data-db", type=Path)
     if include_update_catalog:
         parser.add_argument("--update-catalog-db", type=Path)
+
+
+def _add_agent_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--agent-url")
+    parser.add_argument("--operation-id")
+    parser.add_argument("--correlation-id")
+    parser.add_argument("--device-id")
 
 
 def _normalized_json(value: str, field_name: str) -> str:
