@@ -2031,7 +2031,7 @@ fn accredited_equipment_readiness_requires_valid_calibration() {
         .unwrap();
 
     let report = registry.assess_equipment_readiness(
-        &[code.clone()],
+        std::slice::from_ref(&code),
         ExecutionMode::Accredited,
         MetrologyDate::new(2026, 6, 27).unwrap(),
     );
@@ -2107,7 +2107,7 @@ fn valid_calibrated_equipment_is_ready_for_accredited_work() {
         .unwrap();
 
     let report = registry.assess_equipment_readiness(
-        &[code.clone()],
+        std::slice::from_ref(&code),
         ExecutionMode::Accredited,
         MetrologyDate::new(2026, 6, 27).unwrap(),
     );

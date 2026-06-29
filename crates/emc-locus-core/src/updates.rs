@@ -205,6 +205,7 @@ pub struct UpdateBundle {
 }
 
 impl UpdateBundle {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: UpdatePackageName,
         package_version: SoftwareVersion,

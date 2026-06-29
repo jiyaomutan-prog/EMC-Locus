@@ -554,6 +554,7 @@ pub struct ProcessingGraphInstance {
 }
 
 impl ProcessingGraphInstance {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         reference: ProcessingGraphReference,
         revision: ProcessingGraphRevision,

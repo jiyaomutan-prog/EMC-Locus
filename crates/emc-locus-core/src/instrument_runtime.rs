@@ -1095,7 +1095,7 @@ fn read_tcp_response(stream: &mut TcpStream) -> std::io::Result<String> {
         }
 
         response.extend_from_slice(&buffer[..read]);
-        if response.iter().any(|byte| *byte == b'\n') {
+        if response.contains(&b'\n') {
             break;
         }
     }

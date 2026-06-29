@@ -10,6 +10,15 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Added
 
+- Agent-backed project CLI commands for the first vertical slice: create/list/get
+  projects, read contract review, complete review items, transition to test
+  planning, inspect project audit events, and inspect pending sync outbox
+  operations.
+- Transactional Rust writes from `emc-locus-agent` across `projects.sqlite` and
+  attached `sync.sqlite`, producing project audit events, deterministic
+  revisions, idempotent operation replay, and local outbox records.
+- Rust toolchain validation now includes the Clippy component, and existing
+  Clippy warnings in the core crates were cleared.
 - Contract-review stage gate before test planning.
 - Authorized contract-review deviation event for incomplete checklists.
 - Rust tests for complete checklist, incomplete checklist, authorized deviation,

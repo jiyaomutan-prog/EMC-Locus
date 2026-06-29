@@ -1,4 +1,7 @@
+mod project_agent;
+
 use emc_locus_core::{baseline_repository_domains, RepositoryDomain};
+pub use project_agent::{run_project_command, run_sync_command, ProjectAction, SyncAction};
 use rusqlite::Connection;
 use std::{
     error::Error,
@@ -18,6 +21,14 @@ pub enum AgentCommand {
         storage_root: PathBuf,
         migrations_root: PathBuf,
     },
+    Projects {
+        action: ProjectAction,
+        storage_root: PathBuf,
+    },
+    Sync {
+        action: SyncAction,
+        storage_root: PathBuf,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,23 +40,44 @@ pub enum StorageAction {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentError {
-    code: &'static str,
-    message: String,
+    pub(crate) code: &'static str,
+    pub(crate) message: String,
+    details_json: Option<String>,
 }
 
 impl AgentError {
-    fn new(code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
+            details_json: None,
+        }
+    }
+
+    pub(crate) fn with_details(
+        code: &'static str,
+        message: impl Into<String>,
+        details_json: String,
+    ) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            details_json: Some(details_json),
         }
     }
 
     pub fn to_json(&self) -> String {
+        let details = self
+            .details_json
+            .as_ref()
+            .map_or_else(String::new, |details| {
+                format!(",\n    \"details\": {details}")
+            });
         format!(
-            "{{\n  \"error\": {{\n    \"code\": {},\n    \"message\": {}\n  }}\n}}",
+            "{{\n  \"error\": {{\n    \"code\": {},\n    \"message\": {}{}\n  }}\n}}",
             json_string(self.code),
-            json_string(&self.message)
+            json_string(&self.message),
+            details
         )
     }
 }
@@ -207,6 +239,12 @@ where
     if command == "storage" {
         return parse_storage_args(args);
     }
+    if command == "projects" {
+        return project_agent::parse_project_args(args);
+    }
+    if command == "sync" {
+        return project_agent::parse_sync_args(args);
+    }
     if command != "health" {
         return Err(AgentError::new(
             "unknown_command",
@@ -318,7 +356,7 @@ pub fn run_storage_command(command: AgentCommand) -> Result<StorageReport, Agent
             storage_root,
             migrations_root,
         } => run_storage_action(action, storage_root, migrations_root),
-        AgentCommand::Health { .. } => Err(AgentError::new(
+        _ => Err(AgentError::new(
             "invalid_storage_command",
             "expected a storage command",
         )),
@@ -615,7 +653,7 @@ fn integrity_check(connection: &Connection) -> Result<Option<String>, AgentError
     Ok(Some(value))
 }
 
-fn json_string(value: &str) -> String {
+pub(crate) fn json_string(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len() + 2);
     escaped.push('"');
     for character in value.chars() {
@@ -640,7 +678,7 @@ fn json_option_bool(value: Option<bool>) -> String {
     value.map_or_else(|| "null".to_owned(), |value| value.to_string())
 }
 
-fn json_option_string(value: Option<&str>) -> String {
+pub(crate) fn json_option_string(value: Option<&str>) -> String {
     value.map_or_else(|| "null".to_owned(), json_string)
 }
 

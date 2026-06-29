@@ -162,6 +162,9 @@ Deliverables:
   adapter added;
 - local agent storage initialization/status/verification for the project
   vertical slice; initial Rust CLI support added for project and sync databases;
+- local agent project write path; initial Rust CLI support added for project
+  creation, contract-review completion, transition to test planning, audit
+  inspection, and pending outbox inspection;
 - offline update bundles; initial Rust model added;
 - update-catalog persistence APIs; initial Python adapter added;
 - rollback and compatibility checks; initial Rust validation added.

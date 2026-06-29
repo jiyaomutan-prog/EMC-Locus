@@ -8,3 +8,5 @@ repository.workspace = true
 [dependencies]
 emc-locus-core = { path = "../emc-locus-core" }
 rusqlite = { version = "0.32", features = ["bundled"] }
+sha2 = "0.10"
+time = { version = "0.3", features = ["formatting"] }
