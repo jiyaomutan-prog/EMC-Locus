@@ -79,7 +79,31 @@ report_requirements_agreed
 deviations_recorded
 ```
 
-This remains a CLI boundary. The HTTP loopback API and Qt migration are the next
-steps; they should call the same Rust service path rather than reintroducing
-direct Python SQLite writes for project creation, contract review, or project
-stage transition.
+## Versioned Loopback API
+
+Version `0.4.5` adds a first local HTTP boundary over the same Rust service
+path. The server binds to loopback by default:
+
+```text
+cargo run -q -p emc-locus-agent -- serve --storage-root data\agent --migrations-root storage\sqlite --bind 127.0.0.1:8765
+```
+
+The implemented routes are:
+
+```text
+GET  /api/v1/health
+POST /api/v1/storage/initialize
+POST /api/v1/projects
+GET  /api/v1/projects
+GET  /api/v1/projects/{code}
+GET  /api/v1/projects/{code}/contract-review
+POST /api/v1/projects/{code}/contract-review/items/{item}/complete
+POST /api/v1/projects/{code}/transitions/to-test-planning
+GET  /api/v1/projects/{code}/audit-events
+GET  /api/v1/sync/outbox
+```
+
+The API is intentionally local and narrow. It does not expose central
+synchronization, PostgreSQL, object storage, instrument control, or Qt migration
+yet. Qt should call this API in the next project-workflow migration slice rather
+than adding new direct Python SQLite writes.

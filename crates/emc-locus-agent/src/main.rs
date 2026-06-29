@@ -1,6 +1,6 @@
 use emc_locus_agent::{
-    build_health_report, parse_agent_args, run_project_command, run_storage_command,
-    run_sync_command, AgentCommand,
+    build_health_report, parse_agent_args, run_local_api_server, run_project_command,
+    run_storage_command, run_sync_command, AgentCommand,
 };
 use std::{env, process};
 
@@ -30,10 +30,16 @@ fn main() {
                 process::exit(1);
             }
         },
+        Ok(AgentCommand::Serve { config }) => {
+            if let Err(error) = run_local_api_server(config) {
+                eprintln!("{}", error.to_json());
+                process::exit(1);
+            }
+        }
         Err(error) => {
             eprintln!("{}", error.to_json());
             eprintln!(
-                "usage: emc-locus-agent health [--storage-root PATH] | storage <init|status|verify> --storage-root PATH [--migrations-root PATH] | projects <create|list|get|contract-review|complete-review-item|to-test-planning|audit-events> --storage-root PATH ... | sync outbox --storage-root PATH"
+                "usage: emc-locus-agent health [--storage-root PATH] | storage <init|status|verify> --storage-root PATH [--migrations-root PATH] | projects <create|list|get|contract-review|complete-review-item|to-test-planning|audit-events> --storage-root PATH ... | sync outbox --storage-root PATH | serve --storage-root PATH [--migrations-root PATH] [--bind 127.0.0.1:8765]"
             );
             process::exit(2);
         }

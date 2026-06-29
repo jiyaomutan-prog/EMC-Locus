@@ -165,6 +165,8 @@ Deliverables:
 - local agent project write path; initial Rust CLI support added for project
   creation, contract-review completion, transition to test planning, audit
   inspection, and pending outbox inspection;
+- local agent versioned loopback API; initial Rust HTTP routes added for the
+  project vertical slice and pending outbox inspection;
 - offline update bundles; initial Rust model added;
 - update-catalog persistence APIs; initial Python adapter added;
 - rollback and compatibility checks; initial Rust validation added.

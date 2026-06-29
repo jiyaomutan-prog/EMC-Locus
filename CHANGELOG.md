@@ -10,6 +10,11 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Added
 
+- Versioned loopback HTTP API for the local agent project slice, served by
+  `emc-locus-agent serve` on `127.0.0.1` by default.
+- API routes for health, storage initialization, project creation/list/read,
+  contract-review status, review item completion, transition to test planning,
+  project audit events, and pending sync outbox inspection.
 - Agent-backed project CLI commands for the first vertical slice: create/list/get
   projects, read contract review, complete review items, transition to test
   planning, inspect project audit events, and inspect pending sync outbox

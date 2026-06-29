@@ -1,6 +1,8 @@
+mod local_api;
 mod project_agent;
 
 use emc_locus_core::{baseline_repository_domains, RepositoryDomain};
+pub use local_api::{run_local_api_server, ApiServerConfig};
 pub use project_agent::{run_project_command, run_sync_command, ProjectAction, SyncAction};
 use rusqlite::Connection;
 use std::{
@@ -28,6 +30,9 @@ pub enum AgentCommand {
     Sync {
         action: SyncAction,
         storage_root: PathBuf,
+    },
+    Serve {
+        config: ApiServerConfig,
     },
 }
 
@@ -244,6 +249,9 @@ where
     }
     if command == "sync" {
         return project_agent::parse_sync_args(args);
+    }
+    if command == "serve" {
+        return local_api::parse_serve_args(args);
     }
     if command != "health" {
         return Err(AgentError::new(
@@ -723,8 +731,8 @@ mod tests {
     #[test]
     fn rejects_unknown_command() {
         assert_eq!(
-            parse_agent_args(["serve"]).unwrap_err().to_string(),
-            "unknown command: serve"
+            parse_agent_args(["daemon"]).unwrap_err().to_string(),
+            "unknown command: daemon"
         );
     }
 
