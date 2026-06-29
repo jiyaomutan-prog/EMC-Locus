@@ -220,6 +220,9 @@ change should remain traceable through Git history, session logs, and this file.
 - Rust `emc-locus-agent` binary crate with a testable `health` command that
   reports agent version, storage-root availability, and supported repository
   domains as JSON.
+- Automated release-consistency test covering `VERSION`, Cargo workspace
+  version, crate lockfile versions, Python package version, README, and revision
+  baseline.
 
 ### Fixed
 

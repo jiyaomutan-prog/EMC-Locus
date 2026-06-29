@@ -4,11 +4,11 @@ version = 4
 
 [[package]]
 name = "emc-locus-agent"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "emc-locus-core",
 ]
 
 [[package]]
 name = "emc-locus-core"
-version = "0.4.1"
+version = "0.4.2"
