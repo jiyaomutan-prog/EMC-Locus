@@ -232,6 +232,134 @@ fn complete_contract_review_allows_test_planning() {
 }
 
 #[test]
+fn contract_review_requirements_are_relaxed_by_execution_mode() {
+    let code = ProjectCode::parse("CEM-2026-RELAXED").unwrap();
+    let mut checklist = ContractReviewChecklist::new(code);
+
+    checklist.mark_complete(ContractReviewItem::CustomerRequestDefined);
+    checklist.mark_complete(ContractReviewItem::TestMethodSelected);
+    checklist.mark_complete(ContractReviewItem::LaboratoryCapabilityConfirmed);
+    checklist.mark_complete(ContractReviewItem::DeviationsRecorded);
+
+    assert!(checklist.is_complete_for_mode(ExecutionMode::NonAccredited));
+    assert!(checklist.is_complete_for_mode(ExecutionMode::Investigation));
+    assert!(!checklist.is_complete_for_mode(ExecutionMode::Accredited));
+    assert!(checklist
+        .missing_items_for_mode(ExecutionMode::Accredited)
+        .contains(&ContractReviewItem::CalibrationStatusReviewed));
+}
+
+#[test]
+fn application_service_advances_project_with_contract_review_receipt() {
+    let code = ProjectCode::parse("CEM-2026-SVC").unwrap();
+    let project = Project::new(code.clone(), "Service Customer").unwrap();
+    let actor = AuditActor::parse("quality.manager").unwrap();
+    let mut record = ProjectRecord::open(project, actor.clone());
+    record
+        .advance_to(
+            ProjectStage::ContractReview,
+            actor.clone(),
+            AuditReason::parse("Quote accepted").unwrap(),
+        )
+        .unwrap();
+    let mut checklist = ContractReviewChecklist::new(code.clone());
+    for item in baseline_contract_review_items() {
+        checklist.mark_complete(item);
+    }
+    let command = AdvanceProjectStageCommand::new(
+        code.clone(),
+        actor,
+        AuditReason::parse("Planning authorized by service").unwrap(),
+        ProjectStage::TestPlanning,
+        ExecutionMode::Accredited,
+    );
+
+    let receipt = ProjectApplicationService::new()
+        .advance_stage(&mut record, command, Some(&checklist))
+        .unwrap();
+
+    assert_eq!(receipt.project_code(), &code);
+    assert_eq!(receipt.resulting_stage(), ProjectStage::TestPlanning);
+    assert_eq!(receipt.audit_event_count(), 3);
+    assert_eq!(
+        receipt.writes(),
+        &[ApplicationWriteKind::ProjectStageAdvance]
+    );
+}
+
+#[test]
+fn application_service_requires_checklist_for_planning_gate() {
+    let code = ProjectCode::parse("CEM-2026-SVC-MISSING").unwrap();
+    let project = Project::new(code.clone(), "Missing Checklist Customer").unwrap();
+    let actor = AuditActor::parse("quality.manager").unwrap();
+    let mut record = ProjectRecord::open(project, actor.clone());
+    record
+        .advance_to(
+            ProjectStage::ContractReview,
+            actor.clone(),
+            AuditReason::parse("Quote accepted").unwrap(),
+        )
+        .unwrap();
+    let command = AdvanceProjectStageCommand::new(
+        code.clone(),
+        actor,
+        AuditReason::parse("Planning requested").unwrap(),
+        ProjectStage::TestPlanning,
+        ExecutionMode::Accredited,
+    );
+
+    let error = ProjectApplicationService::new()
+        .advance_stage(&mut record, command, None)
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::MissingApplicationChecklist { project: code }
+    );
+    assert_eq!(record.project().stage(), ProjectStage::ContractReview);
+}
+
+#[test]
+fn application_service_records_deviation_for_relaxed_incomplete_review() {
+    let code = ProjectCode::parse("CEM-2026-SVC-DEV").unwrap();
+    let project = Project::new(code.clone(), "Deviation Customer").unwrap();
+    let actor = AuditActor::parse("quality.manager").unwrap();
+    let mut record = ProjectRecord::open(project, actor.clone());
+    record
+        .advance_to(
+            ProjectStage::ContractReview,
+            actor.clone(),
+            AuditReason::parse("Quote accepted").unwrap(),
+        )
+        .unwrap();
+    let mut checklist = ContractReviewChecklist::new(code.clone());
+    checklist.mark_complete(ContractReviewItem::CustomerRequestDefined);
+    let deviation_reason = AuditReason::parse("Investigation accepted with open items").unwrap();
+    let command = AdvanceProjectStageCommand::new(
+        code.clone(),
+        actor.clone(),
+        AuditReason::parse("Planning with deviation").unwrap(),
+        ProjectStage::TestPlanning,
+        ExecutionMode::Investigation,
+    )
+    .with_deviation(AuthorizedDeviation::new(actor, deviation_reason));
+
+    let receipt = ProjectApplicationService::new()
+        .advance_stage(&mut record, command, Some(&checklist))
+        .unwrap();
+
+    assert_eq!(receipt.resulting_stage(), ProjectStage::TestPlanning);
+    assert_eq!(
+        receipt.writes(),
+        &[
+            ApplicationWriteKind::ContractReviewDeviation,
+            ApplicationWriteKind::ProjectStageAdvance,
+        ]
+    );
+    assert_eq!(record.audit_events().len(), 4);
+}
+
+#[test]
 fn authorized_deviation_allows_incomplete_contract_review_to_reach_planning() {
     let code = ProjectCode::parse("CEM-2026-001").unwrap();
     let project = Project::new(code.clone(), "Example Customer").unwrap();

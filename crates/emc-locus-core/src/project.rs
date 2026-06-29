@@ -1,6 +1,7 @@
 use crate::{
     audit::{AuditAction, AuditEvent},
     identifiers::{AuditActor, AuditReason, ProjectCode},
+    quality::ExecutionMode,
     quality::{AuthorizedDeviation, ContractReviewChecklist},
     DomainError,
 };
@@ -109,6 +110,23 @@ impl ProjectRecord {
         reason: AuditReason,
         deviation: Option<AuthorizedDeviation>,
     ) -> Result<&AuditEvent, DomainError> {
+        self.advance_to_test_planning_for_mode(
+            checklist,
+            ExecutionMode::Accredited,
+            actor,
+            reason,
+            deviation,
+        )
+    }
+
+    pub fn advance_to_test_planning_for_mode(
+        &mut self,
+        checklist: &ContractReviewChecklist,
+        execution_mode: ExecutionMode,
+        actor: AuditActor,
+        reason: AuditReason,
+        deviation: Option<AuthorizedDeviation>,
+    ) -> Result<&AuditEvent, DomainError> {
         if checklist.project() != self.project.code() {
             return Err(DomainError::ChecklistProjectMismatch {
                 project: self.project.code().clone(),
@@ -124,7 +142,7 @@ impl ProjectRecord {
             });
         }
 
-        let missing_items = checklist.missing_items();
+        let missing_items = checklist.missing_items_for_mode(execution_mode);
         if !missing_items.is_empty() {
             let deviation = deviation.ok_or_else(|| DomainError::IncompleteContractReview {
                 missing_items: missing_items.clone(),

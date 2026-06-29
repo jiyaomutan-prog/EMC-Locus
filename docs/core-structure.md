@@ -8,6 +8,7 @@ database adapters, and hardware drivers.
 ```text
 crates/emc-locus-core/src/
   lib.rs           Public module declarations and re-exports
+  application_services.rs Command/query orchestration boundary
   identifiers.rs   Value objects such as project codes and audit identities
   audit.rs         Audit actions and audit events
   datasets.rs      Dataset references, checksums, and run evidence linkage
@@ -33,6 +34,7 @@ crates/emc-locus-core/src/
   network client.
 - Adapters should call core rules; they should not duplicate them.
 - New controlled workflow transitions must create audit evidence.
+- Critical write commands should enter through Rust application services.
 - New relaxed workflows must expose their execution mode and deviation evidence.
 - New metrology checks must distinguish blocking safety/quality failures from
   non-blocking attention points.

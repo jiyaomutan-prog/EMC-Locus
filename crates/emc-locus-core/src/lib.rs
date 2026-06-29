@@ -3,6 +3,7 @@
 //! This crate stays independent from UI, database, and hardware-driver details.
 //! It captures business rules that must remain stable across adapters.
 
+pub mod application_services;
 pub mod audit;
 pub mod datasets;
 pub mod error;
@@ -20,6 +21,7 @@ pub mod signal;
 pub mod traceability;
 pub mod updates;
 
+pub use application_services::*;
 pub use audit::*;
 pub use datasets::*;
 pub use error::*;

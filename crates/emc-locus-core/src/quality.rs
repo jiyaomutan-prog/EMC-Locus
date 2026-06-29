@@ -29,6 +29,21 @@ pub fn baseline_contract_review_items() -> Vec<ContractReviewItem> {
     ]
 }
 
+pub fn required_contract_review_items(mode: ExecutionMode) -> Vec<ContractReviewItem> {
+    use ContractReviewItem::*;
+
+    match mode {
+        ExecutionMode::Accredited => baseline_contract_review_items(),
+        ExecutionMode::NonAccredited => vec![
+            CustomerRequestDefined,
+            TestMethodSelected,
+            LaboratoryCapabilityConfirmed,
+            DeviationsRecorded,
+        ],
+        ExecutionMode::Investigation => vec![CustomerRequestDefined, DeviationsRecorded],
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ContractReviewChecklist {
     project: ProjectCode,
@@ -64,8 +79,21 @@ impl ContractReviewChecklist {
             .collect()
     }
 
+    pub fn missing_items_for_mode(&self, mode: ExecutionMode) -> Vec<ContractReviewItem> {
+        required_contract_review_items(mode)
+            .into_iter()
+            .filter(|item| !self.completed_items.contains(item))
+            .collect()
+    }
+
     pub fn is_complete(&self) -> bool {
         baseline_contract_review_items()
+            .iter()
+            .all(|item| self.completed_items.contains(item))
+    }
+
+    pub fn is_complete_for_mode(&self, mode: ExecutionMode) -> bool {
+        required_contract_review_items(mode)
             .iter()
             .all(|item| self.completed_items.contains(item))
     }

@@ -187,6 +187,16 @@ change should remain traceable through Git history, session logs, and this file.
 - Contract-review advancement gate requiring a complete checklist before
   planning, with reduced required items for non-accredited and investigation
   projects.
+- Architecture transformation audit covering the current repo, target
+  local-first architecture, P0-P3 migration plan, risk register, Mermaid
+  diagrams, sync/object strategies, and initial JSON package contracts.
+- ADR 0001 establishing Rust application services as the future critical
+  business write boundary for Python, Qt, web apps, local agent, and station
+  runtime.
+- Rust `application_services` module with an initial project stage advancement
+  command service, command receipt, and application-level errors.
+- Mode-specific contract-review requirements in the Rust quality domain for
+  accredited, non-accredited, and investigation workflows.
 
 ### Fixed
 

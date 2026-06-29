@@ -35,6 +35,8 @@ Deliverables:
 - first storage schema draft; initial SQLite sketch added.
 - versioned split SQLite migrations; initial domain migrations added.
 - Rust core module split; initial structure added.
+- Rust application-service boundary; initial project stage advancement service
+  added as first migration path away from direct Python write rules.
 - SQLite test-definition adapter for standards, test methods, approved
   revisions, processing graph metadata, and evidence steps; initial Python
   adapter added.

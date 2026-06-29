@@ -168,4 +168,11 @@ pub enum DomainError {
     IncompleteContractReview {
         missing_items: Vec<ContractReviewItem>,
     },
+    ApplicationProjectMismatch {
+        expected: ProjectCode,
+        actual: ProjectCode,
+    },
+    MissingApplicationChecklist {
+        project: ProjectCode,
+    },
 }
