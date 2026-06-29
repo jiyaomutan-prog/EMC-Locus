@@ -80,7 +80,12 @@ struct StoredOperation {
     operation_id: String,
     entity_id: String,
     operation_kind: String,
+    base_revision: String,
     resulting_revision: String,
+    actor_id: String,
+    device_id: String,
+    correlation_id: String,
+    payload_checksum: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,6 +103,16 @@ struct CompletedReviewItem {
     completed_by: Option<String>,
     completed_at: Option<String>,
     comment: Option<String>,
+}
+
+struct OperationFingerprintInput<'a> {
+    entity_id: &'a str,
+    operation_kind: &'a str,
+    base_revision: &'a str,
+    actor_id: &'a str,
+    device_id: &'a str,
+    correlation_id: &'a str,
+    payload_json: &'a str,
 }
 
 pub(crate) fn parse_project_args<I>(mut args: I) -> Result<AgentCommand, AgentError>
@@ -267,14 +282,25 @@ fn create_project(storage_root: &Path, input: CreateProjectInput) -> Result<Stri
             .advance_to(ProjectStage::ContractReview)
             .map_err(domain_error)?;
     }
+    let stage_slug = project_stage_slug(stage);
+    let mode_slug = execution_mode_slug(execution_mode);
+    let payload_json =
+        project_payload_json(code.as_str(), &input.customer_name, mode_slug, stage_slug);
 
     let mut connection = open_project_connection(storage_root)?;
     if let Some(operation) = existing_operation(&connection, &input.operation_id)? {
         ensure_operation_replay(
             &operation,
-            code.as_str(),
-            "project_created",
             &input.operation_id,
+            OperationFingerprintInput {
+                entity_id: code.as_str(),
+                operation_kind: "project_created",
+                base_revision: "rev-0000",
+                actor_id: &input.actor,
+                device_id: &input.device_id,
+                correlation_id: &input.correlation_id,
+                payload_json: &payload_json,
+            },
         )?;
         let project = load_project(&connection, code.as_str())?.ok_or_else(|| {
             AgentError::new(
@@ -297,10 +323,6 @@ fn create_project(storage_root: &Path, input: CreateProjectInput) -> Result<Stri
     }
 
     let now = utc_timestamp()?;
-    let stage_slug = project_stage_slug(stage);
-    let mode_slug = execution_mode_slug(execution_mode);
-    let payload_json =
-        project_payload_json(code.as_str(), &input.customer_name, mode_slug, stage_slug);
     let transaction = connection
         .transaction()
         .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
@@ -403,14 +425,28 @@ fn complete_review_item(
     validate_stable_id(&input.operation_id, "operation_id")?;
     validate_stable_id(&input.correlation_id, "correlation_id")?;
     validate_stable_id(&input.device_id, "device_id")?;
+    let canonical_item = contract_review_item_slug(item);
+    let comment = input
+        .comment
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let payload_json = review_item_payload_json(canonical_item, comment);
 
     let mut connection = open_project_connection(storage_root)?;
     if let Some(operation) = existing_operation(&connection, &input.operation_id)? {
         ensure_operation_replay(
             &operation,
-            code.as_str(),
-            "contract_review_item_completed",
             &input.operation_id,
+            OperationFingerprintInput {
+                entity_id: code.as_str(),
+                operation_kind: "contract_review_item_completed",
+                base_revision: &operation.base_revision,
+                actor_id: &input.actor,
+                device_id: &input.device_id,
+                correlation_id: &input.correlation_id,
+                payload_json: &payload_json,
+            },
         )?;
         let status = load_contract_review_status(&connection, code.as_str())?;
         return Ok(review_item_result_json(
@@ -423,7 +459,6 @@ fn complete_review_item(
     }
     load_project(&connection, code.as_str())?
         .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
-    let canonical_item = contract_review_item_slug(item);
     if is_review_item_completed(&connection, code.as_str(), canonical_item)? {
         let status = load_contract_review_status(&connection, code.as_str())?;
         return Ok(review_item_result_json(
@@ -439,12 +474,6 @@ fn complete_review_item(
     let next_sequence = next_audit_sequence(&connection, code.as_str())?;
     let base_revision = revision_text(next_sequence.saturating_sub(1));
     let resulting_revision = revision_text(next_sequence);
-    let comment = input
-        .comment
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    let payload_json = review_item_payload_json(canonical_item, comment);
     let transaction = connection
         .transaction()
         .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
@@ -512,14 +541,27 @@ fn advance_to_test_planning(
     validate_stable_id(&input.operation_id, "operation_id")?;
     validate_stable_id(&input.correlation_id, "correlation_id")?;
     validate_stable_id(&input.device_id, "device_id")?;
+    let payload_json = transition_command_payload_json(
+        "test_planning",
+        &input.reason,
+        input.deviation_authorized_by.as_deref(),
+        input.deviation_reason.as_deref(),
+    );
 
     let mut connection = open_project_connection(storage_root)?;
     if let Some(operation) = existing_operation(&connection, &input.operation_id)? {
         ensure_operation_replay(
             &operation,
-            code.as_str(),
-            "project_stage_advanced",
             &input.operation_id,
+            OperationFingerprintInput {
+                entity_id: code.as_str(),
+                operation_kind: "project_stage_advanced",
+                base_revision: &operation.base_revision,
+                actor_id: &input.actor,
+                device_id: &input.device_id,
+                correlation_id: &input.correlation_id,
+                payload_json: &payload_json,
+            },
         )?;
         let project = load_project(&connection, code.as_str())?.ok_or_else(|| {
             AgentError::new(
@@ -615,7 +657,7 @@ fn advance_to_test_planning(
             actor_id: &input.actor,
             device_id: &input.device_id,
             correlation_id: &input.correlation_id,
-            payload_json: &transition_payload,
+            payload_json: &payload_json,
             timestamp: &now,
         },
     )?;
@@ -898,7 +940,8 @@ fn existing_operation(
     connection
         .query_row(
             concat!(
-                "SELECT operation_id, entity_id, operation_kind, resulting_revision ",
+                "SELECT operation_id, entity_id, operation_kind, base_revision, resulting_revision, ",
+                "actor_id, device_id, correlation_id, payload_checksum ",
                 "FROM sync_db.sync_operations WHERE operation_id = ?1"
             ),
             params![operation_id],
@@ -907,7 +950,12 @@ fn existing_operation(
                     operation_id: row.get(0)?,
                     entity_id: row.get(1)?,
                     operation_kind: row.get(2)?,
-                    resulting_revision: row.get(3)?,
+                    base_revision: row.get(3)?,
+                    resulting_revision: row.get(4)?,
+                    actor_id: row.get(5)?,
+                    device_id: row.get(6)?,
+                    correlation_id: row.get(7)?,
+                    payload_checksum: row.get(8)?,
                 })
             },
         )
@@ -917,21 +965,35 @@ fn existing_operation(
 
 fn ensure_operation_replay(
     operation: &StoredOperation,
-    entity_id: &str,
-    operation_kind: &str,
     operation_id: &str,
+    expected: OperationFingerprintInput<'_>,
 ) -> Result<(), AgentError> {
-    if operation.entity_id == entity_id && operation.operation_kind == operation_kind {
+    let expected_fingerprint = operation_fingerprint(&expected);
+    if operation.entity_id == expected.entity_id
+        && operation.operation_kind == expected.operation_kind
+        && operation.base_revision == expected.base_revision
+        && operation.actor_id == expected.actor_id
+        && operation.device_id == expected.device_id
+        && operation.correlation_id == expected.correlation_id
+        && operation.payload_checksum == expected_fingerprint
+    {
         return Ok(());
     }
     Err(AgentError::with_details(
         "operation_replay_mismatch",
-        "operation_id is already used for a different command",
+        "operation_id is already used for a different canonical operation fingerprint",
         format!(
-            "{{\"operation_id\":{},\"existing_entity_id\":{},\"existing_operation_kind\":{}}}",
+            concat!(
+                "{{\"operation_id\":{},\"existing_entity_id\":{},",
+                "\"existing_operation_kind\":{},\"existing_base_revision\":{},",
+                "\"expected_fingerprint\":{},\"stored_fingerprint\":{}}}"
+            ),
             json_string(operation_id),
             json_string(&operation.entity_id),
-            json_string(&operation.operation_kind)
+            json_string(&operation.operation_kind),
+            json_string(&operation.base_revision),
+            json_string(&expected_fingerprint),
+            json_string(&operation.payload_checksum)
         ),
     ))
 }
@@ -998,7 +1060,15 @@ fn insert_sync_operation(
     transaction: &Transaction<'_>,
     input: SyncOperationInput<'_>,
 ) -> Result<(), AgentError> {
-    let checksum = payload_checksum(input.payload_json);
+    let checksum = operation_fingerprint(&OperationFingerprintInput {
+        entity_id: input.entity_id,
+        operation_kind: input.operation_kind,
+        base_revision: input.base_revision,
+        actor_id: input.actor_id,
+        device_id: input.device_id,
+        correlation_id: input.correlation_id,
+        payload_json: input.payload_json,
+    });
     transaction
         .execute(
             concat!(
@@ -1267,6 +1337,28 @@ fn payload_checksum(payload_json: &str) -> String {
     format!("sha256:{digest:x}")
 }
 
+fn operation_fingerprint(input: &OperationFingerprintInput<'_>) -> String {
+    payload_checksum(&operation_fingerprint_json(input))
+}
+
+fn operation_fingerprint_json(input: &OperationFingerprintInput<'_>) -> String {
+    format!(
+        concat!(
+            "{{\"domain\":\"project_records\",\"entity_type\":\"project\",",
+            "\"entity_id\":{},\"operation_kind\":{},\"base_revision\":{},",
+            "\"actor_id\":{},\"device_id\":{},\"correlation_id\":{},",
+            "\"payload\":{}}}"
+        ),
+        json_string(input.entity_id),
+        json_string(input.operation_kind),
+        json_string(input.base_revision),
+        json_string(input.actor_id),
+        json_string(input.device_id),
+        json_string(input.correlation_id),
+        input.payload_json
+    )
+}
+
 fn project_payload_json(
     code: &str,
     customer_name: &str,
@@ -1295,6 +1387,32 @@ fn transition_payload_json(from: &str, to: &str) -> String {
         "{{\"from\":{},\"to\":{}}}",
         json_string(from),
         json_string(to)
+    )
+}
+
+fn transition_command_payload_json(
+    to: &str,
+    reason: &str,
+    deviation_authorized_by: Option<&str>,
+    deviation_reason: Option<&str>,
+) -> String {
+    format!(
+        concat!(
+            "{{\"to\":{},\"reason\":{},\"deviation_authorized_by\":{},",
+            "\"deviation_reason\":{}}}"
+        ),
+        json_string(to),
+        json_string(reason.trim()),
+        json_option_string(
+            deviation_authorized_by
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        ),
+        json_option_string(
+            deviation_reason
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        )
     )
 }
 
@@ -1494,6 +1612,72 @@ mod tests {
         assert!(outbox.contains("\"operation_kind\":\"project_created\""));
         assert!(audits.contains("\"action\":\"project_created\""));
 
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn project_idempotency_replays_identical_payload_same_operation_id() {
+        let storage_root = temporary_storage_root("agent-project-idempotent-replay");
+        initialize_storage(&storage_root);
+        let input = CreateProjectInput {
+            code: "CEM-IDEMP-001".to_owned(),
+            customer_name: "Idempotent Customer".to_owned(),
+            execution_mode: "accredited".to_owned(),
+            stage: "contract_review".to_owned(),
+            actor: "quality.lead".to_owned(),
+            reason: "contract accepted".to_owned(),
+            operation_id: "op-idempotent-create".to_owned(),
+            correlation_id: "corr-idempotent-create".to_owned(),
+            device_id: "station-a".to_owned(),
+        };
+
+        let first = create_project(&storage_root, input.clone()).unwrap();
+        let replay = create_project(&storage_root, input).unwrap();
+
+        assert!(first.contains("\"replayed\": false"));
+        assert!(replay.contains("\"replayed\": true"));
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn project_idempotency_rejects_different_payload_same_operation_id() {
+        let storage_root = temporary_storage_root("agent-project-idempotent-mismatch");
+        initialize_storage(&storage_root);
+        create_project(
+            &storage_root,
+            CreateProjectInput {
+                code: "CEM-IDEMP-002".to_owned(),
+                customer_name: "Original Customer".to_owned(),
+                execution_mode: "accredited".to_owned(),
+                stage: "contract_review".to_owned(),
+                actor: "quality.lead".to_owned(),
+                reason: "contract accepted".to_owned(),
+                operation_id: "op-idempotent-mismatch".to_owned(),
+                correlation_id: "corr-idempotent-mismatch".to_owned(),
+                device_id: "station-a".to_owned(),
+            },
+        )
+        .unwrap();
+
+        let error = create_project(
+            &storage_root,
+            CreateProjectInput {
+                code: "CEM-IDEMP-002".to_owned(),
+                customer_name: "Changed Customer".to_owned(),
+                execution_mode: "accredited".to_owned(),
+                stage: "contract_review".to_owned(),
+                actor: "quality.lead".to_owned(),
+                reason: "contract accepted".to_owned(),
+                operation_id: "op-idempotent-mismatch".to_owned(),
+                correlation_id: "corr-idempotent-mismatch".to_owned(),
+                device_id: "station-a".to_owned(),
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "operation_replay_mismatch");
+        assert!(error.to_json().contains("expected_fingerprint"));
+        assert!(error.to_json().contains("stored_fingerprint"));
         remove_temporary_storage_root(&storage_root);
     }
 

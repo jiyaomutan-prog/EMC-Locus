@@ -79,7 +79,7 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.5.0`.
+Current software version: `0.5.1`.
 
 Version `0.5.0` delivers the first agent-backed project vertical slice:
 initialized local project storage, loopback API, project creation,
@@ -88,6 +88,9 @@ outbox records, restart/persistence verification, Python client support, and Qt
 project forms that can call the local agent when configured. The Qt console also
 shows local-agent/storage state and submits agent-backed project forms through a
 worker so the operator UI remains responsive.
+
+Version `0.5.1` hardens that slice by making idempotent replays depend on a
+canonical operation fingerprint instead of only operation kind and entity id.
 
 Revision tracking uses:
 

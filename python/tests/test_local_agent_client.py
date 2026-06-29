@@ -103,6 +103,41 @@ class LocalAgentClientTests(unittest.TestCase):
             ["customer_request_defined"],
         )
 
+    def test_local_agent_client_idempotency_conflict_maps_to_structured_error(self) -> None:
+        payload = {
+            "error": {
+                "code": "operation_replay_mismatch",
+                "message": "operation_id is already used for a different canonical operation fingerprint",
+                "details": {
+                    "operation_id": "op-conflict",
+                    "expected_fingerprint": "sha256:expected",
+                    "stored_fingerprint": "sha256:stored",
+                },
+            }
+        }
+        error = HTTPError(
+            "http://127.0.0.1:8765/api/v1/projects",
+            409,
+            "Conflict",
+            hdrs=None,
+            fp=_FakeResponse(payload),
+        )
+
+        with patch("emc_locus.local_agent_client.urlopen", side_effect=error):
+            with self.assertRaises(LocalAgentError) as raised:
+                LocalAgentClient("http://127.0.0.1:8765").create_project(
+                    code="CEM-CONFLICT",
+                    customer_name="Changed",
+                    execution_mode="accredited",
+                    actor="quality.lead",
+                    reason="contract accepted",
+                    operation_id="op-conflict",
+                )
+
+        self.assertEqual(raised.exception.status, 409)
+        self.assertEqual(raised.exception.code, "operation_replay_mismatch")
+        self.assertEqual(raised.exception.details["operation_id"], "op-conflict")
+
     def test_generated_operation_ids_are_stable_ascii_tokens(self) -> None:
         operation_id = generate_operation_id("project-create", "CEM 001")
 

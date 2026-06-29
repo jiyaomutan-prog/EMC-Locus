@@ -8,6 +8,22 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-29
+
+### Changed
+
+- Hardened agent project idempotence so replay is accepted only when the
+  existing operation and incoming command share the same canonical fingerprint:
+  project entity, operation kind, base revision, actor/device/correlation
+  metadata, and canonical payload.
+
+### Added
+
+- Rust tests for identical operation replay and mismatched-payload replay
+  rejection.
+- Python client test proving idempotency conflicts map to structured
+  `LocalAgentError` details.
+
 ## [0.5.0] - 2026-06-29
 
 ### Added
