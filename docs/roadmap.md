@@ -189,6 +189,8 @@ Deliverables:
 - service planning table for scheduling test execution by project, operator,
   category, location, EUT, status, and planned time window; initial
   SQLite/Python/Qt/browser support added;
+- local service-planning actions now reject malformed local date-time blocks and
+  weekend-crossing schedule items before repository writes;
 - future Qt model/view screens backed by application services;
 - future Rust-backed command execution bridge for instrument runtime actions.
 

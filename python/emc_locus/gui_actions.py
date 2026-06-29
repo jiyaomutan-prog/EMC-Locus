@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import calendar
-from datetime import date
+from datetime import date, datetime, timedelta
 import json
 from pathlib import Path
 from typing import Any
@@ -69,6 +69,34 @@ SERVICE_SCHEDULE_STATUSES = {
     "completed",
     "cancelled",
 }
+
+
+def _parse_schedule_datetime(value: str, field_name: str) -> datetime:
+    if "T" not in value:
+        raise ValueError(f"{field_name} must be an ISO 8601 local date-time")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an ISO 8601 local date-time") from exc
+    if parsed.tzinfo is not None:
+        raise ValueError(f"{field_name} must be a local date-time without timezone")
+    return parsed
+
+
+def _validate_service_schedule_block(
+    planned_start_at: str,
+    planned_end_at: str,
+) -> None:
+    start = _parse_schedule_datetime(planned_start_at, "planned_start_at")
+    end = _parse_schedule_datetime(planned_end_at, "planned_end_at")
+    if end <= start:
+        raise ValueError("planned_end_at must be after planned_start_at")
+
+    day = start.date()
+    while day <= end.date():
+        if day.weekday() >= 5:
+            raise ValueError("service schedule items must stay within business days")
+        day += timedelta(days=1)
 
 
 def create_project_record(
@@ -482,8 +510,7 @@ def schedule_service_item(
     title = require_non_empty(title, "title")
     planned_start_at = require_non_empty(planned_start_at, "planned_start_at")
     planned_end_at = require_non_empty(planned_end_at, "planned_end_at")
-    if planned_end_at <= planned_start_at:
-        raise ValueError("planned_end_at must be after planned_start_at")
+    _validate_service_schedule_block(planned_start_at, planned_end_at)
     assigned_operator = require_non_empty(assigned_operator, "assigned_operator")
     location = require_non_empty(location, "location")
     equipment_under_test = require_non_empty(equipment_under_test, "equipment_under_test")

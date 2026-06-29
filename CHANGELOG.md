@@ -223,6 +223,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Local service-planning actions now validate ISO local date-time blocks with
+  parsed datetimes and reject schedule items crossing weekends before writing
+  them to the project repository.
 - Serial endpoint parsing now rejects whitespace-bearing port names and
   transport-reserved prefixes such as TCPIP, GPIB, USB, and ASRL, so serial
   adapters cannot silently accept bus or VISA aliases as native serial ports.
