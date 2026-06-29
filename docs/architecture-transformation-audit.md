@@ -494,6 +494,25 @@ Invariant impact:
 - Keeps merge/conflict policy out of this helper; it only materializes a known
   local operation result.
 
+## PR Bundle 5 - Snapshot Divergence Conflict Fixture
+
+Objective: turn divergent local/reference snapshots into explicit sync
+conflicts without silently choosing a winner.
+
+Files changed in this bundle:
+
+- `python/emc_locus/sqlite_repositories.py`
+- `python/tests/test_sqlite_repositories.py`
+- `docs/storage-migrations.md`
+
+Invariant impact:
+
+- Requires snapshots to describe the same domain/entity before conflict
+  creation.
+- Avoids conflict creation when checksums are identical.
+- Stores local/reference snapshot ids in the existing conflict table for later
+  manual or policy-based resolution.
+
 ## Acceptance Checklist
 
 - [ ] Rust application services own critical write command validation.

@@ -146,6 +146,7 @@ perform minimal insert/count/query operations for smoke testing:
 - synchronization checkpoint upsert/get/list APIs for push, pull, and
   bidirectional cursors.
 - transactional local replay from a pending operation into an entity snapshot.
+- deterministic conflict creation from divergent local/reference snapshots.
 
 These adapters are intentionally small. They prove that the migration domains
 are usable from application code before broader query APIs, synchronization, or

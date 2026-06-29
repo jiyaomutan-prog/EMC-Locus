@@ -1827,6 +1827,81 @@ class SyncRepositoryTests(unittest.TestCase):
 
             self.assertEqual(repository.get_operation("op-project-004")["status"], "pending")
 
+    def test_records_conflict_from_divergent_snapshots(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = SyncRepository(
+                Path(temporary_directory) / "sync.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            repository.record_entity_snapshot(
+                snapshot_id="snap-project-005-local",
+                domain="project_records",
+                entity_type="project",
+                entity_id="CEM-2026-005",
+                revision="rev-local",
+                snapshot_checksum="sha256:a123456789abcdefa123456789abcdefa123456789abcdefa123456789abcdef",
+            )
+            repository.record_entity_snapshot(
+                snapshot_id="snap-project-005-reference",
+                domain="project_records",
+                entity_type="project",
+                entity_id="CEM-2026-005",
+                revision="rev-reference",
+                snapshot_checksum="sha256:b123456789abcdefb123456789abcdefb123456789abcdefb123456789abcdef",
+            )
+
+            created = repository.record_snapshot_conflict(
+                conflict_id="conflict-project-005",
+                local_snapshot_id="snap-project-005-local",
+                reference_snapshot_id="snap-project-005-reference",
+            )
+            conflict = repository.get_conflict("conflict-project-005")
+
+            self.assertTrue(created)
+            self.assertEqual(repository.conflict_count(), 1)
+            self.assertEqual(conflict["domain"], "project_records")
+            self.assertEqual(conflict["kind"], "checksum_mismatch")
+            self.assertEqual(conflict["local_snapshot"], "snap-project-005-local")
+            self.assertEqual(
+                conflict["reference_snapshot"],
+                "snap-project-005-reference",
+            )
+
+            repository.record_entity_snapshot(
+                snapshot_id="snap-project-006-local",
+                domain="project_records",
+                entity_type="project",
+                entity_id="CEM-2026-006",
+                revision="rev-local",
+                snapshot_checksum="sha256:c123456789abcdefc123456789abcdefc123456789abcdefc123456789abcdef",
+            )
+            repository.record_entity_snapshot(
+                snapshot_id="snap-project-006-reference",
+                domain="project_records",
+                entity_type="project",
+                entity_id="CEM-2026-006",
+                revision="rev-reference",
+                snapshot_checksum="sha256:c123456789abcdefc123456789abcdefc123456789abcdefc123456789abcdef",
+            )
+
+            self.assertFalse(
+                repository.record_snapshot_conflict(
+                    conflict_id="conflict-project-006",
+                    local_snapshot_id="snap-project-006-local",
+                    reference_snapshot_id="snap-project-006-reference",
+                )
+            )
+            self.assertEqual(repository.conflict_count(), 1)
+
+            with self.assertRaises(ValueError):
+                repository.record_snapshot_conflict(
+                    conflict_id="conflict-mismatch",
+                    local_snapshot_id="snap-project-005-local",
+                    reference_snapshot_id="snap-project-006-reference",
+                )
+
     def test_initialize_applies_operation_journal_migration_to_existing_sync_database(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             database_path = Path(temporary_directory) / "sync.sqlite"

@@ -213,6 +213,8 @@ change should remain traceable through Git history, session logs, and this file.
   baselines.
 - Python local replay API that applies a pending sync operation as an entity
   snapshot and marks the operation applied in the same SQLite transaction.
+- Python snapshot divergence API that records synchronization conflicts from
+  mismatching entity snapshots without applying an automatic merge policy.
 
 ### Fixed
 

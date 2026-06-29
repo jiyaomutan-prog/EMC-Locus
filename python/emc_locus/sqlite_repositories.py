@@ -2450,6 +2450,67 @@ class SyncRepository(SQLiteDomainRepository):
             ).fetchone()
         return row_to_dict(row)
 
+    def record_snapshot_conflict(
+        self,
+        *,
+        conflict_id: str,
+        local_snapshot_id: str,
+        reference_snapshot_id: str,
+        kind: str = "checksum_mismatch",
+    ) -> bool:
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                local_snapshot = connection.execute(
+                    "SELECT * FROM sync_entity_snapshots WHERE snapshot_id = ?",
+                    (require_non_empty(local_snapshot_id, "local_snapshot_id"),),
+                ).fetchone()
+                reference_snapshot = connection.execute(
+                    "SELECT * FROM sync_entity_snapshots WHERE snapshot_id = ?",
+                    (require_non_empty(reference_snapshot_id, "reference_snapshot_id"),),
+                ).fetchone()
+                if local_snapshot is None:
+                    raise ValueError("local snapshot does not exist")
+                if reference_snapshot is None:
+                    raise ValueError("reference snapshot does not exist")
+                if (
+                    local_snapshot["domain"] != reference_snapshot["domain"]
+                    or local_snapshot["entity_type"] != reference_snapshot["entity_type"]
+                    or local_snapshot["entity_id"] != reference_snapshot["entity_id"]
+                ):
+                    raise ValueError("snapshots do not describe the same entity")
+                if (
+                    local_snapshot["snapshot_checksum"]
+                    == reference_snapshot["snapshot_checksum"]
+                ):
+                    return False
+
+                connection.execute(
+                    """
+                    INSERT INTO sync_conflicts (
+                        conflict_id,
+                        domain,
+                        kind,
+                        local_snapshot,
+                        reference_snapshot,
+                        status,
+                        detected_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, 'open', ?, ?)
+                    """,
+                    (
+                        require_non_empty(conflict_id, "conflict_id"),
+                        local_snapshot["domain"],
+                        require_non_empty(kind, "kind"),
+                        local_snapshot["snapshot_id"],
+                        reference_snapshot["snapshot_id"],
+                        now,
+                        now,
+                    ),
+                )
+        return True
+
     def upsert_checkpoint(
         self,
         *,
