@@ -56,7 +56,9 @@ Owns synchronization conflict records and action-plan evidence for resolving or
 deferring conflicts between local and reference repository snapshots. Version 2
 adds a durable operation journal for idempotent local-first changes, with
 actor, device, correlation, base revision, resulting revision, normalized JSON
-payload, SHA-256 payload checksum, and pending/applied/failed statuses.
+payload, SHA-256 payload checksum, and pending/applied/failed statuses. Version
+3 adds entity snapshots and sync checkpoints so stations can keep local replay
+baselines and peer/domain/direction cursors before central merge is introduced.
 
 The Rust core now mirrors these storage concepts with update bundles, semantic
 software versions, package signatures, compatibility-range validation,
@@ -140,6 +142,9 @@ perform minimal insert/count/query operations for smoke testing:
 - synchronization operation-journal insert/count/get/list APIs;
 - synchronization operation status transitions for applied and failed replay
   outcomes.
+- synchronization entity snapshot insert/count/get/latest APIs;
+- synchronization checkpoint upsert/get/list APIs for push, pull, and
+  bidirectional cursors.
 
 These adapters are intentionally small. They prove that the migration domains
 are usable from application code before broader query APIs, synchronization, or

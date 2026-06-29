@@ -1643,6 +1643,120 @@ class SyncRepositoryTests(unittest.TestCase):
                     payload_checksum="sha256:1123456789abcdef1123456789abcdef1123456789abcdef1123456789abcdef",
                 )
 
+    def test_records_entity_snapshots_and_sync_checkpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = SyncRepository(
+                Path(temporary_directory) / "sync.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            repository.record_operation(
+                operation_id="op-project-002",
+                domain="project_records",
+                entity_type="project",
+                entity_id="CEM-2026-002",
+                operation_kind="project_stage_advanced",
+                base_revision="rev-0001",
+                resulting_revision="rev-0002",
+                actor_id="quality.lead",
+                device_id="station-lab-a",
+                correlation_id="corr-002",
+                payload_checksum="sha256:2123456789abcdef2123456789abcdef2123456789abcdef2123456789abcdef",
+            )
+            repository.record_entity_snapshot(
+                snapshot_id="snap-project-002-a",
+                domain="project_records",
+                entity_type="project",
+                entity_id="CEM-2026-002",
+                revision="rev-0002",
+                snapshot_checksum="sha256:3123456789abcdef3123456789abcdef3123456789abcdef3123456789abcdef",
+                payload_json='{"stage":"contract_review"}',
+                source_operation_id="op-project-002",
+                captured_at="2026-07-01T07:00:00Z",
+            )
+            repository.record_entity_snapshot(
+                snapshot_id="snap-project-002-b",
+                domain="project_records",
+                entity_type="project",
+                entity_id="CEM-2026-002",
+                revision="rev-0003",
+                snapshot_checksum="sha256:4123456789abcdef4123456789abcdef4123456789abcdef4123456789abcdef",
+                payload_json='{"stage":"test_planning"}',
+                captured_at="2026-07-01T07:05:00Z",
+            )
+
+            snapshot = repository.get_entity_snapshot("snap-project-002-a")
+            latest = repository.latest_entity_snapshot(
+                domain="project_records",
+                entity_type="project",
+                entity_id="CEM-2026-002",
+            )
+
+            self.assertEqual(repository.snapshot_count(), 2)
+            self.assertEqual(repository.snapshot_count("project_records"), 2)
+            self.assertEqual(snapshot["source_operation_id"], "op-project-002")
+            self.assertEqual(snapshot["payload_json"], '{"stage": "contract_review"}')
+            self.assertEqual(latest["revision"], "rev-0003")
+
+            with self.assertRaises(ValueError):
+                repository.record_entity_snapshot(
+                    snapshot_id="snap-project-invalid",
+                    domain="project_records",
+                    entity_type="project",
+                    entity_id="CEM-2026-002",
+                    revision="rev-0004",
+                    snapshot_checksum="sha256:too-short",
+                )
+
+            with self.assertRaises(sqlite3.IntegrityError):
+                repository.record_entity_snapshot(
+                    snapshot_id="snap-project-duplicate",
+                    domain="project_records",
+                    entity_type="project",
+                    entity_id="CEM-2026-002",
+                    revision="rev-0003",
+                    snapshot_checksum="sha256:5123456789abcdef5123456789abcdef5123456789abcdef5123456789abcdef",
+                )
+
+            repository.upsert_checkpoint(
+                peer_id="central-main",
+                domain="project_records",
+                direction="push",
+                checkpoint_token="rev-0002",
+                last_operation_id="op-project-002",
+                last_snapshot_id="snap-project-002-a",
+                updated_at="2026-07-01T07:10:00Z",
+            )
+            repository.upsert_checkpoint(
+                peer_id="central-main",
+                domain="project_records",
+                direction="push",
+                checkpoint_token="rev-0003",
+                last_operation_id="op-project-002",
+                last_snapshot_id="snap-project-002-b",
+                updated_at="2026-07-01T07:11:00Z",
+            )
+
+            checkpoint = repository.get_checkpoint(
+                peer_id="central-main",
+                domain="project_records",
+                direction="push",
+            )
+            checkpoints = repository.list_checkpoints(peer_id="central-main")
+
+            self.assertEqual(len(checkpoints), 1)
+            self.assertEqual(checkpoint["checkpoint_token"], "rev-0003")
+            self.assertEqual(checkpoint["last_snapshot_id"], "snap-project-002-b")
+
+            with self.assertRaises(ValueError):
+                repository.upsert_checkpoint(
+                    peer_id="central-main",
+                    domain="project_records",
+                    direction="sideways",
+                    checkpoint_token="rev-0003",
+                )
+
     def test_initialize_applies_operation_journal_migration_to_existing_sync_database(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             database_path = Path(temporary_directory) / "sync.sqlite"
@@ -1671,9 +1785,27 @@ class SyncRepositoryTests(unittest.TestCase):
                       AND name = 'sync_operations'
                     """
                 ).fetchone()
+                snapshot_table = connection.execute(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name = 'sync_entity_snapshots'
+                    """
+                ).fetchone()
+                checkpoint_table = connection.execute(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name = 'sync_checkpoints'
+                    """
+                ).fetchone()
 
-            self.assertEqual([row["version"] for row in version_rows], [1, 2])
+            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3])
             self.assertIsNotNone(operation_table)
+            self.assertIsNotNone(snapshot_table)
+            self.assertIsNotNone(checkpoint_table)
 
 
 class UpdateCatalogRepositoryTests(unittest.TestCase):

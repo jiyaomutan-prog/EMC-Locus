@@ -426,6 +426,42 @@ fn object_manifest_requires_non_empty_payload_and_keeps_worm_flag() {
 }
 
 #[test]
+fn entity_snapshot_requires_entity_type_and_keeps_revision() {
+    let snapshot_id = StableId::parse("snap-project-002-a").unwrap();
+    let entity_id = StableId::parse("CEM-2026-002").unwrap();
+    let revision = EntityRevision::parse("rev-0002").unwrap();
+    let checksum = ContentChecksum::parse(
+        "sha256:3123456789abcdef3123456789abcdef3123456789abcdef3123456789abcdef",
+    )
+    .unwrap();
+
+    let snapshot = EntitySnapshot::new(
+        snapshot_id.clone(),
+        RepositoryDomain::ProjectRecords,
+        "project",
+        entity_id.clone(),
+        revision.clone(),
+        checksum.clone(),
+    )
+    .unwrap();
+
+    assert_eq!(snapshot.snapshot_id(), &snapshot_id);
+    assert_eq!(snapshot.revision(), &revision);
+    assert_eq!(
+        EntitySnapshot::new(
+            snapshot_id,
+            RepositoryDomain::ProjectRecords,
+            " ",
+            entity_id,
+            revision,
+            checksum,
+        )
+        .unwrap_err(),
+        DomainError::EmptyEntityType
+    );
+}
+
+#[test]
 fn change_operation_requires_distinct_base_and_resulting_revisions() {
     let operation_id = StableId::parse("op-01J2-CEM-001").unwrap();
     let entity_id = StableId::parse("CEM-2026-001").unwrap();

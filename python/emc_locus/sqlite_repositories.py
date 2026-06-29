@@ -32,6 +32,7 @@ RETENTION_STATUSES = {
 PROCESSING_GRAPH_STATUSES = {"draft", "active", "superseded", "rejected"}
 PROCESSING_GRAPH_ARTIFACT_KINDS = {"processed_signal", "result_table"}
 PROCESSING_GRAPH_EXECUTION_STATUSES = {"completed", "failed"}
+SYNC_CHECKPOINT_DIRECTIONS = {"push", "pull", "bidirectional"}
 _PACKAGE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SOFTWARE_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 _SHA256_CHECKSUM = re.compile(r"^sha256:[0-9A-Fa-f]{64}$")
@@ -2289,6 +2290,193 @@ class SyncRepository(SQLiteDomainRepository):
                 )
         return cursor.rowcount == 1
 
+    def snapshot_count(self, domain: str | None = None) -> int:
+        with closing(self.connect()) as connection:
+            if domain is None:
+                row = connection.execute(
+                    "SELECT COUNT(*) AS count FROM sync_entity_snapshots"
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM sync_entity_snapshots
+                    WHERE domain = ?
+                    """,
+                    (domain,),
+                ).fetchone()
+        return int(row["count"])
+
+    def record_entity_snapshot(
+        self,
+        *,
+        snapshot_id: str,
+        domain: str,
+        entity_type: str,
+        entity_id: str,
+        revision: str,
+        snapshot_checksum: str,
+        payload_json: str = "{}",
+        source_operation_id: str | None = None,
+        captured_at: str | None = None,
+    ) -> None:
+        payload_json = normalized_json_text(payload_json, "payload_json")
+        captured_at = require_non_empty(captured_at or utc_timestamp(), "captured_at")
+        with closing(self.connect()) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO sync_entity_snapshots (
+                        snapshot_id,
+                        domain,
+                        entity_type,
+                        entity_id,
+                        revision,
+                        snapshot_checksum,
+                        payload_json,
+                        source_operation_id,
+                        captured_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        require_non_empty(snapshot_id, "snapshot_id"),
+                        require_non_empty(domain, "domain"),
+                        require_non_empty(entity_type, "entity_type"),
+                        require_non_empty(entity_id, "entity_id"),
+                        require_non_empty(revision, "revision"),
+                        require_sha256_checksum(snapshot_checksum, "snapshot_checksum"),
+                        payload_json,
+                        optional_non_empty(source_operation_id, "source_operation_id"),
+                        captured_at,
+                    ),
+                )
+
+    def get_entity_snapshot(self, snapshot_id: str) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM sync_entity_snapshots WHERE snapshot_id = ?",
+                (snapshot_id,),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def latest_entity_snapshot(
+        self,
+        *,
+        domain: str,
+        entity_type: str,
+        entity_id: str,
+    ) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT *
+                FROM sync_entity_snapshots
+                WHERE domain = ?
+                  AND entity_type = ?
+                  AND entity_id = ?
+                ORDER BY captured_at DESC, snapshot_id DESC
+                LIMIT 1
+                """,
+                (domain, entity_type, entity_id),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def upsert_checkpoint(
+        self,
+        *,
+        peer_id: str,
+        domain: str,
+        direction: str,
+        checkpoint_token: str,
+        last_operation_id: str | None = None,
+        last_snapshot_id: str | None = None,
+        updated_at: str | None = None,
+    ) -> None:
+        now = require_non_empty(updated_at or utc_timestamp(), "updated_at")
+        with closing(self.connect()) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO sync_checkpoints (
+                        peer_id,
+                        domain,
+                        direction,
+                        last_operation_id,
+                        last_snapshot_id,
+                        checkpoint_token,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(peer_id, domain, direction)
+                    DO UPDATE SET
+                        last_operation_id = excluded.last_operation_id,
+                        last_snapshot_id = excluded.last_snapshot_id,
+                        checkpoint_token = excluded.checkpoint_token,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        require_non_empty(peer_id, "peer_id"),
+                        require_non_empty(domain, "domain"),
+                        validate_sync_checkpoint_direction(direction),
+                        optional_non_empty(last_operation_id, "last_operation_id"),
+                        optional_non_empty(last_snapshot_id, "last_snapshot_id"),
+                        require_non_empty(checkpoint_token, "checkpoint_token"),
+                        now,
+                    ),
+                )
+
+    def get_checkpoint(
+        self,
+        *,
+        peer_id: str,
+        domain: str,
+        direction: str,
+    ) -> dict[str, object] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT *
+                FROM sync_checkpoints
+                WHERE peer_id = ?
+                  AND domain = ?
+                  AND direction = ?
+                """,
+                (
+                    peer_id,
+                    domain,
+                    validate_sync_checkpoint_direction(direction),
+                ),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def list_checkpoints(
+        self,
+        *,
+        peer_id: str | None = None,
+        domain: str | None = None,
+    ) -> list[dict[str, object]]:
+        clauses: list[str] = []
+        values: list[str] = []
+        if peer_id is not None:
+            clauses.append("peer_id = ?")
+            values.append(peer_id)
+        if domain is not None:
+            clauses.append("domain = ?")
+            values.append(domain)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                f"""
+                SELECT *
+                FROM sync_checkpoints
+                {where}
+                ORDER BY updated_at, peer_id, domain, direction
+                """,
+                tuple(values),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def get_conflict(self, conflict_id: str) -> dict[str, object] | None:
         with closing(self.connect()) as connection:
             row = connection.execute(
@@ -2898,6 +3086,12 @@ def require_non_empty(value: str, field_name: str) -> str:
     return trimmed
 
 
+def optional_non_empty(value: str | None, field_name: str) -> str | None:
+    if value is None:
+        return None
+    return require_non_empty(value, field_name)
+
+
 def normalized_json_text(value: str, field_name: str) -> str:
     text = require_non_empty(value, field_name)
     try:
@@ -2911,6 +3105,13 @@ def require_sha256_checksum(value: str, field_name: str) -> str:
     trimmed = require_non_empty(value, field_name)
     if not _SHA256_CHECKSUM.fullmatch(trimmed):
         raise ValueError(f"{field_name} must be a sha256 checksum")
+    return trimmed
+
+
+def validate_sync_checkpoint_direction(value: str) -> str:
+    trimmed = require_non_empty(value, "direction")
+    if trimmed not in SYNC_CHECKPOINT_DIRECTIONS:
+        raise ValueError(f"unknown sync checkpoint direction: {trimmed}")
     return trimmed
 
 

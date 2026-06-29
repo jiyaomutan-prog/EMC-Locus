@@ -205,6 +205,12 @@ change should remain traceable through Git history, session logs, and this file.
   payloads, full SHA-256 payload checksums, and replay statuses.
 - Python `SyncRepository` operation-journal APIs for record/count/get/list and
   applied/failed status transitions.
+- SQLite sync entity snapshot and checkpoint migration for local-first replay
+  baselines, latest-entity views, and peer/domain/direction cursors.
+- Python `SyncRepository` APIs for recording entity snapshots, querying latest
+  snapshots, and upserting/listing sync checkpoints.
+- Rust `EntitySnapshot` contract coverage for revisioned local-first entity
+  baselines.
 
 ### Fixed
 

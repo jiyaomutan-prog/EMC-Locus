@@ -30,7 +30,7 @@ offline-first SQLite workflows.
 | Storage | Versioned SQLite domains: metrology, projects, test definitions, measurement data, update catalog, sync. | Preserve migrations while adding Postgres central and object manifests. |
 | Desktop UI | PySide6 console with repository-backed forms and tables. | Keep as Test Station shell; move critical writes to Rust services. |
 | Web UI | Static browser shell only. | Add local/intranet web apps for Metrology and Lab Management. |
-| Sync | Rust conflict models, first contract value objects, SQLite conflict repository, and SQLite operation journal. | Add replay, entity snapshots persistence, three-way merge, object sync. |
+| Sync | Rust conflict models, first contract value objects, SQLite conflict repository, operation journal, entity snapshots, and checkpoints. | Add replay, three-way merge, object sync. |
 
 ### Rust Invariants Already Present
 
@@ -72,7 +72,7 @@ offline-first SQLite workflows.
 | Criticality | Area | Debt | Consequence |
 | --- | --- | --- | --- |
 | P0 | Architecture | No application-service Rust write boundary. | Business writes can bypass domain invariants. |
-| P0 | Sync | Durable operation journal has started, but replay, merge policy, and snapshot persistence are not implemented yet. | Offline merges remain under-specified. |
+| P0 | Sync | Durable operation journal, entity snapshots, and checkpoints have started, but replay and merge policy are not implemented yet. | Offline merges remain under-specified. |
 | P0 | Raw data | No object manifest/WORM contract yet. | Large files and emitted evidence are hard to prove. |
 | P1 | Runtime | Runtime exists in Rust but is not separated into station binary/service. | UI can grow too much execution responsibility. |
 | P1 | Metrology | Python can register/alter instruments directly. | Calibration rules can drift from Rust. |
@@ -454,6 +454,26 @@ Invariant impact:
   policy.
 - Does not introduce central replication yet; replay, snapshot persistence, and
   three-way merge remain future P0/P1 work.
+
+## PR Bundle 3 - Entity Snapshots And Sync Checkpoints
+
+Objective: persist local replay baselines and peer cursors so the future sync
+engine can compare revisions instead of relying only on operation rows.
+
+Files changed in this bundle:
+
+- `storage/sqlite/sync/0003_entity_snapshots.sql`
+- `python/emc_locus/sqlite_repositories.py`
+- `python/tests/test_sqlite_repositories.py`
+- `crates/emc-locus-core/src/tests.rs`
+- `docs/storage-migrations.md`
+
+Invariant impact:
+
+- Requires full SHA-256 snapshot checksums before a snapshot can be persisted.
+- Enforces one snapshot per domain/entity/revision tuple.
+- Adds peer/domain/direction checkpoints without claiming conflict-free merge.
+- Keeps replay and central synchronization as explicit future work.
 
 ## Acceptance Checklist
 
