@@ -2718,6 +2718,51 @@ class SyncRepository(SQLiteDomainRepository):
                     )
         return int(cursor.lastrowid)
 
+    def suggest_conflict_action_plan(
+        self,
+        *,
+        conflict_id: str,
+        planned_by: str,
+        requires_audit_event: bool = True,
+    ) -> int | None:
+        with closing(self.connect()) as connection:
+            with connection:
+                conflict = connection.execute(
+                    "SELECT * FROM sync_conflicts WHERE conflict_id = ?",
+                    (require_non_empty(conflict_id, "conflict_id"),),
+                ).fetchone()
+                if conflict is None or conflict["status"] == "resolved":
+                    return None
+
+                existing = connection.execute(
+                    """
+                    SELECT id
+                    FROM sync_conflict_action_plans
+                    WHERE conflict_id = ?
+                      AND applied_at IS NULL
+                    ORDER BY sequence
+                    LIMIT 1
+                    """,
+                    (conflict_id,),
+                ).fetchone()
+                if existing is not None:
+                    return int(existing["id"])
+
+                resolution, action = suggested_sync_action(str(conflict["kind"]))
+                cursor = self._insert_action_plan(
+                    connection,
+                    conflict_id=conflict_id,
+                    domain=str(conflict["domain"]),
+                    kind=str(conflict["kind"]),
+                    resolution=resolution,
+                    action=action,
+                    local_snapshot=str(conflict["local_snapshot"]),
+                    reference_snapshot=str(conflict["reference_snapshot"]),
+                    planned_by=planned_by,
+                    requires_audit_event=requires_audit_event,
+                )
+        return int(cursor.lastrowid)
+
     def action_plans_for_conflict(self, conflict_id: str) -> list[dict[str, object]]:
         with closing(self.connect()) as connection:
             rows = connection.execute(
@@ -3242,6 +3287,15 @@ def validate_sync_checkpoint_direction(value: str) -> str:
     if trimmed not in SYNC_CHECKPOINT_DIRECTIONS:
         raise ValueError(f"unknown sync checkpoint direction: {trimmed}")
     return trimmed
+
+
+def suggested_sync_action(kind: str) -> tuple[str, str]:
+    trimmed = require_non_empty(kind, "kind")
+    if trimmed in {"checksum_mismatch", "concurrent_update"}:
+        return ("manual_merge", "manual_merge")
+    if trimmed in {"deleted_in_reference", "deleted_locally", "schema_mismatch"}:
+        return ("defer", "defer_for_review")
+    raise ValueError(f"unknown sync conflict kind: {trimmed}")
 
 
 def validate_retention_status(value: str) -> str:

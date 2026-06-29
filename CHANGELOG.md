@@ -215,6 +215,8 @@ change should remain traceable through Git history, session logs, and this file.
   snapshot and marks the operation applied in the same SQLite transaction.
 - Python snapshot divergence API that records synchronization conflicts from
   mismatching entity snapshots without applying an automatic merge policy.
+- Python conflict action-plan suggestion API that proposes an idempotent manual
+  merge/defer plan while keeping the conflict unresolved for audit review.
 
 ### Fixed
 

@@ -1902,6 +1902,42 @@ class SyncRepositoryTests(unittest.TestCase):
                     reference_snapshot_id="snap-project-006-reference",
                 )
 
+    def test_suggests_conflict_action_plan_without_resolving(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = SyncRepository(
+                Path(temporary_directory) / "sync.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            repository.record_conflict(
+                conflict_id="conflict-suggest-001",
+                domain="project_records",
+                kind="checksum_mismatch",
+                local_snapshot="snap-local",
+                reference_snapshot="snap-reference",
+            )
+
+            plan_id = repository.suggest_conflict_action_plan(
+                conflict_id="conflict-suggest-001",
+                planned_by="qa.lead",
+            )
+            same_plan_id = repository.suggest_conflict_action_plan(
+                conflict_id="conflict-suggest-001",
+                planned_by="qa.lead",
+            )
+
+            conflict = repository.get_conflict("conflict-suggest-001")
+            plans = repository.action_plans_for_conflict("conflict-suggest-001")
+
+            self.assertEqual(plan_id, same_plan_id)
+            self.assertEqual(repository.action_plan_count(), 1)
+            self.assertEqual(conflict["status"], "open")
+            self.assertIsNone(conflict["resolution"])
+            self.assertEqual(plans[0]["resolution"], "manual_merge")
+            self.assertEqual(plans[0]["action"], "manual_merge")
+            self.assertEqual(plans[0]["requires_audit_event"], 1)
+
     def test_initialize_applies_operation_journal_migration_to_existing_sync_database(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             database_path = Path(temporary_directory) / "sync.sqlite"

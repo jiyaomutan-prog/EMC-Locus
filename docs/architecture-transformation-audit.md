@@ -513,6 +513,24 @@ Invariant impact:
 - Stores local/reference snapshot ids in the existing conflict table for later
   manual or policy-based resolution.
 
+## PR Bundle 6 - Conflict Action Plan Suggestion
+
+Objective: create an audit-visible suggested action for an open sync conflict
+without resolving it automatically.
+
+Files changed in this bundle:
+
+- `python/emc_locus/sqlite_repositories.py`
+- `python/tests/test_sqlite_repositories.py`
+- `docs/storage-migrations.md`
+
+Invariant impact:
+
+- Keeps open conflicts open until a deliberate resolution path is applied.
+- Reuses an existing unapplied plan for idempotent suggestion calls.
+- Maps checksum/concurrent conflicts to manual merge, while deletion/schema
+  conflicts are deferred for review.
+
 ## Acceptance Checklist
 
 - [ ] Rust application services own critical write command validation.
