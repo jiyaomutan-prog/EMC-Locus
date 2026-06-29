@@ -174,6 +174,9 @@ Deliverables:
   local agent when configured;
 - Qt/Python project read path; project list, contract-review status, audit
   events, and sync outbox now read through the local agent when configured;
+- hardened 0.6.0 project vertical slice; idempotence, DTOs, module split,
+  SQLite atomicity, Qt/Python agent reads, and CI consolidated into the release
+  baseline;
 - real local-agent E2E coverage; initial automated HTTP server test added for
   the project vertical slice, including restart and persistence verification;
 - Qt project transition form; initial operator form added for the agent-backed

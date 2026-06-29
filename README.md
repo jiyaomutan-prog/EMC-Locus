@@ -79,7 +79,7 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.5.6`.
+Current software version: `0.6.0`.
 
 Version `0.5.0` delivers the first agent-backed project vertical slice:
 initialized local project storage, loopback API, project creation,
@@ -111,6 +111,11 @@ for the migrated slice.
 Version `0.5.6` adds the first GitHub Actions CI workflow for the same Rust,
 Python, SQLite migration, JavaScript, release-consistency, and whitespace checks
 used locally before release commits.
+
+Version `0.6.0` finalizes the hardened project vertical slice: strict
+idempotence, Serde DTO responses, split Rust project modules, explicit
+multi-SQLite atomicity policy, Qt/Python project reads and writes through the
+local agent when configured, and CI coverage for the local validation matrix.
 
 Revision tracking uses:
 

@@ -8,6 +8,17 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-29
+
+### Changed
+
+- Finalized the hardened agent-backed project vertical slice by consolidating
+  the 0.5.1 through 0.5.6 hardening tranches into the 0.6.0 baseline:
+  strict idempotency fingerprints, Serde DTO response rendering, split Rust
+  project modules, enforced project/sync SQLite atomicity policy, Qt/Python
+  project reads through the local agent, and GitHub Actions CI.
+- Added the 0.6.0 release note under `docs/releases/`.
+
 ## [0.5.6] - 2026-06-29
 
 ### Added
