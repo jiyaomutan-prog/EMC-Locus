@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .gui_bootstrap import BootstrapData, build_bootstrap
+from .local_agent_client import LocalAgentClient
 from .sqlite_repositories import (
     MeasurementDataRepository,
     MetrologyRepository,
@@ -22,12 +23,21 @@ def build_console_bootstrap_from_repositories(
     test_definitions_db: Path | str | None = None,
     measurement_data_db: Path | str | None = None,
     update_catalog_db: Path | str | None = None,
+    agent_url: str | None = None,
 ) -> BootstrapData:
     """Build console bootstrap data directly from available local repositories."""
 
     root = Path(migrations_root)
+    project_agent = (
+        LocalAgentClient(agent_url.strip())
+        if agent_url is not None and agent_url.strip()
+        else None
+    )
     return build_bootstrap(
-        projects=_repository_if_exists(ProjectRepository, projects_db, root),
+        project_agent=project_agent,
+        projects=None
+        if project_agent is not None
+        else _repository_if_exists(ProjectRepository, projects_db, root),
         metrology=_repository_if_exists(MetrologyRepository, metrology_db, root),
         test_definitions=_repository_if_exists(
             TestDefinitionRepository,

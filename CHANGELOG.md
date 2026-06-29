@@ -8,6 +8,18 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-06-29
+
+### Changed
+
+- Added Python local-agent client read methods for project list/detail,
+  contract-review status, project audit events, and sync outbox.
+- Migrated Qt/Python project bootstrap reads to use the local agent whenever
+  `agent_url` is configured, while keeping non-project repositories on their
+  existing legacy SQLite paths.
+- Refreshed agent-backed project forms from agent data instead of requiring a
+  local `projects.sqlite` path.
+
 ## [0.5.4] - 2026-06-29
 
 ### Changed

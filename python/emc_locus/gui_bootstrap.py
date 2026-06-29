@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .local_agent_client import LocalAgentClient
 from .sqlite_repositories import (
     MeasurementDataRepository,
     MetrologyRepository,
@@ -102,6 +103,8 @@ FALLBACK_BOOTSTRAP: BootstrapData = {
         ["driver-pack-visa", "0.1.0", "Signed", "Pending validation", "online_catalog"],
         ["report-template-fr", "0.1.1", "Signed", "Installed", "offline_bundle"],
     ],
+    "project_audit_events": [],
+    "sync_outbox": [],
 }
 
 STAGE_LABELS = {
@@ -135,6 +138,7 @@ def build_fixture_bootstrap() -> BootstrapData:
 
 def build_bootstrap(
     *,
+    project_agent: LocalAgentClient | None = None,
     projects: ProjectRepository | None = None,
     metrology: MetrologyRepository | None = None,
     test_definitions: TestDefinitionRepository | None = None,
@@ -145,7 +149,29 @@ def build_bootstrap(
 
     payload = build_fixture_bootstrap()
 
-    if projects is not None:
+    if project_agent is not None:
+        project_rows = project_agent.list_projects().get("projects", [])
+        payload["projects"] = [_agent_project_row(row) for row in project_rows]
+        payload["contract_review_items"] = [
+            _agent_contract_review_item_row(str(project["code"]), item)
+            for project in project_rows
+            for item in project_agent.contract_review(str(project["code"]))
+            .get("contract_review", {})
+            .get("completed_items", [])
+        ]
+        payload["project_audit_events"] = [
+            _agent_audit_event_row(str(project["code"]), row)
+            for project in project_rows
+            for row in project_agent.audit_events(str(project["code"])).get(
+                "audit_events", []
+            )
+        ]
+        payload["sync_outbox"] = [
+            _agent_sync_outbox_row(row)
+            for row in project_agent.sync_outbox().get("sync_outbox", [])
+        ]
+        payload["schedule"] = []
+    elif projects is not None:
         project_rows = projects.list_projects()
         payload["projects"] = [_project_row(row) for row in project_rows]
         payload["contract_review_items"] = [
@@ -188,6 +214,12 @@ def build_bootstrap(
         payload["updates"] = [_update_row(row) for row in update_catalog.list_update_packages()]
 
     return payload
+
+
+def build_agent_project_bootstrap(client: LocalAgentClient) -> BootstrapData:
+    """Build only the migrated project slice from the local Rust agent."""
+
+    return build_bootstrap(project_agent=client)
 
 
 def write_bootstrap_js(output_path: Path | str, payload: BootstrapData) -> None:
@@ -261,6 +293,58 @@ def _project_row(row: dict[str, object]) -> dict[str, str]:
         "run": "",
         "method": "",
     }
+
+
+def _agent_project_row(row: Any) -> dict[str, str]:
+    if not isinstance(row, dict):
+        raise ValueError("agent project rows must be JSON objects")
+    return {
+        "code": str(row["code"]),
+        "customer": str(row["customer_name"]),
+        "stage": STAGE_LABELS.get(str(row["stage"]), str(row["stage"])),
+        "mode": MODE_LABELS.get(str(row["execution_mode"]), str(row["execution_mode"])),
+        "blocker": "Aucun",
+        "run": "",
+        "method": "",
+    }
+
+
+def _agent_contract_review_item_row(project_code: str, row: Any) -> list[str]:
+    if not isinstance(row, dict):
+        raise ValueError("agent contract-review rows must be JSON objects")
+    return [
+        project_code,
+        str(row["item"]),
+        "yes",
+        str(row.get("completed_by") or ""),
+        str(row.get("comment") or ""),
+    ]
+
+
+def _agent_audit_event_row(project_code: str, row: Any) -> list[str]:
+    if not isinstance(row, dict):
+        raise ValueError("agent audit rows must be JSON objects")
+    return [
+        project_code,
+        str(row["sequence"]),
+        str(row["actor"]),
+        str(row["action"]),
+        str(row.get("reason") or ""),
+        str(row["occurred_at"]),
+    ]
+
+
+def _agent_sync_outbox_row(row: Any) -> list[str]:
+    if not isinstance(row, dict):
+        raise ValueError("agent sync outbox rows must be JSON objects")
+    return [
+        str(row["operation_id"]),
+        str(row["entity_id"]),
+        str(row["operation_kind"]),
+        str(row["base_revision"]),
+        str(row["resulting_revision"]),
+        str(row["status"]),
+    ]
 
 
 def _schedule_row(row: dict[str, object]) -> list[str]:

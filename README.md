@@ -79,7 +79,7 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.5.4`.
+Current software version: `0.5.5`.
 
 Version `0.5.0` delivers the first agent-backed project vertical slice:
 initialized local project storage, loopback API, project creation,
@@ -102,6 +102,11 @@ slice behavior.
 Version `0.5.4` enforces the project/sync multi-SQLite atomicity policy: storage
 initialization uses rollback journal mode, storage status reports journal
 compatibility, and project commands refuse incompatible WAL-style configurations.
+
+Version `0.5.5` moves Qt/Python project reads to the local agent when
+`agent_url` is configured: project lists, contract-review status, project audit
+events, and pending outbox data no longer require direct project SQLite access
+for the migrated slice.
 
 Revision tracking uses:
 

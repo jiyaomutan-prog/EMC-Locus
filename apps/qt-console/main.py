@@ -652,7 +652,8 @@ def _writable_repositories(args: argparse.Namespace) -> set[str]:
 
 
 def _load_console_data(args: argparse.Namespace) -> dict[str, Any]:
-    if _has_repository_paths(args):
+    agent_url = getattr(args, "agent_url", None)
+    if (agent_url is not None and agent_url.strip()) or _has_repository_paths(args):
         return build_console_bootstrap_from_repositories(
             migrations_root=args.migrations_root,
             projects_db=args.projects_db,
@@ -660,6 +661,7 @@ def _load_console_data(args: argparse.Namespace) -> dict[str, Any]:
             test_definitions_db=args.test_definitions_db,
             measurement_data_db=args.measurement_data_db,
             update_catalog_db=args.update_catalog_db,
+            agent_url=agent_url,
         )
 
     bootstrap = args.bootstrap or REPOSITORY_ROOT / "apps" / "gui-shell" / "bootstrap.js"
@@ -679,6 +681,10 @@ def _has_repository_paths(args: argparse.Namespace) -> bool:
 
 
 def _status_message(args: argparse.Namespace) -> str:
+    agent_url = getattr(args, "agent_url", None)
+    if agent_url is not None and agent_url.strip():
+        return "Donnees projet chargees via l'agent local"
+
     if _has_repository_paths(args):
         return "Donnees chargees depuis les depots SQLite locaux"
 

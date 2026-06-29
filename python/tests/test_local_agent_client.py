@@ -15,6 +15,7 @@ from emc_locus.local_agent_client import (
     LocalAgentError,
     generate_operation_id,
 )
+from emc_locus.sqlite_repositories import ProjectRepository
 
 
 class _FakeResponse:
@@ -173,6 +174,51 @@ class LocalAgentClientTests(unittest.TestCase):
         self.assertEqual(captured["timeout"], 1.0)
         self.assertEqual(response["domains"][0]["status"], "current")
 
+    def test_reads_project_slice_routes(self) -> None:
+        captured: list[tuple[str, str]] = []
+        payloads = {
+            "http://127.0.0.1:8765/api/v1/projects": {"projects": []},
+            "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001": {
+                "project": {"code": "CEM-READ-001"}
+            },
+            "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/contract-review": {
+                "contract_review": {"project_code": "CEM-READ-001"}
+            },
+            "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/audit-events": {
+                "audit_events": []
+            },
+            "http://127.0.0.1:8765/api/v1/sync/outbox": {"sync_outbox": []},
+        }
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            captured.append((request.get_method(), request.full_url))
+            return _FakeResponse(payloads[request.full_url])
+
+        client = LocalAgentClient("http://127.0.0.1:8765")
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            self.assertEqual(client.list_projects()["projects"], [])
+            self.assertEqual(client.get_project("CEM-READ-001")["project"]["code"], "CEM-READ-001")
+            self.assertEqual(
+                client.contract_review("CEM-READ-001")["contract_review"]["project_code"],
+                "CEM-READ-001",
+            )
+            self.assertEqual(client.audit_events("CEM-READ-001")["audit_events"], [])
+            self.assertEqual(client.sync_outbox()["sync_outbox"], [])
+
+        self.assertEqual(
+            captured,
+            [
+                ("GET", "http://127.0.0.1:8765/api/v1/projects"),
+                ("GET", "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001"),
+                (
+                    "GET",
+                    "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/contract-review",
+                ),
+                ("GET", "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/audit-events"),
+                ("GET", "http://127.0.0.1:8765/api/v1/sync/outbox"),
+            ],
+        )
+
 
 class GuiActionAgentPathTests(unittest.TestCase):
     def test_create_project_uses_agent_without_project_repository(self) -> None:
@@ -248,6 +294,113 @@ class GuiActionAgentPathTests(unittest.TestCase):
 
         client.advance_to_test_planning.assert_called_once()
         self.assertEqual(result["new_stage"], "test_planning")
+
+    def test_gui_actions_project_reads_use_agent_when_agent_url_present(self) -> None:
+        with patch("emc_locus.gui_actions.LocalAgentClient") as client_type:
+            client = client_type.return_value
+            client.list_projects.return_value = {
+                "projects": [
+                    {
+                        "code": "CEM-AGENT-READ",
+                        "customer_name": "Agent Read",
+                        "execution_mode": "accredited",
+                        "stage": "contract_review",
+                    }
+                ]
+            }
+            client.contract_review.return_value = {
+                "contract_review": {
+                    "completed_items": [
+                        {
+                            "item": "customer_request_defined",
+                            "completed_by": "quality.lead",
+                            "comment": "agent",
+                        }
+                    ]
+                }
+            }
+            client.audit_events.return_value = {"audit_events": []}
+            client.sync_outbox.return_value = {"sync_outbox": []}
+
+            from emc_locus.gui_actions import refresh_bootstrap
+
+            with patch("emc_locus.gui_actions._open_repository") as open_repository:
+                with patch("emc_locus.gui_actions.write_bootstrap_js") as write_bootstrap:
+                    refresh_bootstrap(
+                        output="ignored.js",
+                        projects_db="legacy-projects.sqlite",
+                        agent_url="http://127.0.0.1:8765",
+                    )
+
+        client_type.assert_called_once_with("http://127.0.0.1:8765")
+        client.list_projects.assert_called_once()
+        client.contract_review.assert_called_once_with("CEM-AGENT-READ")
+        client.audit_events.assert_called_once_with("CEM-AGENT-READ")
+        client.sync_outbox.assert_called_once()
+        self.assertNotIn(ProjectRepository, [call.args[0] for call in open_repository.call_args_list])
+        payload = write_bootstrap.call_args.args[1]
+        self.assertEqual(payload["projects"][0]["code"], "CEM-AGENT-READ")
+        self.assertEqual(payload["contract_review_items"][0][1], "customer_request_defined")
+
+    def test_gui_actions_project_writes_use_agent_when_agent_url_present(self) -> None:
+        with patch("emc_locus.gui_actions.LocalAgentClient") as client_type:
+            with patch("emc_locus.gui_actions.ProjectRepository") as project_repository:
+                client = client_type.return_value
+                client.create_project.return_value = {
+                    "operation_id": "op-create",
+                    "replayed": False,
+                    "project": {
+                        "code": "CEM-AGENT-WRITE",
+                        "customer_name": "Agent Write",
+                        "execution_mode": "accredited",
+                        "stage": "contract_review",
+                    },
+                }
+                client.complete_contract_review_item.return_value = {
+                    "operation_id": "op-review",
+                    "replayed": False,
+                    "already_completed": False,
+                }
+                client.advance_to_test_planning.return_value = {
+                    "operation_id": "op-plan",
+                    "replayed": False,
+                    "project": {
+                        "code": "CEM-AGENT-WRITE",
+                        "stage": "test_planning",
+                    },
+                }
+
+                create_project_record(
+                    projects_db=None,
+                    code="CEM-AGENT-WRITE",
+                    customer_name="Agent Write",
+                    execution_mode="accredited",
+                    actor="quality.lead",
+                    reason="accepted",
+                    agent_url="http://127.0.0.1:8765",
+                    operation_id="op-create",
+                )
+                complete_contract_review_item_action(
+                    projects_db=None,
+                    project_code="CEM-AGENT-WRITE",
+                    item="customer_request_defined",
+                    completed_by="quality.lead",
+                    agent_url="http://127.0.0.1:8765",
+                    operation_id="op-review",
+                )
+                advance_project_stage(
+                    projects_db=None,
+                    code="CEM-AGENT-WRITE",
+                    actor="quality.lead",
+                    reason="ready",
+                    agent_url="http://127.0.0.1:8765",
+                    operation_id="op-plan",
+                )
+
+        client.create_project.assert_called_once()
+        client.complete_contract_review_item.assert_called_once()
+        client.advance_to_test_planning.assert_called_once()
+        project_repository.assert_not_called()
 
 
 if __name__ == "__main__":

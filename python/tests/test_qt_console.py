@@ -504,6 +504,68 @@ class QtConsoleTests(unittest.TestCase):
         self.assertEqual(payload["projects"][0]["code"], "CEM-QT-REPO")
         self.assertEqual(payload["projects"][0]["customer"], "Repository Customer")
 
+    def test_qt_console_project_views_refresh_from_agent(self) -> None:
+        with patch("emc_locus.qt_console_data.LocalAgentClient") as client_type:
+            client = client_type.return_value
+            client.list_projects.return_value = {
+                "projects": [
+                    {
+                        "code": "CEM-QT-AGENT",
+                        "customer_name": "Agent Customer",
+                        "execution_mode": "non_accredited",
+                        "stage": "contract_review",
+                    }
+                ]
+            }
+            client.contract_review.return_value = {
+                "contract_review": {
+                    "completed_items": [
+                        {
+                            "item": "scope_confirmed",
+                            "completed_by": "quality.lead",
+                            "comment": "agent",
+                        }
+                    ]
+                }
+            }
+            client.audit_events.return_value = {
+                "audit_events": [
+                    {
+                        "sequence": 1,
+                        "actor": "quality.lead",
+                        "action": "project_created",
+                        "reason": "agent",
+                        "occurred_at": "2026-06-29T00:00:00Z",
+                    }
+                ]
+            }
+            client.sync_outbox.return_value = {
+                "sync_outbox": [
+                    {
+                        "operation_id": "op-agent",
+                        "entity_id": "CEM-QT-AGENT",
+                        "operation_kind": "project_created",
+                        "base_revision": "rev-0000",
+                        "resulting_revision": "rev-0001",
+                        "status": "pending",
+                    }
+                ]
+            }
+
+            with patch("emc_locus.qt_console_data.ProjectRepository") as project_repository:
+                payload = build_console_bootstrap_from_repositories(
+                    migrations_root=Path("storage/sqlite"),
+                    projects_db=Path("legacy-projects.sqlite"),
+                    agent_url="http://127.0.0.1:8765",
+                )
+
+        client_type.assert_called_once_with("http://127.0.0.1:8765")
+        project_repository.assert_not_called()
+        self.assertEqual(payload["projects"][0]["code"], "CEM-QT-AGENT")
+        self.assertEqual(payload["contract_review_items"][0][1], "scope_confirmed")
+        self.assertEqual(payload["project_audit_events"][0][3], "project_created")
+        self.assertEqual(payload["sync_outbox"][0][0], "op-agent")
+
 
 if __name__ == "__main__":
     unittest.main()

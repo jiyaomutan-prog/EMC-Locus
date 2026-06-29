@@ -79,6 +79,27 @@ class LocalAgentClient:
     def storage_status(self) -> dict[str, Any]:
         return self.request_json("GET", "/api/v1/storage/status")
 
+    def list_projects(self) -> dict[str, Any]:
+        return self.request_json("GET", "/api/v1/projects")
+
+    def get_project(self, code: str) -> dict[str, Any]:
+        return self.request_json("GET", f"/api/v1/projects/{quote(code)}")
+
+    def contract_review(self, project_code: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/projects/{quote(project_code)}/contract-review",
+        )
+
+    def audit_events(self, project_code: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/projects/{quote(project_code)}/audit-events",
+        )
+
+    def sync_outbox(self) -> dict[str, Any]:
+        return self.request_json("GET", "/api/v1/sync/outbox")
+
     def create_project(
         self,
         *,

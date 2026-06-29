@@ -146,7 +146,7 @@ def create_project_record(
             device_id=device_id,
         )
         project = response["project"]
-        if bootstrap_output is not None and projects_db is not None:
+        if bootstrap_output is not None:
             refresh_bootstrap(
                 output=bootstrap_output,
                 migrations_root=migrations_root,
@@ -155,6 +155,7 @@ def create_project_record(
                 test_definitions_db=test_definitions_db,
                 measurement_data_db=measurement_data_db,
                 update_catalog_db=update_catalog_db,
+                agent_url=agent_url,
             )
         return {
             "code": project["code"],
@@ -235,7 +236,7 @@ def complete_contract_review_item_action(
             correlation_id=correlation_id,
             device_id=device_id,
         )
-        if bootstrap_output is not None and projects_db is not None:
+        if bootstrap_output is not None:
             refresh_bootstrap(
                 output=bootstrap_output,
                 migrations_root=migrations_root,
@@ -244,6 +245,7 @@ def complete_contract_review_item_action(
                 test_definitions_db=test_definitions_db,
                 measurement_data_db=measurement_data_db,
                 update_catalog_db=update_catalog_db,
+                agent_url=agent_url,
             )
         return {
             "project_code": project_code,
@@ -814,7 +816,7 @@ def advance_project_stage(
             device_id=device_id,
         )
         project = response["project"]
-        if bootstrap_output is not None and projects_db is not None:
+        if bootstrap_output is not None:
             refresh_bootstrap(
                 output=bootstrap_output,
                 migrations_root=migrations_root,
@@ -823,6 +825,7 @@ def advance_project_stage(
                 test_definitions_db=test_definitions_db,
                 measurement_data_db=measurement_data_db,
                 update_catalog_db=update_catalog_db,
+                agent_url=agent_url,
             )
         return {
             "project_code": code,
@@ -1072,12 +1075,17 @@ def refresh_bootstrap(
     test_definitions_db: Path | str | None = None,
     measurement_data_db: Path | str | None = None,
     update_catalog_db: Path | str | None = None,
+    agent_url: str | None = None,
 ) -> None:
     """Regenerate the browser-loadable GUI bootstrap from local repositories."""
 
     migrations_root = Path(migrations_root)
+    project_agent = LocalAgentClient(str(agent_url)) if _has_text(agent_url) else None
     payload = build_bootstrap(
-        projects=_open_repository(ProjectRepository, projects_db, migrations_root),
+        project_agent=project_agent,
+        projects=None
+        if project_agent is not None
+        else _open_repository(ProjectRepository, projects_db, migrations_root),
         metrology=_open_repository(MetrologyRepository, metrology_db, migrations_root),
         test_definitions=_open_repository(
             TestDefinitionRepository,
@@ -1105,6 +1113,7 @@ def main(argv: list[str] | None = None) -> int:
     refresh_parser = subcommands.add_parser("refresh-bootstrap")
     _add_repository_args(refresh_parser)
     refresh_parser.add_argument("--output", required=True, type=Path)
+    refresh_parser.add_argument("--agent-url")
 
     project_parser = subcommands.add_parser("create-project")
     _add_repository_args(project_parser, include_projects=False)
@@ -1309,9 +1318,6 @@ def main(argv: list[str] | None = None) -> int:
             measurement_data_db=args.measurement_data_db,
             update_catalog_db=args.update_catalog_db,
             agent_url=args.agent_url,
-            operation_id=args.operation_id,
-            correlation_id=args.correlation_id,
-            device_id=args.device_id,
         )
         return 0
 

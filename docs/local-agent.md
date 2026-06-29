@@ -128,6 +128,17 @@ now pass `agent_url` to route these writes through the agent:
 - contract-review item completion;
 - transition to `test_planning` through `advance_project_stage`.
 
+Version `0.5.5` also routes migrated project reads through the agent when
+`agent_url` is configured:
+
+- project list and detail;
+- contract-review status;
+- project audit events;
+- pending sync outbox.
+
+The service-planning table is still a legacy SQLite-backed surface until a
+dedicated agent route exists.
+
 The Qt console accepts:
 
 ```text

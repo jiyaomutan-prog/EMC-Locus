@@ -118,3 +118,9 @@ if an operator or external tool switches either file to an incompatible mode.
 This API is the local boundary for the project vertical slice. Metrology,
 planning, documents, instrument control, and acquisition remain legacy or
 separate work until they are explicitly migrated behind the agent.
+
+Qt/Python clients configured with `agent_url` use these routes for migrated
+project-slice reads and writes. They should not open `projects.sqlite` directly
+for project list/detail, contract-review status, project audit events, or sync
+outbox data in that mode. Service planning remains legacy until a planning route
+is added.
