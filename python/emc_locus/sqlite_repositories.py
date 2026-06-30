@@ -1513,6 +1513,7 @@ class MeasurementDataRepository(SQLiteDomainRepository):
     ) -> int:
         if status not in PROCESSING_GRAPH_STATUSES:
             raise ValueError(f"invalid processing graph status: {status}")
+        software_version = require_non_empty(software_version, "software_version")
 
         with closing(self.connect()) as connection:
             with connection:
@@ -1696,6 +1697,7 @@ class MeasurementDataRepository(SQLiteDomainRepository):
             raise ValueError("output artifact count must be non-negative")
         if status == "completed" and output_artifact_count == 0:
             raise ValueError("completed processing graph execution requires artifacts")
+        software_version = require_non_empty(software_version, "software_version")
 
         with closing(self.connect()) as connection:
             with connection:

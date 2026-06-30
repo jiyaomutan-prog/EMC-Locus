@@ -281,6 +281,8 @@ Repository writes record graph artifacts and executions only for existing graph
 instances. Artifact writes validate that output signal references use the
 controlled signal-reference syntax and that raw-lineage evidence is a JSON array
 of controlled signal references before persistence.
+Processing graph instance and execution writes reject blank software-version
+evidence before persistence.
 Every recorded execution must report an `output_artifact_count` that matches the
 number of persisted `processing_graph_instance_artifacts` rows for the same
 graph instance. A completed execution must have at least one output artifact.

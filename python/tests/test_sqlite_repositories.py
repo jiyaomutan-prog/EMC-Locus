@@ -402,6 +402,17 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                 )
 
             with self.assertRaises(ValueError):
+                repository.add_processing_graph_instance(
+                    source_dataset_id=dataset_id,
+                    graph_reference="inrush-fft",
+                    graph_revision="C",
+                    operations_json="{}",
+                    created_by="signal.engineer",
+                    software_version=" ",
+                    graph_checksum="sha256:graphfft003",
+                )
+
+            with self.assertRaises(ValueError):
                 repository.add_processing_graph_instance_artifact(
                     processing_graph_instance_id=second_revision_id,
                     output_signal_reference="raw_copy",
@@ -468,6 +479,16 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                     software_version="0.1.0",
                     status="completed",
                     output_artifact_count=2,
+                )
+
+            with self.assertRaises(ValueError):
+                repository.add_processing_graph_execution(
+                    processing_graph_instance_id=second_revision_id,
+                    execution_reference="exec-fft-empty-software-version",
+                    executed_by="signal.engine",
+                    software_version=" ",
+                    status="completed",
+                    output_artifact_count=1,
                 )
 
             failed_execution_id = repository.add_processing_graph_execution(

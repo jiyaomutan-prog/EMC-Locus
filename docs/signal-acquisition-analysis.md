@@ -160,6 +160,8 @@ Implemented in the Rust core:
     instance, including failed executions that produced no output artifacts.
 19. Python measurement-data writes reject processing graph result artifacts
     whose output signal reference or raw-lineage JSON is malformed.
+20. Python measurement-data writes reject blank software-version evidence on
+    processing graph instances and executions.
 
 Not yet implemented:
 
