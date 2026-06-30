@@ -157,7 +157,7 @@ Implemented in the Rust core:
     status, and output artifact count;
 18. Python measurement-data writes reject graph execution records whose output
     artifact count does not match the persisted artifacts for the same graph
-    instance.
+    instance, including failed executions that produced no output artifacts.
 
 Not yet implemented:
 

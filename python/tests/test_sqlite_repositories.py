@@ -440,6 +440,33 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                     output_artifact_count=2,
                 )
 
+            failed_execution_id = repository.add_processing_graph_execution(
+                processing_graph_instance_id=first_revision_id,
+                execution_reference="exec-fft-failed-no-artifacts",
+                executed_by="signal.engine",
+                software_version="0.1.0",
+                status="failed",
+                output_artifact_count=0,
+                notes="input validation failed",
+            )
+            failed_executions = repository.processing_graph_executions(
+                first_revision_id,
+            )
+
+            self.assertEqual(failed_executions[0]["id"], failed_execution_id)
+            self.assertEqual(failed_executions[0]["status"], "failed")
+            self.assertEqual(failed_executions[0]["output_artifact_count"], 0)
+
+            with self.assertRaises(ValueError):
+                repository.add_processing_graph_execution(
+                    processing_graph_instance_id=first_revision_id,
+                    execution_reference="exec-fft-failed-count-mismatch",
+                    executed_by="signal.engine",
+                    software_version="0.1.0",
+                    status="failed",
+                    output_artifact_count=1,
+                )
+
 
 class MetrologyRepositoryTests(unittest.TestCase):
     def test_lists_instrument_categories_and_links_assets(self) -> None:

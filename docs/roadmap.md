@@ -125,6 +125,8 @@ Deliverables:
 - Python measurement-data writes now reject graph execution records whose
   output artifact count does not match the artifacts persisted for that graph
   instance;
+- failed processing graph executions are covered by the same persisted-artifact
+  count invariant as completed executions;
 - CEM time-domain test families such as railway harmonics, axle counters, and
   inrush measurements.
 

@@ -16,6 +16,8 @@ change should remain traceable through Git history, session logs, and this file.
 - Python measurement-data writes for processing graph executions now reject
   output artifact counts that do not match the artifacts persisted for the same
   graph instance.
+- Failed processing graph executions are now covered by the same Python
+  persisted-artifact count invariant as completed executions.
 
 ## [0.6.0] - 2026-06-29
 
