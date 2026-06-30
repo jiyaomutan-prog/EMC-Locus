@@ -81,7 +81,14 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.6.3`.
+Current software version: `0.6.4`.
+
+Version `0.6.4` adds the first agent-backed calibration-event path:
+`metrology record-calibration`, calibration-event HTTP routes, certificate
+manifest metadata validation, per-instrument due-soon warning days, and a
+computed calibration-status endpoint that derives `valid`, `due_soon`,
+`expired`, `missing`, `not_required`, or `nonconforming` from the latest event
+and the requested check date.
 
 Version `0.6.3` makes the first instrument registry agent-backed: local storage
 initialization now creates `metrology.sqlite`, the Rust agent exposes metrology

@@ -12,7 +12,10 @@ mod sqlite_policy;
 use emc_locus_core::{baseline_repository_domains, RepositoryDomain};
 pub use local_api::{run_local_api_server, ApiServerConfig};
 pub use metrology_agent::{run_metrology_command, MetrologyAction};
-pub use metrology_service::{get_metrology_instrument, list_metrology_instruments};
+pub use metrology_service::{
+    get_metrology_calibration_status, get_metrology_instrument, list_metrology_calibrations,
+    list_metrology_instruments, record_metrology_calibration, RecordCalibrationInput,
+};
 pub use metrology_service::{register_metrology_instrument, RegisterInstrumentInput};
 pub use project_agent::{run_project_command, run_sync_command, ProjectAction, SyncAction};
 use rusqlite::Connection;
@@ -812,7 +815,7 @@ mod tests {
                 .find(|domain| domain.domain == "metrology")
                 .unwrap()
                 .schema_version,
-            Some(4)
+            Some(5)
         );
 
         remove_temporary_storage_root(&storage_root);

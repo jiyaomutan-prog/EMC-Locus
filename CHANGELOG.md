@@ -8,6 +8,30 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-06-30
+
+### Added
+
+- Added metrology migration `0005_calibration_events_and_status.sql` with
+  `calibration_events`, per-instrument `calibration_due_warning_days`, and
+  repository metadata for computed calibration status.
+- Added Rust agent/service/repository/DTO support for recording calibration
+  events with controlled decisions, uncertainty summaries, optional traceability
+  references, and certificate document manifests.
+- Added metrology CLI actions for `record-calibration`, `list-calibrations`, and
+  `status`.
+- Added loopback API routes for
+  `POST/GET /api/v1/metrology/instruments/{asset_id}/calibrations` and
+  `GET /api/v1/metrology/instruments/{asset_id}/status?checked_on=YYYY-MM-DD`.
+- Added computed calibration status results for `valid`, `due_soon`, `expired`,
+  `missing`, `not_required`, and `nonconforming`.
+
+### Changed
+
+- Replaced the hard-coded due-soon threshold in the Rust metrology domain with
+  an explicit default constant and a configurable status calculation.
+- Bumped the synchronized Rust/Python software version to `0.6.4`.
+
 ## [0.6.3] - 2026-06-30
 
 ### Added

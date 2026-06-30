@@ -1,5 +1,8 @@
 use super::{AgentCommand, AgentError};
-use crate::metrology_service::{register_metrology_instrument, RegisterInstrumentInput};
+use crate::metrology_service::{
+    get_metrology_calibration_status, list_metrology_calibrations, record_metrology_calibration,
+    register_metrology_instrument, RecordCalibrationInput, RegisterInstrumentInput,
+};
 use crate::{get_metrology_instrument, list_metrology_instruments};
 use std::{collections::BTreeMap, path::PathBuf};
 
@@ -7,7 +10,17 @@ use std::{collections::BTreeMap, path::PathBuf};
 pub enum MetrologyAction {
     Register(Box<RegisterInstrumentInput>),
     List,
-    Get { asset_id: String },
+    Get {
+        asset_id: String,
+    },
+    RecordCalibration(Box<RecordCalibrationInput>),
+    ListCalibrations {
+        asset_id: String,
+    },
+    Status {
+        asset_id: String,
+        checked_on: String,
+    },
 }
 
 pub(crate) fn parse_metrology_args<I>(mut args: I) -> Result<AgentCommand, AgentError>
@@ -30,6 +43,10 @@ where
             part_number: optional_value(&mut flags, "--part-number"),
             calibration_requirement: required_value(&mut flags, "--calibration-requirement")?,
             calibration_period_months: optional_u32(&mut flags, "--calibration-period-months")?,
+            calibration_due_warning_days: optional_u32(
+                &mut flags,
+                "--calibration-due-warning-days",
+            )?,
             serviceability_status: optional_value(&mut flags, "--serviceability-status")
                 .unwrap_or_else(|| "usable".to_owned()),
             serviceability_reason: optional_value(&mut flags, "--serviceability-reason")
@@ -41,6 +58,35 @@ where
         "list-instruments" => MetrologyAction::List,
         "get-instrument" => MetrologyAction::Get {
             asset_id: required_value(&mut flags, "--asset-id")?,
+        },
+        "record-calibration" => {
+            MetrologyAction::RecordCalibration(Box::new(RecordCalibrationInput {
+                event_id: required_value(&mut flags, "--event-id")?,
+                asset_id: required_value(&mut flags, "--asset-id")?,
+                certificate_reference: required_value(&mut flags, "--certificate-reference")?,
+                calibrated_at: required_value(&mut flags, "--calibrated-at")?,
+                due_at: required_value(&mut flags, "--due-at")?,
+                provider: required_value(&mut flags, "--provider")?,
+                decision: optional_value(&mut flags, "--decision")
+                    .unwrap_or_else(|| "conforming".to_owned()),
+                as_found_status: optional_value(&mut flags, "--as-found-status"),
+                as_left_status: optional_value(&mut flags, "--as-left-status"),
+                adjustment_performed: optional_bool(&mut flags, "--adjustment-performed")?
+                    .unwrap_or(false),
+                uncertainty_summary_json: optional_value(&mut flags, "--uncertainty-summary-json")
+                    .unwrap_or_else(|| "{}".to_owned()),
+                traceability_reference: optional_value(&mut flags, "--traceability-reference"),
+                comment: optional_value(&mut flags, "--comment").unwrap_or_default(),
+                document_manifest_json: optional_value(&mut flags, "--document-manifest-json"),
+                recorded_by: required_value(&mut flags, "--recorded-by")?,
+            }))
+        }
+        "list-calibrations" => MetrologyAction::ListCalibrations {
+            asset_id: required_value(&mut flags, "--asset-id")?,
+        },
+        "status" => MetrologyAction::Status {
+            asset_id: required_value(&mut flags, "--asset-id")?,
+            checked_on: required_value(&mut flags, "--checked-on")?,
         },
         other => {
             return Err(AgentError::new(
@@ -68,6 +114,16 @@ pub fn run_metrology_command(command: AgentCommand) -> Result<String, AgentError
             }
             MetrologyAction::List => list_metrology_instruments(&storage_root),
             MetrologyAction::Get { asset_id } => get_metrology_instrument(&storage_root, &asset_id),
+            MetrologyAction::RecordCalibration(input) => {
+                record_metrology_calibration(&storage_root, *input)
+            }
+            MetrologyAction::ListCalibrations { asset_id } => {
+                list_metrology_calibrations(&storage_root, &asset_id)
+            }
+            MetrologyAction::Status {
+                asset_id,
+                checked_on,
+            } => get_metrology_calibration_status(&storage_root, &asset_id, &checked_on),
         },
         _ => Err(AgentError::new(
             "invalid_metrology_command",
@@ -133,6 +189,22 @@ fn optional_u32(
         .transpose()
 }
 
+fn optional_bool(
+    flags: &mut BTreeMap<String, String>,
+    name: &'static str,
+) -> Result<Option<bool>, AgentError> {
+    optional_value(flags, name)
+        .map(|value| match value.as_str() {
+            "true" | "1" | "yes" => Ok(true),
+            "false" | "0" | "no" => Ok(false),
+            _ => Err(AgentError::new(
+                "invalid_argument",
+                format!("{name} must be true or false"),
+            )),
+        })
+        .transpose()
+}
+
 fn ensure_no_unknown_flags(flags: BTreeMap<String, String>) -> Result<(), AgentError> {
     if let Some(unknown) = flags.keys().next() {
         return Err(AgentError::new(
@@ -190,6 +262,7 @@ mod tests {
                     part_number: None,
                     calibration_requirement: "required".to_owned(),
                     calibration_period_months: Some(12),
+                    calibration_due_warning_days: None,
                     serviceability_status: "usable".to_owned(),
                     serviceability_reason: String::new(),
                     capabilities_json: "[]".to_owned(),

@@ -2159,6 +2159,48 @@ fn equipment_due_soon_is_reported_as_non_blocking_attention_point() {
 }
 
 #[test]
+fn calibration_due_soon_threshold_is_configurable() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let mut registry = MetrologyRegistry::new();
+    registry
+        .register_instrument(reference_receiver(code.clone()))
+        .unwrap();
+    registry
+        .record_calibration(
+            CalibrationRecord::new(
+                code.clone(),
+                "CERT-2026-001",
+                MetrologyDate::new(2026, 1, 1).unwrap(),
+                MetrologyDate::new(2026, 7, 15).unwrap(),
+                "Accredited Provider",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    assert_eq!(
+        registry
+            .calibration_status_with_warning_days(
+                &code,
+                MetrologyDate::new(2026, 6, 27).unwrap(),
+                10,
+            )
+            .unwrap(),
+        CalibrationStatus::Valid
+    );
+    assert_eq!(
+        registry
+            .calibration_status_with_warning_days(
+                &code,
+                MetrologyDate::new(2026, 6, 27).unwrap(),
+                DEFAULT_CALIBRATION_DUE_SOON_WARNING_DAYS,
+            )
+            .unwrap(),
+        CalibrationStatus::DueSoon
+    );
+}
+
+#[test]
 fn out_of_service_equipment_blocks_every_execution_mode() {
     let code = InstrumentCode::parse("RX-001").unwrap();
     let mut receiver = reference_receiver(code.clone());

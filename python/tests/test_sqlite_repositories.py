@@ -652,13 +652,24 @@ class MetrologyRepositoryTests(unittest.TestCase):
                 instrument_columns = connection.execute(
                     "PRAGMA table_info(instruments)"
                 ).fetchall()
+                calibration_events_exists = (
+                    connection.execute(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'calibration_events'"
+                    ).fetchone()[0]
+                    == 1
+                )
 
-            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4])
+            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4, 5])
             self.assertIn("category_code", {row["name"] for row in instrument_columns})
             self.assertIn("part_number", {row["name"] for row in instrument_columns})
             self.assertIn("calibration_period_months", {row["name"] for row in instrument_columns})
+            self.assertIn(
+                "calibration_due_warning_days",
+                {row["name"] for row in instrument_columns},
+            )
             self.assertIn("serviceability_status", {row["name"] for row in instrument_columns})
             self.assertIn("legacy_availability", {row["name"] for row in instrument_columns})
+            self.assertTrue(calibration_events_exists)
             self.assertEqual(repository.category_count(), 34)
             self.assertIsNone(repository.get_instrument("LEGACY-001")["category_code"])
             self.assertEqual(

@@ -81,12 +81,18 @@ operate on initialized `metrology.sqlite` storage:
 cargo run -q -p emc-locus-agent -- metrology register-instrument --storage-root data\agent --asset-id SA-001 --family receiver --category-code RF-SPECTRUM-ANALYZER --manufacturer Example --model SA9000 --serial-number SN-001 --part-number PN-SA9000 --calibration-requirement required --calibration-period-months 12 --serviceability-status usable --capabilities-json "{\"frequency_hz\":{\"min\":9000,\"max\":3000000000}}" --metrology-notes "Reference spectrum analyzer"
 cargo run -q -p emc-locus-agent -- metrology list-instruments --storage-root data\agent
 cargo run -q -p emc-locus-agent -- metrology get-instrument --storage-root data\agent --asset-id SA-001
+cargo run -q -p emc-locus-agent -- metrology record-calibration --storage-root data\agent --asset-id SA-001 --event-id CAL-SA-001-2026 --certificate-reference CERT-SA-001-2026 --calibrated-at 2026-06-30 --due-at 2027-06-30 --provider "Accredited Lab" --decision conforming --uncertainty-summary-json "{\"level_db\":0.6}" --recorded-by metrology.admin
+cargo run -q -p emc-locus-agent -- metrology list-calibrations --storage-root data\agent --asset-id SA-001
+cargo run -q -p emc-locus-agent -- metrology status --storage-root data\agent --asset-id SA-001 --checked-on 2026-07-01
 ```
 
 The registry validates stable asset identifiers, required identity fields,
 calibration requirement, optional calibration period, serviceability state, and
-structured capabilities JSON. It does not yet write metrology audit or sync
-outbox rows; those are part of the later readiness vertical slice.
+structured capabilities JSON. The calibration-event path validates controlled
+decisions (`conforming`, `nonconforming`, `indeterminate`, `not_assessed`),
+strict `YYYY-MM-DD` dates, JSON uncertainty summaries, and optional certificate
+document manifests. It does not yet write metrology audit or sync outbox rows;
+those are part of the later readiness vertical slice.
 
 The accredited review checklist uses the Rust core item slugs:
 
@@ -128,6 +134,9 @@ GET  /api/v1/sync/outbox
 GET  /api/v1/metrology/instruments
 POST /api/v1/metrology/instruments
 GET  /api/v1/metrology/instruments/{asset_id}
+GET  /api/v1/metrology/instruments/{asset_id}/calibrations
+POST /api/v1/metrology/instruments/{asset_id}/calibrations
+GET  /api/v1/metrology/instruments/{asset_id}/status?checked_on=YYYY-MM-DD
 ```
 
 `GET /api/v1/storage/status` returns the project/sync/metrology storage status
@@ -143,6 +152,14 @@ the `metrology register-instrument` command, with `capabilities` accepted as a
 structured JSON object or array. `GET /api/v1/metrology/instruments` returns the
 registry list, and `GET /api/v1/metrology/instruments/{asset_id}` returns one
 instrument detail with its latest calibration summary when present.
+
+Version `0.6.4` adds calibration-event routes. `POST
+/api/v1/metrology/instruments/{asset_id}/calibrations` records one calibration
+event and optional certificate document manifest. `GET
+/api/v1/metrology/instruments/{asset_id}/calibrations` returns the event
+history. `GET /api/v1/metrology/instruments/{asset_id}/status` computes the
+status for a required `checked_on=YYYY-MM-DD` query date instead of trusting a
+stored import status.
 
 ## Python And Qt Client Path
 

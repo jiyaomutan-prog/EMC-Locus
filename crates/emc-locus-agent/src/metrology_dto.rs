@@ -1,4 +1,6 @@
-use crate::metrology_repository::{StoredCalibrationRecord, StoredInstrument};
+use crate::metrology_repository::{
+    StoredCalibrationEvent, StoredCalibrationRecord, StoredInstrument,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -17,12 +19,14 @@ pub struct InstrumentDto {
     pub serviceability_updated_at: Option<String>,
     pub calibration_requirement: String,
     pub calibration_period_months: Option<u32>,
+    pub calibration_due_warning_days: u32,
     pub capabilities_json: String,
     pub metrology_notes: String,
     pub created_at: String,
     pub updated_at: String,
     pub revision: String,
     pub latest_calibration: Option<CalibrationRecordDto>,
+    pub latest_calibration_event: Option<CalibrationEventDto>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -33,6 +37,17 @@ pub struct InstrumentEnvelopeDto {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct InstrumentListDto {
     pub instruments: Vec<InstrumentDto>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CalibrationEventListDto {
+    pub asset_id: String,
+    pub calibration_events: Vec<CalibrationEventDto>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CalibrationEventEnvelopeDto {
+    pub calibration_event: CalibrationEventDto,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -51,9 +66,47 @@ pub struct CalibrationRecordDto {
     pub revision: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CalibrationEventDto {
+    pub event_id: String,
+    pub asset_id: String,
+    pub certificate_reference: String,
+    pub calibrated_at: String,
+    pub due_at: String,
+    pub provider: String,
+    pub decision: String,
+    pub as_found_status: Option<String>,
+    pub as_left_status: Option<String>,
+    pub adjustment_performed: bool,
+    pub uncertainty_summary_json: String,
+    pub traceability_reference: Option<String>,
+    pub comment: String,
+    pub document_manifest_json: Option<String>,
+    pub recorded_at: String,
+    pub recorded_by: String,
+    pub revision: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CalibrationStatusDto {
+    pub asset_id: String,
+    pub checked_on: String,
+    pub calibration_status: String,
+    pub serviceability_status: String,
+    pub calibration_requirement: String,
+    pub calibration_due_warning_days: u32,
+    pub due_at: Option<String>,
+    pub decision: Option<String>,
+    pub latest_calibration_event_id: Option<String>,
+    pub latest_calibration_revision: Option<String>,
+    pub instrument_revision: String,
+    pub reasons: Vec<String>,
+}
+
 pub(crate) fn instrument_dto(
     instrument: &StoredInstrument,
     latest_calibration: Option<&StoredCalibrationRecord>,
+    latest_calibration_event: Option<&StoredCalibrationEvent>,
 ) -> InstrumentDto {
     InstrumentDto {
         asset_id: instrument.asset_id.clone(),
@@ -70,12 +123,14 @@ pub(crate) fn instrument_dto(
         serviceability_updated_at: instrument.serviceability_updated_at.clone(),
         calibration_requirement: instrument.calibration_requirement.clone(),
         calibration_period_months: instrument.calibration_period_months,
+        calibration_due_warning_days: instrument.calibration_due_warning_days,
         capabilities_json: instrument.capabilities_json.clone(),
         metrology_notes: instrument.metrology_notes.clone(),
         created_at: instrument.created_at.clone(),
         updated_at: instrument.updated_at.clone(),
         revision: instrument.revision.clone(),
         latest_calibration: latest_calibration.map(calibration_record_dto),
+        latest_calibration_event: latest_calibration_event.map(calibration_event_dto),
     }
 }
 
@@ -93,5 +148,27 @@ fn calibration_record_dto(record: &StoredCalibrationRecord) -> CalibrationRecord
         checksum: record.checksum.clone(),
         created_at: record.created_at.clone(),
         revision: format!("calibration-{:04}", record.id),
+    }
+}
+
+pub(crate) fn calibration_event_dto(record: &StoredCalibrationEvent) -> CalibrationEventDto {
+    CalibrationEventDto {
+        event_id: record.event_id.clone(),
+        asset_id: record.asset_id.clone(),
+        certificate_reference: record.certificate_reference.clone(),
+        calibrated_at: record.calibrated_at.clone(),
+        due_at: record.due_at.clone(),
+        provider: record.provider.clone(),
+        decision: record.decision.clone(),
+        as_found_status: record.as_found_status.clone(),
+        as_left_status: record.as_left_status.clone(),
+        adjustment_performed: record.adjustment_performed,
+        uncertainty_summary_json: record.uncertainty_summary_json.clone(),
+        traceability_reference: record.traceability_reference.clone(),
+        comment: record.comment.clone(),
+        document_manifest_json: record.document_manifest_json.clone(),
+        recorded_at: record.recorded_at.clone(),
+        recorded_by: record.recorded_by.clone(),
+        revision: record.revision.clone(),
     }
 }

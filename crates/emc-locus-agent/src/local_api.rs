@@ -3,7 +3,7 @@ use super::{
     run_storage_action, run_sync_command, AgentCommand, AgentError, MetrologyAction, ProjectAction,
     StorageAction, SyncAction,
 };
-use crate::metrology_service::RegisterInstrumentInput;
+use crate::metrology_service::{RecordCalibrationInput, RegisterInstrumentInput};
 use crate::project_agent::{
     AdvanceToTestPlanningInput, CompleteReviewItemInput, CreateProjectInput,
 };
@@ -125,6 +125,7 @@ fn route_api_request(
     config: &ApiServerConfig,
 ) -> Result<String, AgentError> {
     let path = url.split_once('?').map_or(url, |(path, _)| path);
+    let query = url.split_once('?').map(|(_, query)| query).unwrap_or("");
     let parts = path
         .trim_matches('/')
         .split('/')
@@ -234,6 +235,33 @@ fn route_api_request(
                 storage_root: config.storage_root.clone(),
             })
         }
+        ["api", "v1", "metrology", "instruments", asset_id, "calibrations"] if method == "GET" => {
+            run_metrology_command(AgentCommand::Metrology {
+                action: MetrologyAction::ListCalibrations {
+                    asset_id: (*asset_id).to_owned(),
+                },
+                storage_root: config.storage_root.clone(),
+            })
+        }
+        ["api", "v1", "metrology", "instruments", asset_id, "calibrations"] if method == "POST" => {
+            let payload = parse_json_body(body)?;
+            run_metrology_command(AgentCommand::Metrology {
+                action: MetrologyAction::RecordCalibration(Box::new(record_calibration_input(
+                    asset_id, &payload,
+                )?)),
+                storage_root: config.storage_root.clone(),
+            })
+        }
+        ["api", "v1", "metrology", "instruments", asset_id, "status"] if method == "GET" => {
+            let checked_on = required_query_value(query, "checked_on")?;
+            run_metrology_command(AgentCommand::Metrology {
+                action: MetrologyAction::Status {
+                    asset_id: (*asset_id).to_owned(),
+                    checked_on,
+                },
+                storage_root: config.storage_root.clone(),
+            })
+        }
         _ => Err(AgentError::new(
             "api_route_not_found",
             format!("route not found: {method} {path}"),
@@ -325,6 +353,7 @@ fn register_instrument_input(payload: &Value) -> Result<RegisterInstrumentInput,
         part_number: optional_string(payload, "part_number"),
         calibration_requirement: required_string(payload, "calibration_requirement")?,
         calibration_period_months: optional_u32(payload, "calibration_period_months")?,
+        calibration_due_warning_days: optional_u32(payload, "calibration_due_warning_days")?,
         serviceability_status: optional_string(payload, "serviceability_status")
             .unwrap_or_else(|| "usable".to_owned()),
         serviceability_reason: optional_string(payload, "serviceability_reason")
@@ -338,6 +367,36 @@ fn register_instrument_input(payload: &Value) -> Result<RegisterInstrumentInput,
     })
 }
 
+fn record_calibration_input(
+    asset_id: &str,
+    payload: &Value,
+) -> Result<RecordCalibrationInput, AgentError> {
+    Ok(RecordCalibrationInput {
+        event_id: required_string(payload, "event_id")?,
+        asset_id: asset_id.to_owned(),
+        certificate_reference: required_string(payload, "certificate_reference")?,
+        calibrated_at: required_string(payload, "calibrated_at")?,
+        due_at: required_string(payload, "due_at")?,
+        provider: required_string(payload, "provider")?,
+        decision: optional_string(payload, "decision").unwrap_or_else(|| "conforming".to_owned()),
+        as_found_status: optional_string(payload, "as_found_status"),
+        as_left_status: optional_string(payload, "as_left_status"),
+        adjustment_performed: optional_bool(payload, "adjustment_performed")?.unwrap_or(false),
+        uncertainty_summary_json: payload
+            .get("uncertainty_summary")
+            .map(render_json)
+            .or_else(|| optional_string(payload, "uncertainty_summary_json"))
+            .unwrap_or_else(|| "{}".to_owned()),
+        traceability_reference: optional_string(payload, "traceability_reference"),
+        comment: optional_string(payload, "comment").unwrap_or_default(),
+        document_manifest_json: payload
+            .get("document_manifest")
+            .map(render_json)
+            .or_else(|| optional_string(payload, "document_manifest_json")),
+        recorded_by: required_string(payload, "recorded_by")?,
+    })
+}
+
 fn required_string(payload: &Value, key: &'static str) -> Result<String, AgentError> {
     optional_string(payload, key).ok_or_else(|| {
         AgentError::with_details(
@@ -346,6 +405,20 @@ fn required_string(payload: &Value, key: &'static str) -> Result<String, AgentEr
             json!({ "field": key }),
         )
     })
+}
+
+fn required_query_value(query: &str, key: &'static str) -> Result<String, AgentError> {
+    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+        let (candidate, value) = pair.split_once('=').unwrap_or((pair, ""));
+        if candidate == key && !value.trim().is_empty() {
+            return Ok(value.to_owned());
+        }
+    }
+    Err(AgentError::with_details(
+        "missing_query_field",
+        format!("{key} query parameter is required"),
+        json!({ "field": key }),
+    ))
 }
 
 fn optional_string(payload: &Value, key: &str) -> Option<String> {
@@ -378,6 +451,20 @@ fn optional_u32(payload: &Value, key: &str) -> Result<Option<u32>, AgentError> {
     Ok(Some(value as u32))
 }
 
+fn optional_bool(payload: &Value, key: &str) -> Result<Option<bool>, AgentError> {
+    let Some(value) = payload.get(key) else {
+        return Ok(None);
+    };
+    let Some(value) = value.as_bool() else {
+        return Err(AgentError::with_details(
+            "invalid_json_field",
+            format!("{key} must be a boolean"),
+            json!({ "field": key }),
+        ));
+    };
+    Ok(Some(value))
+}
+
 fn status_for_error(code: &str) -> u16 {
     match code {
         "api_route_not_found" | "project_not_found" | "metrology_instrument_not_found" => 404,
@@ -385,17 +472,21 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_project_transition"
         | "project_already_exists"
         | "operation_replay_mismatch"
-        | "metrology_instrument_already_exists" => 409,
+        | "metrology_instrument_already_exists"
+        | "metrology_calibration_already_exists" => 409,
         "storage_not_initialized" => 503,
         "invalid_json_body"
         | "missing_json_field"
+        | "missing_query_field"
         | "invalid_json_field"
+        | "invalid_metrology_date"
         | "missing_argument"
         | "invalid_project_code"
         | "invalid_customer_name"
         | "invalid_actor"
         | "invalid_reason"
         | "domain_error"
+        | "invalid_metrology_calibration"
         | "invalid_metrology_instrument"
         | "unknown_execution_mode"
         | "unknown_contract_review_item" => 400,
@@ -626,6 +717,7 @@ mod tests {
                 "part_number": "FSW44",
                 "calibration_requirement": "required",
                 "calibration_period_months": 12,
+                "calibration_due_warning_days": 45,
                 "capabilities": {"frequency_max_hz": 44000000000},
                 "metrology_notes": "registered through local API"
             }"#,
@@ -650,6 +742,114 @@ mod tests {
         );
         assert_eq!(detail.status, 200);
         assert!(detail.body.contains("\"part_number\":\"FSW44\""));
+        assert!(detail.body.contains("\"calibration_due_warning_days\":45"));
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn local_api_records_calibration_and_computes_status() {
+        let storage_root = temporary_storage_root("agent-api-metrology-calibration");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            max_requests: None,
+        };
+
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+        assert_eq!(
+            handle_api_request(
+                "POST",
+                "/api/v1/metrology/instruments",
+                r#"{
+                    "asset_id": "SA-API-CAL-001",
+                    "family": "SpectrumAnalyzer",
+                    "category_code": "spectrum_analyzer",
+                    "manufacturer": "Rohde Schwarz",
+                    "model": "FSW",
+                    "serial_number": "API-CAL-001",
+                    "calibration_requirement": "required",
+                    "calibration_due_warning_days": 45
+                }"#,
+                &config,
+            )
+            .status,
+            200
+        );
+
+        let missing = handle_api_request(
+            "GET",
+            "/api/v1/metrology/instruments/SA-API-CAL-001/status?checked_on=2026-07-01",
+            "",
+            &config,
+        );
+        assert_eq!(missing.status, 200);
+        assert!(missing.body.contains("\"calibration_status\":\"missing\""));
+
+        let calibration = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-API-CAL-001/calibrations",
+            &format!(
+                r#"{{
+                    "event_id": "CAL-SA-API-CAL-001-2026",
+                    "certificate_reference": "CERT-SA-API-CAL-001-2026",
+                    "calibrated_at": "2026-06-30",
+                    "due_at": "2027-06-30",
+                    "provider": "Accredited Lab",
+                    "decision": "conforming",
+                    "uncertainty_summary": {{"level_db": 0.6}},
+                    "document_manifest": {{
+                        "object_id": "obj-cert-api",
+                        "original_filename": "cert.pdf",
+                        "mime_type": "application/pdf",
+                        "size_bytes": 12,
+                        "sha256": "{}",
+                        "storage_key": "metrology/SA-API-CAL-001/cert.pdf",
+                        "revision": "A"
+                    }},
+                    "recorded_by": "metrology.admin"
+                }}"#,
+                "b".repeat(64)
+            ),
+            &config,
+        );
+        assert_eq!(calibration.status, 200);
+        assert!(calibration
+            .body
+            .contains("\"event_id\":\"CAL-SA-API-CAL-001-2026\""));
+
+        let valid = handle_api_request(
+            "GET",
+            "/api/v1/metrology/instruments/SA-API-CAL-001/status?checked_on=2026-07-01",
+            "",
+            &config,
+        );
+        assert_eq!(valid.status, 200);
+        assert!(valid.body.contains("\"calibration_status\":\"valid\""));
+
+        let due_soon = handle_api_request(
+            "GET",
+            "/api/v1/metrology/instruments/SA-API-CAL-001/status?checked_on=2027-06-01",
+            "",
+            &config,
+        );
+        assert_eq!(due_soon.status, 200);
+        assert!(due_soon
+            .body
+            .contains("\"calibration_status\":\"due_soon\""));
+
+        let list = handle_api_request(
+            "GET",
+            "/api/v1/metrology/instruments/SA-API-CAL-001/calibrations",
+            "",
+            &config,
+        );
+        assert_eq!(list.status, 200);
+        assert!(list.body.contains("\"calibration_events\""));
 
         remove_temporary_storage_root(&storage_root);
     }

@@ -29,7 +29,10 @@ provenance. Version 3 adds part numbers, calibration periodicity, metrology
 notes, and controlled instrument document attachments. Version 4 adds
 `serviceability_status`, `serviceability_reason`,
 `serviceability_updated_at`, and `legacy_availability` so planning reservations
-remain separate from operational service state.
+remain separate from operational service state. Version 5 adds revisioned
+calibration events, per-instrument due-soon warning thresholds, and computed
+calibration-status policy metadata while preserving the legacy
+`calibration_records` table.
 
 ### Projects
 

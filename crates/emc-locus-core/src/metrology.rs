@@ -1,5 +1,7 @@
 use crate::{quality::ExecutionMode, DomainError};
 
+pub const DEFAULT_CALIBRATION_DUE_SOON_WARNING_DAYS: u32 = 30;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MetrologyDate {
     year: u16,
@@ -146,6 +148,7 @@ pub enum CalibrationStatus {
     Expired,
     Missing,
     NotRequired,
+    Nonconforming,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -292,6 +295,7 @@ pub enum EquipmentIssueKind {
     CalibrationMissing,
     CalibrationExpired,
     CalibrationDueSoon,
+    CalibrationNonconforming,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -431,6 +435,19 @@ impl MetrologyRegistry {
         instrument: &InstrumentCode,
         checked_on: MetrologyDate,
     ) -> Result<CalibrationStatus, DomainError> {
+        self.calibration_status_with_warning_days(
+            instrument,
+            checked_on,
+            DEFAULT_CALIBRATION_DUE_SOON_WARNING_DAYS,
+        )
+    }
+
+    pub fn calibration_status_with_warning_days(
+        &self,
+        instrument: &InstrumentCode,
+        checked_on: MetrologyDate,
+        warning_days: u32,
+    ) -> Result<CalibrationStatus, DomainError> {
         let instrument_record = self
             .instrument(instrument)
             .ok_or_else(|| DomainError::UnknownInstrumentCode(instrument.as_str().to_owned()))?;
@@ -447,7 +464,7 @@ impl MetrologyRegistry {
 
         if days_until_due < 0 {
             Ok(CalibrationStatus::Expired)
-        } else if days_until_due <= 30 {
+        } else if days_until_due <= warning_days as i32 {
             Ok(CalibrationStatus::DueSoon)
         } else {
             Ok(CalibrationStatus::Valid)
@@ -504,6 +521,11 @@ impl MetrologyRegistry {
                     false,
                 )),
                 Ok(CalibrationStatus::Valid | CalibrationStatus::NotRequired) => {}
+                Ok(CalibrationStatus::Nonconforming) => issues.push(EquipmentIssue::new(
+                    requested.clone(),
+                    EquipmentIssueKind::CalibrationNonconforming,
+                    calibration_blocks,
+                )),
                 Err(_) => issues.push(EquipmentIssue::new(
                     requested.clone(),
                     EquipmentIssueKind::MissingInstrument,
