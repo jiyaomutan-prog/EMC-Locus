@@ -8,6 +8,26 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-06-30
+
+### Added
+
+- Added metrology migration `0007_legacy_calibration_events.sql` to backfill
+  legacy `calibration_records` into `calibration_events` without deleting the
+  original records.
+- Added migration coverage for the legacy calibration backfill, reserved
+  availability conversion, idempotent migration re-runs, and certificate
+  manifest preservation.
+- Added a real HTTP server metrology E2E test covering storage initialization,
+  instrument registration, readiness refusal without calibration, calibration
+  with certificate manifest, due-soon warning, out-of-service blocking,
+  return-to-service, idempotent replay, replay conflict, restart persistence,
+  audit reads, and sync outbox reads.
+
+### Changed
+
+- Bumped the synchronized Rust/Python software version to `0.6.7`.
+
 ## [0.6.6] - 2026-06-30
 
 ### Added

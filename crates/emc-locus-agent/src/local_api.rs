@@ -1240,6 +1240,287 @@ mod tests {
         remove_temporary_storage_root(&storage_root);
     }
 
+    #[test]
+    fn real_http_server_runs_metrology_vertical_slice_after_restart() {
+        let storage_root = temporary_storage_root("agent-api-real-metrology");
+        let migrations_root = repo_root().join("storage/sqlite");
+        let first_port = free_loopback_port();
+        let first_address = format!("127.0.0.1:{first_port}");
+        let first_server = spawn_server(ApiServerConfig {
+            bind: first_address.clone(),
+            storage_root: storage_root.clone(),
+            migrations_root: migrations_root.clone(),
+            max_requests: Some(15),
+        });
+
+        let health = wait_for_http(&first_address, "/api/v1/health");
+        assert_eq!(health.0, 200);
+        assert_eq!(
+            http_request("POST", &first_address, "/api/v1/storage/initialize", "").0,
+            200
+        );
+
+        let register_body = r#"{
+            "asset_id": "SA-E2E-001",
+            "family": "SpectrumAnalyzer",
+            "category_code": "spectrum_analyzer",
+            "manufacturer": "Rohde Schwarz",
+            "model": "FSW",
+            "serial_number": "E2E-001",
+            "part_number": "FSW44",
+            "calibration_requirement": "required",
+            "calibration_period_months": 12,
+            "calibration_due_warning_days": 45,
+            "capabilities": {"frequency_max_hz": 44000000000},
+            "actor": "metrology.admin",
+            "reason": "initial E2E registration",
+            "operation_id": "op-e2e-metrology-register"
+        }"#;
+        let registered = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/metrology/instruments",
+            register_body,
+        );
+        assert_eq!(registered.0, 200);
+        assert!(registered.1.contains("\"asset_id\":\"SA-E2E-001\""));
+
+        let missing = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/metrology/readiness",
+            r#"{
+                "asset_ids": ["SA-E2E-001"],
+                "execution_mode": "accredited",
+                "checked_on": "2026-07-01"
+            }"#,
+        );
+        assert_eq!(missing.0, 200);
+        assert!(missing.1.contains("\"ready\":false"));
+        assert!(missing.1.contains("\"code\":\"calibration_missing\""));
+
+        let calibration = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/metrology/instruments/SA-E2E-001/calibrations",
+            &format!(
+                r#"{{
+                    "event_id": "CAL-SA-E2E-001-2026",
+                    "certificate_reference": "CERT-SA-E2E-001-2026",
+                    "calibrated_at": "2026-06-30",
+                    "due_at": "2027-06-30",
+                    "provider": "Accredited Lab",
+                    "decision": "conforming",
+                    "uncertainty_summary": {{"level_db": 0.6}},
+                    "document_manifest": {{
+                        "object_id": "obj-cert-e2e",
+                        "original_filename": "cert.pdf",
+                        "mime_type": "application/pdf",
+                        "size_bytes": 12,
+                        "sha256": "{}",
+                        "storage_key": "metrology/SA-E2E-001/cert.pdf",
+                        "revision": "A"
+                    }},
+                    "recorded_by": "metrology.admin",
+                    "actor": "metrology.admin",
+                    "reason": "annual calibration",
+                    "operation_id": "op-e2e-metrology-calibration"
+                }}"#,
+                "c".repeat(64)
+            ),
+        );
+        assert_eq!(calibration.0, 200);
+        assert!(calibration
+            .1
+            .contains("\"event_id\":\"CAL-SA-E2E-001-2026\""));
+
+        let ready = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/metrology/readiness",
+            r#"{
+                "asset_ids": ["SA-E2E-001"],
+                "execution_mode": "accredited",
+                "checked_on": "2026-07-01"
+            }"#,
+        );
+        assert_eq!(ready.0, 200);
+        assert!(ready.1.contains("\"ready\":true"));
+
+        let due_soon = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/metrology/readiness",
+            r#"{
+                "asset_ids": ["SA-E2E-001"],
+                "execution_mode": "accredited",
+                "checked_on": "2027-06-15"
+            }"#,
+        );
+        assert_eq!(due_soon.0, 200);
+        assert!(due_soon.1.contains("\"calibration_status\":\"due_soon\""));
+        assert!(due_soon.1.contains("\"warnings\""));
+
+        let out_of_service = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/metrology/instruments/SA-E2E-001/serviceability",
+            r#"{
+                "serviceability_status": "out_of_service",
+                "serviceability_reason": "Damaged input connector",
+                "actor": "metrology.admin",
+                "reason": "asset quarantine",
+                "operation_id": "op-e2e-metrology-out-of-service"
+            }"#,
+        );
+        assert_eq!(out_of_service.0, 200);
+        assert!(out_of_service
+            .1
+            .contains("\"serviceability_status\":\"out_of_service\""));
+
+        let blocked = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/metrology/readiness",
+            r#"{
+                "asset_ids": ["SA-E2E-001"],
+                "execution_mode": "accredited",
+                "checked_on": "2026-07-01"
+            }"#,
+        );
+        assert_eq!(blocked.0, 200);
+        assert!(blocked.1.contains("\"ready\":false"));
+        assert!(blocked.1.contains("\"code\":\"out_of_service\""));
+
+        assert_eq!(
+            http_request(
+                "POST",
+                &first_address,
+                "/api/v1/metrology/instruments/SA-E2E-001/serviceability",
+                r#"{
+                    "serviceability_status": "usable",
+                    "serviceability_reason": "Repair verified",
+                    "actor": "metrology.admin",
+                    "reason": "return to service",
+                    "operation_id": "op-e2e-metrology-return-to-service"
+                }"#,
+            )
+            .0,
+            200
+        );
+
+        let ready_again = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/metrology/readiness",
+            r#"{
+                "asset_ids": ["SA-E2E-001"],
+                "execution_mode": "accredited",
+                "checked_on": "2026-07-01"
+            }"#,
+        );
+        assert_eq!(ready_again.0, 200);
+        assert!(ready_again.1.contains("\"ready\":true"));
+
+        let replay = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/metrology/instruments",
+            register_body,
+        );
+        assert_eq!(replay.0, 200);
+        assert!(replay.1.contains("\"asset_id\":\"SA-E2E-001\""));
+
+        let conflict = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/metrology/instruments",
+            r#"{
+                "asset_id": "SA-E2E-001",
+                "family": "SpectrumAnalyzer",
+                "category_code": "spectrum_analyzer",
+                "manufacturer": "Rohde Schwarz",
+                "model": "Changed",
+                "serial_number": "E2E-001",
+                "calibration_requirement": "required",
+                "actor": "metrology.admin",
+                "reason": "conflicting registration",
+                "operation_id": "op-e2e-metrology-register"
+            }"#,
+        );
+        assert_eq!(conflict.0, 409);
+        assert!(conflict.1.contains("operation_replay_mismatch"));
+
+        let audit = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/metrology/instruments/SA-E2E-001/audit-events",
+            "",
+        );
+        let outbox = http_request("GET", &first_address, "/api/v1/sync/outbox", "");
+        assert_eq!(audit.0, 200);
+        assert_eq!(outbox.0, 200);
+        assert!(audit.1.contains("\"instrument_registered\""));
+        assert!(audit.1.contains("\"instrument_serviceability_changed\""));
+        assert_eq!(audit.1.matches("\"sequence\"").count(), 3);
+        assert!(outbox.1.contains("\"domain\":\"metrology\""));
+        assert!(outbox
+            .1
+            .contains("\"operation_kind\":\"calibration_recorded\""));
+        assert_eq!(outbox.1.matches("\"operation_id\"").count(), 4);
+        first_server
+            .join()
+            .expect("server thread panicked")
+            .unwrap();
+
+        let second_port = free_loopback_port();
+        let second_address = format!("127.0.0.1:{second_port}");
+        let second_server = spawn_server(ApiServerConfig {
+            bind: second_address.clone(),
+            storage_root: storage_root.clone(),
+            migrations_root,
+            max_requests: Some(5),
+        });
+        assert_eq!(wait_for_http(&second_address, "/api/v1/health").0, 200);
+        let reloaded = http_request(
+            "GET",
+            &second_address,
+            "/api/v1/metrology/instruments/SA-E2E-001",
+            "",
+        );
+        let reloaded_ready = http_request(
+            "POST",
+            &second_address,
+            "/api/v1/metrology/readiness",
+            r#"{
+                "asset_ids": ["SA-E2E-001"],
+                "execution_mode": "accredited",
+                "checked_on": "2026-07-01"
+            }"#,
+        );
+        let reloaded_audit = http_request(
+            "GET",
+            &second_address,
+            "/api/v1/metrology/instruments/SA-E2E-001/audit-events",
+            "",
+        );
+        let reloaded_outbox = http_request("GET", &second_address, "/api/v1/sync/outbox", "");
+        assert_eq!(reloaded.0, 200);
+        assert_eq!(reloaded_ready.0, 200);
+        assert_eq!(reloaded_audit.0, 200);
+        assert_eq!(reloaded_outbox.0, 200);
+        assert!(reloaded.1.contains("\"asset_id\":\"SA-E2E-001\""));
+        assert!(reloaded_ready.1.contains("\"ready\":true"));
+        assert!(reloaded_audit.1.contains("\"instrument_registered\""));
+        assert!(reloaded_outbox.1.contains("\"domain\":\"metrology\""));
+        second_server
+            .join()
+            .expect("server thread panicked")
+            .unwrap();
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
     fn repo_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()

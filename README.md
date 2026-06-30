@@ -81,7 +81,13 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.6.6`.
+Current software version: `0.6.7`.
+
+Version `0.6.7` adds the historical migration and E2E confidence layer for the
+metrology vertical slice: legacy `calibration_records` are backfilled into
+`calibration_events` without losing the original rows, and a real HTTP server
+test exercises instrument registration, calibration, readiness, serviceability,
+idempotence, restart persistence, audit, and outbox.
 
 Version `0.6.6` migrates the temporary Qt/Python metrology surface to the Rust
 agent when `agent_url` is configured: instruments are listed from the agent,

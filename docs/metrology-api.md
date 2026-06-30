@@ -164,15 +164,19 @@ and `warnings`.
 
 ## Current Boundary
 
-Version `0.6.6` keeps Rust as the source of truth for the migrated metrology
+Version `0.6.7` keeps Rust as the source of truth for the migrated metrology
 vertical slice and routes the temporary Qt/Python metrology surface through the
 local agent when `agent_url` is configured. Instrument list/detail bootstrap,
 computed calibration status, readiness, instrument registration,
 calibration-event recording, and serviceability changes no longer require
 Python to open `metrology.sqlite` directly in that mode.
 
+Migration `0007_legacy_calibration_events.sql` backfills legacy
+`calibration_records` into `calibration_events` so historical certificates are
+visible to the agent-backed computed-status and readiness paths while preserving
+the original rows.
+
 Document attachment remains split: calibration events can carry certificate
 document manifests through `document_manifest_json`, but standalone instrument
 document attachment is still a legacy SQLite form until a dedicated agent route
-is added. The full HTTP restart E2E scenario is delivered in a later `0.6.x`
-tranche on the path to `0.7.0`.
+is added.

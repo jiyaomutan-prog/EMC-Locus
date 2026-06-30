@@ -817,7 +817,7 @@ mod tests {
                 .find(|domain| domain.domain == "metrology")
                 .unwrap()
                 .schema_version,
-            Some(6)
+            Some(7)
         );
 
         remove_temporary_storage_root(&storage_root);

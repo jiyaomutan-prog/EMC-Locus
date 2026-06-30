@@ -638,11 +638,41 @@ class MetrologyRepositoryTests(unittest.TestCase):
                         ),
                     ),
                 )
+                connection.execute(
+                    """
+                    INSERT INTO calibration_records (
+                        asset_id,
+                        certificate_reference,
+                        calibrated_at,
+                        due_at,
+                        provider,
+                        status_at_import,
+                        uncertainty_json,
+                        file_reference,
+                        checksum,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "LEGACY-001",
+                        "CERT-LEGACY-001",
+                        "2026-01-15",
+                        "2027-01-15",
+                        "legacy lab",
+                        "valid",
+                        '{"level_db": 0.8}',
+                        "legacy/cert.pdf",
+                        "sha256:" + "a" * 64,
+                        "2026-01-16T00:00:00Z",
+                    ),
+                )
                 connection.commit()
             finally:
                 connection.close()
 
             repository = MetrologyRepository(database_path, Path("storage/sqlite"))
+            repository.initialize()
             repository.initialize()
 
             with closing(repository.connect()) as connection:
@@ -664,8 +694,17 @@ class MetrologyRepositoryTests(unittest.TestCase):
                     ).fetchone()[0]
                     == 1
                 )
+                calibration_event_rows = connection.execute(
+                    """
+                    SELECT *
+                    FROM calibration_events
+                    WHERE asset_id = ?
+                    ORDER BY event_id
+                    """,
+                    ("LEGACY-001",),
+                ).fetchall()
 
-            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4, 5, 6])
+            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4, 5, 6, 7])
             self.assertIn("category_code", {row["name"] for row in instrument_columns})
             self.assertIn("part_number", {row["name"] for row in instrument_columns})
             self.assertIn("calibration_period_months", {row["name"] for row in instrument_columns})
@@ -699,6 +738,16 @@ class MetrologyRepositoryTests(unittest.TestCase):
                 repository.get_instrument("LEGACY-OOS")["serviceability_status"],
                 "out_of_service",
             )
+            self.assertEqual(len(calibration_event_rows), 1)
+            self.assertEqual(calibration_event_rows[0]["event_id"], "legacy-calibration-0001")
+            self.assertEqual(calibration_event_rows[0]["decision"], "conforming")
+            self.assertEqual(
+                calibration_event_rows[0]["uncertainty_summary_json"],
+                '{"level_db": 0.8}',
+            )
+            manifest = json.loads(calibration_event_rows[0]["document_manifest_json"])
+            self.assertEqual(manifest["local_reference"], "legacy/cert.pdf")
+            self.assertEqual(manifest["sha256"], "a" * 64)
 
 
 class GuiBootstrapTests(unittest.TestCase):

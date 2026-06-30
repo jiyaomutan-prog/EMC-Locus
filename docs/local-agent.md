@@ -218,3 +218,8 @@ the agent when `agent_url` is configured:
 The remaining standalone instrument-document form, service planning, test
 categories, measurement data, updates, and runtime actions remain legacy direct
 SQLite until their own migration slices.
+
+Version `0.6.7` adds the metrology historical migration and E2E validation
+layer: legacy calibration rows are backfilled into calibration events, and a
+real loopback HTTP test verifies readiness, serviceability, idempotence,
+restart persistence, audit, and outbox for the migrated metrology slice.
