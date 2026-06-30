@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -55,6 +55,38 @@ def serviceability_from_legacy_availability(availability: str) -> str:
     """Map the legacy availability field to the new serviceability concept."""
 
     return "out_of_service" if availability == "out_of_service" else "usable"
+
+
+def _parse_schedule_datetime(value: str, field_name: str) -> datetime:
+    if "T" not in value:
+        raise ValueError(f"{field_name} must be an ISO 8601 local date-time")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an ISO 8601 local date-time") from exc
+    if parsed.tzinfo is not None:
+        raise ValueError(f"{field_name} must be a local date-time without timezone")
+    return parsed
+
+
+def validate_service_schedule_block(
+    planned_start_at: str,
+    planned_end_at: str,
+) -> None:
+    """Reject schedule blocks that are not one intra-day business block."""
+
+    start = _parse_schedule_datetime(planned_start_at, "planned_start_at")
+    end = _parse_schedule_datetime(planned_end_at, "planned_end_at")
+    if end <= start:
+        raise ValueError("planned_end_at must be after planned_start_at")
+    if end.date() != start.date():
+        raise ValueError("service schedule items must stay within one business day")
+
+    day = start.date()
+    while day <= end.date():
+        if day.weekday() >= 5:
+            raise ValueError("service schedule items must stay within business days")
+        day += timedelta(days=1)
 
 
 def _validate_signal_reference(value: str, *, field_name: str) -> None:
@@ -1030,6 +1062,7 @@ class ProjectRepository(SQLiteDomainRepository):
         status: str = "planned",
         notes: str = "",
     ) -> int:
+        validate_service_schedule_block(planned_start_at, planned_end_at)
         now = utc_timestamp()
         with closing(self.connect()) as connection:
             with connection:

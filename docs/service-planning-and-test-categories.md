@@ -24,6 +24,10 @@ The project repository owns `service_schedule_items`. A planning row records:
 Allowed status values are `planned`, `confirmed`, `in_progress`, `completed`,
 and `cancelled`.
 
+Schedule rows must use ISO 8601 local date-times without timezone offsets. A
+single row must remain inside one business day, and the project repository
+enforces that rule even when callers bypass the GUI/CLI action layer.
+
 Example local action:
 
 ```text

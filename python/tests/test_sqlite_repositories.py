@@ -750,6 +750,36 @@ class MetrologyRepositoryTests(unittest.TestCase):
             self.assertEqual(manifest["sha256"], "a" * 64)
 
 
+class ProjectRepositoryScheduleTests(unittest.TestCase):
+    def test_repository_rejects_multi_day_service_schedule_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-SCH",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            with self.assertRaisesRegex(ValueError, "one business day"):
+                projects.add_service_schedule_item(
+                    item_code="PLAN-REPO-MULTIDAY",
+                    project_code="CEM-REPO-SCH",
+                    title="Repository bypass attempt",
+                    planned_start_at="2026-07-02T14:00",
+                    planned_end_at="2026-07-03T10:00",
+                    assigned_operator="operator.one",
+                    location="Lab A",
+                    equipment_under_test="EUT rail",
+                )
+
+            self.assertEqual(projects.list_service_schedule_items(), [])
+
+
 class GuiBootstrapTests(unittest.TestCase):
     def test_builds_bootstrap_from_local_repositories(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

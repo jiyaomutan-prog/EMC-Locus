@@ -235,6 +235,9 @@ Deliverables:
   weekend-crossing schedule items before repository writes;
 - local service-planning actions now also reject multi-day business-day blocks,
   keeping each scheduled execution item as a single intra-day lab block;
+- project repository service-schedule inserts now enforce the same one
+  intra-day business-block validation, so lower-level Python callers cannot
+  bypass the planning safeguard;
 - future Qt model/view screens backed by application services;
 - future Rust-backed command execution bridge for instrument runtime actions.
 

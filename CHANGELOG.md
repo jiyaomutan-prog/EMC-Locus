@@ -8,6 +8,12 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Project repository service-schedule writes now enforce the same local
+  date-time, same-day, and business-day block validation as the GUI/CLI action,
+  preventing direct repository calls from bypassing planning safeguards.
+
 ## [0.8.0] - 2026-06-30
 
 ### Added
