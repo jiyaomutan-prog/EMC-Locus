@@ -44,6 +44,17 @@ READINESS_COLUMNS = (
     "Blocages",
     "Avertissements",
 )
+TEST_EXECUTION_COLUMNS = (
+    "Tentative",
+    "Projet",
+    "Methode",
+    "Statut",
+    "Readiness",
+    "Operateur",
+    "Controle",
+    "Termine",
+    "Revision",
+)
 
 
 @dataclass(frozen=True)
@@ -150,6 +161,15 @@ def build_console_view_model(bootstrap: dict[str, Any]) -> ConsoleViewModel:
                 ),
             ),
             TableViewModel(
+                tab_label="Essais",
+                title="Essais simules",
+                columns=TEST_EXECUTION_COLUMNS,
+                rows=_list_rows(
+                    bootstrap.get("test_executions"),
+                    len(TEST_EXECUTION_COLUMNS),
+                ),
+            ),
+            TableViewModel(
                 tab_label="Docs metro",
                 title="Documents materiel",
                 columns=("Actif", "Type", "Titre", "Fichier", "Revision", "Fonction"),
@@ -249,6 +269,7 @@ def build_operator_form_specs(
     )
     has_projects = "projects" in writable_repositories
     has_test_definitions = "test_definitions" in writable_repositories
+    has_test_execution_agent = "test_execution_agent" in writable_repositories
 
     return (
         OperatorFormSpec(
@@ -416,6 +437,56 @@ def build_operator_form_specs(
                     choices=projects,
                 ),
                 FormFieldSpec("actor", "Acteur", "text", required=True),
+                FormFieldSpec("reason", "Raison", "multiline", required=True),
+            ),
+        ),
+        OperatorFormSpec(
+            action_id="run_simulated_emc_test",
+            title="Essai CEM simule",
+            submit_label="Pre-vol et lancer",
+            enabled=has_test_execution_agent and bool(projects) and bool(instruments),
+            disabled_reason=_disabled_reason(
+                has_test_execution_agent,
+                bool(projects) and bool(instruments),
+                "Agent local requis",
+                "Projet et instrument requis",
+            ),
+            fields=(
+                FormFieldSpec("attempt_id", "Tentative", "text", required=True),
+                FormFieldSpec(
+                    "project_code",
+                    "Projet",
+                    "choice",
+                    required=True,
+                    choices=projects,
+                ),
+                FormFieldSpec(
+                    "test_method_reference",
+                    "Methode",
+                    "text",
+                    required=True,
+                    default="SIM-EMC-CONDUCTED",
+                ),
+                FormFieldSpec(
+                    "execution_mode",
+                    "Mode",
+                    "choice",
+                    required=True,
+                    choices=(
+                        ("accredited", "Accredite"),
+                        ("non_accredited", "Non accredite"),
+                        ("investigation", "Investigation"),
+                    ),
+                ),
+                FormFieldSpec(
+                    "asset_id",
+                    "Instrument",
+                    "choice",
+                    required=True,
+                    choices=instruments,
+                ),
+                FormFieldSpec("operator", "Operateur", "text", required=True),
+                FormFieldSpec("checked_on", "Date controle", "text", required=True),
                 FormFieldSpec("reason", "Raison", "multiline", required=True),
             ),
         ),
@@ -628,10 +699,12 @@ def _fixed_row(row: list[Any], column_count: int) -> tuple[str, ...]:
 
 def _action_intents(bootstrap: dict[str, Any]) -> tuple[OperatorActionIntent, ...]:
     projects = _project_rows(bootstrap.get("projects"))
+    instruments = _list_rows(bootstrap.get("instruments"), len(INSTRUMENT_COLUMNS))
     datasets = _list_rows(bootstrap.get("datasets"), 5)
     updates = _list_rows(bootstrap.get("updates"), 5)
 
     project_enabled = any(row[2] != "Archived" for row in projects)
+    simulated_test_enabled = bool(projects) and bool(instruments)
     retention_enabled = any(row[4] in {"Immutable", "retained"} for row in datasets)
     update_enabled = any(row[3].lower() not in {"installed", "installe"} for row in updates)
 
@@ -642,6 +715,17 @@ def _action_intents(bootstrap: dict[str, Any]) -> tuple[OperatorActionIntent, ..
             target_table="projects",
             enabled=project_enabled,
             reason="Selectionner un projet non archive" if project_enabled else "Aucun projet actif",
+        ),
+        OperatorActionIntent(
+            action_id="run_simulated_emc_test",
+            label="Lancer essai simule",
+            target_table="test_executions",
+            enabled=simulated_test_enabled,
+            reason=(
+                "Pre-vol metrologique puis execution simulee"
+                if simulated_test_enabled
+                else "Projet et instrument requis"
+            ),
         ),
         OperatorActionIntent(
             action_id="request_dataset_deletion",
@@ -675,6 +759,10 @@ def _status_metrics(bootstrap: dict[str, Any]) -> tuple[StatusMetric, ...]:
     documents = _list_rows(bootstrap.get("instrument_documents"), 6)
     categories = _list_rows(bootstrap.get("instrument_categories"), 5)
     schedule = _list_rows(bootstrap.get("schedule"), 9)
+    test_executions = _list_rows(
+        bootstrap.get("test_executions"),
+        len(TEST_EXECUTION_COLUMNS),
+    )
     runtime = _list_rows(bootstrap.get("runtime"), len(RUNTIME_COLUMNS))
     datasets = _list_rows(bootstrap.get("datasets"), 5)
     updates = _list_rows(bootstrap.get("updates"), 5)
@@ -682,6 +770,7 @@ def _status_metrics(bootstrap: dict[str, Any]) -> tuple[StatusMetric, ...]:
     active_projects = sum(1 for row in projects if row[2] != "Archived")
     instrument_alerts = sum(1 for row in instruments if row[6] in {"warn", "danger"})
     runtime_failures = sum(1 for row in runtime if row[3].lower() in {"echec", "failed"})
+    refused_tests = sum(1 for row in test_executions if row[3] == "refused")
     max_runtime_attempts = max((_positive_int(row[7]) for row in runtime), default=0)
     retained_datasets = sum(1 for row in datasets if row[4] in {"Immutable", "retained"})
     pending_updates = sum(1 for row in updates if row[3].lower() not in {"installed", "installe"})
@@ -712,6 +801,11 @@ def _status_metrics(bootstrap: dict[str, Any]) -> tuple[StatusMetric, ...]:
             "Planning",
             str(len(schedule)),
             "warn" if any(row[8] in {"planned", "confirmed"} for row in schedule) else "ok",
+        ),
+        StatusMetric(
+            "Essais simules",
+            str(len(test_executions)),
+            "warn" if refused_tests else ("ok" if test_executions else "neutral"),
         ),
         StatusMetric(
             "Erreurs runtime",

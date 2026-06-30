@@ -284,6 +284,7 @@ class QtConsoleTests(unittest.TestCase):
         self.assertTrue(by_id["register_instrument"].enabled)
         self.assertTrue(by_id["attach_instrument_document"].enabled)
         self.assertTrue(by_id["set_instrument_serviceability"].enabled)
+        self.assertFalse(by_id["run_simulated_emc_test"].enabled)
         self.assertTrue(by_id["schedule_service_item"].enabled)
         self.assertTrue(by_id["create_test_category"].enabled)
         self.assertIn(
@@ -310,6 +311,21 @@ class QtConsoleTests(unittest.TestCase):
         self.assertTrue(agent_by_id["register_instrument"].enabled)
         self.assertTrue(agent_by_id["set_instrument_serviceability"].enabled)
         self.assertFalse(agent_by_id["attach_instrument_document"].enabled)
+
+        execution_specs = build_operator_form_specs(
+            {
+                "instruments": [["SA-QT-AGENT", "receiver"]],
+                "projects": [{"code": "CEM-QT-AGENT", "customer": "Agent Customer"}],
+                "instrument_categories": [["spectrum_analyzer", "radio_rf", "Spectrum analyzer"]],
+            },
+            {"metrology", "projects", "metrology_agent", "test_execution_agent"},
+        )
+        execution_by_id = {spec.action_id: spec for spec in execution_specs}
+        self.assertTrue(execution_by_id["run_simulated_emc_test"].enabled)
+        self.assertEqual(
+            execution_by_id["run_simulated_emc_test"].fields[2].default,
+            "SIM-EMC-CONDUCTED",
+        )
 
     def test_qt_form_action_registers_instrument_and_document_without_pyside(self) -> None:
         module = load_qt_console_module()
@@ -428,6 +444,44 @@ class QtConsoleTests(unittest.TestCase):
         register.assert_called_once()
         self.assertIsNone(register.call_args.kwargs["metrology_db"])
         self.assertEqual(register.call_args.kwargs["agent_url"], "http://127.0.0.1:8765")
+
+    def test_qt_form_action_runs_simulated_emc_test_through_agent(self) -> None:
+        module = load_qt_console_module()
+        args = SimpleNamespace(
+            projects_db=None,
+            metrology_db=None,
+            test_definitions_db=None,
+            measurement_data_db=None,
+            update_catalog_db=None,
+            migrations_root=Path("storage/sqlite"),
+            agent_url="http://127.0.0.1:8765",
+        )
+
+        with patch.object(module, "run_simulated_emc_test_action") as run_test:
+            run_test.return_value = {
+                "message": "Essai refuse RUN-QT: SA-QT/missing_evidence/calibration_missing"
+            }
+            message = module._execute_form_action(
+                args,
+                "run_simulated_emc_test",
+                {
+                    "attempt_id": "RUN-QT",
+                    "project_code": "CEM-QT-AGENT",
+                    "test_method_reference": "SIM-EMC-CONDUCTED",
+                    "execution_mode": "accredited",
+                    "asset_id": "SA-QT",
+                    "operator": "operator.one",
+                    "checked_on": "2026-07-01",
+                    "reason": "operator launch",
+                },
+            )
+
+        run_test.assert_called_once()
+        self.assertEqual(
+            run_test.call_args.kwargs["agent_url"],
+            "http://127.0.0.1:8765",
+        )
+        self.assertIn("Essai refuse RUN-QT", message)
 
     def test_qt_agent_status_maps_storage_state_without_pyside(self) -> None:
         module = load_qt_console_module()
@@ -614,6 +668,21 @@ class QtConsoleTests(unittest.TestCase):
                     }
                 ]
             }
+            client.list_project_test_executions.return_value = {
+                "executions": [
+                    {
+                        "attempt_id": "RUN-QT-AGENT",
+                        "project_code": "CEM-QT-AGENT",
+                        "test_method_reference": "SIM-EMC-CONDUCTED",
+                        "status": "refused",
+                        "ready": False,
+                        "operator": "operator.one",
+                        "checked_on": "2026-07-01",
+                        "completed_at": "2026-07-01T10:00:00Z",
+                        "revision": "rev-run",
+                    }
+                ]
+            }
             client.sync_outbox.return_value = {
                 "sync_outbox": [
                     {
@@ -640,6 +709,8 @@ class QtConsoleTests(unittest.TestCase):
         self.assertEqual(payload["projects"][0]["code"], "CEM-QT-AGENT")
         self.assertEqual(payload["contract_review_items"][0][1], "scope_confirmed")
         self.assertEqual(payload["project_audit_events"][0][3], "project_created")
+        self.assertEqual(payload["test_executions"][0][0], "RUN-QT-AGENT")
+        self.assertEqual(payload["test_executions"][0][3], "refused")
         self.assertEqual(payload["sync_outbox"][0][0], "op-agent")
 
     def test_qt_console_metrology_views_refresh_from_agent(self) -> None:

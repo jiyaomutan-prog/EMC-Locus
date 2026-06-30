@@ -8,6 +8,30 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-30
+
+### Added
+
+- Added the first simulated EMC test execution workflow through the local Rust
+  agent: launch attempt, metrology preflight, structured refusal, persisted
+  completed result, project audit, and sync outbox evidence.
+- Added project migration `0003_simulated_test_executions.sql` for execution
+  attempts and per-instrument readiness snapshots.
+- Added dedicated local API routes for simulated EMC execution creation,
+  execution detail reads, and project execution history.
+- Added Python local-agent client, GUI action, Qt form contract, and Qt table
+  support for the single operator-centered simulated EMC workflow.
+- Added real HTTP E2E coverage for refused preflight, calibration correction,
+  authorized execution, persisted result, replay, conflict detection, restart
+  persistence, audit, and outbox visibility.
+
+### Changed
+
+- Bumped the synchronized Rust/Python software version to `0.8.0`.
+- Extended metrology readiness issues with a business `dimension` so execution
+  refusals can explain serviceability, missing evidence, calibration validity,
+  and nonconformance separately.
+
 ### Fixed
 
 - Local service-planning actions now reject multi-day schedule items even when

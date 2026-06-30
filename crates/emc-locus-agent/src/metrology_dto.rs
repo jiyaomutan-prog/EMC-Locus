@@ -134,6 +134,7 @@ pub struct ReadinessInstrumentResultDto {
 pub struct ReadinessIssueDto {
     pub asset_id: String,
     pub code: String,
+    pub dimension: String,
     pub message: String,
 }
 

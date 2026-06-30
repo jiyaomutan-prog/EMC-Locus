@@ -81,7 +81,14 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.7.0`.
+Current software version: `0.8.0`.
+
+Version `0.8.0` adds the first simulated EMC test execution workflow. A local
+operator can launch one simulated EMC attempt through the Rust agent or the
+temporary Qt console; the agent runs metrology preflight for the required
+instrumentation, persists refused and completed attempts, stores the readiness
+verdict and instrumentation snapshot, records a deterministic simulated result
+when allowed, and writes project audit plus sync outbox evidence.
 
 Version `0.7.0` consolidates the first agent-backed metrology readiness
 vertical slice. A local user can initialize storage, run the Rust agent,

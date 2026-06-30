@@ -486,6 +486,14 @@ pub fn assess_metrology_readiness(
     storage_root: &Path,
     input: AssessReadinessInput,
 ) -> Result<String, AgentError> {
+    let report = assess_metrology_readiness_report(storage_root, input)?;
+    Ok(render_json(&report))
+}
+
+pub(crate) fn assess_metrology_readiness_report(
+    storage_root: &Path,
+    input: AssessReadinessInput,
+) -> Result<ReadinessReportDto, AgentError> {
     if input.asset_ids.is_empty() {
         return Err(AgentError::new(
             "invalid_metrology_readiness",
@@ -505,6 +513,7 @@ pub fn assess_metrology_readiness(
             let issue = ReadinessIssueDto {
                 asset_id: parsed_asset.as_str().to_owned(),
                 code: "instrument_unknown".to_owned(),
+                dimension: "missing_evidence".to_owned(),
                 message: "instrument is not registered".to_owned(),
             };
             blocking_issues.push(issue);
@@ -538,6 +547,7 @@ pub fn assess_metrology_readiness(
             blocking_issues.push(ReadinessIssueDto {
                 asset_id: instrument.asset_id.clone(),
                 code: instrument.serviceability_status.clone(),
+                dimension: "serviceability".to_owned(),
                 message: "instrument is not operationally usable".to_owned(),
             });
         }
@@ -545,6 +555,7 @@ pub fn assess_metrology_readiness(
             warnings.push(ReadinessIssueDto {
                 asset_id: instrument.asset_id.clone(),
                 code: "restricted".to_owned(),
+                dimension: "serviceability".to_owned(),
                 message: "instrument has serviceability restrictions".to_owned(),
             });
         }
@@ -557,6 +568,7 @@ pub fn assess_metrology_readiness(
                 blocking_issues.push(ReadinessIssueDto {
                     asset_id: instrument.asset_id.clone(),
                     code: format!("calibration_{}", status.calibration_status),
+                    dimension: calibration_issue_dimension(&status.calibration_status).to_owned(),
                     message: "required calibration is not valid".to_owned(),
                 });
             }
@@ -565,17 +577,20 @@ pub fn assess_metrology_readiness(
                 blocking_issues.push(ReadinessIssueDto {
                     asset_id: instrument.asset_id.clone(),
                     code: "calibration_nonconforming".to_owned(),
+                    dimension: "nonconformance".to_owned(),
                     message: "latest calibration decision is not conforming".to_owned(),
                 });
             }
             "due_soon" => warnings.push(ReadinessIssueDto {
                 asset_id: instrument.asset_id.clone(),
                 code: "calibration_due_soon".to_owned(),
+                dimension: "calibration_validity".to_owned(),
                 message: "calibration due date is near".to_owned(),
             }),
             "missing" | "expired" => warnings.push(ReadinessIssueDto {
                 asset_id: instrument.asset_id.clone(),
                 code: format!("calibration_{}", status.calibration_status),
+                dimension: calibration_issue_dimension(&status.calibration_status).to_owned(),
                 message: "calibration status requires attention".to_owned(),
             }),
             _ => {}
@@ -597,7 +612,7 @@ pub fn assess_metrology_readiness(
         });
     }
 
-    Ok(render_json(&ReadinessReportDto {
+    Ok(ReadinessReportDto {
         ready: blocking_issues.is_empty(),
         checked_on: format_metrology_date(checked_on),
         execution_mode: input.execution_mode,
@@ -605,7 +620,7 @@ pub fn assess_metrology_readiness(
         instrument_results,
         blocking_issues,
         warnings,
-    }))
+    })
 }
 
 pub fn list_metrology_audit_events(
@@ -685,6 +700,14 @@ fn validate_execution_mode(value: &str) -> Result<(), AgentError> {
             "invalid_metrology_readiness",
             format!("unknown execution mode: {other}"),
         )),
+    }
+}
+
+fn calibration_issue_dimension(status: &str) -> &'static str {
+    match status {
+        "missing" => "missing_evidence",
+        "nonconforming" => "nonconformance",
+        _ => "calibration_validity",
     }
 }
 

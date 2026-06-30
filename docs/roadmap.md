@@ -69,6 +69,10 @@ Deliverables:
   changes, readiness assessment, audit/outbox evidence, Qt/Python agent path,
   historical calibration migration, and real HTTP restart E2E coverage delivered
   as the `0.7.0` baseline.
+- First simulated EMC execution workflow delivered as the `0.8.0` baseline:
+  operator launch attempt, test-context metrology preflight, structured refusal,
+  persisted completed result, instrumentation snapshot, project audit/outbox,
+  local API routes, and a minimal Qt operator form.
 
 ## Phase 3: Measurement Runtime
 
@@ -236,10 +240,9 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should implement a first simulated EMC test vertical
-slice: select a project, select a test method, request metrology readiness for
-the required instruments, run a simulated measurement, persist evidence, and
-leave an audit/outbox trail.
+The next productive session should deepen the simulated EMC execution workflow:
+bind it to approved test definitions, persist method parameters, and create
+measurement-data evidence records for the simulated result.
 
 The parallel runtime stream should continue guarded serial or VISA IO behind the
 adapter skeletons.

@@ -107,6 +107,7 @@ FALLBACK_BOOTSTRAP: BootstrapData = {
     ],
     "project_audit_events": [],
     "sync_outbox": [],
+    "test_executions": [],
 }
 
 STAGE_LABELS = {
@@ -174,6 +175,14 @@ def build_bootstrap(
             for project in project_rows
             for row in project_agent.audit_events(str(project["code"])).get(
                 "audit_events", []
+            )
+        ]
+        payload["test_executions"] = [
+            _agent_test_execution_row(row)
+            for project in project_rows
+            for row in _agent_project_test_execution_rows(
+                project_agent,
+                str(project["code"]),
             )
         ]
         payload["sync_outbox"] = [
@@ -386,6 +395,31 @@ def _agent_sync_outbox_row(row: Any) -> list[str]:
         str(row["base_revision"]),
         str(row["resulting_revision"]),
         str(row["status"]),
+    ]
+
+
+def _agent_project_test_execution_rows(
+    client: LocalAgentClient,
+    project_code: str,
+) -> list[Any]:
+    response = client.list_project_test_executions(project_code)
+    rows = response.get("executions", [])
+    return rows if isinstance(rows, list) else []
+
+
+def _agent_test_execution_row(row: Any) -> list[str]:
+    if not isinstance(row, dict):
+        raise ValueError("agent test execution rows must be JSON objects")
+    return [
+        str(row["attempt_id"]),
+        str(row["project_code"]),
+        str(row["test_method_reference"]),
+        str(row["status"]),
+        "pret" if bool(row.get("ready")) else "bloque",
+        str(row["operator"]),
+        str(row["checked_on"]),
+        str(row["completed_at"]),
+        str(row["revision"]),
     ]
 
 

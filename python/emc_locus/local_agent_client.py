@@ -100,6 +100,15 @@ class LocalAgentClient:
     def sync_outbox(self) -> dict[str, Any]:
         return self.request_json("GET", "/api/v1/sync/outbox")
 
+    def list_project_test_executions(self, project_code: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/projects/{quote(project_code)}/test-executions",
+        )
+
+    def get_test_execution(self, attempt_id: str) -> dict[str, Any]:
+        return self.request_json("GET", f"/api/v1/test-executions/{quote(attempt_id)}")
+
     def create_project(
         self,
         *,
@@ -351,6 +360,41 @@ class LocalAgentClient:
             f"/api/v1/metrology/instruments/{quote(asset_id)}/serviceability",
             payload,
         )
+
+    def run_simulated_emc_test(
+        self,
+        *,
+        attempt_id: str,
+        project_code: str,
+        test_method_reference: str,
+        execution_mode: str,
+        required_asset_ids: list[str],
+        operator: str,
+        checked_on: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "simulated-emc",
+            project_code,
+            attempt_id,
+        )
+        payload = {
+            "attempt_id": attempt_id,
+            "project_code": project_code,
+            "test_method_reference": test_method_reference,
+            "execution_mode": execution_mode,
+            "required_asset_ids": required_asset_ids,
+            "operator": operator,
+            "checked_on": checked_on,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json("POST", "/api/v1/test-executions/simulated-emc", payload)
 
 
 def generate_operation_id(prefix: str, *parts: str) -> str:

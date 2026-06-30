@@ -134,7 +134,10 @@ GET  /api/v1/projects/{code}/contract-review
 POST /api/v1/projects/{code}/contract-review/items/{item}/complete
 POST /api/v1/projects/{code}/transitions/to-test-planning
 GET  /api/v1/projects/{code}/audit-events
+GET  /api/v1/projects/{code}/test-executions
 GET  /api/v1/sync/outbox
+POST /api/v1/test-executions/simulated-emc
+GET  /api/v1/test-executions/{attempt_id}
 GET  /api/v1/metrology/instruments
 POST /api/v1/metrology/instruments
 GET  /api/v1/metrology/instruments/{asset_id}
@@ -226,5 +229,14 @@ restart persistence, audit, and outbox for the migrated metrology slice.
 
 Version `0.7.0` promotes that metrology path to the current vertical-slice
 baseline. The remaining direct-SQLite Qt forms are outside this baseline and are
-tracked as future slices, starting with standalone metrology documents and then
-the first simulated EMC test execution.
+tracked as future slices, starting with standalone metrology documents and
+richer execution/method evidence.
+
+Version `0.8.0` adds that first simulated EMC execution workflow. `POST
+/api/v1/test-executions/simulated-emc` persists the operator launch attempt,
+computes metrology readiness for the test context, stores a structured refusal
+when equipment is not ready, or stores a deterministic conducted-emission
+simulation result when the preflight passes. The workflow also writes a project
+audit event and a pending sync outbox operation for entity type
+`simulated_test_execution`. Qt exposes this as a single operator form instead
+of a dispersed CRUD surface.

@@ -90,7 +90,7 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.7.0` was validated on 2026-06-30 with:
+Version `0.8.0` was validated on 2026-06-30 with:
 
 ```text
 cargo fmt --check
@@ -103,4 +103,5 @@ $env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrat
 C:\Users\gtrai\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe --check apps\gui-shell\app.js
 $env:PYTHONPATH='python'; py -m unittest python.tests.test_release_consistency
 git diff --check
+git diff --cached --check
 ```

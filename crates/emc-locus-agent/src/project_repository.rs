@@ -33,6 +33,8 @@ pub(crate) struct StoredOperation {
 }
 
 pub(crate) struct OperationFingerprintInput<'a> {
+    pub(crate) domain: &'a str,
+    pub(crate) entity_type: &'a str,
     pub(crate) entity_id: &'a str,
     pub(crate) operation_kind: &'a str,
     pub(crate) base_revision: &'a str,
@@ -53,6 +55,8 @@ pub(crate) struct AuditEventInput<'a> {
 }
 
 pub(crate) struct SyncOperationInput<'a> {
+    pub(crate) domain: &'a str,
+    pub(crate) entity_type: &'a str,
     pub(crate) operation_id: &'a str,
     pub(crate) entity_id: &'a str,
     pub(crate) operation_kind: &'a str,
@@ -110,7 +114,11 @@ fn ensure_project_tables(connection: &Connection) -> Result<(), AgentError> {
     Ok(())
 }
 
-fn table_exists(connection: &Connection, schema: &str, table: &str) -> Result<bool, AgentError> {
+pub(crate) fn table_exists(
+    connection: &Connection,
+    schema: &str,
+    table: &str,
+) -> Result<bool, AgentError> {
     let sql =
         format!("SELECT COUNT(*) FROM {schema}.sqlite_master WHERE type = 'table' AND name = ?1");
     let count: u32 = connection
@@ -289,6 +297,8 @@ pub(crate) fn insert_sync_operation(
     input: SyncOperationInput<'_>,
 ) -> Result<(), AgentError> {
     let checksum = operation_fingerprint(&OperationFingerprintInput {
+        domain: input.domain,
+        entity_type: input.entity_type,
         entity_id: input.entity_id,
         operation_kind: input.operation_kind,
         base_revision: input.base_revision,
@@ -304,10 +314,12 @@ pub(crate) fn insert_sync_operation(
                 "(operation_id, domain, entity_type, entity_id, operation_kind, ",
                 "base_revision, resulting_revision, actor_id, device_id, correlation_id, ",
                 "payload_json, payload_checksum, status, occurred_at, recorded_at) ",
-                "VALUES (?1, 'project_records', 'project', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pending', ?11, ?11)"
+                "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'pending', ?13, ?13)"
             ),
             params![
                 input.operation_id,
+                input.domain,
+                input.entity_type,
                 input.entity_id,
                 input.operation_kind,
                 input.base_revision,
@@ -332,8 +344,8 @@ fn operation_fingerprint_json(input: &OperationFingerprintInput<'_>) -> String {
     let payload = serde_json::from_str::<serde_json::Value>(input.payload_json)
         .expect("canonical operation payload must be valid JSON");
     render_json(&json!({
-        "domain": "project_records",
-        "entity_type": "project",
+        "domain": input.domain,
+        "entity_type": input.entity_type,
         "entity_id": input.entity_id,
         "operation_kind": input.operation_kind,
         "base_revision": input.base_revision,

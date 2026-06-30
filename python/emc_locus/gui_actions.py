@@ -1019,6 +1019,87 @@ def set_metrology_instrument_capabilities(
     }
 
 
+def run_simulated_emc_test_action(
+    *,
+    agent_url: str | None,
+    attempt_id: str,
+    project_code: str,
+    test_method_reference: str,
+    execution_mode: str,
+    asset_id: str,
+    operator: str,
+    checked_on: str,
+    reason: str,
+    migrations_root: Path | str = Path("storage/sqlite"),
+    bootstrap_output: Path | str | None = None,
+    projects_db: Path | str | None = None,
+    metrology_db: Path | str | None = None,
+    test_definitions_db: Path | str | None = None,
+    measurement_data_db: Path | str | None = None,
+    update_catalog_db: Path | str | None = None,
+    operation_id: str | None = None,
+    correlation_id: str | None = None,
+    device_id: str | None = None,
+) -> dict[str, Any]:
+    """Run the single simulated EMC workflow through the Rust local agent."""
+
+    if not _has_text(agent_url):
+        raise ValueError("agent_url is required to run a simulated EMC test")
+    attempt_id = require_non_empty(attempt_id, "attempt_id")
+    project_code = require_non_empty(project_code, "project_code")
+    test_method_reference = require_non_empty(
+        test_method_reference,
+        "test_method_reference",
+    )
+    execution_mode = require_non_empty(execution_mode, "execution_mode")
+    if execution_mode not in PROJECT_EXECUTION_MODES:
+        raise ValueError(f"unknown project execution mode: {execution_mode}")
+    asset_id = require_non_empty(asset_id, "asset_id")
+    operator = require_non_empty(operator, "operator")
+    checked_on = require_non_empty(checked_on, "checked_on")
+    reason = require_non_empty(reason, "reason")
+
+    response = LocalAgentClient(str(agent_url)).run_simulated_emc_test(
+        attempt_id=attempt_id,
+        project_code=project_code,
+        test_method_reference=test_method_reference,
+        execution_mode=execution_mode,
+        required_asset_ids=[asset_id],
+        operator=operator,
+        checked_on=checked_on,
+        reason=reason,
+        operation_id=operation_id,
+        correlation_id=correlation_id,
+        device_id=device_id,
+    )
+    if bootstrap_output is not None:
+        refresh_bootstrap(
+            output=bootstrap_output,
+            migrations_root=migrations_root,
+            projects_db=projects_db,
+            metrology_db=metrology_db,
+            test_definitions_db=test_definitions_db,
+            measurement_data_db=measurement_data_db,
+            update_catalog_db=update_catalog_db,
+            agent_url=agent_url,
+        )
+
+    execution = response.get("execution", {})
+    if not isinstance(execution, dict):
+        raise ValueError("agent execution response is invalid")
+    return {
+        "attempt_id": str(execution.get("attempt_id", attempt_id)),
+        "project_code": str(execution.get("project_code", project_code)),
+        "status": str(execution.get("status", "")),
+        "ready": bool(execution.get("readiness", {}).get("ready", False))
+        if isinstance(execution.get("readiness"), dict)
+        else False,
+        "operation_id": str(response.get("operation_id", "")),
+        "replayed": bool(response.get("replayed", False)),
+        "message": _simulated_emc_message(execution),
+    }
+
+
 def advance_project_stage(
     *,
     projects_db: Path | str | None,
@@ -1471,6 +1552,19 @@ def main(argv: list[str] | None = None) -> int:
     serviceability_parser.add_argument("--bootstrap-output", type=Path)
     _add_agent_args(serviceability_parser)
 
+    simulated_parser = subcommands.add_parser("run-simulated-emc-test")
+    _add_repository_args(simulated_parser)
+    simulated_parser.add_argument("--attempt-id", required=True)
+    simulated_parser.add_argument("--project-code", required=True)
+    simulated_parser.add_argument("--test-method-reference", required=True)
+    simulated_parser.add_argument("--execution-mode", required=True)
+    simulated_parser.add_argument("--asset-id", required=True)
+    simulated_parser.add_argument("--operator", required=True)
+    simulated_parser.add_argument("--checked-on", required=True)
+    simulated_parser.add_argument("--reason", required=True)
+    simulated_parser.add_argument("--bootstrap-output", type=Path)
+    _add_agent_args(simulated_parser)
+
     capabilities_parser = subcommands.add_parser("set-instrument-capabilities")
     _add_repository_args(capabilities_parser, include_metrology=False)
     capabilities_parser.add_argument("--metrology-db", required=True, type=Path)
@@ -1728,6 +1822,31 @@ def main(argv: list[str] | None = None) -> int:
             measurement_data_db=args.measurement_data_db,
             update_catalog_db=args.update_catalog_db,
             agent_url=args.agent_url,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "run-simulated-emc-test":
+        result = run_simulated_emc_test_action(
+            agent_url=args.agent_url,
+            attempt_id=args.attempt_id,
+            project_code=args.project_code,
+            test_method_reference=args.test_method_reference,
+            execution_mode=args.execution_mode,
+            asset_id=args.asset_id,
+            operator=args.operator,
+            checked_on=args.checked_on,
+            reason=args.reason,
+            migrations_root=args.migrations_root,
+            bootstrap_output=args.bootstrap_output,
+            projects_db=args.projects_db,
+            metrology_db=args.metrology_db,
+            test_definitions_db=args.test_definitions_db,
+            measurement_data_db=args.measurement_data_db,
+            update_catalog_db=args.update_catalog_db,
+            operation_id=args.operation_id,
+            correlation_id=args.correlation_id,
+            device_id=args.device_id,
         )
         print(json.dumps(result, sort_keys=True))
         return 0
@@ -2018,6 +2137,41 @@ def _add_months(value: date, months: int) -> date:
 
 def _has_text(value: str | None) -> bool:
     return value is not None and bool(value.strip())
+
+
+def _simulated_emc_message(execution: dict[str, Any]) -> str:
+    status = str(execution.get("status", "unknown"))
+    attempt_id = str(execution.get("attempt_id", ""))
+    if status == "refused":
+        refusal = execution.get("refusal")
+        causes = refusal.get("causes", []) if isinstance(refusal, dict) else []
+        if isinstance(causes, list) and causes:
+            details = "; ".join(
+                _simulated_emc_cause_message(cause)
+                for cause in causes
+                if isinstance(cause, dict)
+            )
+            return f"Essai refuse {attempt_id}: {details}"
+        return f"Essai refuse {attempt_id}: pre-vol metrologique bloquant"
+    if status == "completed":
+        result = execution.get("simulation_result")
+        if isinstance(result, dict):
+            verdict = str(result.get("verdict", "unknown"))
+            margin = result.get("margin_db")
+            peak = result.get("peak_level_dbuv")
+            return (
+                f"Essai simule {attempt_id}: verdict={verdict}, "
+                f"marge={margin} dB, pic={peak} dBuV"
+            )
+        return f"Essai simule {attempt_id}: termine"
+    return f"Essai simule {attempt_id}: statut={status}"
+
+
+def _simulated_emc_cause_message(cause: dict[str, Any]) -> str:
+    asset_id = str(cause.get("asset_id", "instrument"))
+    code = str(cause.get("code", "blocage"))
+    dimension = str(cause.get("dimension", "readiness"))
+    return f"{asset_id}/{dimension}/{code}"
 
 
 def _missing_contract_review_items(

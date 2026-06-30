@@ -29,6 +29,7 @@ from emc_locus.gui_actions import (
     create_project_record,
     create_test_category,
     register_metrology_instrument,
+    run_simulated_emc_test_action,
     schedule_service_item,
     set_metrology_instrument_serviceability,
 )
@@ -417,7 +418,7 @@ def _run_form_action_worker(
         submit_button.setEnabled(False)
 
     class WorkerSignals(qt.QObject):
-        completed = qt.Signal()
+        completed = qt.Signal(str)
         failed = qt.Signal(str)
 
     class FormActionWorker(qt.QRunnable):
@@ -428,20 +429,23 @@ def _run_form_action_worker(
         @qt.Slot()
         def run(self) -> None:
             try:
-                _execute_form_action(args, form_spec.action_id, values)
+                message = (
+                    _execute_form_action(args, form_spec.action_id, values)
+                    or "Enregistrement effectue"
+                )
             except Exception as error:  # noqa: BLE001 - report through Qt boundary.
                 self.signals.failed.emit(str(error))
                 return
-            self.signals.completed.emit()
+            self.signals.completed.emit(message)
 
     worker = FormActionWorker()
 
-    def complete() -> None:
+    def complete(message: str) -> None:
         if submit_button is not None:
             submit_button.setEnabled(form_spec.enabled)
             setattr(submit_button, "_emc_locus_worker", None)
-        on_completed(f"{form_spec.title}: enregistrement effectue")
-        qt.QMessageBox.information(None, "EMC Locus", "Enregistrement effectue")
+        on_completed(f"{form_spec.title}: {message}")
+        qt.QMessageBox.information(None, "EMC Locus", message)
 
     def fail(message: str) -> None:
         if submit_button is not None:
@@ -464,13 +468,16 @@ def _submit_action_form_synchronously(
     on_completed: Any,
 ) -> None:
     try:
-        _execute_form_action(args, form_spec.action_id, values)
+        message = (
+            _execute_form_action(args, form_spec.action_id, values)
+            or "Enregistrement effectue"
+        )
     except Exception as error:  # noqa: BLE001 - GUI boundary must show failures.
         qt.QMessageBox.critical(None, "EMC Locus", str(error))
         return
 
-    on_completed(f"{form_spec.title}: enregistrement effectue")
-    qt.QMessageBox.information(None, "EMC Locus", "Enregistrement effectue")
+    on_completed(f"{form_spec.title}: {message}")
+    qt.QMessageBox.information(None, "EMC Locus", message)
 
 
 def _form_values(
@@ -500,7 +507,7 @@ def _execute_form_action(
     args: argparse.Namespace,
     action_id: str,
     values: dict[str, str],
-) -> None:
+) -> str | None:
     if action_id == "register_instrument":
         register_metrology_instrument(
             metrology_db=getattr(args, "metrology_db", None),
@@ -564,6 +571,26 @@ def _execute_form_action(
             agent_url=getattr(args, "agent_url", None),
         )
         return
+
+    if action_id == "run_simulated_emc_test":
+        result = run_simulated_emc_test_action(
+            agent_url=getattr(args, "agent_url", None),
+            migrations_root=args.migrations_root,
+            attempt_id=values["attempt_id"],
+            project_code=values["project_code"],
+            test_method_reference=values["test_method_reference"],
+            execution_mode=values["execution_mode"],
+            asset_id=values["asset_id"],
+            operator=values["operator"],
+            checked_on=values["checked_on"],
+            reason=values["reason"],
+            projects_db=getattr(args, "projects_db", None),
+            metrology_db=getattr(args, "metrology_db", None),
+            test_definitions_db=getattr(args, "test_definitions_db", None),
+            measurement_data_db=getattr(args, "measurement_data_db", None),
+            update_catalog_db=getattr(args, "update_catalog_db", None),
+        )
+        return str(result["message"])
 
     if action_id == "attach_instrument_document":
         attach_metrology_document(
@@ -662,6 +689,7 @@ def _writable_repositories(args: argparse.Namespace) -> set[str]:
         writable.add("metrology")
         writable.add("metrology_agent")
         writable.add("projects")
+        writable.add("test_execution_agent")
     if args.metrology_db is not None:
         writable.add("metrology")
         writable.add("metrology_documents")

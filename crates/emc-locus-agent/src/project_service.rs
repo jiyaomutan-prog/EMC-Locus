@@ -94,6 +94,8 @@ pub(crate) fn create_project(
             &operation,
             &input.operation_id,
             OperationFingerprintInput {
+                domain: "project_records",
+                entity_type: "project",
                 entity_id: code.as_str(),
                 operation_kind: "project_created",
                 base_revision: "rev-0000",
@@ -157,6 +159,8 @@ pub(crate) fn create_project(
     insert_sync_operation(
         &transaction,
         SyncOperationInput {
+            domain: "project_records",
+            entity_type: "project",
             operation_id: &input.operation_id,
             entity_id: code.as_str(),
             operation_kind: "project_created",
@@ -236,6 +240,8 @@ pub(crate) fn complete_review_item(
             &operation,
             &input.operation_id,
             OperationFingerprintInput {
+                domain: "project_records",
+                entity_type: "project",
                 entity_id: code.as_str(),
                 operation_kind: "contract_review_item_completed",
                 base_revision: &operation.base_revision,
@@ -302,6 +308,8 @@ pub(crate) fn complete_review_item(
     insert_sync_operation(
         &transaction,
         SyncOperationInput {
+            domain: "project_records",
+            entity_type: "project",
             operation_id: &input.operation_id,
             entity_id: code.as_str(),
             operation_kind: "contract_review_item_completed",
@@ -351,6 +359,8 @@ pub(crate) fn advance_to_test_planning(
             &operation,
             &input.operation_id,
             OperationFingerprintInput {
+                domain: "project_records",
+                entity_type: "project",
                 entity_id: code.as_str(),
                 operation_kind: "project_stage_advanced",
                 base_revision: &operation.base_revision,
@@ -443,6 +453,8 @@ pub(crate) fn advance_to_test_planning(
     insert_sync_operation(
         &transaction,
         SyncOperationInput {
+            domain: "project_records",
+            entity_type: "project",
             operation_id: &input.operation_id,
             entity_id: code.as_str(),
             operation_kind: "project_stage_advanced",

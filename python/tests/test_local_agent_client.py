@@ -11,6 +11,7 @@ from emc_locus.gui_actions import (
     create_project_record,
     record_metrology_calibration,
     register_metrology_instrument,
+    run_simulated_emc_test_action,
     set_metrology_instrument_serviceability,
 )
 from emc_locus.local_agent_client import (
@@ -190,6 +191,12 @@ class LocalAgentClientTests(unittest.TestCase):
             "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/audit-events": {
                 "audit_events": []
             },
+            "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/test-executions": {
+                "executions": []
+            },
+            "http://127.0.0.1:8765/api/v1/test-executions/RUN-READ-001": {
+                "execution": {"attempt_id": "RUN-READ-001"}
+            },
             "http://127.0.0.1:8765/api/v1/sync/outbox": {"sync_outbox": []},
         }
 
@@ -206,6 +213,14 @@ class LocalAgentClientTests(unittest.TestCase):
                 "CEM-READ-001",
             )
             self.assertEqual(client.audit_events("CEM-READ-001")["audit_events"], [])
+            self.assertEqual(
+                client.list_project_test_executions("CEM-READ-001")["executions"],
+                [],
+            )
+            self.assertEqual(
+                client.get_test_execution("RUN-READ-001")["execution"]["attempt_id"],
+                "RUN-READ-001",
+            )
             self.assertEqual(client.sync_outbox()["sync_outbox"], [])
 
         self.assertEqual(
@@ -218,9 +233,50 @@ class LocalAgentClientTests(unittest.TestCase):
                     "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/contract-review",
                 ),
                 ("GET", "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/audit-events"),
+                ("GET", "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/test-executions"),
+                ("GET", "http://127.0.0.1:8765/api/v1/test-executions/RUN-READ-001"),
                 ("GET", "http://127.0.0.1:8765/api/v1/sync/outbox"),
             ],
         )
+
+    def test_posts_simulated_emc_execution_payload(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            captured["body"] = json.loads(request.data.decode("utf-8"))
+            return _FakeResponse(
+                {
+                    "operation_id": "op-run",
+                    "replayed": False,
+                    "execution": {
+                        "attempt_id": "RUN-SIM-PY",
+                        "status": "completed",
+                    },
+                }
+            )
+
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            response = LocalAgentClient("http://127.0.0.1:8765").run_simulated_emc_test(
+                attempt_id="RUN-SIM-PY",
+                project_code="CEM-PY",
+                test_method_reference="SIM-EMC-CONDUCTED",
+                execution_mode="accredited",
+                required_asset_ids=["SA-PY"],
+                operator="operator.one",
+                checked_on="2026-07-01",
+                reason="operator launch",
+                operation_id="op-run",
+            )
+
+        self.assertEqual(
+            captured["url"],
+            "http://127.0.0.1:8765/api/v1/test-executions/simulated-emc",
+        )
+        self.assertEqual(captured["method"], "POST")
+        self.assertEqual(captured["body"]["required_asset_ids"], ["SA-PY"])
+        self.assertEqual(response["execution"]["status"], "completed")
 
     def test_reads_metrology_slice_routes(self) -> None:
         captured: list[tuple[str, str, dict[str, object] | None]] = []
@@ -393,6 +449,46 @@ class GuiActionAgentPathTests(unittest.TestCase):
 
         client.advance_to_test_planning.assert_called_once()
         self.assertEqual(result["new_stage"], "test_planning")
+
+    def test_simulated_emc_test_uses_agent_and_returns_operator_message(self) -> None:
+        with patch("emc_locus.gui_actions.LocalAgentClient") as client_type:
+            client = client_type.return_value
+            client.run_simulated_emc_test.return_value = {
+                "operation_id": "op-sim",
+                "replayed": False,
+                "execution": {
+                    "attempt_id": "RUN-SIM-PY",
+                    "project_code": "CEM-PY",
+                    "status": "refused",
+                    "readiness": {"ready": False},
+                    "refusal": {
+                        "causes": [
+                            {
+                                "asset_id": "SA-PY",
+                                "dimension": "missing_evidence",
+                                "code": "calibration_missing",
+                            }
+                        ]
+                    },
+                },
+            }
+
+            result = run_simulated_emc_test_action(
+                agent_url="http://127.0.0.1:8765",
+                attempt_id="RUN-SIM-PY",
+                project_code="CEM-PY",
+                test_method_reference="SIM-EMC-CONDUCTED",
+                execution_mode="accredited",
+                asset_id="SA-PY",
+                operator="operator.one",
+                checked_on="2026-07-01",
+                reason="operator launch",
+                operation_id="op-sim",
+            )
+
+        client.run_simulated_emc_test.assert_called_once()
+        self.assertEqual(result["status"], "refused")
+        self.assertIn("SA-PY/missing_evidence/calibration_missing", result["message"])
 
     def test_gui_actions_project_reads_use_agent_when_agent_url_present(self) -> None:
         with patch("emc_locus.gui_actions.LocalAgentClient") as client_type:

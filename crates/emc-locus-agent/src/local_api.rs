@@ -10,6 +10,10 @@ use crate::metrology_service::{
 use crate::project_agent::{
     AdvanceToTestPlanningInput, CompleteReviewItemInput, CreateProjectInput,
 };
+use crate::test_execution_service::{
+    get_simulated_test_execution, list_project_simulated_test_executions, run_simulated_emc_test,
+    RunSimulatedEmcTestInput,
+};
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, path::PathBuf};
 use tiny_http::{Header, Response, Server, StatusCode};
@@ -186,6 +190,10 @@ fn route_api_request(
             storage_root: config.storage_root.clone(),
         });
     }
+    if parts.as_slice() == ["api", "v1", "test-executions", "simulated-emc"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return run_simulated_emc_test(&config.storage_root, simulated_emc_input(&payload)?);
+    }
 
     match parts.as_slice() {
         ["api", "v1", "projects", code] if method == "GET" => {
@@ -229,6 +237,12 @@ fn route_api_request(
                 },
                 storage_root: config.storage_root.clone(),
             })
+        }
+        ["api", "v1", "projects", code, "test-executions"] if method == "GET" => {
+            list_project_simulated_test_executions(&config.storage_root, code)
+        }
+        ["api", "v1", "test-executions", attempt_id] if method == "GET" => {
+            get_simulated_test_execution(&config.storage_root, attempt_id)
         }
         ["api", "v1", "metrology", "instruments", asset_id] if method == "GET" => {
             run_metrology_command(AgentCommand::Metrology {
@@ -464,6 +478,41 @@ fn readiness_input(payload: &Value) -> Result<AssessReadinessInput, AgentError> 
     })
 }
 
+fn simulated_emc_input(payload: &Value) -> Result<RunSimulatedEmcTestInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    let required_asset_ids = payload
+        .get("required_asset_ids")
+        .or_else(|| payload.get("asset_ids"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            AgentError::with_details(
+                "missing_json_field",
+                "required_asset_ids is required",
+                json!({ "field": "required_asset_ids" }),
+            )
+        })?
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+
+    Ok(RunSimulatedEmcTestInput {
+        attempt_id: required_string(payload, "attempt_id")?,
+        project_code: required_string(payload, "project_code")?,
+        test_method_reference: required_string(payload, "test_method_reference")?,
+        execution_mode: required_string(payload, "execution_mode")?,
+        required_asset_ids,
+        operator: required_string(payload, "operator")?,
+        checked_on: required_string(payload, "checked_on")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
 fn operation_context(payload: &Value) -> Result<MetrologyOperationContext, AgentError> {
     let operation_id = required_string(payload, "operation_id")?;
     Ok(MetrologyOperationContext {
@@ -547,10 +596,14 @@ fn optional_bool(payload: &Value, key: &str) -> Result<Option<bool>, AgentError>
 
 fn status_for_error(code: &str) -> u16 {
     match code {
-        "api_route_not_found" | "project_not_found" | "metrology_instrument_not_found" => 404,
+        "api_route_not_found"
+        | "project_not_found"
+        | "test_execution_not_found"
+        | "metrology_instrument_not_found" => 404,
         "contract_review_incomplete"
         | "invalid_project_transition"
         | "project_already_exists"
+        | "test_execution_attempt_exists"
         | "operation_replay_mismatch"
         | "metrology_instrument_already_exists"
         | "metrology_calibration_already_exists" => 409,
@@ -566,6 +619,7 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_actor"
         | "invalid_reason"
         | "domain_error"
+        | "invalid_test_execution"
         | "invalid_metrology_calibration"
         | "invalid_metrology_instrument"
         | "invalid_metrology_readiness"
@@ -1513,6 +1567,249 @@ mod tests {
         assert!(reloaded_ready.1.contains("\"ready\":true"));
         assert!(reloaded_audit.1.contains("\"instrument_registered\""));
         assert!(reloaded_outbox.1.contains("\"domain\":\"metrology\""));
+        second_server
+            .join()
+            .expect("server thread panicked")
+            .unwrap();
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn real_http_server_runs_simulated_emc_test_with_metrology_preflight() {
+        let storage_root = temporary_storage_root("agent-api-real-simulated-emc");
+        let migrations_root = repo_root().join("storage/sqlite");
+        let first_port = free_loopback_port();
+        let first_address = format!("127.0.0.1:{first_port}");
+        let first_server = spawn_server(ApiServerConfig {
+            bind: first_address.clone(),
+            storage_root: storage_root.clone(),
+            migrations_root: migrations_root.clone(),
+            max_requests: Some(13),
+        });
+
+        assert_eq!(wait_for_http(&first_address, "/api/v1/health").0, 200);
+        assert_eq!(
+            http_request("POST", &first_address, "/api/v1/storage/initialize", "").0,
+            200
+        );
+        assert_eq!(
+            http_request(
+                "POST",
+                &first_address,
+                "/api/v1/projects",
+                r#"{
+                    "code": "CEM-SIM-001",
+                    "customer_name": "Simulated EMC Customer",
+                    "execution_mode": "accredited",
+                    "actor": "quality.lead",
+                    "reason": "contract accepted",
+                    "operation_id": "op-sim-project"
+                }"#,
+            )
+            .0,
+            200
+        );
+        assert_eq!(
+            http_request(
+                "POST",
+                &first_address,
+                "/api/v1/metrology/instruments",
+                r#"{
+                    "asset_id": "SA-SIM-001",
+                    "family": "SpectrumAnalyzer",
+                    "category_code": "spectrum_analyzer",
+                    "manufacturer": "Rohde Schwarz",
+                    "model": "FSW",
+                    "serial_number": "SIM-001",
+                    "calibration_requirement": "required",
+                    "calibration_period_months": 12,
+                    "capabilities": {"frequency_max_hz": 30000000},
+                    "actor": "metrology.admin",
+                    "reason": "register preflight asset",
+                    "operation_id": "op-sim-register"
+                }"#,
+            )
+            .0,
+            200
+        );
+
+        let refused = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/test-executions/simulated-emc",
+            r#"{
+                "attempt_id": "RUN-SIM-001",
+                "project_code": "CEM-SIM-001",
+                "test_method_reference": "SIM-EMC-CONDUCTED",
+                "execution_mode": "accredited",
+                "required_asset_ids": ["SA-SIM-001"],
+                "operator": "operator.one",
+                "checked_on": "2026-07-01",
+                "reason": "operator launch",
+                "operation_id": "op-sim-run-refused"
+            }"#,
+        );
+        assert_eq!(refused.0, 200);
+        assert!(refused.1.contains("\"status\":\"refused\""));
+        assert!(refused
+            .1
+            .contains("\"code\":\"equipment_readiness_blocked\""));
+        assert!(refused.1.contains("\"code\":\"calibration_missing\""));
+        assert!(refused.1.contains("\"dimension\":\"missing_evidence\""));
+
+        let calibration = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/metrology/instruments/SA-SIM-001/calibrations",
+            &format!(
+                r#"{{
+                    "event_id": "CAL-SA-SIM-001-2026",
+                    "certificate_reference": "CERT-SA-SIM-001-2026",
+                    "calibrated_at": "2026-06-30",
+                    "due_at": "2027-06-30",
+                    "provider": "Accredited Lab",
+                    "decision": "conforming",
+                    "uncertainty_summary": {{"level_db": 0.6}},
+                    "document_manifest": {{
+                        "object_id": "obj-cert-sim",
+                        "original_filename": "cert.pdf",
+                        "mime_type": "application/pdf",
+                        "size_bytes": 12,
+                        "sha256": "{}",
+                        "storage_key": "metrology/SA-SIM-001/cert.pdf",
+                        "revision": "A"
+                    }},
+                    "recorded_by": "metrology.admin",
+                    "actor": "metrology.admin",
+                    "reason": "annual calibration",
+                    "operation_id": "op-sim-calibration"
+                }}"#,
+                "d".repeat(64)
+            ),
+        );
+        assert_eq!(calibration.0, 200);
+
+        let completed_body = r#"{
+            "attempt_id": "RUN-SIM-002",
+            "project_code": "CEM-SIM-001",
+            "test_method_reference": "SIM-EMC-CONDUCTED",
+            "execution_mode": "accredited",
+            "required_asset_ids": ["SA-SIM-001"],
+            "operator": "operator.one",
+            "checked_on": "2026-07-01",
+            "reason": "operator launch after calibration",
+            "operation_id": "op-sim-run-completed"
+        }"#;
+        let completed = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/test-executions/simulated-emc",
+            completed_body,
+        );
+        assert_eq!(completed.0, 200);
+        assert!(completed.1.contains("\"status\":\"completed\""));
+        assert!(completed.1.contains("\"ready\":true"));
+        assert!(completed.1.contains("\"simulation_result\""));
+        assert!(completed
+            .1
+            .contains("\"strategy\":\"deterministic_conducted_emission_level_sweep\""));
+
+        let loaded = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/test-executions/RUN-SIM-002",
+            "",
+        );
+        let list = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/projects/CEM-SIM-001/test-executions",
+            "",
+        );
+        assert_eq!(loaded.0, 200);
+        assert_eq!(list.0, 200);
+        assert!(loaded.1.contains("\"attempt_id\":\"RUN-SIM-002\""));
+        assert!(list.1.contains("\"attempt_id\":\"RUN-SIM-001\""));
+        assert!(list.1.contains("\"attempt_id\":\"RUN-SIM-002\""));
+
+        let replay = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/test-executions/simulated-emc",
+            completed_body,
+        );
+        assert_eq!(replay.0, 200);
+        assert!(replay.1.contains("\"replayed\":true"));
+
+        let conflict = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/test-executions/simulated-emc",
+            r#"{
+                "attempt_id": "RUN-SIM-002",
+                "project_code": "CEM-SIM-001",
+                "test_method_reference": "SIM-EMC-RADIATED",
+                "execution_mode": "accredited",
+                "required_asset_ids": ["SA-SIM-001"],
+                "operator": "operator.one",
+                "checked_on": "2026-07-01",
+                "reason": "conflicting replay",
+                "operation_id": "op-sim-run-completed"
+            }"#,
+        );
+        assert_eq!(conflict.0, 409);
+        assert!(conflict.1.contains("operation_replay_mismatch"));
+
+        let audit = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/projects/CEM-SIM-001/audit-events",
+            "",
+        );
+        let outbox = http_request("GET", &first_address, "/api/v1/sync/outbox", "");
+        assert_eq!(audit.0, 200);
+        assert_eq!(outbox.0, 200);
+        assert!(audit
+            .1
+            .contains("\"action\":\"simulated_test_execution_refused\""));
+        assert!(audit
+            .1
+            .contains("\"action\":\"simulated_test_execution_completed\""));
+        assert!(outbox
+            .1
+            .contains("\"entity_type\":\"simulated_test_execution\""));
+        assert!(outbox
+            .1
+            .contains("\"operation_kind\":\"simulated_test_execution_completed\""));
+
+        first_server
+            .join()
+            .expect("server thread panicked")
+            .unwrap();
+
+        let second_port = free_loopback_port();
+        let second_address = format!("127.0.0.1:{second_port}");
+        let second_server = spawn_server(ApiServerConfig {
+            bind: second_address.clone(),
+            storage_root: storage_root.clone(),
+            migrations_root,
+            max_requests: Some(3),
+        });
+        assert_eq!(wait_for_http(&second_address, "/api/v1/health").0, 200);
+        let reloaded = http_request(
+            "GET",
+            &second_address,
+            "/api/v1/test-executions/RUN-SIM-002",
+            "",
+        );
+        let reloaded_outbox = http_request("GET", &second_address, "/api/v1/sync/outbox", "");
+        assert_eq!(reloaded.0, 200);
+        assert_eq!(reloaded_outbox.0, 200);
+        assert!(reloaded.1.contains("\"status\":\"completed\""));
+        assert!(reloaded_outbox
+            .1
+            .contains("\"entity_type\":\"simulated_test_execution\""));
         second_server
             .join()
             .expect("server thread panicked")

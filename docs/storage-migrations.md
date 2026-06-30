@@ -42,7 +42,11 @@ without deleting the original records.
 
 Owns customer projects, audit events, contract review, campaigns, measurement
 run references, equipment selections, report workflow state, and service
-planning items used to schedule test execution.
+planning items used to schedule test execution. Version 3 adds
+`simulated_test_executions` and `simulated_test_execution_instruments` so the
+first simulated EMC launch workflow can persist refused and completed attempts,
+metrology-readiness verdicts, instrumentation snapshots, and deterministic
+simulated results.
 
 ### Test Definitions
 

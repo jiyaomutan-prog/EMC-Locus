@@ -19,6 +19,9 @@ GET  /api/v1/projects/{code}/contract-review
 POST /api/v1/projects/{code}/contract-review/items/{item}/complete
 POST /api/v1/projects/{code}/transitions/to-test-planning
 GET  /api/v1/projects/{code}/audit-events
+GET  /api/v1/projects/{code}/test-executions
+POST /api/v1/test-executions/simulated-emc
+GET  /api/v1/test-executions/{attempt_id}
 GET  /api/v1/sync/outbox
 ```
 
@@ -116,11 +119,66 @@ project commands return a structured `storage_journal_mode_incompatible` error
 if an operator or external tool switches either file to an incompatible mode.
 
 This API is the local boundary for the project vertical slice. Metrology,
-planning, documents, instrument control, and acquisition remain legacy or
-separate work until they are explicitly migrated behind the agent.
+planning, documents, instrument control, and acquisition remain separate work
+until they are explicitly migrated behind the agent.
 
 Qt/Python clients configured with `agent_url` use these routes for migrated
 project-slice reads and writes. They should not open `projects.sqlite` directly
 for project list/detail, contract-review status, project audit events, or sync
 outbox data in that mode. Service planning remains legacy until a planning route
 is added.
+
+## Simulated EMC Execution
+
+Version `0.8.0` adds the first project-owned execution workflow. The operator
+submits one launch attempt; the agent computes metrology readiness in the
+context of that test, persists the attempt, and either refuses execution or
+records a deterministic simulated result.
+
+```json
+{
+  "attempt_id": "RUN-SIM-001",
+  "project_code": "CEM-2026-001",
+  "test_method_reference": "SIM-EMC-CONDUCTED",
+  "execution_mode": "accredited",
+  "required_asset_ids": ["SA-001"],
+  "operator": "operator.one",
+  "checked_on": "2026-07-01",
+  "reason": "Operator launch",
+  "operation_id": "op-run-sim-001"
+}
+```
+
+If the preflight blocks, HTTP still returns `200` because the refused attempt is
+valid persisted evidence:
+
+```json
+{
+  "execution": {
+    "attempt_id": "RUN-SIM-001",
+    "status": "refused",
+    "refusal": {
+      "code": "equipment_readiness_blocked",
+      "message": "Execution refused because required instrumentation is not ready",
+      "causes": [
+        {
+          "asset_id": "SA-001",
+          "dimension": "missing_evidence",
+          "code": "calibration_missing",
+          "message": "required calibration is not valid"
+        }
+      ]
+    }
+  }
+}
+```
+
+If the preflight passes, the same route stores `status=completed` and a
+`simulation_result` using the deterministic conducted-emission level-sweep
+strategy. Both refused and completed attempts write:
+
+- a row in `simulated_test_executions`;
+- one or more rows in `simulated_test_execution_instruments`;
+- a project audit event;
+- a pending `sync_operations` row with entity type
+  `simulated_test_execution`.
