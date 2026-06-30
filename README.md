@@ -83,7 +83,14 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.8.3`.
+Current software version: `0.8.4`.
+
+Version `0.8.4` adds the first controlled lifecycle transitions for agent-owned
+test templates. The local API can submit a draft template for review and approve
+an under-review template, with transition rules, idempotent operation replay,
+template audit rows, and `test_definitions` outbox operations. This slice still
+does not instantiate campaign tests, enforce configurable second approval, or
+execute acquisition/post-processing.
 
 Version `0.8.3` adds the first agent-owned test-template draft workflow. The
 Rust local agent now initializes `test_definitions.sqlite`, exposes

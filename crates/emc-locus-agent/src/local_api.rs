@@ -20,7 +20,8 @@ use crate::test_execution_service::{
 };
 use crate::test_template_service::{
     create_test_template, get_test_template_definition, list_test_template_audit_events,
-    list_test_template_definitions, CreateTestTemplateInput, ListTestTemplatesInput,
+    list_test_template_definitions, transition_test_template_status, CreateTestTemplateInput,
+    ListTestTemplatesInput, TransitionTestTemplateStatusInput,
 };
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, path::PathBuf};
@@ -283,6 +284,24 @@ fn route_api_request(
         }
         ["api", "v1", "test-templates", template_id, "audit-events"] if method == "GET" => {
             list_test_template_audit_events(&config.storage_root, template_id)
+        }
+        ["api", "v1", "test-templates", template_id, "transitions", "submit-for-review"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            transition_test_template_status(
+                &config.storage_root,
+                test_template_transition_input(template_id, "under_review", &payload)?,
+            )
+        }
+        ["api", "v1", "test-templates", template_id, "transitions", "approve"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            transition_test_template_status(
+                &config.storage_root,
+                test_template_transition_input(template_id, "approved", &payload)?,
+            )
         }
         ["api", "v1", "metrology", "instruments", asset_id] if method == "GET" => {
             run_metrology_command(AgentCommand::Metrology {
@@ -636,6 +655,25 @@ fn list_test_templates_input(query: &str) -> ListTestTemplatesInput {
     }
 }
 
+fn test_template_transition_input(
+    template_id: &str,
+    target_status: &str,
+    payload: &Value,
+) -> Result<TransitionTestTemplateStatusInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(TransitionTestTemplateStatusInput {
+        template_id: template_id.to_owned(),
+        target_status: target_status.to_owned(),
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
 fn operation_context(payload: &Value) -> Result<MetrologyOperationContext, AgentError> {
     let operation_id = required_string(payload, "operation_id")?;
     Ok(MetrologyOperationContext {
@@ -770,6 +808,7 @@ fn status_for_error(code: &str) -> u16 {
         | "project_already_exists"
         | "test_execution_attempt_exists"
         | "test_template_already_exists"
+        | "test_template_transition_not_allowed"
         | "attached_document_already_exists"
         | "operation_replay_mismatch"
         | "metrology_instrument_already_exists"
@@ -1220,6 +1259,96 @@ mod tests {
         assert!(outbox
             .body
             .contains("\"operation_kind\":\"test_template_created\""));
+
+        let early_approval = handle_api_request(
+            "POST",
+            "/api/v1/test-templates/TT-INRUSH-001/transitions/approve",
+            r#"{
+                "actor": "quality.lead",
+                "reason": "approval attempted before review",
+                "operation_id": "op-approve-too-early"
+            }"#,
+            &config,
+        );
+        assert_eq!(early_approval.status, 409);
+        assert!(early_approval
+            .body
+            .contains("test_template_transition_not_allowed"));
+
+        let submitted = handle_api_request(
+            "POST",
+            "/api/v1/test-templates/TT-INRUSH-001/transitions/submit-for-review",
+            r#"{
+                "actor": "method.author",
+                "reason": "definition ready for technical review",
+                "operation_id": "op-submit-test-template"
+            }"#,
+            &config,
+        );
+        assert_eq!(submitted.status, 200);
+        assert!(submitted.body.contains("\"status\":\"under_review\""));
+        assert!(submitted
+            .body
+            .contains("\"operation\":\"test_template_submitted_for_review\""));
+
+        let submit_replay = handle_api_request(
+            "POST",
+            "/api/v1/test-templates/TT-INRUSH-001/transitions/submit-for-review",
+            r#"{
+                "actor": "method.author",
+                "reason": "definition ready for technical review",
+                "operation_id": "op-submit-test-template"
+            }"#,
+            &config,
+        );
+        assert_eq!(submit_replay.status, 200);
+        assert!(submit_replay.body.contains("\"replayed\":true"));
+
+        let approved = handle_api_request(
+            "POST",
+            "/api/v1/test-templates/TT-INRUSH-001/transitions/approve",
+            r#"{
+                "actor": "technical.reviewer",
+                "reason": "technical review accepted",
+                "operation_id": "op-approve-test-template"
+            }"#,
+            &config,
+        );
+        assert_eq!(approved.status, 200);
+        assert!(approved.body.contains("\"status\":\"approved\""));
+        assert!(approved
+            .body
+            .contains("\"operation\":\"test_template_approved\""));
+
+        let approved_list = handle_api_request(
+            "GET",
+            "/api/v1/test-templates?category_code=emission_transient_time_domain&status=approved",
+            "",
+            &config,
+        );
+        let lifecycle_audit = handle_api_request(
+            "GET",
+            "/api/v1/test-templates/TT-INRUSH-001/audit-events",
+            "",
+            &config,
+        );
+        let lifecycle_outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
+        assert_eq!(approved_list.status, 200);
+        assert_eq!(lifecycle_audit.status, 200);
+        assert_eq!(lifecycle_outbox.status, 200);
+        assert_eq!(approved_list.body.matches("\"template_id\"").count(), 1);
+        assert!(lifecycle_audit
+            .body
+            .contains("\"action\":\"test_template_submitted_for_review\""));
+        assert!(lifecycle_audit
+            .body
+            .contains("\"action\":\"test_template_approved\""));
+        assert!(lifecycle_outbox
+            .body
+            .contains("\"operation_kind\":\"test_template_submitted_for_review\""));
+        assert!(lifecycle_outbox
+            .body
+            .contains("\"operation_kind\":\"test_template_approved\""));
 
         let replay = handle_api_request("POST", "/api/v1/test-templates", template_body, &config);
         assert_eq!(replay.status, 200);

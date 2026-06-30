@@ -44,7 +44,8 @@ use std::{
 };
 pub use test_template_service::{
     create_test_template, get_test_template_definition, list_test_template_audit_events,
-    list_test_template_definitions, CreateTestTemplateInput, ListTestTemplatesInput,
+    list_test_template_definitions, transition_test_template_status, CreateTestTemplateInput,
+    ListTestTemplatesInput, TransitionTestTemplateStatusInput,
 };
 
 pub const AGENT_NAME: &str = "emc-locus-agent";

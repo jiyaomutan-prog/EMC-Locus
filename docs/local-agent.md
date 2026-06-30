@@ -146,6 +146,8 @@ GET  /api/v1/test-templates
 POST /api/v1/test-templates
 GET  /api/v1/test-templates/{template_id}
 GET  /api/v1/test-templates/{template_id}/audit-events
+POST /api/v1/test-templates/{template_id}/transitions/submit-for-review
+POST /api/v1/test-templates/{template_id}/transitions/approve
 POST /api/v1/test-executions/simulated-emc
 GET  /api/v1/test-executions/{attempt_id}
 GET  /api/v1/metrology/instruments
@@ -264,3 +266,12 @@ Version `0.8.3` adds the first agent-owned test-template draft workflow. `POST
 blocks, writes `test_template_audit_events`, and emits a `test_definitions`
 outbox operation. The slice does not yet approve templates, instantiate campaign
 tests, or execute acquisition/post-processing.
+
+Version `0.8.4` adds the first controlled template lifecycle transitions.
+`POST /api/v1/test-templates/{template_id}/transitions/submit-for-review`
+moves a draft template to `under_review`, and
+`POST /api/v1/test-templates/{template_id}/transitions/approve` moves an
+under-review template to `approved`. Direct approval from `draft` is refused
+with `test_template_transition_not_allowed`. Successful transitions are
+idempotent by `operation_id`, update the template status, append
+`test_template_audit_events`, and emit `test_definitions` outbox operations.

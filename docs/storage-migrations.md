@@ -60,7 +60,9 @@ adds `test_templates` and `test_template_audit_events` for the first
 agent-owned draft template workflow. Template records keep structured variables,
 lock policy, instrumentation chain slots, sequence steps, limits, and
 post-processing definitions as metadata JSON; execution data remains outside
-this repository.
+this repository. The 0.8.4 lifecycle slice reuses this schema to move templates
+from `draft` to `under_review` and from `under_review` to `approved` with audit
+and sync outbox evidence; no additional migration is required for that behavior.
 
 ### Measurement Data
 
@@ -161,6 +163,8 @@ perform minimal insert/count/query operations for smoke testing:
 - method revision insert/approval/list APIs;
 - ordered test-step insert/list APIs with duplicate-sequence rejection.
 - agent-owned test-template draft creation and read/list/audit API through
+  `emc-locus-agent`.
+- agent-owned test-template submit-for-review and approve transitions through
   `emc-locus-agent`.
 - synchronization conflict insert/count/get/list APIs;
 - synchronization action-plan insert/list APIs;

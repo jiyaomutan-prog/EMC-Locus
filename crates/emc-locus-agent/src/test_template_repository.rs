@@ -382,6 +382,24 @@ pub(crate) fn insert_test_template(
     Ok(())
 }
 
+pub(crate) fn update_test_template_status(
+    transaction: &Transaction<'_>,
+    template_id: &str,
+    status: &str,
+    timestamp: &str,
+) -> Result<(), AgentError> {
+    transaction
+        .execute(
+            concat!(
+                "UPDATE test_templates SET status = ?2, updated_at = ?3 ",
+                "WHERE template_id = ?1"
+            ),
+            params![template_id, status, timestamp],
+        )
+        .map_err(|error| AgentError::new("test_template_write_failed", error.to_string()))?;
+    Ok(())
+}
+
 pub(crate) fn existing_test_template_operation(
     connection: &Connection,
     operation_id: &str,

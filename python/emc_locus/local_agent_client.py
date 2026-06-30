@@ -288,6 +288,60 @@ class LocalAgentClient:
         _put_optional(payload, "device_id", device_id)
         return self.request_json("POST", "/api/v1/test-templates", payload)
 
+    def submit_test_template_for_review(
+        self,
+        *,
+        template_id: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "test-template-submit",
+            template_id,
+        )
+        payload = {
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/test-templates/{quote(template_id)}/transitions/submit-for-review",
+            payload,
+        )
+
+    def approve_test_template(
+        self,
+        *,
+        template_id: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "test-template-approve",
+            template_id,
+        )
+        payload = {
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/test-templates/{quote(template_id)}/transitions/approve",
+            payload,
+        )
+
     def complete_contract_review_item(
         self,
         *,

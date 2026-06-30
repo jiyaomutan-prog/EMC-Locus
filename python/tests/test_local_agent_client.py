@@ -401,6 +401,65 @@ class LocalAgentClientTests(unittest.TestCase):
             "http://127.0.0.1:8765/api/v1/test-templates?category_code=emission_transient_time_domain&status=draft",
         )
 
+    def test_posts_test_template_lifecycle_transition_payloads(self) -> None:
+        captured: list[tuple[str, str, dict[str, object]]] = []
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            body = json.loads(request.data.decode("utf-8"))
+            captured.append((request.get_method(), request.full_url, body))
+            status = "under_review" if "submit-for-review" in request.full_url else "approved"
+            return _FakeResponse(
+                {
+                    "operation_id": body["operation_id"],
+                    "replayed": False,
+                    "test_template": {
+                        "template_id": "TT-PY-001",
+                        "status": status,
+                    },
+                }
+            )
+
+        client = LocalAgentClient("http://127.0.0.1:8765")
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            submitted = client.submit_test_template_for_review(
+                template_id="TT-PY-001",
+                actor="method.author",
+                reason="ready for review",
+                operation_id="op-submit",
+            )
+            approved = client.approve_test_template(
+                template_id="TT-PY-001",
+                actor="technical.reviewer",
+                reason="review accepted",
+                operation_id="op-approve",
+            )
+
+        self.assertEqual(submitted["test_template"]["status"], "under_review")
+        self.assertEqual(approved["test_template"]["status"], "approved")
+        self.assertEqual(
+            captured,
+            [
+                (
+                    "POST",
+                    "http://127.0.0.1:8765/api/v1/test-templates/TT-PY-001/transitions/submit-for-review",
+                    {
+                        "actor": "method.author",
+                        "reason": "ready for review",
+                        "operation_id": "op-submit",
+                    },
+                ),
+                (
+                    "POST",
+                    "http://127.0.0.1:8765/api/v1/test-templates/TT-PY-001/transitions/approve",
+                    {
+                        "actor": "technical.reviewer",
+                        "reason": "review accepted",
+                        "operation_id": "op-approve",
+                    },
+                ),
+            ],
+        )
+
     def test_posts_simulated_emc_execution_payload(self) -> None:
         captured: dict[str, object] = {}
 

@@ -3,10 +3,11 @@
 The test-template API is the first agent-owned slice for executable test
 definitions.
 
-It stores controlled draft test templates in `test_definitions.sqlite` and emits
-audit plus outbox evidence through `sync.sqlite`. It does not yet approve
-templates, instantiate campaign test instances, execute tests, drive
-instruments, acquire data, or run post-processing.
+It stores controlled test templates in `test_definitions.sqlite` and emits
+audit plus outbox evidence through `sync.sqlite`. It can create draft templates,
+submit them for review, and approve reviewed templates. It does not yet
+instantiate campaign test instances, execute tests, drive instruments, acquire
+data, or run post-processing.
 
 ## Routes
 
@@ -16,6 +17,8 @@ GET  /api/v1/test-templates
 GET  /api/v1/test-templates?category_code=emission_transient_time_domain&status=draft
 GET  /api/v1/test-templates/{template_id}
 GET  /api/v1/test-templates/{template_id}/audit-events
+POST /api/v1/test-templates/{template_id}/transitions/submit-for-review
+POST /api/v1/test-templates/{template_id}/transitions/approve
 ```
 
 ## Create Draft Test Template
@@ -111,6 +114,49 @@ already exist in `test_method_revisions`.
 This lets a laboratory author early draft templates before the method lifecycle
 is migrated to the agent, while still validating method links when they exist.
 
+## Lifecycle Transitions
+
+Submit a draft template for review:
+
+```json
+{
+  "actor": "method.author",
+  "reason": "definition ready for technical review",
+  "operation_id": "op-submit-test-template"
+}
+```
+
+```text
+POST /api/v1/test-templates/TT-INRUSH-001/transitions/submit-for-review
+```
+
+Approve an under-review template:
+
+```json
+{
+  "actor": "technical.reviewer",
+  "reason": "technical review accepted",
+  "operation_id": "op-approve-test-template"
+}
+```
+
+```text
+POST /api/v1/test-templates/TT-INRUSH-001/transitions/approve
+```
+
+The first supported lifecycle is intentionally small:
+
+- `draft` -> `under_review`;
+- `under_review` -> `approved`.
+
+Direct approval from `draft`, re-approval of an already approved template, and
+other unsupported moves return HTTP `409` with
+`test_template_transition_not_allowed` and structured details containing the
+current status, requested target, and allowed transitions.
+
+Every transition requires `actor`, `reason`, and `operation_id`. Optional
+`correlation_id` and `device_id` behave like other agent write routes.
+
 ## Response
 
 Successful creation returns:
@@ -150,10 +196,17 @@ Each successful creation writes:
   - `entity_type = test_template`;
   - `operation_kind = test_template_created`.
 
+Each successful lifecycle transition updates the existing `test_templates`
+status, writes one `test_template_audit_events` row, and emits one pending
+`sync_operations` row with one of these operation kinds:
+
+- `test_template_submitted_for_review`;
+- `test_template_approved`.
+
 ## Limits
 
-- No approval workflow.
-- No template lifecycle transition.
+- No configurable second-approval workflow.
+- No suspension, retirement, or supersession route yet.
 - No project/campaign instantiation.
 - No method authoring route.
 - No real acquisition or processing execution.

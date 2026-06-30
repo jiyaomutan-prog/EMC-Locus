@@ -10,9 +10,9 @@ use crate::{
         insert_test_template_sync_operation, list_test_templates, load_test_template,
         load_test_template_audit_events, method_revision_exists, next_test_template_audit_sequence,
         open_test_template_connection, open_test_template_connection_with_sync,
-        test_category_exists, NewTestTemplateRecord, StoredTestTemplate,
-        TestTemplateAuditEventInput, TestTemplateListFilter, TestTemplateOperationFingerprintInput,
-        TestTemplateSyncOperationInput,
+        test_category_exists, update_test_template_status, NewTestTemplateRecord,
+        StoredTestTemplate, TestTemplateAuditEventInput, TestTemplateListFilter,
+        TestTemplateOperationFingerprintInput, TestTemplateSyncOperationInput,
     },
     AgentError,
 };
@@ -49,6 +49,17 @@ pub struct CreateTestTemplateInput {
 pub struct ListTestTemplatesInput {
     pub category_code: Option<String>,
     pub status: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TransitionTestTemplateStatusInput {
+    pub template_id: String,
+    pub target_status: String,
+    pub actor: String,
+    pub reason: String,
+    pub operation_id: String,
+    pub correlation_id: String,
+    pub device_id: String,
 }
 
 pub fn create_test_template(
@@ -212,6 +223,121 @@ pub fn list_test_template_definitions(
     }))
 }
 
+pub fn transition_test_template_status(
+    storage_root: &Path,
+    input: TransitionTestTemplateStatusInput,
+) -> Result<String, AgentError> {
+    validate_transition_input(&input)?;
+    let operation_kind = transition_operation_kind(&input.target_status)?;
+    let payload_json = test_template_transition_payload_json(&input);
+    let mut connection = open_test_template_connection_with_sync(storage_root)?;
+    if let Some(operation) = existing_test_template_operation(&connection, &input.operation_id)? {
+        ensure_test_template_operation_replay(
+            &operation,
+            &input.operation_id,
+            TestTemplateOperationFingerprintInput {
+                entity_type: "test_template",
+                entity_id: &input.template_id,
+                operation_kind,
+                base_revision: &operation.base_revision,
+                actor_id: &input.actor,
+                device_id: &input.device_id,
+                correlation_id: &input.correlation_id,
+                payload_json: &payload_json,
+            },
+        )?;
+        let template = load_test_template(&connection, &input.template_id)?.ok_or_else(|| {
+            AgentError::new(
+                "operation_replay_missing_entity",
+                "operation exists but test template is missing",
+            )
+        })?;
+        return Ok(test_template_result_json(
+            operation_kind,
+            &input.operation_id,
+            true,
+            &template,
+        ));
+    }
+
+    let template = load_test_template(&connection, &input.template_id)?.ok_or_else(|| {
+        AgentError::new("test_template_not_found", "test template does not exist")
+    })?;
+    if !is_allowed_template_transition(&template.status, &input.target_status) {
+        return Err(AgentError::with_details(
+            "test_template_transition_not_allowed",
+            "test template cannot transition to requested status",
+            json!({
+                "template_id": input.template_id,
+                "from": template.status,
+                "to": input.target_status,
+                "allowed": [
+                    { "from": "draft", "to": "under_review" },
+                    { "from": "under_review", "to": "approved" }
+                ]
+            }),
+        ));
+    }
+
+    let now = utc_timestamp()?;
+    let sequence = next_test_template_audit_sequence(&connection, &input.template_id)?;
+    let base_revision = revision_text(sequence.saturating_sub(1));
+    let resulting_revision = revision_text(sequence);
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    update_test_template_status(&transaction, &input.template_id, &input.target_status, &now)?;
+    insert_test_template_audit_event(
+        &transaction,
+        TestTemplateAuditEventInput {
+            template_id: &input.template_id,
+            sequence,
+            actor: &input.actor,
+            action: operation_kind,
+            reason: &input.reason,
+            operation_id: &input.operation_id,
+            correlation_id: &input.correlation_id,
+            device_id: &input.device_id,
+            base_revision: &base_revision,
+            resulting_revision: &resulting_revision,
+            payload_json: &payload_json,
+            timestamp: &now,
+        },
+    )?;
+    insert_test_template_sync_operation(
+        &transaction,
+        TestTemplateSyncOperationInput {
+            operation_id: &input.operation_id,
+            entity_type: "test_template",
+            entity_id: &input.template_id,
+            operation_kind,
+            base_revision: &base_revision,
+            resulting_revision: &resulting_revision,
+            actor_id: &input.actor,
+            device_id: &input.device_id,
+            correlation_id: &input.correlation_id,
+            payload_json: &payload_json,
+            timestamp: &now,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+
+    let template = load_test_template(&connection, &input.template_id)?.ok_or_else(|| {
+        AgentError::new(
+            "test_template_query_failed",
+            "updated test template was not readable after transition",
+        )
+    })?;
+    Ok(test_template_result_json(
+        operation_kind,
+        &input.operation_id,
+        false,
+        &template,
+    ))
+}
+
 pub fn get_test_template_definition(
     storage_root: &Path,
     template_id: &str,
@@ -302,6 +428,17 @@ fn validate_create_input(input: &CreateTestTemplateInput) -> Result<(), AgentErr
     Ok(())
 }
 
+fn validate_transition_input(input: &TransitionTestTemplateStatusInput) -> Result<(), AgentError> {
+    validate_stable_id(&input.template_id, "template_id")?;
+    validate_transition_target(&input.target_status)?;
+    AuditActor::parse(input.actor.clone()).map_err(domain_error)?;
+    AuditReason::parse(input.reason.clone()).map_err(domain_error)?;
+    validate_stable_id(&input.operation_id, "operation_id")?;
+    validate_stable_id(&input.correlation_id, "correlation_id")?;
+    validate_stable_id(&input.device_id, "device_id")?;
+    Ok(())
+}
+
 fn validate_optional_filter(value: Option<&str>, field: &'static str) -> Result<(), AgentError> {
     if let Some(value) = value {
         validate_stable_id(value, field)?;
@@ -342,6 +479,10 @@ fn validate_measurement_axis(value: &str) -> Result<(), AgentError> {
     )
 }
 
+fn validate_transition_target(value: &str) -> Result<(), AgentError> {
+    validate_enum(value, "target_status", &["under_review", "approved"])
+}
+
 fn validate_template_status(value: &str) -> Result<(), AgentError> {
     validate_enum(
         value,
@@ -366,6 +507,25 @@ fn validate_enum(value: &str, field: &'static str, allowed: &[&str]) -> Result<(
         format!("{field} has an unsupported value"),
         json!({ "field": field, "value": value, "allowed": allowed }),
     ))
+}
+
+fn transition_operation_kind(target_status: &str) -> Result<&'static str, AgentError> {
+    match target_status {
+        "under_review" => Ok("test_template_submitted_for_review"),
+        "approved" => Ok("test_template_approved"),
+        other => Err(AgentError::with_details(
+            "invalid_test_template",
+            "target_status has an unsupported transition value",
+            json!({ "field": "target_status", "value": other }),
+        )),
+    }
+}
+
+fn is_allowed_template_transition(current_status: &str, target_status: &str) -> bool {
+    matches!(
+        (current_status, target_status),
+        ("draft", "under_review") | ("under_review", "approved")
+    )
 }
 
 fn validate_json_object(value: &str, field: &'static str) -> Result<Value, AgentError> {
@@ -412,6 +572,10 @@ fn domain_error(error: DomainError) -> AgentError {
     }
 }
 
+fn revision_text(sequence: u64) -> String {
+    format!("rev-{sequence:04}")
+}
+
 fn utc_timestamp() -> Result<String, AgentError> {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
@@ -435,6 +599,14 @@ fn test_template_payload_json(input: &CreateTestTemplateInput) -> String {
         "sequence": parse_json_value(&input.sequence_json),
         "limits": parse_json_value(&input.limits_json),
         "post_processing": parse_json_value(&input.post_processing_json),
+    }))
+}
+
+fn test_template_transition_payload_json(input: &TransitionTestTemplateStatusInput) -> String {
+    render_json(&json!({
+        "template_id": input.template_id,
+        "target_status": input.target_status,
+        "reason": input.reason.trim(),
     }))
 }
 

@@ -8,6 +8,25 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-06-30
+
+### Added
+
+- Added agent-owned test-template lifecycle transitions for submitting draft
+  templates to review and approving under-review templates.
+- Added local API routes
+  `/api/v1/test-templates/{template_id}/transitions/submit-for-review` and
+  `/api/v1/test-templates/{template_id}/transitions/approve`.
+- Added audit and sync outbox evidence for
+  `test_template_submitted_for_review` and `test_template_approved`
+  operations.
+- Added Python `LocalAgentClient` methods for test-template submit and approve
+  transitions.
+
+### Changed
+
+- Bumped the synchronized Rust/Python software version to `0.8.4`.
+
 ## [0.8.3] - 2026-06-30
 
 ### Added
