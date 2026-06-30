@@ -18,6 +18,10 @@ use crate::test_execution_service::{
     get_simulated_test_execution, list_project_simulated_test_executions, run_simulated_emc_test,
     RunSimulatedEmcTestInput,
 };
+use crate::test_template_service::{
+    create_test_template, get_test_template_definition, list_test_template_audit_events,
+    list_test_template_definitions, CreateTestTemplateInput, ListTestTemplatesInput,
+};
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, path::PathBuf};
 use tiny_http::{Header, Response, Server, StatusCode};
@@ -204,6 +208,16 @@ fn route_api_request(
             register_document_input(&payload)?,
         );
     }
+    if parts.as_slice() == ["api", "v1", "test-templates"] && method == "GET" {
+        return list_test_template_definitions(
+            &config.storage_root,
+            list_test_templates_input(query),
+        );
+    }
+    if parts.as_slice() == ["api", "v1", "test-templates"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return create_test_template(&config.storage_root, create_test_template_input(&payload)?);
+    }
     if parts.as_slice() == ["api", "v1", "test-executions", "simulated-emc"] && method == "POST" {
         let payload = parse_json_body(body)?;
         return run_simulated_emc_test(&config.storage_root, simulated_emc_input(&payload)?);
@@ -263,6 +277,12 @@ fn route_api_request(
         }
         ["api", "v1", "documents", document_id, "audit-events"] if method == "GET" => {
             list_document_audit_events(&config.storage_root, document_id)
+        }
+        ["api", "v1", "test-templates", template_id] if method == "GET" => {
+            get_test_template_definition(&config.storage_root, template_id)
+        }
+        ["api", "v1", "test-templates", template_id, "audit-events"] if method == "GET" => {
+            list_test_template_audit_events(&config.storage_root, template_id)
         }
         ["api", "v1", "metrology", "instruments", asset_id] if method == "GET" => {
             run_metrology_command(AgentCommand::Metrology {
@@ -572,6 +592,50 @@ fn list_documents_input(query: &str) -> ListAttachedDocumentsInput {
     }
 }
 
+fn create_test_template_input(payload: &Value) -> Result<CreateTestTemplateInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(CreateTestTemplateInput {
+        template_id: required_string(payload, "template_id")?,
+        template_revision: optional_string(payload, "template_revision")
+            .unwrap_or_else(|| "A".to_owned()),
+        title: required_string(payload, "title")?,
+        description: required_string(payload, "description")?,
+        category_code: required_string(payload, "category_code")?,
+        measurement_axis: required_string(payload, "measurement_axis")?,
+        method_code: optional_string(payload, "method_code"),
+        method_revision: optional_string(payload, "method_revision"),
+        status: optional_string(payload, "status").unwrap_or_else(|| "draft".to_owned()),
+        variables_json: required_json_or_string(payload, "variables", "variables_json")?,
+        lock_policy_json: required_json_or_string(payload, "lock_policy", "lock_policy_json")?,
+        instrumentation_chain_json: required_json_or_string(
+            payload,
+            "instrumentation_chain",
+            "instrumentation_chain_json",
+        )?,
+        sequence_json: required_json_or_string(payload, "sequence", "sequence_json")?,
+        limits_json: required_json_or_string(payload, "limits", "limits_json")?,
+        post_processing_json: required_json_or_string(
+            payload,
+            "post_processing",
+            "post_processing_json",
+        )?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn list_test_templates_input(query: &str) -> ListTestTemplatesInput {
+    ListTestTemplatesInput {
+        category_code: optional_query_value(query, "category_code"),
+        status: optional_query_value(query, "status"),
+    }
+}
+
 fn operation_context(payload: &Value) -> Result<MetrologyOperationContext, AgentError> {
     let operation_id = required_string(payload, "operation_id")?;
     Ok(MetrologyOperationContext {
@@ -628,6 +692,23 @@ fn optional_string(payload: &Value, key: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn required_json_or_string(
+    payload: &Value,
+    key: &'static str,
+    string_key: &'static str,
+) -> Result<String, AgentError> {
+    if let Some(value) = payload.get(key) {
+        return Ok(render_json(value));
+    }
+    optional_string(payload, string_key).ok_or_else(|| {
+        AgentError::with_details(
+            "missing_json_field",
+            format!("missing required JSON field: {key}"),
+            json!({ "field": key, "string_field": string_key }),
+        )
+    })
+}
+
 fn optional_u32(payload: &Value, key: &str) -> Result<Option<u32>, AgentError> {
     let Some(value) = payload.get(key) else {
         return Ok(None);
@@ -680,11 +761,15 @@ fn status_for_error(code: &str) -> u16 {
         | "document_owner_not_found"
         | "project_not_found"
         | "test_execution_not_found"
+        | "test_template_not_found"
+        | "test_template_category_not_found"
+        | "test_template_method_revision_not_found"
         | "metrology_instrument_not_found" => 404,
         "contract_review_incomplete"
         | "invalid_project_transition"
         | "project_already_exists"
         | "test_execution_attempt_exists"
+        | "test_template_already_exists"
         | "attached_document_already_exists"
         | "operation_replay_mismatch"
         | "metrology_instrument_already_exists"
@@ -703,6 +788,7 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_reason"
         | "domain_error"
         | "invalid_test_execution"
+        | "invalid_test_template"
         | "invalid_metrology_calibration"
         | "invalid_metrology_instrument"
         | "invalid_metrology_readiness"
@@ -1019,6 +1105,146 @@ mod tests {
                 }}"#,
                 "e".repeat(64)
             ),
+            &config,
+        );
+        assert_eq!(conflict.status, 409);
+        assert!(conflict.body.contains("operation_replay_mismatch"));
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn local_api_creates_test_template_with_audit_and_outbox() {
+        let storage_root = temporary_storage_root("agent-api-test-template");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            max_requests: None,
+        };
+
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+
+        let template_body = r#"{
+            "template_id": "TT-INRUSH-001",
+            "template_revision": "A",
+            "title": "Inrush current capture",
+            "description": "Time-domain inrush capture template for power electronics investigations.",
+            "category_code": "emission_transient_time_domain",
+            "measurement_axis": "time_series",
+            "variables": {
+                "sample_rate_hz": {
+                    "type": "number",
+                    "unit": "Hz",
+                    "default": 100000
+                }
+            },
+            "lock_policy": {
+                "sample_rate_hz": "editable_until_campaign_freeze"
+            },
+            "instrumentation_chain": [
+                {
+                    "slot": "current_probe",
+                    "required_category": "current_probe",
+                    "calibration": "required"
+                },
+                {
+                    "slot": "daq",
+                    "required_category": "daq_chassis",
+                    "sync": "single_clock"
+                }
+            ],
+            "sequence": [
+                {
+                    "step": "arm",
+                    "instruction": "Arm acquisition and wait for trigger"
+                },
+                {
+                    "step": "capture",
+                    "instruction": "Capture inrush transient"
+                }
+            ],
+            "limits": [
+                {
+                    "name": "peak_current",
+                    "expression": "max(abs(current))",
+                    "unit": "A"
+                }
+            ],
+            "post_processing": [
+                {
+                    "operation": "peak",
+                    "input": "raw.current",
+                    "output": "calculated.peak_current"
+                }
+            ],
+            "actor": "method.author",
+            "reason": "first controlled template draft",
+            "operation_id": "op-create-test-template"
+        }"#;
+        let created = handle_api_request("POST", "/api/v1/test-templates", template_body, &config);
+        assert_eq!(created.status, 200);
+        assert!(created.body.contains("\"template_id\":\"TT-INRUSH-001\""));
+        assert!(created.body.contains("\"status\":\"draft\""));
+        assert!(created
+            .body
+            .contains("\"measurement_axis\":\"time_series\""));
+
+        let detail = handle_api_request("GET", "/api/v1/test-templates/TT-INRUSH-001", "", &config);
+        let filtered = handle_api_request(
+            "GET",
+            "/api/v1/test-templates?category_code=emission_transient_time_domain&status=draft",
+            "",
+            &config,
+        );
+        let audit = handle_api_request(
+            "GET",
+            "/api/v1/test-templates/TT-INRUSH-001/audit-events",
+            "",
+            &config,
+        );
+        let outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
+
+        assert_eq!(detail.status, 200);
+        assert_eq!(filtered.status, 200);
+        assert_eq!(audit.status, 200);
+        assert_eq!(outbox.status, 200);
+        assert!(detail.body.contains("\"instrumentation_chain\""));
+        assert_eq!(filtered.body.matches("\"template_id\"").count(), 1);
+        assert!(audit.body.contains("\"action\":\"test_template_created\""));
+        assert!(outbox.body.contains("\"domain\":\"test_definitions\""));
+        assert!(outbox.body.contains("\"entity_type\":\"test_template\""));
+        assert!(outbox
+            .body
+            .contains("\"operation_kind\":\"test_template_created\""));
+
+        let replay = handle_api_request("POST", "/api/v1/test-templates", template_body, &config);
+        assert_eq!(replay.status, 200);
+        assert!(replay.body.contains("\"replayed\":true"));
+
+        let conflict = handle_api_request(
+            "POST",
+            "/api/v1/test-templates",
+            r#"{
+                "template_id": "TT-INRUSH-001",
+                "template_revision": "A",
+                "title": "Changed inrush template",
+                "description": "Changed description.",
+                "category_code": "emission_transient_time_domain",
+                "measurement_axis": "time_series",
+                "variables": {},
+                "lock_policy": {},
+                "instrumentation_chain": [],
+                "sequence": [],
+                "limits": [],
+                "post_processing": [],
+                "actor": "method.author",
+                "reason": "conflicting replay",
+                "operation_id": "op-create-test-template"
+            }"#,
             &config,
         );
         assert_eq!(conflict.status, 409);

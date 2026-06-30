@@ -8,6 +8,25 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-06-30
+
+### Added
+
+- Added test-definition migration `0003_test_templates.sql` for controlled draft
+  test templates and `test_template_audit_events`.
+- Added agent-owned test-template draft creation, list, detail, and audit routes
+  under `/api/v1/test-templates`.
+- Added audit and sync outbox evidence for `test_definitions` operations with
+  entity type `test_template`.
+- Added Python `LocalAgentClient` methods for test-template creation and reads.
+- Added `docs/test-template-api.md`.
+
+### Changed
+
+- `emc-locus-agent storage init/status/verify` now includes
+  `test_definitions.sqlite` alongside projects, sync, and metrology.
+- Bumped the synchronized Rust/Python software version to `0.8.3`.
+
 ## [0.8.2] - 2026-06-30
 
 ### Changed

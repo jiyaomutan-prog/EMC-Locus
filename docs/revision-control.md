@@ -90,14 +90,17 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.8.2` was validated on 2026-06-30 with:
+Version `0.8.3` was validated on 2026-06-30 with:
 
 ```text
-cargo metadata --format-version 1
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+py -m compileall python\emc_locus
 py -m py_compile apps\qt-console\main.py
+$env:PYTHONPATH='python'; py -m unittest discover -s python\tests
+$env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrations import validate_sqlite_migrations; print(validate_sqlite_migrations(Path('storage/sqlite')))"
 C:\Users\gtrai\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe --check apps\gui-shell\app.js
-py -c "from pathlib import Path; html=Path('apps/gui-shell/index.html').read_text(encoding='utf-8'); js=Path('apps/gui-shell/app.js').read_text(encoding='utf-8'); ids=['nav-list','status-strip','view-title','view-summary','search-input','overview-view','space-view','console-grid','shared-backbone','static-guardrails','lab-domain-map','relationship-flow','space-kind','space-group','space-objective','space-handoff','space-guardrail','space-objects','space-actions','space-relations','space-table']; missing=[item for item in ids if f'id=\"{item}\"' not in html and f'#{item}' in js]; assert not missing, missing"
-Temporary local HTTP server for apps\gui-shell plus Invoke-WebRequest returned HTTP 200 for /index.html
 $env:PYTHONPATH='python'; py -m unittest python.tests.test_release_consistency
 git diff --check
 git diff --cached --check

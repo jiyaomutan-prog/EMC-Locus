@@ -204,6 +204,13 @@ class LocalAgentClientTests(unittest.TestCase):
             "http://127.0.0.1:8765/api/v1/documents/DOC-READ-001/audit-events": {
                 "audit_events": []
             },
+            "http://127.0.0.1:8765/api/v1/test-templates": {"test_templates": []},
+            "http://127.0.0.1:8765/api/v1/test-templates/TT-READ-001": {
+                "test_template": {"template_id": "TT-READ-001"}
+            },
+            "http://127.0.0.1:8765/api/v1/test-templates/TT-READ-001/audit-events": {
+                "audit_events": []
+            },
             "http://127.0.0.1:8765/api/v1/sync/outbox": {"sync_outbox": []},
         }
 
@@ -234,6 +241,12 @@ class LocalAgentClientTests(unittest.TestCase):
                 "DOC-READ-001",
             )
             self.assertEqual(client.document_audit_events("DOC-READ-001")["audit_events"], [])
+            self.assertEqual(client.list_test_templates()["test_templates"], [])
+            self.assertEqual(
+                client.get_test_template("TT-READ-001")["test_template"]["template_id"],
+                "TT-READ-001",
+            )
+            self.assertEqual(client.test_template_audit_events("TT-READ-001")["audit_events"], [])
             self.assertEqual(client.sync_outbox()["sync_outbox"], [])
 
         self.assertEqual(
@@ -251,6 +264,9 @@ class LocalAgentClientTests(unittest.TestCase):
                 ("GET", "http://127.0.0.1:8765/api/v1/documents"),
                 ("GET", "http://127.0.0.1:8765/api/v1/documents/DOC-READ-001"),
                 ("GET", "http://127.0.0.1:8765/api/v1/documents/DOC-READ-001/audit-events"),
+                ("GET", "http://127.0.0.1:8765/api/v1/test-templates"),
+                ("GET", "http://127.0.0.1:8765/api/v1/test-templates/TT-READ-001"),
+                ("GET", "http://127.0.0.1:8765/api/v1/test-templates/TT-READ-001/audit-events"),
                 ("GET", "http://127.0.0.1:8765/api/v1/sync/outbox"),
             ],
         )
@@ -318,6 +334,71 @@ class LocalAgentClientTests(unittest.TestCase):
         self.assertEqual(
             captured["url"],
             "http://127.0.0.1:8765/api/v1/documents?owner_domain=locus_lab_management&owner_entity_type=project&owner_entity_id=CEM+PY",
+        )
+
+    def test_posts_test_template_payload(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            captured["body"] = json.loads(request.data.decode("utf-8"))
+            return _FakeResponse(
+                {
+                    "operation_id": "op-template",
+                    "replayed": False,
+                    "test_template": {
+                        "template_id": "TT-PY-001",
+                        "status": "draft",
+                    },
+                }
+            )
+
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            response = LocalAgentClient("http://127.0.0.1:8765").create_test_template(
+                template_id="TT-PY-001",
+                title="Python client template",
+                description="Template created through the local agent client",
+                category_code="emission_transient_time_domain",
+                measurement_axis="time_series",
+                variables={"sample_rate_hz": {"default": 100000}},
+                lock_policy={"sample_rate_hz": "editable_until_campaign_freeze"},
+                instrumentation_chain=[{"slot": "daq", "required_category": "daq_chassis"}],
+                sequence=[{"step": "capture", "instruction": "Capture transient"}],
+                limits=[{"name": "peak_current", "unit": "A"}],
+                post_processing=[{"operation": "peak"}],
+                actor="method.author",
+                reason="first draft",
+                operation_id="op-template",
+            )
+
+        self.assertEqual(captured["url"], "http://127.0.0.1:8765/api/v1/test-templates")
+        self.assertEqual(captured["method"], "POST")
+        body = captured["body"]
+        self.assertEqual(body["template_id"], "TT-PY-001")
+        self.assertEqual(body["status"], "draft")
+        self.assertEqual(body["variables"]["sample_rate_hz"]["default"], 100000)
+        self.assertEqual(body["instrumentation_chain"][0]["slot"], "daq")
+        self.assertEqual(response["test_template"]["status"], "draft")
+
+    def test_list_test_templates_encodes_filters(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            return _FakeResponse({"test_templates": []})
+
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            LocalAgentClient("http://127.0.0.1:8765").list_test_templates(
+                category_code="emission_transient_time_domain",
+                status="draft",
+            )
+
+        self.assertEqual(captured["method"], "GET")
+        self.assertEqual(
+            captured["url"],
+            "http://127.0.0.1:8765/api/v1/test-templates?category_code=emission_transient_time_domain&status=draft",
         )
 
     def test_posts_simulated_emc_execution_payload(self) -> None:

@@ -60,6 +60,7 @@ docs/
   local-agent.md       Rust local agent command surface and growth path
   project-api.md       Local project API contract
   metrology-api.md     Local metrology API contract
+  test-template-api.md Local test-template API contract
   session-logs/          Dated development session records
   competitive-analysis/  Public feature baselines and product positioning
   roadmap.md             Incremental delivery plan
@@ -82,7 +83,14 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.8.2`.
+Current software version: `0.8.3`.
+
+Version `0.8.3` adds the first agent-owned test-template draft workflow. The
+Rust local agent now initializes `test_definitions.sqlite`, exposes
+`/api/v1/test-templates`, stores controlled draft templates with variables,
+lock policy, instrumentation chain, sequence, limits, post-processing metadata,
+template audit events, and `test_definitions` outbox operations. This slice does
+not approve templates, instantiate campaign tests, or execute acquisition.
 
 Version `0.8.2` freezes the GUI and template backbone before another runtime
 slice. LAB CONSOLE is now the web-oriented laboratory management surface, TEST

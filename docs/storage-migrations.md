@@ -55,7 +55,12 @@ confidentiality only; file bytes remain outside SQLite.
 
 Owns standards, methods, method revisions, approved parameters, acceptance
 criteria, processing graph definitions, step-by-step evidence expectations, and
-the adjustable test-category taxonomy used by planning and methods.
+the adjustable test-category taxonomy used by planning and methods. Version 3
+adds `test_templates` and `test_template_audit_events` for the first
+agent-owned draft template workflow. Template records keep structured variables,
+lock policy, instrumentation chain slots, sequence steps, limits, and
+post-processing definitions as metadata JSON; execution data remains outside
+this repository.
 
 ### Measurement Data
 
@@ -104,7 +109,9 @@ $env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrat
 The helper checks migration filenames, detects duplicate versions per domain,
 and executes each domain's SQL in a fresh in-memory SQLite database.
 Repository initialization also applies missing domain migrations to an existing
-database that already has a `schema_migrations` table.
+database that already has a `schema_migrations` table. The Rust local agent now
+initializes `projects.sqlite`, `sync.sqlite`, `metrology.sqlite`, and
+`test_definitions.sqlite`.
 
 ## Early Python Adapters
 
@@ -153,6 +160,8 @@ perform minimal insert/count/query operations for smoke testing:
 - test method insert/get/list APIs;
 - method revision insert/approval/list APIs;
 - ordered test-step insert/list APIs with duplicate-sequence rejection.
+- agent-owned test-template draft creation and read/list/audit API through
+  `emc-locus-agent`.
 - synchronization conflict insert/count/get/list APIs;
 - synchronization action-plan insert/list APIs;
 - transactional conflict resolution/defer APIs with optional audit-event

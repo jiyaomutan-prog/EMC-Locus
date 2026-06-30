@@ -25,11 +25,12 @@ one capability at a time.
 ## Agent Storage Commands
 
 The first storage commands started with the project vertical slice and now also
-prepare the first metrology agent database. They manage:
+prepare the metrology and test-definition agent databases. They manage:
 
 - `projects.sqlite`;
 - `sync.sqlite`;
-- `metrology.sqlite`.
+- `metrology.sqlite`;
+- `test_definitions.sqlite`.
 
 Use an explicit storage root and migration root:
 
@@ -40,9 +41,10 @@ cargo run -q -p emc-locus-agent -- storage verify --storage-root data\agent --mi
 ```
 
 `storage init` creates the storage directory if needed and applies missing
-project, sync, and metrology migrations. `storage status` reports whether the
-databases are missing, current, invalid, or need migration. `storage verify`
-fails when a database is not current or fails SQLite integrity checks.
+project, sync, metrology, and test-definition migrations. `storage status`
+reports whether the databases are missing, current, invalid, or need migration.
+`storage verify` fails when a database is not current or fails SQLite integrity
+checks.
 
 For the project vertical slice, `projects.sqlite` and `sync.sqlite` stay as two
 files but must use rollback journal modes so attached-database commits remain
@@ -140,6 +142,10 @@ GET  /api/v1/documents
 POST /api/v1/documents
 GET  /api/v1/documents/{document_id}
 GET  /api/v1/documents/{document_id}/audit-events
+GET  /api/v1/test-templates
+POST /api/v1/test-templates
+GET  /api/v1/test-templates/{template_id}
+GET  /api/v1/test-templates/{template_id}/audit-events
 POST /api/v1/test-executions/simulated-emc
 GET  /api/v1/test-executions/{attempt_id}
 GET  /api/v1/metrology/instruments
@@ -251,3 +257,10 @@ classification, storage URI, checksum, revision, applicability, and
 confidentiality. It does not upload file bytes. Successful writes persist an
 `attached_documents` row, a `document_audit_events` row, and a pending outbox
 operation with entity type `attached_document`.
+
+Version `0.8.3` adds the first agent-owned test-template draft workflow. `POST
+/api/v1/test-templates` creates one controlled draft test template in
+`test_definitions.sqlite`, validates its category and structured definition
+blocks, writes `test_template_audit_events`, and emits a `test_definitions`
+outbox operation. The slice does not yet approve templates, instantiate campaign
+tests, or execute acquisition/post-processing.

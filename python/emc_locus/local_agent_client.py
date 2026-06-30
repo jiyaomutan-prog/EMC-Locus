@@ -137,6 +137,32 @@ class LocalAgentClient:
             f"/api/v1/documents/{quote(document_id)}/audit-events",
         )
 
+    def list_test_templates(
+        self,
+        *,
+        category_code: str | None = None,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        query = {
+            key: value
+            for key, value in {
+                "category_code": category_code,
+                "status": status,
+            }.items()
+            if value
+        }
+        suffix = f"?{urlencode(query)}" if query else ""
+        return self.request_json("GET", f"/api/v1/test-templates{suffix}")
+
+    def get_test_template(self, template_id: str) -> dict[str, Any]:
+        return self.request_json("GET", f"/api/v1/test-templates/{quote(template_id)}")
+
+    def test_template_audit_events(self, template_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/test-templates/{quote(template_id)}/audit-events",
+        )
+
     def create_project(
         self,
         *,
@@ -212,6 +238,55 @@ class LocalAgentClient:
         _put_optional(payload, "correlation_id", correlation_id)
         _put_optional(payload, "device_id", device_id)
         return self.request_json("POST", "/api/v1/documents", payload)
+
+    def create_test_template(
+        self,
+        *,
+        template_id: str,
+        title: str,
+        description: str,
+        category_code: str,
+        measurement_axis: str,
+        variables: dict[str, Any],
+        lock_policy: dict[str, Any],
+        instrumentation_chain: list[dict[str, Any]],
+        sequence: list[dict[str, Any]],
+        limits: list[dict[str, Any]],
+        post_processing: list[dict[str, Any]],
+        actor: str,
+        reason: str,
+        template_revision: str = "A",
+        method_code: str | None = None,
+        method_revision: str | None = None,
+        status: str = "draft",
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id("test-template-create", template_id)
+        payload: dict[str, Any] = {
+            "template_id": template_id,
+            "template_revision": template_revision,
+            "title": title,
+            "description": description,
+            "category_code": category_code,
+            "measurement_axis": measurement_axis,
+            "variables": variables,
+            "lock_policy": lock_policy,
+            "instrumentation_chain": instrumentation_chain,
+            "sequence": sequence,
+            "limits": limits,
+            "post_processing": post_processing,
+            "status": status,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "method_code", method_code)
+        _put_optional(payload, "method_revision", method_revision)
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json("POST", "/api/v1/test-templates", payload)
 
     def complete_contract_review_item(
         self,

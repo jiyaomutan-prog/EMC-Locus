@@ -14,6 +14,9 @@ mod sqlite_policy;
 mod test_execution_dto;
 mod test_execution_repository;
 mod test_execution_service;
+mod test_template_dto;
+mod test_template_repository;
+mod test_template_service;
 
 pub use document_service::{
     get_document, list_document_audit_events, list_documents, register_attached_document,
@@ -38,6 +41,10 @@ use std::{
     error::Error,
     fmt, fs,
     path::{Path, PathBuf},
+};
+pub use test_template_service::{
+    create_test_template, get_test_template_definition, list_test_template_audit_events,
+    list_test_template_definitions, CreateTestTemplateInput, ListTestTemplatesInput,
 };
 
 pub const AGENT_NAME: &str = "emc-locus-agent";
@@ -477,7 +484,7 @@ struct StorageDomainSpec {
     migration_folder: &'static str,
 }
 
-fn project_slice_domains() -> [StorageDomainSpec; 3] {
+fn project_slice_domains() -> [StorageDomainSpec; 4] {
     [
         StorageDomainSpec {
             domain: "projects",
@@ -493,6 +500,11 @@ fn project_slice_domains() -> [StorageDomainSpec; 3] {
             domain: "metrology",
             database_file: "metrology.sqlite",
             migration_folder: "metrology",
+        },
+        StorageDomainSpec {
+            domain: "test_definitions",
+            database_file: "test_definitions.sqlite",
+            migration_folder: "test_definitions",
         },
     ]
 }
@@ -799,10 +811,11 @@ mod tests {
         let second_report =
             run_storage_action(StorageAction::Init, storage_root.clone(), migrations_root).unwrap();
 
-        assert_eq!(report.domains.len(), 3);
+        assert_eq!(report.domains.len(), 4);
         assert!(storage_root.join("projects.sqlite").exists());
         assert!(storage_root.join("sync.sqlite").exists());
         assert!(storage_root.join("metrology.sqlite").exists());
+        assert!(storage_root.join("test_definitions.sqlite").exists());
         assert!(report
             .domains
             .iter()
@@ -828,6 +841,15 @@ mod tests {
                 .unwrap()
                 .schema_version,
             Some(7)
+        );
+        assert_eq!(
+            second_report
+                .domains
+                .iter()
+                .find(|domain| domain.domain == "test_definitions")
+                .unwrap()
+                .schema_version,
+            Some(3)
         );
 
         remove_temporary_storage_root(&storage_root);
