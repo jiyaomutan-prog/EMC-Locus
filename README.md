@@ -79,7 +79,13 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.6.1`.
+Current software version: `0.6.2`.
+
+Version `0.6.2` adds the first Rust metrology DTO and repository boundary:
+typed instrument/calibration DTOs, checked `metrology.sqlite` opening, service
+state schema validation, typed instrument reads, latest-calibration lookup, and
+a thin JSON rendering service used by tests. This prepares the agent-backed
+metrology registry without yet exposing the full write API.
 
 Version `0.6.1` starts the metrology vertical-slice hardening by separating
 instrument serviceability from the legacy availability/reservation field. Legacy

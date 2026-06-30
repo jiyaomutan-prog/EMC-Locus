@@ -8,6 +8,23 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-06-30
+
+### Added
+
+- Added Rust metrology DTOs for instrument lists/details and latest calibration
+  records, using Serde instead of manual JSON assembly.
+- Added a Rust metrology repository boundary that opens `metrology.sqlite`,
+  validates required serviceability schema columns, loads instruments, and reads
+  each instrument's latest calibration record.
+- Added a thin Rust metrology service that renders the first instrument list/get
+  JSON contracts and tests the serviceability DTO contract.
+
+### Changed
+
+- Bumped the synchronized Rust/Python software version to `0.6.2` for the
+  metrology DTO/repository tranche.
+
 ## [0.6.1] - 2026-06-30
 
 ### Added

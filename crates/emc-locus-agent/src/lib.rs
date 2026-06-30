@@ -1,4 +1,7 @@
 mod local_api;
+mod metrology_dto;
+mod metrology_repository;
+mod metrology_service;
 mod project_agent;
 mod project_dto;
 mod project_repository;
@@ -7,6 +10,7 @@ mod sqlite_policy;
 
 use emc_locus_core::{baseline_repository_domains, RepositoryDomain};
 pub use local_api::{run_local_api_server, ApiServerConfig};
+pub use metrology_service::{get_metrology_instrument, list_metrology_instruments};
 pub use project_agent::{run_project_command, run_sync_command, ProjectAction, SyncAction};
 use rusqlite::Connection;
 use serde::Serialize;

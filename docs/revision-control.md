@@ -90,7 +90,7 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.6.1` was validated on 2026-06-30 with:
+Version `0.6.2` was validated on 2026-06-30 with:
 
 ```text
 cargo fmt --check
