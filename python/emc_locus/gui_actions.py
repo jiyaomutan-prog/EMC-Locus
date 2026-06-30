@@ -6,7 +6,8 @@ import argparse
 import calendar
 from datetime import date, datetime, timedelta
 import json
-from pathlib import Path
+import mimetypes
+from pathlib import Path, PurePath
 from typing import Any
 
 from .gui_bootstrap import build_bootstrap, write_bootstrap_js
@@ -292,7 +293,7 @@ def complete_contract_review_item_action(
 
 def register_metrology_instrument(
     *,
-    metrology_db: Path | str,
+    metrology_db: Path | str | None,
     asset_id: str,
     family: str,
     manufacturer: str,
@@ -321,6 +322,7 @@ def register_metrology_instrument(
     test_definitions_db: Path | str | None = None,
     measurement_data_db: Path | str | None = None,
     update_catalog_db: Path | str | None = None,
+    agent_url: str | None = None,
 ) -> dict[str, Any]:
     """Register one metrology instrument and optional initial certificate."""
 
@@ -348,20 +350,6 @@ def register_metrology_instrument(
         calibration_period_months,
         "calibration_period_months",
     )
-
-    repository = MetrologyRepository(Path(metrology_db), Path(migrations_root))
-    repository.initialize()
-    category = repository.get_instrument_category(category_code)
-    if category is None:
-        raise ValueError(f"unknown instrument category: {category_code}")
-
-    if calibration_requirement is None:
-        calibration_requirement = str(category["default_calibration_requirement"])
-    calibration_requirement = require_non_empty(
-        calibration_requirement,
-        "calibration_requirement",
-    )
-
     has_certificate = any(
         _has_text(value) for value in (certificate_reference, calibrated_at, due_at, provider)
     )
@@ -382,6 +370,88 @@ def register_metrology_instrument(
         calibrated_at = None
         due_at = None
         provider = None
+
+    if _has_text(agent_url):
+        calibration_requirement = calibration_requirement or "required"
+        client = LocalAgentClient(str(agent_url))
+        response = client.register_metrology_instrument(
+            asset_id=asset_id,
+            family=family,
+            category_code=category_code,
+            manufacturer=manufacturer,
+            model=model,
+            serial_number=serial_number,
+            part_number=part_number,
+            calibration_requirement=calibration_requirement,
+            calibration_period_months=calibration_period_months,
+            serviceability_status=serviceability_status,
+            serviceability_reason=serviceability_reason,
+            capabilities_json=capabilities_json,
+            metrology_notes=metrology_notes,
+            actor="qt.operator",
+            reason="Instrument registration from Qt console",
+        )
+        if has_certificate:
+            client.record_metrology_calibration(
+                asset_id=asset_id,
+                event_id=f"CAL-{asset_id}-{certificate_reference}",
+                certificate_reference=str(certificate_reference),
+                calibrated_at=str(calibrated_at),
+                due_at=str(due_at),
+                provider=str(provider),
+                recorded_by="qt.operator",
+                actor="qt.operator",
+                reason="Initial calibration from Qt console",
+                decision=_legacy_calibration_decision(status_at_import),
+                uncertainty_summary_json=uncertainty_json,
+                document_manifest_json=_certificate_document_manifest_json(
+                    asset_id=asset_id,
+                    certificate_reference=str(certificate_reference),
+                    file_reference=file_reference,
+                    checksum=checksum,
+                ),
+            )
+        if bootstrap_output is not None:
+            refresh_bootstrap(
+                output=bootstrap_output,
+                migrations_root=migrations_root,
+                projects_db=projects_db,
+                metrology_db=metrology_db,
+                test_definitions_db=test_definitions_db,
+                measurement_data_db=measurement_data_db,
+                update_catalog_db=update_catalog_db,
+                agent_url=agent_url,
+            )
+        instrument = response.get("instrument", {})
+        return {
+            "asset_id": asset_id,
+            "category_code": category_code,
+            "category_label": category_code,
+            "part_number": part_number,
+            "calibration_period_months": calibration_period_months,
+            "calibration_requirement": calibration_requirement,
+            "serviceability_status": str(
+                instrument.get("serviceability_status", serviceability_status)
+            ),
+            "calibration_recorded": has_certificate,
+            "certificate_reference": certificate_reference if has_certificate else None,
+            "agent_url": str(agent_url),
+        }
+
+    if metrology_db is None:
+        raise ValueError("metrology_db is required when no agent_url is configured")
+    repository = MetrologyRepository(Path(metrology_db), Path(migrations_root))
+    repository.initialize()
+    category = repository.get_instrument_category(category_code)
+    if category is None:
+        raise ValueError(f"unknown instrument category: {category_code}")
+
+    if calibration_requirement is None:
+        calibration_requirement = str(category["default_calibration_requirement"])
+    calibration_requirement = require_non_empty(
+        calibration_requirement,
+        "calibration_requirement",
+    )
 
     repository.register_instrument(
         asset_id=asset_id,
@@ -439,7 +509,7 @@ def register_metrology_instrument(
 
 def record_metrology_calibration(
     *,
-    metrology_db: Path | str,
+    metrology_db: Path | str | None,
     asset_id: str,
     certificate_reference: str,
     calibrated_at: str,
@@ -455,6 +525,7 @@ def record_metrology_calibration(
     test_definitions_db: Path | str | None = None,
     measurement_data_db: Path | str | None = None,
     update_catalog_db: Path | str | None = None,
+    agent_url: str | None = None,
 ) -> dict[str, Any]:
     """Record a calibration certificate for an existing metrology asset."""
 
@@ -468,6 +539,58 @@ def record_metrology_calibration(
     status_at_import = require_non_empty(status_at_import, "status_at_import")
     uncertainty_json = _normalized_json(uncertainty_json, "uncertainty_json")
 
+    if _has_text(agent_url):
+        event_id = f"CAL-{asset_id}-{certificate_reference}"
+        client = LocalAgentClient(str(agent_url))
+        due_at = _agent_due_at(
+            client=client,
+            asset_id=asset_id,
+            calibrated_at=calibrated_at,
+            due_at=due_at,
+        )
+        result = client.record_metrology_calibration(
+            asset_id=asset_id,
+            event_id=event_id,
+            certificate_reference=certificate_reference,
+            calibrated_at=calibrated_at,
+            due_at=due_at,
+            provider=provider,
+            recorded_by="qt.operator",
+            actor="qt.operator",
+            reason="Calibration record from Qt console",
+            decision=_legacy_calibration_decision(status_at_import),
+            uncertainty_summary_json=uncertainty_json,
+            document_manifest_json=_certificate_document_manifest_json(
+                asset_id=asset_id,
+                certificate_reference=certificate_reference,
+                file_reference=file_reference,
+                checksum=checksum,
+            ),
+        )
+        if bootstrap_output is not None:
+            refresh_bootstrap(
+                output=bootstrap_output,
+                migrations_root=migrations_root,
+                projects_db=projects_db,
+                metrology_db=metrology_db,
+                test_definitions_db=test_definitions_db,
+                measurement_data_db=measurement_data_db,
+                update_catalog_db=update_catalog_db,
+                agent_url=agent_url,
+            )
+        event = result.get("calibration_event", {})
+        return {
+            "asset_id": asset_id,
+            "certificate_reference": certificate_reference,
+            "calibrated_at": calibrated_at,
+            "due_at": str(event.get("due_at", due_at)),
+            "provider": provider,
+            "status_at_import": status_at_import,
+            "agent_url": str(agent_url),
+        }
+
+    if metrology_db is None:
+        raise ValueError("metrology_db is required when no agent_url is configured")
     repository = MetrologyRepository(Path(metrology_db), Path(migrations_root))
     repository.initialize()
     instrument = repository.get_instrument(asset_id)
@@ -529,6 +652,7 @@ def attach_metrology_document(
     test_definitions_db: Path | str | None = None,
     measurement_data_db: Path | str | None = None,
     update_catalog_db: Path | str | None = None,
+    agent_url: str | None = None,
 ) -> dict[str, Any]:
     """Attach one certificate, datasheet, script, or other document to an asset."""
 
@@ -757,7 +881,7 @@ def set_metrology_instrument_availability(
 
 def set_metrology_instrument_serviceability(
     *,
-    metrology_db: Path | str,
+    metrology_db: Path | str | None,
     asset_id: str,
     serviceability_status: str,
     serviceability_reason: str | None = "",
@@ -767,6 +891,7 @@ def set_metrology_instrument_serviceability(
     test_definitions_db: Path | str | None = None,
     measurement_data_db: Path | str | None = None,
     update_catalog_db: Path | str | None = None,
+    agent_url: str | None = None,
 ) -> dict[str, Any]:
     """Set the serviceability state that drives metrology readiness."""
 
@@ -779,6 +904,38 @@ def set_metrology_instrument_serviceability(
         raise ValueError(f"unknown instrument serviceability: {serviceability_status}")
     serviceability_reason = serviceability_reason or ""
 
+    if _has_text(agent_url):
+        response = LocalAgentClient(str(agent_url)).set_metrology_serviceability(
+            asset_id=asset_id,
+            serviceability_status=serviceability_status,
+            serviceability_reason=serviceability_reason,
+            actor="qt.operator",
+            reason="Serviceability change from Qt console",
+        )
+        if bootstrap_output is not None:
+            refresh_bootstrap(
+                output=bootstrap_output,
+                migrations_root=migrations_root,
+                projects_db=projects_db,
+                metrology_db=metrology_db,
+                test_definitions_db=test_definitions_db,
+                measurement_data_db=measurement_data_db,
+                update_catalog_db=update_catalog_db,
+                agent_url=agent_url,
+            )
+        instrument = response.get("instrument", {})
+        return {
+            "asset_id": asset_id,
+            "previous_serviceability_status": "",
+            "new_serviceability_status": str(
+                instrument.get("serviceability_status", serviceability_status)
+            ),
+            "serviceability_reason": serviceability_reason,
+            "agent_url": str(agent_url),
+        }
+
+    if metrology_db is None:
+        raise ValueError("metrology_db is required when no agent_url is configured")
     repository = MetrologyRepository(Path(metrology_db), Path(migrations_root))
     repository.initialize()
     before = repository.get_instrument(asset_id)
@@ -1157,13 +1314,16 @@ def refresh_bootstrap(
     """Regenerate the browser-loadable GUI bootstrap from local repositories."""
 
     migrations_root = Path(migrations_root)
-    project_agent = LocalAgentClient(str(agent_url)) if _has_text(agent_url) else None
+    agent_client = LocalAgentClient(str(agent_url)) if _has_text(agent_url) else None
     payload = build_bootstrap(
-        project_agent=project_agent,
+        project_agent=agent_client,
+        metrology_agent=agent_client,
         projects=None
-        if project_agent is not None
+        if agent_client is not None
         else _open_repository(ProjectRepository, projects_db, migrations_root),
-        metrology=_open_repository(MetrologyRepository, metrology_db, migrations_root),
+        metrology=None
+        if agent_client is not None
+        else _open_repository(MetrologyRepository, metrology_db, migrations_root),
         test_definitions=_open_repository(
             TestDefinitionRepository,
             test_definitions_db,
@@ -1224,7 +1384,7 @@ def main(argv: list[str] | None = None) -> int:
 
     register_parser = subcommands.add_parser("register-instrument")
     _add_repository_args(register_parser, include_metrology=False)
-    register_parser.add_argument("--metrology-db", required=True, type=Path)
+    register_parser.add_argument("--metrology-db", type=Path)
     register_parser.add_argument("--asset-id", required=True)
     register_parser.add_argument("--family", required=True)
     register_parser.add_argument("--manufacturer", required=True)
@@ -1251,10 +1411,11 @@ def main(argv: list[str] | None = None) -> int:
     register_parser.add_argument("--file-reference")
     register_parser.add_argument("--checksum")
     register_parser.add_argument("--bootstrap-output", type=Path)
+    _add_agent_args(register_parser)
 
     calibration_parser = subcommands.add_parser("record-calibration")
     _add_repository_args(calibration_parser, include_metrology=False)
-    calibration_parser.add_argument("--metrology-db", required=True, type=Path)
+    calibration_parser.add_argument("--metrology-db", type=Path)
     calibration_parser.add_argument("--asset-id", required=True)
     calibration_parser.add_argument("--certificate-reference", required=True)
     calibration_parser.add_argument("--calibrated-at", required=True)
@@ -1265,6 +1426,7 @@ def main(argv: list[str] | None = None) -> int:
     calibration_parser.add_argument("--file-reference")
     calibration_parser.add_argument("--checksum")
     calibration_parser.add_argument("--bootstrap-output", type=Path)
+    _add_agent_args(calibration_parser)
 
     document_parser = subcommands.add_parser("attach-instrument-document")
     _add_repository_args(document_parser, include_metrology=False)
@@ -1296,7 +1458,7 @@ def main(argv: list[str] | None = None) -> int:
 
     serviceability_parser = subcommands.add_parser("set-instrument-serviceability")
     _add_repository_args(serviceability_parser, include_metrology=False)
-    serviceability_parser.add_argument("--metrology-db", required=True, type=Path)
+    serviceability_parser.add_argument("--metrology-db", type=Path)
     serviceability_parser.add_argument("--asset-id", required=True)
     serviceability_parser.add_argument(
         "--serviceability-status",
@@ -1305,6 +1467,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     serviceability_parser.add_argument("--serviceability-reason", default="")
     serviceability_parser.add_argument("--bootstrap-output", type=Path)
+    _add_agent_args(serviceability_parser)
 
     capabilities_parser = subcommands.add_parser("set-instrument-capabilities")
     _add_repository_args(capabilities_parser, include_metrology=False)
@@ -1411,7 +1574,6 @@ def main(argv: list[str] | None = None) -> int:
             test_definitions_db=args.test_definitions_db,
             measurement_data_db=args.measurement_data_db,
             update_catalog_db=args.update_catalog_db,
-            agent_url=args.agent_url,
         )
         return 0
 
@@ -1451,6 +1613,7 @@ def main(argv: list[str] | None = None) -> int:
             test_definitions_db=args.test_definitions_db,
             measurement_data_db=args.measurement_data_db,
             update_catalog_db=args.update_catalog_db,
+            agent_url=args.agent_url,
         )
         print(json.dumps(result, sort_keys=True))
         return 0
@@ -1486,6 +1649,7 @@ def main(argv: list[str] | None = None) -> int:
             test_definitions_db=args.test_definitions_db,
             measurement_data_db=args.measurement_data_db,
             update_catalog_db=args.update_catalog_db,
+            agent_url=args.agent_url,
         )
         print(json.dumps(result, sort_keys=True))
         return 0
@@ -1508,6 +1672,7 @@ def main(argv: list[str] | None = None) -> int:
             test_definitions_db=args.test_definitions_db,
             measurement_data_db=args.measurement_data_db,
             update_catalog_db=args.update_catalog_db,
+            agent_url=args.agent_url,
         )
         print(json.dumps(result, sort_keys=True))
         return 0
@@ -1560,6 +1725,7 @@ def main(argv: list[str] | None = None) -> int:
             test_definitions_db=args.test_definitions_db,
             measurement_data_db=args.measurement_data_db,
             update_catalog_db=args.update_catalog_db,
+            agent_url=args.agent_url,
         )
         print(json.dumps(result, sort_keys=True))
         return 0
@@ -1765,6 +1931,79 @@ def _due_at_from_period(
     calibrated_date = date.fromisoformat(calibrated_at)
     due_date = _add_months(calibrated_date, calibration_period_months)
     return due_date.isoformat()
+
+
+def _agent_due_at(
+    *,
+    client: LocalAgentClient,
+    asset_id: str,
+    calibrated_at: str,
+    due_at: str | None,
+) -> str:
+    if _has_text(due_at):
+        return require_non_empty(str(due_at), "due_at")
+    response = client.get_metrology_instrument(asset_id)
+    instrument = response.get("instrument", {})
+    if not isinstance(instrument, dict):
+        raise ValueError("agent instrument response is invalid")
+    period = instrument.get("calibration_period_months")
+    calibration_period_months = int(period) if period is not None else None
+    return _due_at_from_period(
+        calibrated_at=calibrated_at,
+        due_at=None,
+        calibration_period_months=calibration_period_months,
+    )
+
+
+def _legacy_calibration_decision(status_at_import: str) -> str:
+    if status_at_import in {"valid", "due_soon"}:
+        return "conforming"
+    if status_at_import == "nonconforming":
+        return "nonconforming"
+    return "not_assessed"
+
+
+def _certificate_document_manifest_json(
+    *,
+    asset_id: str,
+    certificate_reference: str,
+    file_reference: str | None,
+    checksum: str | None,
+) -> str | None:
+    if not _has_text(file_reference) and not _has_text(checksum):
+        return None
+
+    reference = str(file_reference or "").strip()
+    filename = PurePath(reference).name if reference else f"{certificate_reference}.pdf"
+    manifest: dict[str, object] = {
+        "object_id": f"cert-{_manifest_token(asset_id)}-{_manifest_token(certificate_reference)}",
+        "original_filename": filename,
+        "mime_type": mimetypes.guess_type(filename)[0] or "application/octet-stream",
+        "revision": "A",
+    }
+    if reference:
+        manifest["local_reference"] = reference
+        path = Path(reference)
+        if path.exists() and path.is_file():
+            manifest["size_bytes"] = path.stat().st_size
+    if _has_text(checksum):
+        manifest["sha256"] = _sha256_manifest_value(str(checksum))
+    return json.dumps(manifest, sort_keys=True)
+
+
+def _manifest_token(value: str) -> str:
+    token = "".join(
+        character if character.isalnum() or character in "-_." else "-"
+        for character in value.strip()
+    )
+    return token or "unknown"
+
+
+def _sha256_manifest_value(value: str) -> str:
+    checksum = value.strip()
+    if checksum.lower().startswith("sha256:"):
+        checksum = checksum[7:]
+    return checksum
 
 
 def _add_months(value: date, months: int) -> date:

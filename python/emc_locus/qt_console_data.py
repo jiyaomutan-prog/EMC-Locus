@@ -28,17 +28,20 @@ def build_console_bootstrap_from_repositories(
     """Build console bootstrap data directly from available local repositories."""
 
     root = Path(migrations_root)
-    project_agent = (
+    agent_client = (
         LocalAgentClient(agent_url.strip())
         if agent_url is not None and agent_url.strip()
         else None
     )
     return build_bootstrap(
-        project_agent=project_agent,
+        project_agent=agent_client,
+        metrology_agent=agent_client,
         projects=None
-        if project_agent is not None
+        if agent_client is not None
         else _repository_if_exists(ProjectRepository, projects_db, root),
-        metrology=_repository_if_exists(MetrologyRepository, metrology_db, root),
+        metrology=None
+        if agent_client is not None
+        else _repository_if_exists(MetrologyRepository, metrology_db, root),
         test_definitions=_repository_if_exists(
             TestDefinitionRepository,
             test_definitions_db,

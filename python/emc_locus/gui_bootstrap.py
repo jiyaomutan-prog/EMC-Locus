@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+from datetime import date
 import json
 from pathlib import Path
 from typing import Any
@@ -65,6 +66,7 @@ FALLBACK_BOOTSTRAP: BootstrapData = {
         ["RX-001", "datasheet", "Datasheet ESW", "metrology/RX-001/datasheet.pdf", "A", "technical data"],
         ["DAQ-OPEN-01", "script", "openDAQ init", "scripts/daq/opendaq_init.py", "A", "measurement setup"],
     ],
+    "metrology_readiness": [],
     "instrument_categories": [
         ["emi_receiver", "emc", "EMI test receiver", "required", "rf"],
         ["line_impedance_stabilization_network", "emc", "LISN and AMN", "required", "rf"],
@@ -146,6 +148,7 @@ def build_fixture_bootstrap() -> BootstrapData:
 def build_bootstrap(
     *,
     project_agent: LocalAgentClient | None = None,
+    metrology_agent: LocalAgentClient | None = None,
     projects: ProjectRepository | None = None,
     metrology: MetrologyRepository | None = None,
     test_definitions: TestDefinitionRepository | None = None,
@@ -190,7 +193,39 @@ def build_bootstrap(
             _schedule_row(row) for row in projects.list_service_schedule_items()
         ]
 
-    if metrology is not None:
+    if metrology_agent is not None:
+        checked_on = date.today().isoformat()
+        instruments = metrology_agent.list_metrology_instruments().get("instruments", [])
+        instrument_rows = [row for row in instruments if isinstance(row, dict)]
+        payload["instruments"] = [
+            _agent_instrument_row(
+                row,
+                metrology_agent.get_metrology_calibration_status(
+                    str(row["asset_id"]),
+                    checked_on,
+                ),
+            )
+            for row in instrument_rows
+        ]
+        payload["instrument_documents"] = [
+            document
+            for instrument in instrument_rows
+            for document in _agent_instrument_document_rows(instrument)
+        ]
+        asset_ids = [str(row["asset_id"]) for row in instrument_rows]
+        payload["metrology_readiness"] = (
+            _agent_readiness_rows(
+                metrology_agent.assess_metrology_readiness(
+                    asset_ids=asset_ids,
+                    execution_mode="accredited",
+                    checked_on=checked_on,
+                    context="qt-console",
+                )
+            )
+            if asset_ids
+            else []
+        )
+    elif metrology is not None:
         instruments = metrology.list_instruments()
         payload["instruments"] = [_instrument_row(metrology, row) for row in instruments]
         payload["instrument_documents"] = [
@@ -352,6 +387,118 @@ def _agent_sync_outbox_row(row: Any) -> list[str]:
         str(row["resulting_revision"]),
         str(row["status"]),
     ]
+
+
+def _agent_instrument_row(row: Any, status: Any) -> list[str]:
+    if not isinstance(row, dict):
+        raise ValueError("agent instrument rows must be JSON objects")
+    if not isinstance(status, dict):
+        raise ValueError("agent calibration status rows must be JSON objects")
+
+    calibration = _latest_agent_calibration(row)
+    asset_id = str(row["asset_id"])
+    serviceability = str(row.get("serviceability_status") or "usable")
+    availability = str(row.get("availability") or "available")
+    calibration_status = str(status.get("calibration_status") or "missing")
+    return [
+        asset_id,
+        str(row["family"]),
+        SERVICEABILITY_LABELS.get(serviceability, serviceability),
+        AVAILABILITY_LABELS.get(availability, availability),
+        str(calibration.get("certificate_reference") or "missing"),
+        str(status.get("due_at") or calibration.get("due_at") or "missing"),
+        _instrument_tone(serviceability, calibration_status),
+        str(row.get("category_code") or row["family"]),
+        _capabilities_preview(str(row.get("capabilities_json") or "[]")),
+        str(row.get("manufacturer") or ""),
+        str(row.get("model") or ""),
+        str(row.get("serial_number") or ""),
+        str(row.get("part_number") or ""),
+        str(calibration.get("calibrated_at") or "missing"),
+        str(row.get("calibration_period_months") or ""),
+        str(len(_agent_instrument_document_rows(row))),
+    ]
+
+
+def _latest_agent_calibration(row: dict[str, Any]) -> dict[str, Any]:
+    event = row.get("latest_calibration_event")
+    if isinstance(event, dict):
+        return event
+    legacy = row.get("latest_calibration")
+    if isinstance(legacy, dict):
+        return legacy
+    return {}
+
+
+def _agent_instrument_document_rows(row: dict[str, Any]) -> list[list[str]]:
+    calibration = row.get("latest_calibration_event")
+    if not isinstance(calibration, dict):
+        return []
+    manifest_json = calibration.get("document_manifest_json")
+    if not isinstance(manifest_json, str) or not manifest_json.strip():
+        return []
+    try:
+        manifest = json.loads(manifest_json)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(manifest, dict):
+        return []
+
+    reference = (
+        manifest.get("storage_key")
+        or manifest.get("local_reference")
+        or manifest.get("object_id")
+        or ""
+    )
+    return [
+        [
+            str(row["asset_id"]),
+            "certificate",
+            str(manifest.get("original_filename") or calibration["certificate_reference"]),
+            str(reference),
+            str(manifest.get("revision") or calibration.get("revision") or ""),
+            f"calibration_event:{calibration['event_id']}",
+        ]
+    ]
+
+
+def _agent_readiness_rows(report: Any) -> list[list[str]]:
+    if not isinstance(report, dict):
+        raise ValueError("agent readiness report must be a JSON object")
+    blocking_by_asset = _issue_codes_by_asset(report.get("blocking_issues"))
+    warnings_by_asset = _issue_codes_by_asset(report.get("warnings"))
+    rows: list[list[str]] = []
+    for result in report.get("instrument_results", []):
+        if not isinstance(result, dict):
+            continue
+        asset_id = str(result["asset_id"])
+        rows.append(
+            [
+                "pret" if bool(report.get("ready")) and not bool(result.get("blocking")) else "bloque",
+                asset_id,
+                str(result.get("serviceability_status") or "unknown"),
+                str(result.get("calibration_status") or "unknown"),
+                "oui" if bool(result.get("blocking")) else "non",
+                ", ".join(str(reason) for reason in result.get("reasons", [])),
+                ", ".join(blocking_by_asset.get(asset_id, [])),
+                ", ".join(warnings_by_asset.get(asset_id, [])),
+            ]
+        )
+    return rows
+
+
+def _issue_codes_by_asset(value: Any) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    if not isinstance(value, list):
+        return grouped
+    for issue in value:
+        if not isinstance(issue, dict):
+            continue
+        asset_id = str(issue.get("asset_id") or "")
+        if not asset_id:
+            continue
+        grouped.setdefault(asset_id, []).append(str(issue.get("code") or "issue"))
+    return grouped
 
 
 def _schedule_row(row: dict[str, object]) -> list[str]:

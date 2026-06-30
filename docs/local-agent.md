@@ -205,7 +205,16 @@ With `--agent-url`, the console header shows the local-agent state and the
 agent-backed project forms are submitted through a Qt worker so the main UI
 thread remains responsive.
 
-The remaining Qt write forms for metrology, service planning, test categories,
-measurement data, updates, and runtime actions remain legacy direct SQLite until
-their own migration slices. The metrology agent API exists from `0.6.3`, but Qt
-is migrated to it in a later dedicated tranche.
+Version `0.6.6` also routes the temporary Qt/Python metrology surface through
+the agent when `agent_url` is configured:
+
+- instrument list rows;
+- computed calibration status per instrument;
+- a simple readiness table using `POST /api/v1/metrology/readiness`;
+- instrument registration;
+- calibration-event recording, including certificate document manifests;
+- serviceability changes.
+
+The remaining standalone instrument-document form, service planning, test
+categories, measurement data, updates, and runtime actions remain legacy direct
+SQLite until their own migration slices.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import tempfile
 import unittest
@@ -92,6 +93,18 @@ class QtConsoleTests(unittest.TestCase):
                 "instrument_documents": [
                     ["DAQ-001", "script", "setup.py", "scripts/setup.py", "A", "setup"]
                 ],
+                "metrology_readiness": [
+                    [
+                        "bloque",
+                        "DAQ-001",
+                        "usable",
+                        "due_soon",
+                        "non",
+                        "calibration_due_soon",
+                        "",
+                        "calibration_due_soon",
+                    ]
+                ],
                 "schedule": [
                     [
                         "PLAN-QT-001",
@@ -150,6 +163,7 @@ class QtConsoleTests(unittest.TestCase):
         project_table = tables["Projets"]
         contract_table = tables["Revue contrat"]
         metrology_table = tables["Metrologie"]
+        readiness_table = tables["Aptitude"]
         document_table = tables["Docs metro"]
         category_table = tables["Categories"]
         schedule_table = tables["Planning"]
@@ -192,6 +206,7 @@ class QtConsoleTests(unittest.TestCase):
             ("openDAQ", "Reference DAQ", "DAQ001", "ODAQ-8", "2026-03-18", "12", "2"),
         )
         self.assertEqual(document_table.rows[0][0:3], ("DAQ-001", "script", "setup.py"))
+        self.assertEqual(readiness_table.rows[0][0:4], ("bloque", "DAQ-001", "usable", "due_soon"))
         self.assertEqual(schedule_table.rows[0][0:4], ("PLAN-QT-001", "CEM-QT-001", "Inrush", "emission_transient_time_domain"))
         self.assertEqual(test_category_table.rows[1][0:3], ("emission_conducted", "emission", "Emission conduite"))
         self.assertEqual(
@@ -284,6 +299,18 @@ class QtConsoleTests(unittest.TestCase):
         self.assertFalse(disabled[0].enabled)
         self.assertEqual(disabled[0].disabled_reason, "Depot projets requis")
 
+        agent_specs = build_operator_form_specs(
+            {
+                "instruments": [["SA-QT-AGENT", "receiver"]],
+                "instrument_categories": [["spectrum_analyzer", "radio_rf", "Spectrum analyzer"]],
+            },
+            {"metrology", "metrology_agent"},
+        )
+        agent_by_id = {spec.action_id: spec for spec in agent_specs}
+        self.assertTrue(agent_by_id["register_instrument"].enabled)
+        self.assertTrue(agent_by_id["set_instrument_serviceability"].enabled)
+        self.assertFalse(agent_by_id["attach_instrument_document"].enabled)
+
     def test_qt_form_action_registers_instrument_and_document_without_pyside(self) -> None:
         module = load_qt_console_module()
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -365,6 +392,42 @@ class QtConsoleTests(unittest.TestCase):
 
         advance.assert_called_once()
         self.assertEqual(advance.call_args.kwargs["agent_url"], "http://127.0.0.1:8765")
+
+    def test_qt_form_action_registers_instrument_through_agent_without_sqlite(self) -> None:
+        module = load_qt_console_module()
+        args = SimpleNamespace(
+            metrology_db=None,
+            migrations_root=Path("storage/sqlite"),
+            agent_url="http://127.0.0.1:8765",
+        )
+
+        with patch.object(module, "register_metrology_instrument") as register:
+            module._execute_form_action(
+                args,
+                "register_instrument",
+                {
+                    "asset_id": "SA-QT-AGENT",
+                    "family": "receiver",
+                    "manufacturer": "Example",
+                    "model": "SA9000",
+                    "serial_number": "SN-QT",
+                    "category_code": "spectrum_analyzer",
+                    "serviceability_status": "usable",
+                    "serviceability_reason": "",
+                    "part_number": "PN-QT",
+                    "calibration_period_months": "12",
+                    "certificate_reference": "",
+                    "calibrated_at": "",
+                    "provider": "",
+                    "file_reference": "",
+                    "capabilities_json": "{}",
+                    "metrology_notes": "",
+                },
+            )
+
+        register.assert_called_once()
+        self.assertIsNone(register.call_args.kwargs["metrology_db"])
+        self.assertEqual(register.call_args.kwargs["agent_url"], "http://127.0.0.1:8765")
 
     def test_qt_agent_status_maps_storage_state_without_pyside(self) -> None:
         module = load_qt_console_module()
@@ -563,6 +626,7 @@ class QtConsoleTests(unittest.TestCase):
                     }
                 ]
             }
+            client.list_metrology_instruments.return_value = {"instruments": []}
 
             with patch("emc_locus.qt_console_data.ProjectRepository") as project_repository:
                 payload = build_console_bootstrap_from_repositories(
@@ -577,6 +641,79 @@ class QtConsoleTests(unittest.TestCase):
         self.assertEqual(payload["contract_review_items"][0][1], "scope_confirmed")
         self.assertEqual(payload["project_audit_events"][0][3], "project_created")
         self.assertEqual(payload["sync_outbox"][0][0], "op-agent")
+
+    def test_qt_console_metrology_views_refresh_from_agent(self) -> None:
+        with patch("emc_locus.qt_console_data.LocalAgentClient") as client_type:
+            client = client_type.return_value
+            client.list_projects.return_value = {"projects": []}
+            client.sync_outbox.return_value = {"sync_outbox": []}
+            client.list_metrology_instruments.return_value = {
+                "instruments": [
+                    {
+                        "asset_id": "SA-QT-AGENT",
+                        "family": "receiver",
+                        "category_code": "spectrum_analyzer",
+                        "manufacturer": "Example",
+                        "model": "SA9000",
+                        "serial_number": "SN-QT",
+                        "part_number": "PN-QT",
+                        "availability": "available",
+                        "serviceability_status": "usable",
+                        "calibration_period_months": 12,
+                        "capabilities_json": '{"rf": true}',
+                        "latest_calibration_event": {
+                            "event_id": "CAL-SA-QT-AGENT-2026",
+                            "certificate_reference": "CERT-SA-QT-AGENT-2026",
+                            "calibrated_at": "2026-06-30",
+                            "due_at": "2027-06-30",
+                            "revision": "calibration-event-0001",
+                            "document_manifest_json": json.dumps(
+                                {
+                                    "object_id": "obj-cert",
+                                    "original_filename": "cert.pdf",
+                                    "local_reference": "certs/cert.pdf",
+                                    "revision": "A",
+                                }
+                            ),
+                        },
+                    }
+                ]
+            }
+            client.get_metrology_calibration_status.return_value = {
+                "asset_id": "SA-QT-AGENT",
+                "calibration_status": "valid",
+                "due_at": "2027-06-30",
+            }
+            client.assess_metrology_readiness.return_value = {
+                "ready": True,
+                "checked_on": "2026-06-30",
+                "execution_mode": "accredited",
+                "instrument_results": [
+                    {
+                        "asset_id": "SA-QT-AGENT",
+                        "serviceability_status": "usable",
+                        "calibration_status": "valid",
+                        "reasons": [],
+                        "blocking": False,
+                    }
+                ],
+                "blocking_issues": [],
+                "warnings": [],
+            }
+
+            with patch("emc_locus.qt_console_data.MetrologyRepository") as metrology_repository:
+                payload = build_console_bootstrap_from_repositories(
+                    migrations_root=Path("storage/sqlite"),
+                    metrology_db=Path("legacy-metrology.sqlite"),
+                    agent_url="http://127.0.0.1:8765",
+                )
+
+        metrology_repository.assert_not_called()
+        self.assertEqual(payload["instruments"][0][0], "SA-QT-AGENT")
+        self.assertEqual(payload["instruments"][0][4], "CERT-SA-QT-AGENT-2026")
+        self.assertEqual(payload["instruments"][0][6], "ok")
+        self.assertEqual(payload["metrology_readiness"][0][0:5], ["pret", "SA-QT-AGENT", "usable", "valid", "non"])
+        self.assertEqual(payload["instrument_documents"][0][3], "certs/cert.pdf")
 
 
 if __name__ == "__main__":

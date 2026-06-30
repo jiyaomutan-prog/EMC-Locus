@@ -9,13 +9,16 @@ from emc_locus.gui_actions import (
     advance_project_stage,
     complete_contract_review_item_action,
     create_project_record,
+    record_metrology_calibration,
+    register_metrology_instrument,
+    set_metrology_instrument_serviceability,
 )
 from emc_locus.local_agent_client import (
     LocalAgentClient,
     LocalAgentError,
     generate_operation_id,
 )
-from emc_locus.sqlite_repositories import ProjectRepository
+from emc_locus.sqlite_repositories import MetrologyRepository, ProjectRepository
 
 
 class _FakeResponse:
@@ -219,6 +222,102 @@ class LocalAgentClientTests(unittest.TestCase):
             ],
         )
 
+    def test_reads_metrology_slice_routes(self) -> None:
+        captured: list[tuple[str, str, dict[str, object] | None]] = []
+        payloads = {
+            "http://127.0.0.1:8765/api/v1/metrology/instruments": {"instruments": []},
+            "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001": {
+                "instrument": {"asset_id": "SA-READ-001"}
+            },
+            "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001/calibrations": {
+                "calibration_events": []
+            },
+            "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001/status?checked_on=2026-07-01": {
+                "calibration_status": "valid"
+            },
+            "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001/audit-events": {
+                "audit_events": []
+            },
+            "http://127.0.0.1:8765/api/v1/metrology/readiness": {
+                "ready": True,
+                "instrument_results": [],
+                "blocking_issues": [],
+                "warnings": [],
+            },
+        }
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            body = None
+            if request.data is not None:
+                body = json.loads(request.data.decode("utf-8"))
+            captured.append((request.get_method(), request.full_url, body))
+            return _FakeResponse(payloads[request.full_url])
+
+        client = LocalAgentClient("http://127.0.0.1:8765")
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            self.assertEqual(client.list_metrology_instruments()["instruments"], [])
+            self.assertEqual(
+                client.get_metrology_instrument("SA-READ-001")["instrument"]["asset_id"],
+                "SA-READ-001",
+            )
+            self.assertEqual(
+                client.list_metrology_calibrations("SA-READ-001")["calibration_events"],
+                [],
+            )
+            self.assertEqual(
+                client.get_metrology_calibration_status(
+                    "SA-READ-001",
+                    "2026-07-01",
+                )["calibration_status"],
+                "valid",
+            )
+            self.assertTrue(
+                client.assess_metrology_readiness(
+                    asset_ids=["SA-READ-001"],
+                    execution_mode="accredited",
+                    checked_on="2026-07-01",
+                    context="pre-run",
+                )["ready"]
+            )
+            self.assertEqual(client.metrology_audit_events("SA-READ-001")["audit_events"], [])
+
+        self.assertEqual(
+            captured,
+            [
+                ("GET", "http://127.0.0.1:8765/api/v1/metrology/instruments", None),
+                (
+                    "GET",
+                    "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001",
+                    None,
+                ),
+                (
+                    "GET",
+                    "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001/calibrations",
+                    None,
+                ),
+                (
+                    "GET",
+                    "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001/status?checked_on=2026-07-01",
+                    None,
+                ),
+                (
+                    "POST",
+                    "http://127.0.0.1:8765/api/v1/metrology/readiness",
+                    {
+                        "asset_ids": ["SA-READ-001"],
+                        "execution_mode": "accredited",
+                        "checked_on": "2026-07-01",
+                        "context": "pre-run",
+                    },
+                ),
+                (
+                    "GET",
+                    "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001/audit-events",
+                    None,
+                ),
+            ],
+        )
+
 
 class GuiActionAgentPathTests(unittest.TestCase):
     def test_create_project_uses_agent_without_project_repository(self) -> None:
@@ -321,6 +420,7 @@ class GuiActionAgentPathTests(unittest.TestCase):
             }
             client.audit_events.return_value = {"audit_events": []}
             client.sync_outbox.return_value = {"sync_outbox": []}
+            client.list_metrology_instruments.return_value = {"instruments": []}
 
             from emc_locus.gui_actions import refresh_bootstrap
 
@@ -338,6 +438,7 @@ class GuiActionAgentPathTests(unittest.TestCase):
         client.audit_events.assert_called_once_with("CEM-AGENT-READ")
         client.sync_outbox.assert_called_once()
         self.assertNotIn(ProjectRepository, [call.args[0] for call in open_repository.call_args_list])
+        self.assertNotIn(MetrologyRepository, [call.args[0] for call in open_repository.call_args_list])
         payload = write_bootstrap.call_args.args[1]
         self.assertEqual(payload["projects"][0]["code"], "CEM-AGENT-READ")
         self.assertEqual(payload["contract_review_items"][0][1], "customer_request_defined")
@@ -401,6 +502,74 @@ class GuiActionAgentPathTests(unittest.TestCase):
         client.complete_contract_review_item.assert_called_once()
         client.advance_to_test_planning.assert_called_once()
         project_repository.assert_not_called()
+
+    def test_gui_actions_metrology_writes_use_agent_without_metrology_repository(self) -> None:
+        with patch("emc_locus.gui_actions.LocalAgentClient") as client_type:
+            with patch("emc_locus.gui_actions.MetrologyRepository") as metrology_repository:
+                client = client_type.return_value
+                client.register_metrology_instrument.return_value = {
+                    "instrument": {
+                        "asset_id": "SA-AGENT-WRITE",
+                        "serviceability_status": "usable",
+                    }
+                }
+                client.record_metrology_calibration.return_value = {
+                    "calibration_event": {
+                        "event_id": "CAL-SA-AGENT-WRITE-CERT-001",
+                        "due_at": "2027-06-30",
+                    }
+                }
+                client.set_metrology_serviceability.return_value = {
+                    "instrument": {
+                        "asset_id": "SA-AGENT-WRITE",
+                        "serviceability_status": "restricted",
+                    }
+                }
+
+                registered = register_metrology_instrument(
+                    metrology_db=None,
+                    asset_id="SA-AGENT-WRITE",
+                    family="receiver",
+                    manufacturer="Example",
+                    model="SA9000",
+                    serial_number="SN-001",
+                    category_code="spectrum_analyzer",
+                    calibration_period_months=12,
+                    certificate_reference="CERT-001",
+                    calibrated_at="2026-06-30",
+                    provider="cal.lab",
+                    file_reference="certs/CERT-001.pdf",
+                    checksum="a" * 64,
+                    agent_url="http://127.0.0.1:8765",
+                )
+                calibration = record_metrology_calibration(
+                    metrology_db=None,
+                    asset_id="SA-AGENT-WRITE",
+                    certificate_reference="CERT-002",
+                    calibrated_at="2026-07-01",
+                    due_at="2027-07-01",
+                    provider="cal.lab",
+                    agent_url="http://127.0.0.1:8765",
+                )
+                serviceability = set_metrology_instrument_serviceability(
+                    metrology_db=None,
+                    asset_id="SA-AGENT-WRITE",
+                    serviceability_status="restricted",
+                    serviceability_reason="Use below 1 GHz only",
+                    agent_url="http://127.0.0.1:8765",
+                )
+
+        client.register_metrology_instrument.assert_called_once()
+        self.assertEqual(client.record_metrology_calibration.call_count, 2)
+        initial_certificate = client.record_metrology_calibration.call_args_list[0].kwargs
+        manifest = json.loads(initial_certificate["document_manifest_json"])
+        self.assertEqual(manifest["sha256"], "a" * 64)
+        self.assertEqual(manifest["local_reference"], "certs/CERT-001.pdf")
+        client.set_metrology_serviceability.assert_called_once()
+        metrology_repository.assert_not_called()
+        self.assertEqual(registered["agent_url"], "http://127.0.0.1:8765")
+        self.assertEqual(calibration["due_at"], "2027-06-30")
+        self.assertEqual(serviceability["new_serviceability_status"], "restricted")
 
 
 if __name__ == "__main__":

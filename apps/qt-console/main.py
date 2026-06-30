@@ -503,7 +503,7 @@ def _execute_form_action(
 ) -> None:
     if action_id == "register_instrument":
         register_metrology_instrument(
-            metrology_db=_required_path(args.metrology_db, "metrology"),
+            metrology_db=getattr(args, "metrology_db", None),
             migrations_root=args.migrations_root,
             asset_id=values["asset_id"],
             family=values["family"],
@@ -524,6 +524,7 @@ def _execute_form_action(
             provider=_optional(values["provider"]),
             file_reference=_optional(values["file_reference"]),
             capabilities_json=values["capabilities_json"] or "[]",
+            agent_url=getattr(args, "agent_url", None),
         )
         return
 
@@ -581,11 +582,12 @@ def _execute_form_action(
 
     if action_id == "set_instrument_serviceability":
         set_metrology_instrument_serviceability(
-            metrology_db=_required_path(args.metrology_db, "metrology"),
+            metrology_db=getattr(args, "metrology_db", None),
             migrations_root=args.migrations_root,
             asset_id=values["asset_id"],
             serviceability_status=values["serviceability_status"],
             serviceability_reason=values["serviceability_reason"],
+            agent_url=getattr(args, "agent_url", None),
         )
         return
 
@@ -655,8 +657,14 @@ def _int_or_zero(value: str, label: str) -> int:
 
 def _writable_repositories(args: argparse.Namespace) -> set[str]:
     writable: set[str] = set()
+    agent_url = getattr(args, "agent_url", None)
+    if agent_url is not None and agent_url.strip():
+        writable.add("metrology")
+        writable.add("metrology_agent")
+        writable.add("projects")
     if args.metrology_db is not None:
         writable.add("metrology")
+        writable.add("metrology_documents")
     if args.projects_db is not None:
         writable.add("projects")
     if args.test_definitions_db is not None:
@@ -696,7 +704,7 @@ def _has_repository_paths(args: argparse.Namespace) -> bool:
 def _status_message(args: argparse.Namespace) -> str:
     agent_url = getattr(args, "agent_url", None)
     if agent_url is not None and agent_url.strip():
-        return "Donnees projet chargees via l'agent local"
+        return "Donnees chargees via l'agent local"
 
     if _has_repository_paths(args):
         return "Donnees chargees depuis les depots SQLite locaux"

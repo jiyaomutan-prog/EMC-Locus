@@ -8,6 +8,28 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-06-30
+
+### Added
+
+- Added Python local-agent client methods for metrology instrument reads,
+  calibration reads, computed status, readiness, and metrology audit events.
+- Added agent-backed Qt/Python metrology bootstrap loading when `agent_url` is
+  configured, including instrument table rows, certificate manifest rows, and a
+  simple readiness table sourced from `POST /api/v1/metrology/readiness`.
+- Added agent-backed Python/Qt write paths for instrument registration,
+  calibration-event recording, and serviceability changes without opening
+  `metrology.sqlite` directly when `agent_url` is configured.
+- Added certificate document-manifest forwarding for agent-backed calibration
+  events from existing Qt/Python certificate reference fields.
+
+### Changed
+
+- Qt treats the local agent as the writable metrology surface for migrated
+  forms while keeping legacy document attachment disabled unless a metrology
+  SQLite repository is explicitly configured.
+- Bumped the synchronized Rust/Python software version to `0.6.6`.
+
 ## [0.6.5] - 2026-06-30
 
 ### Added

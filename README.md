@@ -81,7 +81,13 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.6.5`.
+Current software version: `0.6.6`.
+
+Version `0.6.6` migrates the temporary Qt/Python metrology surface to the Rust
+agent when `agent_url` is configured: instruments are listed from the agent,
+computed status and readiness are fetched from Rust, instrument registration
+and serviceability changes no longer open `metrology.sqlite`, and calibration
+events can carry certificate document manifests through the agent path.
 
 Version `0.6.5` adds the first structured metrology readiness and traceability
 slice: instrument registration and calibration-event writes now require

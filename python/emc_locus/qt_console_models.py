@@ -34,6 +34,16 @@ INSTRUMENT_COLUMNS = (
     "Periodicite",
     "Docs",
 )
+READINESS_COLUMNS = (
+    "Decision",
+    "Actif",
+    "Service",
+    "Calibration",
+    "Bloquant",
+    "Raisons",
+    "Blocages",
+    "Avertissements",
+)
 
 
 @dataclass(frozen=True)
@@ -131,6 +141,15 @@ def build_console_view_model(bootstrap: dict[str, Any]) -> ConsoleViewModel:
                 rows=_list_rows(bootstrap.get("instruments"), len(INSTRUMENT_COLUMNS)),
             ),
             TableViewModel(
+                tab_label="Aptitude",
+                title="Aptitude moyens",
+                columns=READINESS_COLUMNS,
+                rows=_list_rows(
+                    bootstrap.get("metrology_readiness"),
+                    len(READINESS_COLUMNS),
+                ),
+            ),
+            TableViewModel(
                 tab_label="Docs metro",
                 title="Documents materiel",
                 columns=("Actif", "Type", "Titre", "Fichier", "Revision", "Fonction"),
@@ -225,6 +244,9 @@ def build_operator_form_specs(
     )
 
     has_metrology = "metrology" in writable_repositories
+    has_metrology_documents = "metrology_documents" in writable_repositories or (
+        has_metrology and "metrology_agent" not in writable_repositories
+    )
     has_projects = "projects" in writable_repositories
     has_test_definitions = "test_definitions" in writable_repositories
 
@@ -401,11 +423,11 @@ def build_operator_form_specs(
             action_id="attach_instrument_document",
             title="Document materiel",
             submit_label="Ajouter document",
-            enabled=has_metrology and bool(instruments),
+            enabled=has_metrology_documents and bool(instruments),
             disabled_reason=_disabled_reason(
-                has_metrology,
+                has_metrology_documents,
                 bool(instruments),
-                "Depot metrologie requis",
+                "Depot documents metrologie requis",
                 "Aucun instrument disponible",
             ),
             fields=(
