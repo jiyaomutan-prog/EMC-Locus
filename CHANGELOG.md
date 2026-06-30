@@ -8,6 +8,12 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Local service-planning actions now reject multi-day schedule items even when
+  every date is a business day, keeping each planned execution item as a single
+  intra-day laboratory block.
+
 ## [0.7.0] - 2026-06-30
 
 ### Added

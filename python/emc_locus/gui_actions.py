@@ -95,6 +95,8 @@ def _validate_service_schedule_block(
     end = _parse_schedule_datetime(planned_end_at, "planned_end_at")
     if end <= start:
         raise ValueError("planned_end_at must be after planned_start_at")
+    if end.date() != start.date():
+        raise ValueError("service schedule items must stay within one business day")
 
     day = start.date()
     while day <= end.date():

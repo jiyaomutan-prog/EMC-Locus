@@ -1166,6 +1166,34 @@ class GuiActionTests(unittest.TestCase):
 
             self.assertEqual(projects.list_service_schedule_items(), [])
 
+    def test_schedule_service_item_rejects_multi_day_business_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path("storage/sqlite")
+            projects_db = Path(temporary_directory) / "projects.sqlite"
+            projects = ProjectRepository(projects_db, root)
+            projects.initialize()
+            projects.create_project(
+                code="CEM-SCH-MULTIDAY",
+                customer_name="Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            with self.assertRaisesRegex(ValueError, "one business day"):
+                schedule_service_item(
+                    projects_db=projects_db,
+                    item_code="PLAN-SCH-MULTIDAY",
+                    project_code="CEM-SCH-MULTIDAY",
+                    title="Multi-day emission",
+                    planned_start_at="2026-07-02T14:00",
+                    planned_end_at="2026-07-03T10:00",
+                    assigned_operator="operator.one",
+                    location="Lab A",
+                    equipment_under_test="EUT rail",
+                )
+
+            self.assertEqual(projects.list_service_schedule_items(), [])
+
     def test_schedule_service_item_rejects_invalid_local_datetime(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path("storage/sqlite")
