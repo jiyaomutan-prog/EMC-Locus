@@ -3466,6 +3466,78 @@ fn processing_graph_execution_record_rejects_completed_without_artifacts() {
 }
 
 #[test]
+fn processing_graph_execution_record_rejects_artifacts_from_other_graph_revision() {
+    let dataset = SimulatedDaqSource::open_daq()
+        .acquire_inrush_fixture()
+        .unwrap();
+    let current = SignalReference::parse("current_l1").unwrap();
+    let current_fft = SignalReference::parse("current_l1_fft").unwrap();
+    let mut graph = SignalProcessingGraph::from_dataset(&dataset);
+    graph
+        .add_node(
+            SignalProcessingNode::new(
+                SignalReference::parse("fft_current").unwrap(),
+                SignalProcessingOperation::Fft,
+                vec![current.clone()],
+                current_fft.clone(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let instance = ProcessingGraphInstance::new(
+        ProcessingGraphReference::parse("inrush-analysis").unwrap(),
+        ProcessingGraphRevision::parse("A").unwrap(),
+        DatasetReference::parse("dataset-raw-inrush").unwrap(),
+        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        graph.clone(),
+        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        AuditActor::parse("signal.engineer").unwrap(),
+        "0.1.0",
+    )
+    .unwrap();
+    let other_instance = ProcessingGraphInstance::new(
+        ProcessingGraphReference::parse("inrush-analysis").unwrap(),
+        ProcessingGraphRevision::parse("B").unwrap(),
+        DatasetReference::parse("dataset-raw-inrush").unwrap(),
+        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        graph,
+        DatasetChecksum::parse("sha256:graphinrush002").unwrap(),
+        AuditActor::parse("signal.engineer").unwrap(),
+        "0.1.0",
+    )
+    .unwrap();
+    let artifact = ProcessingGraphResultArtifact::from_instance(
+        &other_instance,
+        current_fft,
+        DatasetKind::ProcessedSignal,
+        DatasetFileReference::parse("data/RUN-INRUSH/current_l1_fft_b.csv").unwrap(),
+        DatasetChecksum::parse("sha256:currentfftb001").unwrap(),
+    )
+    .unwrap();
+
+    let error = ProcessingGraphExecutionRecord::from_instance(
+        ProcessingExecutionReference::parse("exec-inrush-mismatch").unwrap(),
+        &instance,
+        AuditActor::parse("signal.engine").unwrap(),
+        "0.1.0",
+        ProcessingGraphExecutionStatus::Completed,
+        &[artifact],
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        DomainError::ProcessingGraphExecutionArtifactMismatch {
+            execution: "exec-inrush-mismatch".to_owned(),
+            expected_graph: "inrush-analysis".to_owned(),
+            expected_revision: "A".to_owned(),
+            actual_graph: "inrush-analysis".to_owned(),
+            actual_revision: "B".to_owned(),
+        }
+    );
+}
+
+#[test]
 fn signal_processing_node_requires_inputs() {
     let error = SignalProcessingNode::new(
         SignalReference::parse("fft_current").unwrap(),

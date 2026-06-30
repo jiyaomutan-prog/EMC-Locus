@@ -120,6 +120,8 @@ Deliverables:
   Rust artifact model, SQLite migration, and Python repository APIs added;
 - graph-driven execution records; initial Rust model, SQLite migration, and
   Python repository APIs added;
+- execution records now reject artifacts from a different processing graph
+  reference or revision, preserving graph-to-result evidence integrity;
 - CEM time-domain test families such as railway harmonics, axle counters, and
   inrush measurements.
 

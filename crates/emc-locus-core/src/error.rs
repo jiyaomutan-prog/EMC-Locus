@@ -115,6 +115,13 @@ pub enum DomainError {
     EmptyProcessingExecutionReference,
     InvalidProcessingExecutionReference(String),
     ProcessingGraphExecutionMissingArtifacts(String),
+    ProcessingGraphExecutionArtifactMismatch {
+        execution: String,
+        expected_graph: String,
+        expected_revision: String,
+        actual_graph: String,
+        actual_revision: String,
+    },
     EmptyMeasurementRunReference,
     InvalidMeasurementRunReference(String),
     EmptyTestMethodReference,

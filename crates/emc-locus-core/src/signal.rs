@@ -745,6 +745,19 @@ impl ProcessingGraphExecutionRecord {
                 execution.as_str().to_owned(),
             ));
         }
+        for artifact in output_artifacts {
+            if artifact.graph_reference() != instance.reference()
+                || artifact.graph_revision() != instance.revision()
+            {
+                return Err(DomainError::ProcessingGraphExecutionArtifactMismatch {
+                    execution: execution.as_str().to_owned(),
+                    expected_graph: instance.reference().as_str().to_owned(),
+                    expected_revision: instance.revision().as_str().to_owned(),
+                    actual_graph: artifact.graph_reference().as_str().to_owned(),
+                    actual_revision: artifact.graph_revision().as_str().to_owned(),
+                });
+            }
+        }
 
         let software_version = software_version.into();
         let software_version = software_version.trim();

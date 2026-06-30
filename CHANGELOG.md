@@ -8,6 +8,12 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Processing graph execution records now reject result artifacts produced from a
+  different graph reference or revision, preserving traceability between the
+  execution evidence and the revisioned graph instance.
+
 ## [0.6.0] - 2026-06-29
 
 ### Changed
