@@ -1,50 +1,25 @@
 # EMC Locus GUI Shell
 
-This is the first static operator-facing shell for EMC Locus. It is a workflow
-prototype and dashboard mockup, not the long-term technology direction for the
-measurement-station application. The desktop operator-console direction lives in
-`apps/qt-console`.
+This folder contains a static LAB CONSOLE information-architecture prototype.
+It is not the execution console and not the final web application architecture.
 
 Open `index.html` directly in a browser.
 
-The console reads `bootstrap.js` when present and falls back to embedded fixture
-data. Regenerate the local bootstrap file with:
+Current intent:
 
-```text
-$env:PYTHONPATH='python'; py -m emc_locus.gui_actions refresh-bootstrap --output apps\gui-shell\bootstrap.js
-```
+- show the future LAB CONSOLE navigation hierarchy;
+- make clients, products, product versions, projects, campaigns, templates,
+  methods, documents, people, metrology, planning, reports, sync, audit, and
+  updates visible as related laboratory objects;
+- keep the visual atmosphere of the earlier shell while removing fake runtime
+  behavior;
+- avoid backend writes, fake acquisition, fake instrument control, or ad hoc
+  CRUD promises.
 
-Pass `--projects-db`, `--metrology-db`, `--test-definitions-db`,
-`--measurement-data-db`, or `--update-catalog-db` to export data from local
-SQLite repositories.
+TEST CONSOLE remains the Qt direction for local/offline execution, readiness,
+instrument control, acquisition monitoring, deviations, substitutions, reruns,
+and execution evidence publication.
 
-Create an audited project locally and refresh the console data with:
-
-```text
-$env:PYTHONPATH='python'; py -m emc_locus.gui_actions create-project --projects-db data\projects.sqlite --code CEM-2026-001 --customer-name "Rail Motion" --execution-mode accredited --actor operator.one --reason "New EMC campaign opened" --bootstrap-output apps\gui-shell\bootstrap.js
-```
-
-Complete a contract-review checklist item and refresh the console data with:
-
-```text
-$env:PYTHONPATH='python'; py -m emc_locus.gui_actions complete-contract-review-item --projects-db data\projects.sqlite --project-code CEM-2026-001 --item method_available --completed-by quality.lead --comment "Approved method is available" --bootstrap-output apps\gui-shell\bootstrap.js
-```
-
-Advance a project locally and refresh the console data with:
-
-```text
-$env:PYTHONPATH='python'; py -m emc_locus.gui_actions advance-project --projects-db data\projects.sqlite --code CEM-2026-001 --actor operator.one --reason "Contract review ready" --bootstrap-output apps\gui-shell\bootstrap.js
-```
-
-Record a dataset retention action and refresh the console data with:
-
-```text
-$env:PYTHONPATH='python'; py -m emc_locus.gui_actions dataset-retention --measurement-data-db data\measurement_data.sqlite --dataset-id 1 --action request-deletion --actor data.manager --reason "Retention period expired" --bootstrap-output apps\gui-shell\bootstrap.js
-```
-
-Validate and record an update install with:
-
-```text
-$env:PYTHONPATH='python'; py -m emc_locus.gui_actions validate-update --update-catalog-db data\update_catalog.sqlite --package-name driver-pack-visa --package-version 0.2.0 --component instrument_driver --installed-version 0.1.0 --source offline_bundle --compatibility-minimum-version 0.1.0 --compatibility-maximum-version 0.1.9 --validated-by qa.lead --bootstrap-output apps\gui-shell\bootstrap.js
-$env:PYTHONPATH='python'; py -m emc_locus.gui_actions install-update --update-catalog-db data\update_catalog.sqlite --package-name driver-pack-visa --package-version 0.2.0 --component instrument_driver --installed-by qa.lead --source offline_bundle --rollback-reference driver-pack-visa-0.1.0 --validation-evidence-id 1 --bootstrap-output apps\gui-shell\bootstrap.js
-```
+`bootstrap.js` can provide small static overrides for this prototype when it
+sets `lab_console_version` to `ia-0.1`. Older bootstrap files generated for the
+previous dashboard shape are intentionally ignored by `app.js`.

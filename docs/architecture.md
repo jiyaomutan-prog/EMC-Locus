@@ -126,6 +126,19 @@ User/UI
   measurement stations.
 - Keep EN ISO/IEC 17025 alignment as a design checklist, not as a legal claim.
 
+## GUI And Template Backbone
+
+The GUI split is now explicit:
+
+- LAB CONSOLE is the laboratory management surface.
+- TEST CONSOLE is the Qt local/offline execution surface.
+
+The current static web shell is a LAB CONSOLE information-architecture
+prototype only. See `gui/gui-dual-surface-architecture.md`,
+`gui/lab-console-information-architecture.md`,
+`gui/test-console-workspace.md`, and
+`domain/template-and-execution-definition.md`.
+
 ## Open Questions
 
 - Which instruments must be supported first?
