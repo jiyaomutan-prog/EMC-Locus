@@ -1,26 +1,28 @@
-# ADR 0003 - Three Surfaces And Agent-Owned Document Registry
+# ADR 0003 - Agent-Owned Document Registry
 
 ## Status
 
-Accepted.
+Accepted for the document registry.
+
+The earlier three-surface GUI wording is superseded by
+`0002-gui-and-template-backbone.md`: EMC Locus now distinguishes LAB CONSOLE web
+and TEST CONSOLE Qt. Metrology remains a first-class controlled laboratory
+domain and readiness dependency, not a third GUI product.
 
 ## Context
 
-The product target is now explicit: EMC Locus is a local-first laboratory
-platform made of three application surfaces sharing one data and evidence
-model.
+The product target is a local-first laboratory platform made of two consoles
+sharing one data and evidence model.
 
-- Locus Metrology manages instruments, calibrations, restrictions, documents,
-  traceability, and metrological aptitude.
-- Locus Lab Management manages clients, requests, quotations, contract review,
-  projects, communications, documents, planning, resource assignment, technical
-  review, reports, delivery, and archiving.
-- Locus Test Station is the Qt desktop surface for fast, reliable local/offline
-  test preparation, instrument control, acquisition, processing,
-  visualization, and technical evidence creation.
+- LAB CONSOLE manages clients, products, projects, communications, templates,
+  documents, metrology records, planning, technical review, reports, delivery,
+  sync, audit, and updates.
+- TEST CONSOLE is the Qt desktop surface for fast, reliable local/offline test
+  preparation, instrument control, acquisition, processing, visualization, and
+  technical evidence creation.
 
-The three surfaces must not introduce competing local writes. The Locus Local
-Agent remains the owner of local SQLite writes, audit, outbox, and future
+The consoles must not introduce competing local writes. The Locus Local Agent
+remains the owner of local SQLite writes, audit, outbox, and future
 synchronization.
 
 Documents and scientific datasets must not be stored as opaque columns inside
@@ -29,8 +31,6 @@ decisions, states, and audit. Files and large scientific payloads are stored
 separately through object references and content checksums.
 
 ## Decision
-
-EMC Locus adopts the three-surface product split as the current target.
 
 The first shared document capability is an agent-owned attached-document
 registry:
@@ -52,10 +52,13 @@ storage contracts are introduced.
 
 ## Consequences
 
-- Locus Metrology, Locus Lab Management, and Locus Test Station can all refer to
-  the same document object shape instead of inventing surface-specific file
-  records.
-- The static web shell must present three products, not two.
+- LAB CONSOLE and TEST CONSOLE can refer to the same document object shape
+  instead of inventing console-specific file records.
+- Metrology certificates, worksheets, datasheets, and scripts converge on the
+  same attached-document metadata contract used by projects, methods, standards,
+  reports, and execution evidence.
+- The static web shell must present the LAB/TEST split and document/metrology
+  relationships without pretending to be an execution console.
 - The current slice proves document metadata, audit, and outbox behavior
   without pretending to implement object upload, PDF parsing, report
   generation, central PostgreSQL, or cloud synchronization.
@@ -72,4 +75,4 @@ This decision does not implement:
 - PDF, Word, Excel, image, Parquet, or HDF5 parsing;
 - final document permissions;
 - document version merge;
-- final three-product UI implementation.
+- final LAB CONSOLE or TEST CONSOLE implementation.

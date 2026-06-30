@@ -1,42 +1,44 @@
-# ADR 0002 - GUI Split And Template Backbone Freeze
+# ADR 0002 - LAB/TEST Console Split And Template Backbone Freeze
 
 ## Status
 
-Superseded by `0003-three-surface-and-document-registry.md`.
+Accepted.
 
 ## Context
 
-EMC Locus now has a stable enough 0.8.0 base for agent-owned project writes,
-metrology readiness, simulated EMC execution, audit, and outbox evidence.
+EMC Locus now has a stable enough `0.8.0` base for agent-owned local writes,
+audit/outbox evidence, metrology readiness, and a simulated EMC execution
+workflow.
 
-The risk is no longer only technical execution. The immediate product risk is
-accumulating provisional UI surfaces and shallow CRUD lists that do not match a
-serious EMC laboratory product.
+The immediate product risk is no longer only technical execution. The risk is
+accumulating provisional UI surfaces, shallow CRUD lists, and temporary
+vocabulary that do not match a serious EMC laboratory platform.
 
-The current static web shell helped expose vocabulary, but it is not a final UI
-architecture. Qt has already been selected as the direction for dense local
-execution. LAB CONSOLE and TEST CONSOLE must now be treated as different
-products sharing a domain backbone, not as two skins over one dashboard.
-
-Legacy concepts may be imported, archived, or migrated, but they must not drive
-new vocabulary, screens, routes, DTOs, or domain contracts.
+The product must not be designed for a legacy internal shape. Legacy concepts
+may be imported, archived, migrated, or used as comparison material, but they
+must not drive new screens, DTOs, routes, domain names, or workflow contracts.
 
 ## Decision
 
-EMC Locus adopts a two-surface GUI direction:
+EMC Locus adopts a two-console GUI direction:
 
-- LAB CONSOLE is the laboratory management product for customers, products,
-  projects, campaigns, templates, methods, standards, documents, personnel,
-  competences, metrology, planning, reports, audit, sync, and updates.
-- TEST CONSOLE is the Qt desktop product for local/offline execution,
+- **LAB CONSOLE** is the web-oriented laboratory management console for clients,
+  products, projects, campaigns, templates, methods, standards, documents,
+  people, competences, roles, metrology, planning, reports, synchronization,
+  audit, and updates.
+- **TEST CONSOLE** is the Qt desktop console for local/offline execution,
   instrumentation, readiness, acquisition, monitoring, deviations,
   substitutions, reruns, and evidence publication.
 
+Metrology is a first-class controlled LAB CONSOLE domain and a TEST CONSOLE
+readiness dependency. It is not a reason to add a third fake dashboard or to
+let TEST CONSOLE become the source editor for calibration and serviceability
+records.
+
 The static shell under `apps/gui-shell` is explicitly a LAB CONSOLE information
-architecture prototype. It may show navigation, object relationships, and
-read-only prototype views. It must not become the final LAB CONSOLE
-implementation architecture and must not host TEST CONSOLE runtime concepts as
-fake web behaviors.
+architecture prototype. It may show hierarchy, relationships, sample rows, and
+surface boundaries. It is not the final LAB CONSOLE application architecture and
+must not host TEST CONSOLE runtime concepts as fake web behavior.
 
 Before adding another major runtime vertical, the project must stabilize the
 template and execution-definition backbone:
@@ -74,19 +76,20 @@ It must also preserve the result-state chain:
 
 ## Consequences
 
-- New LAB CONSOLE screens should be designed around the information
-  architecture, not around temporary repository tables.
-- New TEST CONSOLE work should remain Qt-oriented and execution-centered.
-- The static web shell should not gain fake backend writes, fake instrument
-  control, or fake acquisition.
+- New LAB CONSOLE screens must be designed around the information architecture,
+  not around temporary repository tables.
+- New TEST CONSOLE work remains Qt-oriented and execution-centered.
+- The static web shell must not gain fake backend writes, fake instrument
+  control, fake readiness execution, or fake acquisition.
 - Legacy support is limited to import, archive, migration, and traceability
   context.
 - Method approval, second approval, roles, and competence rules become part of
   the design backbone before further UI expansion.
-- Documents and standards become first-class domain objects rather than loose
-  file references.
-- Templates become revisioned, derivable, duplicable, instantiable, and
+- Documents and standards are first-class domain objects, not loose file paths.
+- Templates are revisioned, derivable, duplicable, instantiable, and
   update-controlled objects.
+- Runtime slices should wait unless they consume this clarified model rather
+  than adding another temporary screen or schema.
 
 ## Non-Goals
 
@@ -105,4 +108,5 @@ This decision does not implement:
 
 The next implementation tranche should use these documents to design real LAB
 CONSOLE screens and domain contracts for templates, documents, people, roles,
-competences, and method approvals before extending execution runtime behavior.
+competences, method approvals, and execution packages before extending runtime
+behavior.

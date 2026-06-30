@@ -87,9 +87,23 @@ select {
   color: #aebcbd;
 }
 
-.nav-list {
+.nav-list,
+.nav-section {
   display: grid;
   gap: 4px;
+}
+
+.nav-section {
+  margin-top: 8px;
+}
+
+.nav-section h2 {
+  margin: 10px 0 2px;
+  padding: 0 12px;
+  color: #aebcbd;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 .nav-item {
@@ -210,7 +224,8 @@ select {
 .metric,
 .panel,
 .detail-panel,
-.surface-card {
+.console-card,
+.domain-column {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -388,26 +403,42 @@ tbody tr.selected {
   background: #fff0ef;
 }
 
-.surface-grid {
+.console-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 12px;
 }
 
-.surface-card {
+.console-card {
+  display: grid;
+  gap: 14px;
   padding: 14px;
-  min-height: 190px;
+  min-height: 260px;
 }
 
-.surface-card h3 {
+.console-card h3 {
   margin: 0 0 8px;
   font-size: 20px;
 }
 
-.surface-card strong {
+.console-card strong {
   display: block;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   color: var(--accent);
+}
+
+.console-card p {
+  margin: 0;
+  color: #354145;
+  line-height: 1.5;
+}
+
+.mini-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
 }
 
 .guard-item,
@@ -441,6 +472,51 @@ tbody tr.selected {
   width: 28px;
   height: 1px;
   background: var(--line);
+}
+
+.domain-map {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.domain-column {
+  padding: 12px;
+}
+
+.domain-column h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.domain-link {
+  width: 100%;
+  display: grid;
+  gap: 3px;
+  border: 0;
+  border-left: 3px solid var(--accent);
+  background: #f8fbfb;
+  color: var(--text);
+  text-align: left;
+  padding: 10px 11px;
+  cursor: pointer;
+}
+
+.domain-link + .domain-link {
+  margin-top: 7px;
+}
+
+.domain-link:hover {
+  background: #edf6f3;
+}
+
+.domain-link strong {
+  font-size: 14px;
+}
+
+.domain-link span {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .body-copy {

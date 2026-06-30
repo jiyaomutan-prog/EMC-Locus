@@ -1,14 +1,20 @@
-# Locus Test Station Workspace
+# TEST CONSOLE Workspace
 
 ## Direction
 
-Locus Test Station is the Qt desktop workspace for local and field execution. It is
-not a project dashboard. It is the operator station used when a test is being
-prepared, run, monitored, corrected, rerun, or published as execution evidence.
+TEST CONSOLE is the Qt desktop workspace for local and field execution. It
+is not a project dashboard and not a metrology registry editor. It is the
+operator station used when a test is being prepared, run, monitored, corrected,
+rerun, or published as execution evidence.
 
 The design must support offline execution from local repositories, dense
 instrument state, long-running measurements, live warnings, multiple data
 streams, and controlled publication back to the local agent.
+
+The normal handoff is: LAB CONSOLE prepares and freezes a campaign/test package;
+TEST CONSOLE imports or opens that package locally; TEST CONSOLE executes and
+publishes evidence back to the local repositories; LAB CONSOLE reviews,
+reconciles, validates, reports, and publishes.
 
 ## One-Screen Layout
 
@@ -34,6 +40,10 @@ The operator must not have to leave this screen to answer:
 - whether acquisition and storage are healthy;
 - whether deviations or nonconformities exist;
 - whether the current result can be published.
+
+The operator may drill into source documents or metrology evidence, but source
+record maintenance belongs to LAB CONSOLE unless a station-local emergency
+policy explicitly grants a controlled, audited exception.
 
 ## Always-Visible States
 
@@ -79,6 +89,10 @@ Shows the required chain slots and bound instruments:
 - communication endpoint;
 - safety limits;
 - substitution status.
+
+Source metrology records are read-only here. The panel can request or record an
+execution substitution, but it must not silently edit calibration, service state,
+reservation contact, or certificate records.
 
 ### Readiness Panel
 
@@ -191,5 +205,5 @@ A material substitution record captures:
 - approval requirement and approval status.
 
 The execution can continue only if the quality mode and method policy allow the
-deviation or substitution state. Otherwise Locus Test Station records a structured
+deviation or substitution state. Otherwise TEST CONSOLE records a structured
 refusal rather than presenting a fake green workflow.

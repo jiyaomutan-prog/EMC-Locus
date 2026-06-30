@@ -43,8 +43,8 @@ crates/
   emc-locus-agent/       Rust local agent executable skeleton
   emc-locus-core/        Rust domain model and core invariants
 apps/
-  gui-shell/             Static operator console shell for workflow shaping
-  qt-console/            Qt desktop console bootstrap for measurement stations
+  gui-shell/             Static LAB CONSOLE information-architecture prototype
+  qt-console/            Qt desktop TEST CONSOLE bootstrap for measurement stations
 docs/
   architecture.md        System boundaries and technical direction
   product-objectives.md  Consolidated product objectives and non-objectives
@@ -71,9 +71,10 @@ storage/
 
 ## First Useful Milestones
 
-1. Expand guarded IO-backed serial and VISA implementations behind the adapter
-   skeletons.
-2. Add graph-driven execution records for revisioned signal-processing runs.
+1. Design the first real LAB CONSOLE template/method/document workflows from
+   the stabilized information architecture.
+2. Continue TEST CONSOLE Qt hardening only after the execution package model is
+   explicit enough to avoid fake runtime screens.
 
 ## Development Status
 
@@ -81,12 +82,20 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.8.1`.
+Current software version: `0.8.2`.
+
+Version `0.8.2` freezes the GUI and template backbone before another runtime
+slice. LAB CONSOLE is now the web-oriented laboratory management surface, TEST
+CONSOLE remains the Qt local/offline execution surface, and metrology is treated
+as a controlled LAB domain plus a TEST readiness dependency rather than a third
+GUI product. The static web shell was refocused on LAB information architecture,
+hierarchical navigation, object relationships, and LAB-to-TEST handoff points,
+without fake backend writes or execution behavior.
 
 Version `0.8.1` adds the first shared attached-document registry behind the
-Rust local agent. Locus Metrology, Locus Lab Management, and Locus Test Station
-now have a common metadata shape for controlled documents: owner surface,
-owner entity, classification, storage URI, checksum, revision, applicability,
+Rust local agent. LAB CONSOLE, TEST CONSOLE, and controlled domains such as
+metrology now have a common metadata shape for controlled documents: owner
+domain/entity, classification, storage URI, checksum, revision, applicability,
 confidentiality, audit, and sync outbox evidence. This slice does not upload or
 store file bytes.
 

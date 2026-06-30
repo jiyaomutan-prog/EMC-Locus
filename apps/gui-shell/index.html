@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>EMC Locus Surfaces</title>
+    <title>EMC Locus LAB Console IA</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -13,42 +13,24 @@
           <div class="brand-mark" aria-hidden="true">EMC</div>
           <div>
             <strong>EMC Locus</strong>
-            <span>Surfaces IA</span>
+            <span>LAB Console IA</span>
           </div>
         </div>
 
-        <nav class="nav-list" aria-label="Espaces Locus Lab Management">
-          <button class="nav-item active" data-space="overview" type="button">Carte labo</button>
-          <button class="nav-item" data-space="clients" type="button">Clients</button>
-          <button class="nav-item" data-space="products" type="button">Produits</button>
-          <button class="nav-item" data-space="productVersions" type="button">Versions produit</button>
-          <button class="nav-item" data-space="projects" type="button">Projets</button>
-          <button class="nav-item" data-space="campaigns" type="button">Campagnes</button>
-          <button class="nav-item" data-space="projectTemplates" type="button">Templates projet</button>
-          <button class="nav-item" data-space="campaignTemplates" type="button">Templates campagne</button>
-          <button class="nav-item" data-space="productTemplates" type="button">Templates produit</button>
-          <button class="nav-item" data-space="testTemplates" type="button">Templates essais</button>
-          <button class="nav-item" data-space="methods" type="button">Methodes</button>
-          <button class="nav-item" data-space="documents" type="button">Normes & docs</button>
-          <button class="nav-item" data-space="people" type="button">Personnel & roles</button>
-          <button class="nav-item" data-space="metrology" type="button">Metrologie</button>
-          <button class="nav-item" data-space="planning" type="button">Planning</button>
-          <button class="nav-item" data-space="reports" type="button">Rapports</button>
-          <button class="nav-item" data-space="sync" type="button">Sync, audit, updates</button>
-        </nav>
+        <nav class="nav-list" id="nav-list" aria-label="Arborescence LAB Console"></nav>
 
         <div class="mode-panel">
           <span>Surface active</span>
-          <strong>Locus Lab Management</strong>
-          <small>Maquette IA, avec Metrology et Test Station comme produits separes.</small>
+          <strong>LAB CONSOLE</strong>
+          <small>Prototype statique: structure objet, pas de backend, pas d'execution.</small>
         </div>
       </aside>
 
       <main class="workspace">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Prototype statique</p>
-            <h1 id="view-title">Carte labo</h1>
+            <p class="eyebrow">Architecture d'information</p>
+            <h1 id="view-title">Architecture LAB</h1>
             <p class="view-summary" id="view-summary"></p>
           </div>
           <div class="toolbar">
@@ -66,10 +48,10 @@
           <div class="overview-grid">
             <section class="panel wide">
               <div class="panel-head">
-                <h2>Trois surfaces, un backbone</h2>
+                <h2>Deux consoles, un backbone</h2>
                 <span>Decision produit</span>
               </div>
-              <div class="surface-grid" id="surface-grid"></div>
+              <div class="console-grid" id="console-grid"></div>
             </section>
 
             <section class="panel">
@@ -86,6 +68,14 @@
                 <span>Limite prototype</span>
               </div>
               <div class="guard-list" id="static-guardrails"></div>
+            </section>
+
+            <section class="panel wide">
+              <div class="panel-head">
+                <h2>Arborescence LAB</h2>
+                <span>Objets de gestion</span>
+              </div>
+              <div class="domain-map" id="lab-domain-map"></div>
             </section>
 
             <section class="panel wide">
@@ -110,6 +100,14 @@
 
             <section class="panel">
               <div class="panel-head">
+                <h2>Position IA</h2>
+                <span id="space-group"></span>
+              </div>
+              <p class="body-copy" id="space-handoff"></p>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
                 <h2>Objets principaux</h2>
                 <span id="space-object-count"></span>
               </div>
@@ -130,6 +128,14 @@
                 <span>Modele metier</span>
               </div>
               <div class="relation-list" id="space-relations"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Garde-fou</h2>
+                <span>Pas de faux CRUD</span>
+              </div>
+              <p class="body-copy" id="space-guardrail"></p>
             </section>
 
             <section class="panel wide">

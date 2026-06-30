@@ -140,15 +140,17 @@ User/UI
 
 The application product split is now explicit:
 
-- Locus Metrology owns metrology assets, calibration evidence, restrictions,
-  documents, traceability, and aptitude.
-- Locus Lab Management owns clients, requests, quotations, contract review,
-  projects, communications, planning, reports, delivery, and archiving.
-- Locus Test Station is the Qt local/offline execution surface.
+- LAB CONSOLE is the web-oriented laboratory management console. It covers
+  clients, products, projects, campaigns, templates, methods, documents, roles,
+  competences, metrology, planning, reports, sync, audit, and updates.
+- TEST CONSOLE is the Qt local/offline execution surface. It covers readiness,
+  instrumentation, acquisition, monitoring, deviations, substitutions, reruns,
+  and execution evidence publication.
 
-All three surfaces write through the Locus Local Agent, which owns local
-SQLite, audit, outbox, and future sync. The current static web shell is an
-information-architecture prototype only. See
+Both consoles write through the Locus Local Agent, which owns local SQLite,
+audit, outbox, and future sync. Metrology is a controlled LAB CONSOLE domain and
+a TEST CONSOLE readiness dependency, not a third GUI product. The current static
+web shell is an information-architecture prototype only. See
 `gui/gui-dual-surface-architecture.md`,
 `gui/lab-console-information-architecture.md`,
 `gui/test-console-workspace.md`, and

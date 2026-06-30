@@ -7,7 +7,9 @@ before adding more runtime slices.
 
 ## Decisions Recorded
 
-- LAB CONSOLE and TEST CONSOLE are separate products sharing a domain backbone.
+- LAB CONSOLE and TEST CONSOLE are separate consoles sharing a domain backbone.
+- Metrology is a controlled LAB domain and TEST readiness dependency, not a
+  third GUI product.
 - The static web shell is a LAB CONSOLE information architecture prototype, not
   the final web architecture and not an execution console.
 - TEST CONSOLE remains Qt-directed for dense local/offline execution.
@@ -28,8 +30,9 @@ before adding more runtime slices.
 ## Prototype Update
 
 `apps/gui-shell` was refocused on LAB CONSOLE information architecture. The
-prototype now shows the target navigation hierarchy and object relationships
-instead of suggesting that the static web shell is an execution dashboard.
+prototype now shows hierarchical LAB navigation, LAB-to-TEST handoff points,
+object relationships, and guardrails instead of suggesting that the static web
+shell is an execution dashboard.
 
 ## Validation
 
@@ -40,4 +43,5 @@ instead of suggesting that the static web shell is an execution dashboard.
 - In-app browser inspection at `http://127.0.0.1:8765/`: blocked by the local
   browser security policy for `127.0.0.1`; no workaround was attempted.
 - `git diff --check`: passed before staging.
-- `git diff --cached --check`: pending staging.
+- Final staged validation is recorded in
+  `docs/session-logs/2026-06-30-release-0.8.2-session.md`.

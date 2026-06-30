@@ -52,6 +52,11 @@ Allowed owner domains:
 - `locus_test_station`;
 - `shared`.
 
+These values are repository/domain labels for the current API slice. They do not
+mean that metrology is a third GUI product. The GUI split is LAB CONSOLE web and
+TEST CONSOLE Qt; metrology remains a controlled LAB domain and a TEST readiness
+dependency.
+
 Allowed classifications:
 
 - `client_document`;
@@ -86,7 +91,7 @@ Allowed confidentiality states:
 - `customer_visible`;
 - `restricted`.
 
-When the owner is a Locus Lab Management project
+When the owner is a LAB CONSOLE project
 (`owner_domain=locus_lab_management`, `owner_entity_type=project`), the project
 must already exist.
 
@@ -105,6 +110,7 @@ Each successful registration writes:
   `attached_document_registered`;
 - one pending `sync_operations` row with entity type `attached_document`.
 
-The document registry is shared by Locus Metrology, Locus Lab Management, and
-Locus Test Station. The current slice proves common document identity and
-traceability before adding real object upload or document permission workflows.
+The document registry is shared by LAB CONSOLE, TEST CONSOLE, and controlled
+domain workflows such as metrology. The current slice proves common document
+identity and traceability before adding real object upload or document
+permission workflows.

@@ -5,11 +5,16 @@
 EMC Locus needs a stable backbone for templates, methods, execution instances,
 and results before adding more runtime slices. This document defines the target
 business vocabulary that should guide future schemas, routes, Qt models, and
-Locus Lab Management screens.
+LAB CONSOLE screens.
 
 The key rule is simple: generic definitions, project instances, executed
 instances, and results are different objects. They may reference each other, but
 they must not be collapsed into one mutable record.
+
+The second key rule is that a template is never the thing being executed.
+Execution always happens against a campaign test instance that preserves its
+source template revision and its local parameter values at the time the package
+was frozen.
 
 ## Object Definitions
 
@@ -310,7 +315,7 @@ Examples:
 ### Executed Instance
 
 An executed instance is the evidence of what actually happened. It is produced
-by Locus Test Station or another controlled execution path.
+by TEST CONSOLE or another controlled execution path.
 
 Examples:
 
@@ -407,3 +412,70 @@ The update operation must know:
 
 Executed instances remain historical evidence. They do not move when a template
 changes.
+
+## Template Lifecycle
+
+Every template family should support these lifecycle states:
+
+- draft;
+- under review;
+- approved;
+- suspended;
+- superseded;
+- retired.
+
+The lifecycle must record author, reviewer, approver, approval policy,
+effective date, supersession link, and reason. A suspended or retired template
+cannot create new instances, but existing project history remains readable.
+
+## Instantiation Rules
+
+Instantiation creates a new business object with a reference to the exact source
+revision:
+
+- project template to project;
+- campaign template to campaign;
+- tested-product template to product version;
+- test template to campaign test instance.
+
+The instance receives copied variable values, lock policies, required document
+links, method revision references, instrumentation slot requirements, limits,
+post-processing definitions, and sequence steps. Later template changes do not
+magically rewrite the instance.
+
+## Controlled Propagation To Unexecuted Work
+
+A future propagation operation may update non-executed instances when policy
+allows it. The operation must show:
+
+- affected project, campaign, or test instances;
+- source template revision and target revision;
+- changes to variables, locks, steps, limits, methods, documents, or
+  instrumentation slots;
+- execution state of every candidate target;
+- refusal reason for targets already executed or manually locked;
+- actor, reason, approval evidence, audit event, and sync operation.
+
+The UI should present this as a controlled change set, not as a silent bulk edit.
+
+## Execution Package Boundary
+
+Before TEST CONSOLE runs a test, LAB CONSOLE should be able to freeze an
+execution package containing:
+
+- campaign and project identity;
+- product version identity;
+- test instance identity;
+- source test template revision;
+- method revision and approval state;
+- required documents and standards;
+- instrumentation chain slots;
+- planned or reserved instruments;
+- quality mode and allowed relaxations;
+- variables and lock policy;
+- sequence, branch rules, limits, and post-processing definition references;
+- local storage and synchronization expectations.
+
+TEST CONSOLE may record what actually happened, including substitutions and
+deviations, but it must not rewrite the package as if it had been planned that
+way from the start.

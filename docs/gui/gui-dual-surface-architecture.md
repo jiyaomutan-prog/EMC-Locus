@@ -1,162 +1,147 @@
-# GUI Product Surface Architecture
+# GUI Dual Surface Architecture
 
 ## Purpose
 
-EMC Locus has three user-facing products, not one generic dashboard:
+EMC Locus now distinguishes two product consoles:
 
-- **Locus Metrology** is the metrology and asset aptitude surface.
-- **Locus Lab Management** is the laboratory management surface.
-- **Locus Test Station** is the local Qt execution surface for tests.
+- **LAB CONSOLE** is the web-oriented laboratory management console.
+- **TEST CONSOLE** is the Qt desktop execution console.
 
-The three surfaces share the same domain language, audit trail, repository
-strategy, identity model, attached document registry, templates, methods,
-metrology evidence, and synchronization backbone. They differ in cadence, risk,
-density, and primary operator context.
+Both consoles share the same domain backbone through the Locus Local Agent,
+SQLite repositories, audit trail, outbox, future synchronization contracts, and
+controlled document model. They must not become two competing implementations of
+the same screens.
 
 The current static web shell under `apps/gui-shell` is only an information
-architecture prototype for the product-family navigation and Locus Lab
-Management object hierarchy. It is not the long-term implementation
-architecture for the web products, and it must not become the
-instrument-facing execution console.
+architecture prototype for LAB CONSOLE. It is not the final web application
+architecture, and it must never become an instrument-facing execution console.
 
-## Locus Metrology
+## LAB CONSOLE
 
-Locus Metrology covers the controlled life of measurement means. It is
-optimized for asset identity, calibration evidence, restrictions, service
-state, traceability, external reservation contacts, and metrological aptitude.
+LAB CONSOLE covers the laboratory management work before, around, and after test
+execution. It is optimized for structure, traceability, planning, review,
+configuration, document control, and multi-person work.
 
-Locus Metrology owns:
+LAB CONSOLE owns or coordinates:
 
-- instrument assets and categories;
-- calibration events, certificates, providers, uncertainty summaries, and
-  due-date policy;
-- serviceability, restrictions, nonconformities, and quarantine decisions;
-- datasheets, certificates, worksheets, transducer files, and scripts attached
-  to assets;
-- external equipment contact and reservation evidence;
-- source records used by readiness calculations.
-
-## Locus Lab Management
-
-Locus Lab Management covers laboratory coordination before and after
-acquisition. It is optimized for structure, traceability, review, planning,
-controlled changes, and multi-person work.
-
-Locus Lab Management owns:
-
-- customers, contacts, confidentiality constraints, and commercial context;
-- requests, quotations, communications, and contract review;
-- tested products, product versions, and customer product evidence;
-- projects from quotation to report delivery;
-- campaigns and campaign plans;
+- clients, contacts, confidentiality, and customer visibility;
+- products, product versions, tested article identity, and customer evidence;
+- requests, quotations, contract review, and project lifecycle;
+- projects, campaigns, campaign scope, and report delivery state;
 - project templates, campaign templates, tested-product templates, and test
   templates;
-- method revisions and approval workflows;
-- standards, client documents, PDFs, drawings, datasheets, contracts, and
-  project attachments as first-class objects;
-- laboratory personnel, configurable roles, competences, authorizations, and
-  approval delegation;
-- resource assignment using metrology-owned asset state;
-- service planning, equipment reservations, room reservations, and operator
-  assignments;
-- reports, publications, customer delivery packages, and revision history;
-- synchronization status, audit review, repository health, and software update
-  evidence.
+- method revisions, standards, validation evidence, and approval workflows;
+- documents as first-class controlled objects: client files, standards, PDFs,
+  datasheets, certificates, worksheets, scripts, drawings, contracts, reports,
+  and publications;
+- personnel, configurable roles, permissions, competences, delegations, and
+  approval records;
+- metrology management: instrument assets, categories, calibrations,
+  restrictions, serviceability, certificates, due dates, reservations, external
+  equipment contacts, and metrological aptitude evidence;
+- planning: rooms, benches, operators, internal instruments, external
+  equipment, schedule conflicts, and station packages;
+- reports, technical review, publication, customer delivery, archive, and
+  supersession;
+- synchronization, audit review, repository health, and controlled software or
+  template updates.
 
-Locus Lab Management must make controlled business relationships visible. A
-user should be able to answer which customer product version belongs to which
-project, which campaign uses which method revision, which template produced
-which test instance, which documents were applicable, who approved the method,
-and what changed after approval.
+LAB CONSOLE may display execution evidence produced by TEST CONSOLE, but it does
+not drive instruments, acquire data, or pretend to run tests.
 
-## Locus Test Station
+## TEST CONSOLE
 
-Locus Test Station covers execution on a laboratory or field station. It is
-optimized for dense local operation, offline work, readiness checks, instrument
-control, data capture, monitoring, and immediate evidence publication back to
-the local repositories.
+TEST CONSOLE covers local/offline execution on a laboratory or field station. It
+is optimized for dense operator work, readiness, instrumentation, acquisition,
+monitoring, deviations, substitutions, reruns, and immediate evidence
+publication to the local repositories.
 
-Locus Test Station owns:
+TEST CONSOLE owns:
 
-- selecting an assigned campaign and test instance for execution;
-- presenting the active quality mode and any approved relaxation;
-- checking metrology readiness for the exact execution context;
-- presenting the required and substituted instrumentation chain;
-- guiding sequence steps, branches, limits, operator prompts, and safety
-  interlocks;
-- driving simulated and real instrument adapters through the local agent;
-- displaying acquisition state, storage state, data rates, alerts, and command
-  observations;
-- collecting raw data, corrected data, calculated results, validated results,
-  deviations, and operator comments;
-- recording reruns, supersession links, substitutions, and refusal evidence;
-- publishing executed evidence into the local repositories and outbox.
+- selecting an assigned campaign package and test instance;
+- displaying the active project, campaign, test, method revision, source
+  template revision, and quality mode;
+- checking readiness for the exact execution context;
+- binding instruments to instrumentation chain slots and showing substitutions;
+- presenting sequence steps, branches, operator prompts, limits, safety checks,
+  and editable parameters allowed by lock policy;
+- driving instrument adapters through the local agent and runtime boundary;
+- displaying acquisition, storage, data-rate, synchronization, and alert state;
+- recording raw data, corrected data, calculated results, validated results,
+  deviation records, substitution records, comments, and rerun reasons;
+- refusing execution with structured evidence when policy blocks the run;
+- publishing execution evidence into local repositories and outbox.
 
-Qt is the direction for Locus Test Station. The execution console must be able
-to support native windows, dockable panes, keyboard-heavy operation,
-long-running measurement state, plotting, dense status bars, and field/offline
-station packaging.
+Qt is the direction for TEST CONSOLE because this surface needs native desktop
+behavior: dockable panes, keyboard-heavy operation, long-running state, dense
+tables, plotting, device status, offline packages, and controlled station
+updates.
 
 ## Shared Backbone
 
-The three products share these contracts:
+The two consoles share these contracts:
 
-- local agent write boundary for controlled operations;
+- Locus Local Agent write boundary for controlled operations;
 - split SQLite repositories and future sync/merge packages;
 - audit events and outbox operations;
 - identity, role, competence, and approval evidence;
 - attached document identity, ownership, storage reference, checksum, revision,
   confidentiality, and applicability;
-- method revisions and template revision identity;
-- standards and attached documents;
-- metrology registry, calibration evidence, and readiness verdict model;
-- project, campaign, tested product, and execution references;
-- raw/corrected/calculated/validated/published data lineage;
-- software version, repository schema version, and update evidence.
+- method revisions, template revisions, and standard references;
+- metrology registry, calibration evidence, restrictions, and readiness verdict
+  model;
+- project, campaign, product version, test instance, and execution references;
+- raw, corrected, calculated, validated, and published data lineage;
+- software version, repository schema version, station package version, and
+  update evidence.
 
-Shared does not mean one screen. It means one domain contract and one evidence
-model consumed by different UI products.
+Shared means one domain contract and one evidence model. It does not mean one
+screen, one navigation, or one technology stack.
 
 ## What Belongs Where
 
-| Concern | Locus Metrology | Locus Lab Management | Locus Test Station |
-| --- | --- | --- | --- |
-| Customer and contract context | Reads when needed | Owns | Reads selected context |
-| Product and product version | Reads when needed | Owns | Reads for execution identity |
-| Project lifecycle | Reads assignments | Owns | Reads stage and active gates |
-| Campaign plan | Supplies asset constraints | Owns | Executes assigned campaign slice |
-| Template authoring | Owns metrology templates only | Owns project/campaign/test templates | Executes instances only |
-| Method authoring and approval | Contributes calibration/readiness rules | Owns approval workflow | Executes approved method revision |
-| Instrument source records | Owns | Consumes for planning | Consumes for readiness |
-| Instrument readiness | Owns source evidence | Reviews risk and reservations | Calculates execution verdict in context |
-| Instrument control | No | No | Owns runtime operation |
-| Data acquisition | No | No | Owns local capture and immediate evidence |
-| Reports and publication | Supplies metrology evidence | Owns final review/publication | Publishes execution evidence only |
-| Offline field work | Supplies signed asset snapshots | Prepares packages and reconciles | Operates from local package |
-| Audit and sync | Produces controlled asset events | Reviews and resolves | Produces local execution events |
+| Concern | LAB CONSOLE | TEST CONSOLE |
+| --- | --- | --- |
+| Clients and commercial context | Owns | Reads selected package context |
+| Product and product version | Owns | Reads the tested article identity |
+| Project lifecycle | Owns | Reads active gates and execution mode |
+| Campaign plan | Owns and freezes station package | Executes assigned package slice |
+| Template authoring | Owns | Executes instances only |
+| Method authoring and approval | Owns | Executes approved method revision |
+| Documents and standards | Owns and controls | Reads applicable execution documents |
+| Metrology records | Owns source records and reservations | Consumes readiness evidence in context |
+| Instrument control | No | Owns runtime operation |
+| Data acquisition | No | Owns local capture and immediate evidence |
+| Deviations and substitutions | Reviews and approves by policy | Records during execution |
+| Reports and publication | Owns final review and publication | Publishes execution evidence only |
+| Offline field work | Prepares and reconciles packages | Operates from local package |
+| Audit and sync | Reviews and resolves | Produces local execution events |
+| Software updates | Defines policy and approves packages | Applies station-safe signed packages |
 
 ## Static Web Shell Boundary
 
-The current static shell may show:
+The static shell may show:
 
-- the three-product surface map;
-- Locus Lab Management navigation and object hierarchy;
-- sample relationship maps between customers, products, projects, campaigns,
+- the LAB CONSOLE information architecture;
+- the TEST CONSOLE boundary and handoff points;
+- read-only relationship maps between clients, products, projects, campaigns,
   templates, methods, documents, personnel, metrology, planning, reports, sync,
   audit, and updates;
-- read-only prototype cards and tables that explain information architecture;
-- harmless selection state used to demonstrate navigation.
+- harmless selection state used to demonstrate navigation;
+- sample data used only to explain object hierarchy.
 
-The static shell must no longer receive:
+The static shell must not receive:
 
 - fake instrument control;
-- fake acquisition state presented as if it were executable;
+- fake acquisition or live plotting;
+- fake readiness execution flows;
 - workflow buttons that imply backend writes when no backend is connected;
-- ad hoc CRUD screens that bypass the future Locus information model;
-- Locus Test Station execution panels;
+- ad hoc CRUD screens that bypass the target information model;
+- TEST CONSOLE execution panels;
+- local station configuration;
 - simulated result execution flows already owned by the agent and Qt direction;
 - legacy vocabulary used as the source of truth for new contracts.
 
-Any future implementation of Locus Metrology or Locus Lab Management must be
-designed as a real application over the agent/services backbone, not as the
-continuation of this static prototype.
+Future LAB CONSOLE implementation may reuse the information architecture, but it
+must be built as a real application over the agent/service backbone. Future TEST
+CONSOLE implementation must remain Qt-oriented and execution-centered.

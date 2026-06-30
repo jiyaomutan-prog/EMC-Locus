@@ -11,6 +11,10 @@ The default role names below are seed examples, not fixed product limits.
 Laboratories must be able to rename roles, create new roles, combine roles, and
 change role assignments over time while preserving audit history.
 
+Screens may display local role labels, but services should authorize decisions
+with stable permissions, scope, competence evidence, and approval policy. A
+renamed role must not change the meaning of historical approvals.
+
 ## Core Objects
 
 ### Person
@@ -242,6 +246,23 @@ The policy must specify:
 - whether the same person can author and approve;
 - second-approval conditions;
 - expiry or revalidation rule.
+
+## Console Authorization Boundary
+
+LAB CONSOLE is the normal place for:
+
+- defining and renaming roles;
+- assigning permissions and scopes;
+- recording competences and evidence;
+- approving methods, templates, deviations, reports, and publications;
+- reviewing role history and approval traceability.
+
+TEST CONSOLE consumes the resulting authorization context locally. It may allow
+an operator to run assigned tests, record observations, request deviations,
+request substitutions, and publish execution evidence only when the local package
+and current role context allow it. TEST CONSOLE must not invent new role
+definitions or silently grant itself method, quality, or metrology approval
+power.
 
 ## Traceability Requirements
 

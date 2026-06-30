@@ -8,6 +8,24 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-06-30
+
+### Changed
+
+- Froze the GUI direction around two product consoles: LAB CONSOLE for web
+  laboratory management and TEST CONSOLE for Qt local/offline execution.
+- Reframed metrology as a controlled LAB domain and TEST readiness dependency,
+  not a third GUI product.
+- Strengthened GUI, template, execution-definition, people/roles, and
+  competence documentation before adding another runtime vertical.
+- Reworked `apps/gui-shell` as a static LAB CONSOLE information-architecture
+  prototype with hierarchical navigation, LAB-to-TEST handoff points, and
+  explicit guardrails against fake runtime behavior.
+
+### Added
+
+- Added release documentation for the GUI/template backbone clarification slice.
+
 ## [0.8.1] - 2026-06-30
 
 ### Added

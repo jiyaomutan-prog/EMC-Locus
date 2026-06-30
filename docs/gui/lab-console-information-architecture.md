@@ -1,18 +1,19 @@
-# Locus Lab Management Information Architecture
+# LAB CONSOLE Information Architecture
 
 ## Navigation Principle
 
-Locus Lab Management is organized around laboratory objects and their
+LAB CONSOLE is organized around laboratory objects and their
 controlled relationships. It is not organized around database tables. Each
 space should answer a laboratory question and expose the related objects needed
 to make a traceable decision.
 
-Locus Metrology owns the detailed asset, calibration, restriction, and
-metrological aptitude domain. Locus Lab Management consumes metrology readiness,
-reservations, and asset summaries for planning and project decisions, but it
-should not become a duplicate metrology application.
+Metrology is a first-class LAB CONSOLE workspace because a laboratory must own
+instrument identity, calibration evidence, restrictions, reservations, and
+external equipment contacts before execution. TEST CONSOLE consumes those
+records for readiness in an execution context, but it must not become the place
+where source metrology records are maintained.
 
-The first Locus Lab Management navigation tree should be:
+The first LAB CONSOLE navigation tree should be:
 
 1. Clients
 2. Products
@@ -26,7 +27,7 @@ The first Locus Lab Management navigation tree should be:
 10. Methods
 11. Standards and Documents
 12. Personnel, Competences, and Roles
-13. Metrology summary and resource fit
+13. Metrology
 14. Planning
 15. Reports and Publications
 16. Synchronization, Audit, and Updates
@@ -156,7 +157,7 @@ Main objects:
 - test instances;
 - environmental conditions;
 - assigned rooms, benches, operators, and instruments;
-- execution package for Locus Test Station.
+- execution package for TEST CONSOLE.
 
 Main actions:
 
@@ -164,7 +165,7 @@ Main actions:
 - add or remove test instances before execution;
 - schedule tests;
 - freeze campaign scope for field/offline operation;
-- receive execution evidence from Locus Test Station.
+- receive execution evidence from TEST CONSOLE.
 
 Relations:
 
@@ -278,7 +279,7 @@ Relations:
 - test templates produce campaign test instances;
 - test templates reference methods, limits, standards, and instrumentation slot
   requirements;
-- Locus Test Station executes test instances, not bare templates.
+- TEST CONSOLE executes test instances, not bare templates.
 
 ## Methods
 
@@ -369,24 +370,31 @@ Relations:
 - audit events reference actors and role context;
 - client-reader access is constrained by project publication rules.
 
-## Metrology Summary And Resource Fit
+## Metrology
 
-Objective: consume metrology-owned inventory and evidence required for planning
-and execution readiness without duplicating Locus Metrology.
+Objective: maintain the measurement means and metrological evidence required for
+planning, readiness, execution traceability, and EN ISO/IEC 17025-oriented
+review.
 
 Main objects:
 
-- instrument asset summary;
-- instrument category summary;
-- serviceability state summary;
-- calibration due/validity summary;
+- instrument asset;
+- instrument category;
+- manufacturer, part number, serial number, and controlled identity;
+- serviceability state;
+- calibration event, due date, periodicity, validity, and conformity state;
 - readiness risk;
 - external equipment reservation contact;
-- attached document links owned by the shared document registry.
+- attached document links owned by the shared document registry: certificate,
+  datasheet, transducer worksheet, script, manual, photo, provider evidence, or
+  other controlled file.
 
 Main actions:
 
-- open the source Locus Metrology record;
+- create or update instrument assets and categories;
+- record calibration evidence and derived next-calibration date;
+- attach certificates, datasheets, worksheets, and scripts;
+- mark assets serviceable, restricted, quarantined, external, or retired;
 - reserve internal or external equipment;
 - review upcoming due dates and nonconformities for planning impact.
 
@@ -394,8 +402,7 @@ Relations:
 
 - test templates define instrumentation chain slots;
 - campaign test instances bind slots to instruments;
-- Locus Metrology owns the source evidence;
-- Locus Test Station computes readiness against the execution context;
+- TEST CONSOLE computes readiness against the execution context;
 - planning consumes availability and reservation constraints.
 
 ## Planning
@@ -418,13 +425,13 @@ Main actions:
 - reserve rooms and instruments;
 - assign qualified operators;
 - identify conflicts;
-- freeze the package sent to Locus Test Station.
+- freeze the package sent to TEST CONSOLE.
 
 Relations:
 
 - planning links campaigns, test instances, people, instruments, and sites;
 - metrology state influences planning risk;
-- Locus Test Station consumes assigned work but records actual execution evidence.
+- TEST CONSOLE consumes assigned work but records actual execution evidence.
 
 ## Reports And Publications
 
@@ -482,5 +489,5 @@ Main actions:
 Relations:
 
 - every controlled surface emits audit and sync evidence;
-- Locus Lab Management reviews and resolves;
-- Locus Test Station produces local execution events that later sync or merge.
+- LAB CONSOLE reviews and resolves;
+- TEST CONSOLE produces local execution events that later sync or merge.

@@ -1,14 +1,13 @@
 # GUI Technology Direction
 
-EMC Locus needs three different UI surfaces:
+EMC Locus needs two different product consoles:
 
-- Locus Metrology for the instrument park, calibration evidence, restrictions,
-  documents, traceability, and metrological aptitude;
-- Locus Lab Management for clients, requests, quotations, projects, templates,
-  documents, methods, people, planning, reports, sync, audit, and updates;
-- Locus Test Station for local/offline execution, readiness, instrumentation,
-  monitoring, acquisition evidence, deviations, substitutions, and publication
-  back to the local repositories.
+- LAB CONSOLE for clients, requests, quotations, products, projects, templates,
+  documents, methods, people, competences, roles, metrology, planning, reports,
+  sync, audit, and updates;
+- TEST CONSOLE for local/offline execution, readiness, instrumentation,
+  monitoring, acquisition evidence, deviations, substitutions, reruns, and
+  publication back to the local repositories.
 
 The detailed split is now defined in
 `gui/gui-dual-surface-architecture.md`. The Locus Lab Management navigation
@@ -20,10 +19,10 @@ for advanced EMC measurement software because it can support dense controls,
 instrument panels, long-running acquisition state, local/offline operation,
 future plotting, dockable workspaces, and native workstation packaging.
 
-The existing static browser shell remains useful only as a product-family and
-Locus Lab Management information-architecture prototype. It should not become
-the primary technology for instrument-facing acquisition screens and should not
-accumulate fake runtime workflows.
+The existing static browser shell remains useful only as a LAB CONSOLE
+information-architecture prototype. It should not become the primary technology
+for instrument-facing acquisition screens and should not accumulate fake runtime
+workflows.
 
 ## Initial Stack
 
