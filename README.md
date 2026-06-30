@@ -81,7 +81,14 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.6.7`.
+Current software version: `0.7.0`.
+
+Version `0.7.0` consolidates the first agent-backed metrology readiness
+vertical slice. A local user can initialize storage, run the Rust agent,
+register instruments, record calibration events with certificate manifests,
+compute status/readiness, change serviceability, inspect instrument audit and
+sync outbox evidence, use the temporary Qt/Python metrology surface through the
+agent, and restart the agent while preserving state.
 
 Version `0.6.7` adds the historical migration and E2E confidence layer for the
 metrology vertical slice: legacy `calibration_records` are backfilled into

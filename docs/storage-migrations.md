@@ -34,7 +34,9 @@ calibration events, per-instrument due-soon warning thresholds, and computed
 calibration-status policy metadata while preserving the legacy
 `calibration_records` table. Version 6 adds `metrology_audit_events` so
 agent-owned metrology writes can produce local audit evidence and sync outbox
-operations atomically.
+operations atomically. Version 7 backfills legacy `calibration_records` into
+`calibration_events` for the agent-backed computed-status and readiness paths
+without deleting the original records.
 
 ### Projects
 

@@ -64,6 +64,11 @@ Deliverables:
   calibration periodicity, calculated next calibration, notes, and attached
   certificates, datasheets, transducer sheets, and scripts; initial
   SQLite/Python/Qt/browser support added.
+- Agent-backed metrology readiness vertical slice; instrument registration,
+  calibration events with certificate manifests, computed status, serviceability
+  changes, readiness assessment, audit/outbox evidence, Qt/Python agent path,
+  historical calibration migration, and real HTTP restart E2E coverage delivered
+  as the `0.7.0` baseline.
 
 ## Phase 3: Measurement Runtime
 
@@ -229,11 +234,13 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should expand guarded IO-backed serial or VISA
-implementations behind the adapter skeletons.
+The next productive session should implement a first simulated EMC test vertical
+slice: select a project, select a test method, request metrology readiness for
+the required instruments, run a simulated measurement, persist evidence, and
+leave an audit/outbox trail.
 
-The UI stream should harden the Qt operator-console skeleton around real local
-repository data.
+The parallel runtime stream should continue guarded serial or VISA IO behind the
+adapter skeletons.
 
-The parallel runtime stream should connect graph execution records to concrete
-signal-processing engine runs.
+The UI stream should keep migrating Qt actions toward Rust-owned application
+services instead of direct SQLite writes.

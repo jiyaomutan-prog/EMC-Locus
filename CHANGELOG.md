@@ -8,6 +8,22 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-30
+
+### Added
+
+- Consolidated the first agent-backed metrology readiness vertical slice as the
+  new baseline release.
+- Added release documentation summarizing the migrated routes, Qt/Python agent
+  surface, SQLite structures, validation commands, remaining limits, and next
+  recommended vertical slice.
+
+### Changed
+
+- Bumped the synchronized Rust/Python software version to `0.7.0`.
+- Marked the next recommended implementation slice as a first simulated EMC
+  test that consumes metrology readiness before execution.
+
 ## [0.6.7] - 2026-06-30
 
 ### Added

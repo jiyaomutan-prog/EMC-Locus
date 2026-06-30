@@ -124,15 +124,18 @@ and dashboard mockup, while the Qt console becomes the application direction.
 First audited local project-stage, dataset-retention, and update-management
 actions exist. TCP/IP instrument IO now has a standard-library exchange path.
 Revisioned processing graph instances can be bound to source dataset checksums,
-software versions, and result artifacts. The next step is to expand guarded
-serial or VISA IO behind the existing runtime boundary.
+software versions, and result artifacts. The first metrology readiness vertical
+slice is now agent-backed and restart-tested. The next step is to build a first
+simulated EMC test that consumes this readiness decision before execution.
 
 ## Near-Term Implementation Objectives
 
-1. Expand guarded IO-backed serial and VISA implementations behind the adapter
+1. Build a first simulated EMC test vertical slice that consumes agent-backed
+   metrology readiness before execution.
+2. Expand guarded IO-backed serial and VISA implementations behind the adapter
    skeletons.
-2. Harden the Qt operator-console skeleton around real local repository data.
-3. Add graph-driven execution records for revisioned signal-processing runs.
+3. Continue hardening the Qt operator console around Rust-owned application
+   services.
 
 ## Non-Objectives
 

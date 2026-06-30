@@ -164,7 +164,7 @@ and `warnings`.
 
 ## Current Boundary
 
-Version `0.6.7` keeps Rust as the source of truth for the migrated metrology
+Version `0.7.0` keeps Rust as the source of truth for the migrated metrology
 vertical slice and routes the temporary Qt/Python metrology surface through the
 local agent when `agent_url` is configured. Instrument list/detail bootstrap,
 computed calibration status, readiness, instrument registration,

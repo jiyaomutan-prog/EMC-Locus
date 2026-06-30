@@ -223,3 +223,8 @@ Version `0.6.7` adds the metrology historical migration and E2E validation
 layer: legacy calibration rows are backfilled into calibration events, and a
 real loopback HTTP test verifies readiness, serviceability, idempotence,
 restart persistence, audit, and outbox for the migrated metrology slice.
+
+Version `0.7.0` promotes that metrology path to the current vertical-slice
+baseline. The remaining direct-SQLite Qt forms are outside this baseline and are
+tracked as future slices, starting with standalone metrology documents and then
+the first simulated EMC test execution.
