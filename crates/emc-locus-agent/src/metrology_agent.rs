@@ -1,7 +1,9 @@
 use super::{AgentCommand, AgentError};
 use crate::metrology_service::{
-    get_metrology_calibration_status, list_metrology_calibrations, record_metrology_calibration,
-    register_metrology_instrument, RecordCalibrationInput, RegisterInstrumentInput,
+    assess_metrology_readiness, get_metrology_calibration_status, list_metrology_audit_events,
+    list_metrology_calibrations, record_metrology_calibration, register_metrology_instrument,
+    set_metrology_serviceability, AssessReadinessInput, MetrologyOperationContext,
+    RecordCalibrationInput, RegisterInstrumentInput, SetServiceabilityInput,
 };
 use crate::{get_metrology_instrument, list_metrology_instruments};
 use std::{collections::BTreeMap, path::PathBuf};
@@ -20,6 +22,12 @@ pub enum MetrologyAction {
     Status {
         asset_id: String,
         checked_on: String,
+    },
+    SetServiceability(Box<SetServiceabilityInput>),
+    Readiness(AssessReadinessInput),
+    AuditEvents {
+        entity_type: String,
+        entity_id: String,
     },
 }
 
@@ -54,6 +62,7 @@ where
             capabilities_json: optional_value(&mut flags, "--capabilities-json")
                 .unwrap_or_else(|| "[]".to_owned()),
             metrology_notes: optional_value(&mut flags, "--metrology-notes").unwrap_or_default(),
+            context: operation_context_from_flags(&mut flags)?,
         })),
         "list-instruments" => MetrologyAction::List,
         "get-instrument" => MetrologyAction::Get {
@@ -79,6 +88,7 @@ where
                 comment: optional_value(&mut flags, "--comment").unwrap_or_default(),
                 document_manifest_json: optional_value(&mut flags, "--document-manifest-json"),
                 recorded_by: required_value(&mut flags, "--recorded-by")?,
+                context: operation_context_from_flags(&mut flags)?,
             }))
         }
         "list-calibrations" => MetrologyAction::ListCalibrations {
@@ -87,6 +97,30 @@ where
         "status" => MetrologyAction::Status {
             asset_id: required_value(&mut flags, "--asset-id")?,
             checked_on: required_value(&mut flags, "--checked-on")?,
+        },
+        "set-serviceability" => {
+            MetrologyAction::SetServiceability(Box::new(SetServiceabilityInput {
+                asset_id: required_value(&mut flags, "--asset-id")?,
+                serviceability_status: required_value(&mut flags, "--serviceability-status")?,
+                serviceability_reason: required_value(&mut flags, "--serviceability-reason")?,
+                context: operation_context_from_flags(&mut flags)?,
+            }))
+        }
+        "readiness" => MetrologyAction::Readiness(AssessReadinessInput {
+            asset_ids: required_value(&mut flags, "--asset-ids")?
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .collect(),
+            execution_mode: required_value(&mut flags, "--execution-mode")?,
+            checked_on: required_value(&mut flags, "--checked-on")?,
+            context: optional_value(&mut flags, "--context"),
+        }),
+        "audit-events" => MetrologyAction::AuditEvents {
+            entity_type: optional_value(&mut flags, "--entity-type")
+                .unwrap_or_else(|| "instrument".to_owned()),
+            entity_id: required_value(&mut flags, "--entity-id")?,
         },
         other => {
             return Err(AgentError::new(
@@ -124,6 +158,14 @@ pub fn run_metrology_command(command: AgentCommand) -> Result<String, AgentError
                 asset_id,
                 checked_on,
             } => get_metrology_calibration_status(&storage_root, &asset_id, &checked_on),
+            MetrologyAction::SetServiceability(input) => {
+                set_metrology_serviceability(&storage_root, *input)
+            }
+            MetrologyAction::Readiness(input) => assess_metrology_readiness(&storage_root, input),
+            MetrologyAction::AuditEvents {
+                entity_type,
+                entity_id,
+            } => list_metrology_audit_events(&storage_root, &entity_type, &entity_id),
         },
         _ => Err(AgentError::new(
             "invalid_metrology_command",
@@ -205,6 +247,20 @@ fn optional_bool(
         .transpose()
 }
 
+fn operation_context_from_flags(
+    flags: &mut BTreeMap<String, String>,
+) -> Result<MetrologyOperationContext, AgentError> {
+    let operation_id = required_value(flags, "--operation-id")?;
+    Ok(MetrologyOperationContext {
+        actor: required_value(flags, "--actor")?,
+        reason: required_value(flags, "--reason")?,
+        correlation_id: optional_value(flags, "--correlation-id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_value(flags, "--device-id").unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
 fn ensure_no_unknown_flags(flags: BTreeMap<String, String>) -> Result<(), AgentError> {
     if let Some(unknown) = flags.keys().next() {
         return Err(AgentError::new(
@@ -242,6 +298,12 @@ mod tests {
                 "required",
                 "--calibration-period-months",
                 "12",
+                "--actor",
+                "metrology.admin",
+                "--reason",
+                "Initial registration",
+                "--operation-id",
+                "op-register-SA-001",
             ]
             .into_iter()
             .map(str::to_owned),
@@ -267,6 +329,13 @@ mod tests {
                     serviceability_reason: String::new(),
                     capabilities_json: "[]".to_owned(),
                     metrology_notes: String::new(),
+                    context: MetrologyOperationContext {
+                        actor: "metrology.admin".to_owned(),
+                        reason: "Initial registration".to_owned(),
+                        operation_id: "op-register-SA-001".to_owned(),
+                        correlation_id: "op-register-SA-001".to_owned(),
+                        device_id: "local-agent".to_owned(),
+                    },
                 }))
             }
         );

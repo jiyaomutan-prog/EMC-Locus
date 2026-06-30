@@ -78,12 +78,15 @@ Version `0.6.3` adds the first agent-backed metrology registry commands. They
 operate on initialized `metrology.sqlite` storage:
 
 ```text
-cargo run -q -p emc-locus-agent -- metrology register-instrument --storage-root data\agent --asset-id SA-001 --family receiver --category-code RF-SPECTRUM-ANALYZER --manufacturer Example --model SA9000 --serial-number SN-001 --part-number PN-SA9000 --calibration-requirement required --calibration-period-months 12 --serviceability-status usable --capabilities-json "{\"frequency_hz\":{\"min\":9000,\"max\":3000000000}}" --metrology-notes "Reference spectrum analyzer"
+cargo run -q -p emc-locus-agent -- metrology register-instrument --storage-root data\agent --asset-id SA-001 --family receiver --category-code RF-SPECTRUM-ANALYZER --manufacturer Example --model SA9000 --serial-number SN-001 --part-number PN-SA9000 --calibration-requirement required --calibration-period-months 12 --serviceability-status usable --capabilities-json "{\"frequency_hz\":{\"min\":9000,\"max\":3000000000}}" --metrology-notes "Reference spectrum analyzer" --actor metrology.admin --reason "Initial registration" --operation-id op-register-SA-001
 cargo run -q -p emc-locus-agent -- metrology list-instruments --storage-root data\agent
 cargo run -q -p emc-locus-agent -- metrology get-instrument --storage-root data\agent --asset-id SA-001
-cargo run -q -p emc-locus-agent -- metrology record-calibration --storage-root data\agent --asset-id SA-001 --event-id CAL-SA-001-2026 --certificate-reference CERT-SA-001-2026 --calibrated-at 2026-06-30 --due-at 2027-06-30 --provider "Accredited Lab" --decision conforming --uncertainty-summary-json "{\"level_db\":0.6}" --recorded-by metrology.admin
+cargo run -q -p emc-locus-agent -- metrology record-calibration --storage-root data\agent --asset-id SA-001 --event-id CAL-SA-001-2026 --certificate-reference CERT-SA-001-2026 --calibrated-at 2026-06-30 --due-at 2027-06-30 --provider "Accredited Lab" --decision conforming --uncertainty-summary-json "{\"level_db\":0.6}" --recorded-by metrology.admin --actor metrology.admin --reason "Annual calibration" --operation-id op-cal-SA-001-2026
 cargo run -q -p emc-locus-agent -- metrology list-calibrations --storage-root data\agent --asset-id SA-001
 cargo run -q -p emc-locus-agent -- metrology status --storage-root data\agent --asset-id SA-001 --checked-on 2026-07-01
+cargo run -q -p emc-locus-agent -- metrology readiness --storage-root data\agent --asset-ids SA-001 --execution-mode accredited --checked-on 2026-07-01
+cargo run -q -p emc-locus-agent -- metrology set-serviceability --storage-root data\agent --asset-id SA-001 --serviceability-status out_of_service --serviceability-reason "Damaged connector" --actor metrology.admin --reason "Quarantine" --operation-id op-service-SA-001
+cargo run -q -p emc-locus-agent -- metrology audit-events --storage-root data\agent --entity-id SA-001
 ```
 
 The registry validates stable asset identifiers, required identity fields,
@@ -92,7 +95,8 @@ structured capabilities JSON. The calibration-event path validates controlled
 decisions (`conforming`, `nonconforming`, `indeterminate`, `not_assessed`),
 strict `YYYY-MM-DD` dates, JSON uncertainty summaries, and optional certificate
 document manifests. It does not yet write metrology audit or sync outbox rows;
-those are part of the later readiness vertical slice.
+Version `0.6.5` adds audit/outbox/idempotence for the migrated metrology write
+paths and a readiness assessment command.
 
 The accredited review checklist uses the Rust core item slugs:
 
@@ -137,6 +141,9 @@ GET  /api/v1/metrology/instruments/{asset_id}
 GET  /api/v1/metrology/instruments/{asset_id}/calibrations
 POST /api/v1/metrology/instruments/{asset_id}/calibrations
 GET  /api/v1/metrology/instruments/{asset_id}/status?checked_on=YYYY-MM-DD
+POST /api/v1/metrology/instruments/{asset_id}/serviceability
+POST /api/v1/metrology/readiness
+GET  /api/v1/metrology/instruments/{asset_id}/audit-events
 ```
 
 `GET /api/v1/storage/status` returns the project/sync/metrology storage status
@@ -160,6 +167,12 @@ event and optional certificate document manifest. `GET
 history. `GET /api/v1/metrology/instruments/{asset_id}/status` computes the
 status for a required `checked_on=YYYY-MM-DD` query date instead of trusting a
 stored import status.
+
+Version `0.6.5` makes migrated metrology write routes require operation context
+(`actor`, `reason`, and `operation_id`, with optional `correlation_id` and
+`device_id`). Successful writes add a metrology audit row and a pending
+`sync_operations` outbox row atomically. `POST /api/v1/metrology/readiness`
+returns ready/not-ready, per-instrument statuses, blocking issues, and warnings.
 
 ## Python And Qt Client Path
 

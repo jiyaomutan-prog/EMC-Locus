@@ -81,7 +81,13 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.6.4`.
+Current software version: `0.6.5`.
+
+Version `0.6.5` adds the first structured metrology readiness and traceability
+slice: instrument registration and calibration-event writes now require
+operation context and write audit/outbox records atomically, serviceability can
+be changed through the agent, and `/api/v1/metrology/readiness` returns ready,
+blocking issues, warnings, and per-instrument status.
 
 Version `0.6.4` adds the first agent-backed calibration-event path:
 `metrology record-calibration`, calibration-event HTTP routes, certificate

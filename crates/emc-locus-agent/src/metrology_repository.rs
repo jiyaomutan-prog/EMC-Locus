@@ -1,5 +1,10 @@
-use crate::{AgentError, AGENT_NAME};
-use rusqlite::{params, Connection, OptionalExtension};
+use crate::{
+    render_json,
+    sqlite_policy::{enforce_project_slice_journal_mode, AttachedDatabase},
+    AgentError, AGENT_NAME,
+};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
@@ -63,6 +68,33 @@ pub struct StoredCalibrationEvent {
     pub revision: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredMetrologyOperation {
+    pub operation_id: String,
+    pub entity_id: String,
+    pub operation_kind: String,
+    pub base_revision: String,
+    pub actor_id: String,
+    pub device_id: String,
+    pub correlation_id: String,
+    pub payload_checksum: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredMetrologyAuditEvent {
+    pub sequence: u64,
+    pub actor: String,
+    pub action: String,
+    pub reason: String,
+    pub operation_id: String,
+    pub correlation_id: String,
+    pub device_id: String,
+    pub base_revision: String,
+    pub resulting_revision: String,
+    pub payload_json: String,
+    pub occurred_at: String,
+}
+
 pub struct NewInstrumentRecord<'a> {
     pub asset_id: &'a str,
     pub family: &'a str,
@@ -101,6 +133,47 @@ pub struct NewCalibrationEventRecord<'a> {
     pub revision: &'a str,
 }
 
+pub struct MetrologyOperationFingerprintInput<'a> {
+    pub entity_type: &'a str,
+    pub entity_id: &'a str,
+    pub operation_kind: &'a str,
+    pub base_revision: &'a str,
+    pub actor_id: &'a str,
+    pub device_id: &'a str,
+    pub correlation_id: &'a str,
+    pub payload_json: &'a str,
+}
+
+pub struct MetrologyAuditEventInput<'a> {
+    pub entity_type: &'a str,
+    pub entity_id: &'a str,
+    pub sequence: u64,
+    pub actor: &'a str,
+    pub action: &'a str,
+    pub reason: &'a str,
+    pub operation_id: &'a str,
+    pub correlation_id: &'a str,
+    pub device_id: &'a str,
+    pub base_revision: &'a str,
+    pub resulting_revision: &'a str,
+    pub payload_json: &'a str,
+    pub timestamp: &'a str,
+}
+
+pub struct MetrologySyncOperationInput<'a> {
+    pub operation_id: &'a str,
+    pub entity_type: &'a str,
+    pub entity_id: &'a str,
+    pub operation_kind: &'a str,
+    pub base_revision: &'a str,
+    pub resulting_revision: &'a str,
+    pub actor_id: &'a str,
+    pub device_id: &'a str,
+    pub correlation_id: &'a str,
+    pub payload_json: &'a str,
+    pub timestamp: &'a str,
+}
+
 pub fn open_metrology_connection(storage_root: &Path) -> Result<Connection, AgentError> {
     let database = storage_root.join("metrology.sqlite");
     if !database.exists() {
@@ -122,6 +195,35 @@ pub fn open_metrology_connection(storage_root: &Path) -> Result<Connection, Agen
     Ok(connection)
 }
 
+pub fn open_metrology_connection_with_sync(storage_root: &Path) -> Result<Connection, AgentError> {
+    let metrology_database = storage_root.join("metrology.sqlite");
+    let sync_database = storage_root.join("sync.sqlite");
+    if !metrology_database.exists() || !sync_database.exists() {
+        return Err(AgentError::new(
+            "storage_not_initialized",
+            "metrology writes require initialized metrology.sqlite and sync.sqlite",
+        ));
+    }
+    let connection = Connection::open(&metrology_database).map_err(|error| {
+        AgentError::new(
+            "database_open_error",
+            format!("cannot open {}: {error}", metrology_database.display()),
+        )
+    })?;
+    connection
+        .execute_batch("PRAGMA foreign_keys = ON;")
+        .map_err(|error| AgentError::new("database_pragma_error", error.to_string()))?;
+    let sync_path = sync_database.to_string_lossy().to_string();
+    connection
+        .execute("ATTACH DATABASE ?1 AS sync_db", params![sync_path])
+        .map_err(|error| AgentError::new("database_attach_error", error.to_string()))?;
+    enforce_project_slice_journal_mode(&connection, AttachedDatabase::Main, "metrology.sqlite")?;
+    enforce_project_slice_journal_mode(&connection, AttachedDatabase::SyncDb, "sync.sqlite")?;
+    ensure_metrology_tables(&connection)?;
+    ensure_sync_tables(&connection)?;
+    Ok(connection)
+}
+
 fn ensure_metrology_tables(connection: &Connection) -> Result<(), AgentError> {
     for table in [
         "schema_migrations",
@@ -131,6 +233,7 @@ fn ensure_metrology_tables(connection: &Connection) -> Result<(), AgentError> {
         "calibration_records",
         "calibration_events",
         "instrument_documents",
+        "metrology_audit_events",
     ] {
         if !table_exists(connection, table)? {
             return Err(AgentError::new(
@@ -157,13 +260,29 @@ fn ensure_metrology_tables(connection: &Connection) -> Result<(), AgentError> {
     Ok(())
 }
 
+fn ensure_sync_tables(connection: &Connection) -> Result<(), AgentError> {
+    if !table_exists_in_schema(connection, "sync_db", "sync_operations")? {
+        return Err(AgentError::new(
+            "storage_not_initialized",
+            "missing required table sync_db.sync_operations",
+        ));
+    }
+    Ok(())
+}
+
 fn table_exists(connection: &Connection, table: &str) -> Result<bool, AgentError> {
+    table_exists_in_schema(connection, "main", table)
+}
+
+fn table_exists_in_schema(
+    connection: &Connection,
+    schema: &str,
+    table: &str,
+) -> Result<bool, AgentError> {
+    let sql =
+        format!("SELECT COUNT(*) FROM {schema}.sqlite_master WHERE type = 'table' AND name = ?1");
     let count: u32 = connection
-        .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
-            params![table],
-            |row| row.get(0),
-        )
+        .query_row(&sql, params![table], |row| row.get(0))
         .map_err(|error| AgentError::new("database_invalid", error.to_string()))?;
     Ok(count > 0)
 }
@@ -337,6 +456,47 @@ pub fn load_latest_calibration_event(
         .map_err(|error| AgentError::new("metrology_calibration_query_failed", error.to_string()))
 }
 
+pub fn load_metrology_audit_events(
+    connection: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<StoredMetrologyAuditEvent>, AgentError> {
+    let mut statement = connection
+        .prepare(concat!(
+            "SELECT sequence, actor, action, reason, operation_id, correlation_id, ",
+            "device_id, base_revision, resulting_revision, payload_json, occurred_at ",
+            "FROM metrology_audit_events WHERE entity_type = ?1 AND entity_id = ?2 ",
+            "ORDER BY sequence"
+        ))
+        .map_err(|error| AgentError::new("metrology_audit_query_failed", error.to_string()))?;
+    let rows = statement
+        .query_map(params![entity_type, entity_id], |row| {
+            Ok(StoredMetrologyAuditEvent {
+                sequence: row.get(0)?,
+                actor: row.get(1)?,
+                action: row.get(2)?,
+                reason: row.get(3)?,
+                operation_id: row.get(4)?,
+                correlation_id: row.get(5)?,
+                device_id: row.get(6)?,
+                base_revision: row.get(7)?,
+                resulting_revision: row.get(8)?,
+                payload_json: row.get(9)?,
+                occurred_at: row.get(10)?,
+            })
+        })
+        .map_err(|error| AgentError::new("metrology_audit_query_failed", error.to_string()))?;
+    let mut events = Vec::new();
+    for row in rows {
+        events.push(
+            row.map_err(|error| {
+                AgentError::new("metrology_audit_query_failed", error.to_string())
+            })?,
+        );
+    }
+    Ok(events)
+}
+
 pub fn load_calibration_event(
     connection: &Connection,
     event_id: &str,
@@ -452,6 +612,215 @@ pub fn insert_calibration_event(
         )
         .map_err(|error| AgentError::new("metrology_calibration_write_failed", error.to_string()))?;
     Ok(())
+}
+
+pub fn update_instrument_serviceability(
+    transaction: &Transaction<'_>,
+    asset_id: &str,
+    serviceability_status: &str,
+    serviceability_reason: &str,
+    timestamp: &str,
+) -> Result<(), AgentError> {
+    transaction
+        .execute(
+            concat!(
+                "UPDATE instruments SET serviceability_status = ?2, serviceability_reason = ?3, ",
+                "serviceability_updated_at = ?4, updated_at = ?4 WHERE asset_id = ?1"
+            ),
+            params![
+                asset_id,
+                serviceability_status,
+                serviceability_reason,
+                timestamp,
+            ],
+        )
+        .map_err(|error| AgentError::new("metrology_instrument_write_failed", error.to_string()))?;
+    Ok(())
+}
+
+pub fn existing_metrology_operation(
+    connection: &Connection,
+    operation_id: &str,
+) -> Result<Option<StoredMetrologyOperation>, AgentError> {
+    connection
+        .query_row(
+            concat!(
+                "SELECT operation_id, entity_type, entity_id, action, base_revision, ",
+                "actor, device_id, correlation_id, payload_checksum ",
+                "FROM metrology_audit_events WHERE operation_id = ?1"
+            ),
+            params![operation_id],
+            |row| {
+                let entity_type: String = row.get(1)?;
+                let entity_id: String = row.get(2)?;
+                Ok(StoredMetrologyOperation {
+                    operation_id: row.get(0)?,
+                    entity_id: format!("{entity_type}:{entity_id}"),
+                    operation_kind: row.get(3)?,
+                    base_revision: row.get(4)?,
+                    actor_id: row.get(5)?,
+                    device_id: row.get(6)?,
+                    correlation_id: row.get(7)?,
+                    payload_checksum: row.get(8)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| AgentError::new("metrology_audit_query_failed", error.to_string()))
+}
+
+pub fn ensure_metrology_operation_replay(
+    operation: &StoredMetrologyOperation,
+    operation_id: &str,
+    expected: MetrologyOperationFingerprintInput<'_>,
+) -> Result<(), AgentError> {
+    let expected_fingerprint = metrology_operation_fingerprint(&expected);
+    let expected_entity = format!("{}:{}", expected.entity_type, expected.entity_id);
+    if operation.entity_id == expected_entity
+        && operation.operation_kind == expected.operation_kind
+        && operation.base_revision == expected.base_revision
+        && operation.actor_id == expected.actor_id
+        && operation.device_id == expected.device_id
+        && operation.correlation_id == expected.correlation_id
+        && operation.payload_checksum == expected_fingerprint
+    {
+        return Ok(());
+    }
+    Err(AgentError::with_details(
+        "operation_replay_mismatch",
+        "operation_id is already used for a different canonical metrology operation fingerprint",
+        json!({
+            "operation_id": operation_id,
+            "existing_entity_id": operation.entity_id,
+            "existing_operation_kind": operation.operation_kind,
+            "existing_base_revision": operation.base_revision,
+            "expected_fingerprint": expected_fingerprint,
+            "stored_fingerprint": operation.payload_checksum,
+        }),
+    ))
+}
+
+pub fn next_metrology_audit_sequence(
+    connection: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<u64, AgentError> {
+    connection
+        .query_row(
+            concat!(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM metrology_audit_events ",
+                "WHERE entity_type = ?1 AND entity_id = ?2"
+            ),
+            params![entity_type, entity_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| AgentError::new("metrology_audit_query_failed", error.to_string()))
+}
+
+pub fn insert_metrology_audit_event(
+    transaction: &Transaction<'_>,
+    input: MetrologyAuditEventInput<'_>,
+) -> Result<(), AgentError> {
+    let checksum = metrology_operation_fingerprint(&MetrologyOperationFingerprintInput {
+        entity_type: input.entity_type,
+        entity_id: input.entity_id,
+        operation_kind: input.action,
+        base_revision: input.base_revision,
+        actor_id: input.actor,
+        device_id: input.device_id,
+        correlation_id: input.correlation_id,
+        payload_json: input.payload_json,
+    });
+    transaction
+        .execute(
+            concat!(
+                "INSERT INTO metrology_audit_events ",
+                "(entity_type, entity_id, sequence, actor, action, reason, operation_id, ",
+                "correlation_id, device_id, base_revision, resulting_revision, payload_json, ",
+                "payload_checksum, occurred_at) ",
+                "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
+            ),
+            params![
+                input.entity_type,
+                input.entity_id,
+                input.sequence,
+                input.actor,
+                input.action,
+                input.reason,
+                input.operation_id,
+                input.correlation_id,
+                input.device_id,
+                input.base_revision,
+                input.resulting_revision,
+                input.payload_json,
+                checksum,
+                input.timestamp,
+            ],
+        )
+        .map_err(|error| AgentError::new("metrology_audit_write_failed", error.to_string()))?;
+    Ok(())
+}
+
+pub fn insert_metrology_sync_operation(
+    transaction: &Transaction<'_>,
+    input: MetrologySyncOperationInput<'_>,
+) -> Result<(), AgentError> {
+    let checksum = metrology_operation_fingerprint(&MetrologyOperationFingerprintInput {
+        entity_type: input.entity_type,
+        entity_id: input.entity_id,
+        operation_kind: input.operation_kind,
+        base_revision: input.base_revision,
+        actor_id: input.actor_id,
+        device_id: input.device_id,
+        correlation_id: input.correlation_id,
+        payload_json: input.payload_json,
+    });
+    transaction
+        .execute(
+            concat!(
+                "INSERT INTO sync_db.sync_operations ",
+                "(operation_id, domain, entity_type, entity_id, operation_kind, ",
+                "base_revision, resulting_revision, actor_id, device_id, correlation_id, ",
+                "payload_json, payload_checksum, status, occurred_at, recorded_at) ",
+                "VALUES (?1, 'metrology', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'pending', ?12, ?12)"
+            ),
+            params![
+                input.operation_id,
+                input.entity_type,
+                input.entity_id,
+                input.operation_kind,
+                input.base_revision,
+                input.resulting_revision,
+                input.actor_id,
+                input.device_id,
+                input.correlation_id,
+                input.payload_json,
+                checksum,
+                input.timestamp,
+            ],
+        )
+        .map_err(|error| AgentError::new("sync_outbox_write_failed", error.to_string()))?;
+    Ok(())
+}
+
+fn metrology_operation_fingerprint(input: &MetrologyOperationFingerprintInput<'_>) -> String {
+    payload_checksum(&render_json(&json!({
+        "domain": "metrology",
+        "entity_type": input.entity_type,
+        "entity_id": input.entity_id,
+        "operation_kind": input.operation_kind,
+        "base_revision": input.base_revision,
+        "actor_id": input.actor_id,
+        "device_id": input.device_id,
+        "correlation_id": input.correlation_id,
+        "payload": serde_json::from_str::<serde_json::Value>(input.payload_json)
+            .expect("canonical metrology operation payload must be valid JSON"),
+    })))
+}
+
+fn payload_checksum(payload_json: &str) -> String {
+    let digest = Sha256::digest(payload_json.as_bytes());
+    format!("sha256:{digest:x}")
 }
 
 fn revision_for(entity_type: &str, entity_id: &str, updated_at: &str) -> String {

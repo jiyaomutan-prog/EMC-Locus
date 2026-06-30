@@ -13,8 +13,10 @@ use emc_locus_core::{baseline_repository_domains, RepositoryDomain};
 pub use local_api::{run_local_api_server, ApiServerConfig};
 pub use metrology_agent::{run_metrology_command, MetrologyAction};
 pub use metrology_service::{
-    get_metrology_calibration_status, get_metrology_instrument, list_metrology_calibrations,
-    list_metrology_instruments, record_metrology_calibration, RecordCalibrationInput,
+    assess_metrology_readiness, get_metrology_calibration_status, get_metrology_instrument,
+    list_metrology_audit_events, list_metrology_calibrations, list_metrology_instruments,
+    record_metrology_calibration, set_metrology_serviceability, AssessReadinessInput,
+    MetrologyOperationContext, RecordCalibrationInput, SetServiceabilityInput,
 };
 pub use metrology_service::{register_metrology_instrument, RegisterInstrumentInput};
 pub use project_agent::{run_project_command, run_sync_command, ProjectAction, SyncAction};
@@ -815,7 +817,7 @@ mod tests {
                 .find(|domain| domain.domain == "metrology")
                 .unwrap()
                 .schema_version,
-            Some(5)
+            Some(6)
         );
 
         remove_temporary_storage_root(&storage_root);

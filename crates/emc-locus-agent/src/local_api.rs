@@ -3,7 +3,10 @@ use super::{
     run_storage_action, run_sync_command, AgentCommand, AgentError, MetrologyAction, ProjectAction,
     StorageAction, SyncAction,
 };
-use crate::metrology_service::{RecordCalibrationInput, RegisterInstrumentInput};
+use crate::metrology_service::{
+    AssessReadinessInput, MetrologyOperationContext, RecordCalibrationInput,
+    RegisterInstrumentInput, SetServiceabilityInput,
+};
 use crate::project_agent::{
     AdvanceToTestPlanningInput, CompleteReviewItemInput, CreateProjectInput,
 };
@@ -262,6 +265,33 @@ fn route_api_request(
                 storage_root: config.storage_root.clone(),
             })
         }
+        ["api", "v1", "metrology", "instruments", asset_id, "serviceability"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            run_metrology_command(AgentCommand::Metrology {
+                action: MetrologyAction::SetServiceability(Box::new(serviceability_input(
+                    asset_id, &payload,
+                )?)),
+                storage_root: config.storage_root.clone(),
+            })
+        }
+        ["api", "v1", "metrology", "readiness"] if method == "POST" => {
+            let payload = parse_json_body(body)?;
+            run_metrology_command(AgentCommand::Metrology {
+                action: MetrologyAction::Readiness(readiness_input(&payload)?),
+                storage_root: config.storage_root.clone(),
+            })
+        }
+        ["api", "v1", "metrology", "instruments", asset_id, "audit-events"] if method == "GET" => {
+            run_metrology_command(AgentCommand::Metrology {
+                action: MetrologyAction::AuditEvents {
+                    entity_type: "instrument".to_owned(),
+                    entity_id: (*asset_id).to_owned(),
+                },
+                storage_root: config.storage_root.clone(),
+            })
+        }
         _ => Err(AgentError::new(
             "api_route_not_found",
             format!("route not found: {method} {path}"),
@@ -364,6 +394,7 @@ fn register_instrument_input(payload: &Value) -> Result<RegisterInstrumentInput,
             .or_else(|| optional_string(payload, "capabilities_json"))
             .unwrap_or_else(|| "[]".to_owned()),
         metrology_notes: optional_string(payload, "metrology_notes").unwrap_or_default(),
+        context: operation_context(payload)?,
     })
 }
 
@@ -394,6 +425,55 @@ fn record_calibration_input(
             .map(render_json)
             .or_else(|| optional_string(payload, "document_manifest_json")),
         recorded_by: required_string(payload, "recorded_by")?,
+        context: operation_context(payload)?,
+    })
+}
+
+fn serviceability_input(
+    asset_id: &str,
+    payload: &Value,
+) -> Result<SetServiceabilityInput, AgentError> {
+    Ok(SetServiceabilityInput {
+        asset_id: asset_id.to_owned(),
+        serviceability_status: required_string(payload, "serviceability_status")?,
+        serviceability_reason: required_string(payload, "serviceability_reason")?,
+        context: operation_context(payload)?,
+    })
+}
+
+fn readiness_input(payload: &Value) -> Result<AssessReadinessInput, AgentError> {
+    let asset_ids = payload
+        .get("asset_ids")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            AgentError::with_details(
+                "missing_json_field",
+                "asset_ids is required",
+                json!({ "field": "asset_ids" }),
+            )
+        })?
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    Ok(AssessReadinessInput {
+        asset_ids,
+        execution_mode: required_string(payload, "execution_mode")?,
+        checked_on: required_string(payload, "checked_on")?,
+        context: optional_string(payload, "context"),
+    })
+}
+
+fn operation_context(payload: &Value) -> Result<MetrologyOperationContext, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(MetrologyOperationContext {
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
     })
 }
 
@@ -488,6 +568,7 @@ fn status_for_error(code: &str) -> u16 {
         | "domain_error"
         | "invalid_metrology_calibration"
         | "invalid_metrology_instrument"
+        | "invalid_metrology_readiness"
         | "unknown_execution_mode"
         | "unknown_contract_review_item" => 400,
         _ => 500,
@@ -719,7 +800,10 @@ mod tests {
                 "calibration_period_months": 12,
                 "calibration_due_warning_days": 45,
                 "capabilities": {"frequency_max_hz": 44000000000},
-                "metrology_notes": "registered through local API"
+                "metrology_notes": "registered through local API",
+                "actor": "metrology.admin",
+                "reason": "initial API registration",
+                "operation_id": "op-api-register-SA-API-001"
             }"#,
             &config,
         );
@@ -773,7 +857,10 @@ mod tests {
                     "model": "FSW",
                     "serial_number": "API-CAL-001",
                     "calibration_requirement": "required",
-                    "calibration_due_warning_days": 45
+                    "calibration_due_warning_days": 45,
+                    "actor": "metrology.admin",
+                    "reason": "initial API registration",
+                    "operation_id": "op-api-register-SA-API-CAL-001"
                 }"#,
                 &config,
             )
@@ -811,7 +898,10 @@ mod tests {
                         "storage_key": "metrology/SA-API-CAL-001/cert.pdf",
                         "revision": "A"
                     }},
-                    "recorded_by": "metrology.admin"
+                    "recorded_by": "metrology.admin",
+                    "actor": "metrology.admin",
+                    "reason": "annual calibration",
+                    "operation_id": "op-api-record-CAL-SA-API-CAL-001-2026"
                 }}"#,
                 "b".repeat(64)
             ),
@@ -850,6 +940,68 @@ mod tests {
         );
         assert_eq!(list.status, 200);
         assert!(list.body.contains("\"calibration_events\""));
+
+        let ready = handle_api_request(
+            "POST",
+            "/api/v1/metrology/readiness",
+            r#"{
+                "asset_ids": ["SA-API-CAL-001"],
+                "execution_mode": "accredited",
+                "checked_on": "2026-07-01",
+                "context": "pre-run check"
+            }"#,
+            &config,
+        );
+        assert_eq!(ready.status, 200);
+        assert!(ready.body.contains("\"ready\":true"));
+
+        let serviceability = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-API-CAL-001/serviceability",
+            r#"{
+                "serviceability_status": "out_of_service",
+                "serviceability_reason": "damaged input connector",
+                "actor": "metrology.admin",
+                "reason": "asset quarantine",
+                "operation_id": "op-api-serviceability-SA-API-CAL-001"
+            }"#,
+            &config,
+        );
+        assert_eq!(serviceability.status, 200);
+        assert!(serviceability
+            .body
+            .contains("\"serviceability_status\":\"out_of_service\""));
+
+        let blocked = handle_api_request(
+            "POST",
+            "/api/v1/metrology/readiness",
+            r#"{
+                "asset_ids": ["SA-API-CAL-001"],
+                "execution_mode": "accredited",
+                "checked_on": "2026-07-01"
+            }"#,
+            &config,
+        );
+        assert_eq!(blocked.status, 200);
+        assert!(blocked.body.contains("\"ready\":false"));
+        assert!(blocked.body.contains("\"code\":\"out_of_service\""));
+
+        let audit = handle_api_request(
+            "GET",
+            "/api/v1/metrology/instruments/SA-API-CAL-001/audit-events",
+            "",
+            &config,
+        );
+        assert_eq!(audit.status, 200);
+        assert!(audit.body.contains("\"instrument_registered\""));
+        assert!(audit.body.contains("\"instrument_serviceability_changed\""));
+
+        let outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
+        assert_eq!(outbox.status, 200);
+        assert!(outbox.body.contains("\"domain\":\"metrology\""));
+        assert!(outbox
+            .body
+            .contains("\"operation_kind\":\"instrument_serviceability_changed\""));
 
         remove_temporary_storage_root(&storage_root);
     }

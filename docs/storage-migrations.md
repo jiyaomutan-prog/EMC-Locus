@@ -32,7 +32,9 @@ notes, and controlled instrument document attachments. Version 4 adds
 remain separate from operational service state. Version 5 adds revisioned
 calibration events, per-instrument due-soon warning thresholds, and computed
 calibration-status policy metadata while preserving the legacy
-`calibration_records` table.
+`calibration_records` table. Version 6 adds `metrology_audit_events` so
+agent-owned metrology writes can produce local audit evidence and sync outbox
+operations atomically.
 
 ### Projects
 

@@ -1,12 +1,17 @@
 use crate::metrology_dto::{
     calibration_event_dto, instrument_dto, CalibrationEventEnvelopeDto, CalibrationEventListDto,
-    CalibrationStatusDto, InstrumentEnvelopeDto, InstrumentListDto,
+    CalibrationStatusDto, InstrumentEnvelopeDto, InstrumentListDto, MetrologyAuditEventDto,
+    MetrologyAuditEventsDto, ReadinessInstrumentResultDto, ReadinessIssueDto, ReadinessReportDto,
 };
 use crate::metrology_repository::{
-    insert_calibration_event, insert_instrument, load_calibration_event, load_calibration_events,
-    load_instrument, load_instruments, load_latest_calibration_event,
-    load_latest_calibration_record, open_metrology_connection, NewCalibrationEventRecord,
-    NewInstrumentRecord, StoredCalibrationEvent, StoredInstrument,
+    ensure_metrology_operation_replay, existing_metrology_operation, insert_calibration_event,
+    insert_instrument, insert_metrology_audit_event, insert_metrology_sync_operation,
+    load_calibration_event, load_calibration_events, load_instrument, load_instruments,
+    load_latest_calibration_event, load_latest_calibration_record, load_metrology_audit_events,
+    next_metrology_audit_sequence, open_metrology_connection, open_metrology_connection_with_sync,
+    update_instrument_serviceability, MetrologyAuditEventInput, MetrologyOperationFingerprintInput,
+    MetrologySyncOperationInput, NewCalibrationEventRecord, NewInstrumentRecord,
+    StoredCalibrationEvent, StoredInstrument,
 };
 use crate::{render_json, AgentError};
 use emc_locus_core::{
@@ -33,6 +38,7 @@ pub struct RegisterInstrumentInput {
     pub serviceability_reason: String,
     pub capabilities_json: String,
     pub metrology_notes: String,
+    pub context: MetrologyOperationContext,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,6 +58,44 @@ pub struct RecordCalibrationInput {
     pub comment: String,
     pub document_manifest_json: Option<String>,
     pub recorded_by: String,
+    pub context: MetrologyOperationContext,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SetServiceabilityInput {
+    pub asset_id: String,
+    pub serviceability_status: String,
+    pub serviceability_reason: String,
+    pub context: MetrologyOperationContext,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssessReadinessInput {
+    pub asset_ids: Vec<String>,
+    pub execution_mode: String,
+    pub checked_on: String,
+    pub context: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MetrologyOperationContext {
+    pub actor: String,
+    pub reason: String,
+    pub operation_id: String,
+    pub correlation_id: String,
+    pub device_id: String,
+}
+
+struct MetrologyAuditWrite<'a> {
+    entity_type: &'a str,
+    entity_id: &'a str,
+    sequence: u64,
+    action: &'a str,
+    base_revision: &'a str,
+    resulting_revision: &'a str,
+    context: &'a MetrologyOperationContext,
+    payload_json: &'a str,
+    timestamp: &'a str,
 }
 
 pub fn list_metrology_instruments(storage_root: &Path) -> Result<String, AgentError> {
@@ -96,6 +140,7 @@ pub fn register_metrology_instrument(
     input: RegisterInstrumentInput,
 ) -> Result<String, AgentError> {
     let asset_id = InstrumentCode::parse(input.asset_id.clone()).map_err(domain_error)?;
+    validate_operation_context(&input.context)?;
     require_non_empty(&input.family, "family")?;
     require_non_empty(&input.category_code, "category_code")?;
     require_non_empty(&input.manufacturer, "manufacturer")?;
@@ -116,8 +161,30 @@ pub fn register_metrology_instrument(
             "calibration_due_warning_days must be positive",
         ));
     }
+    let warning_days = input
+        .calibration_due_warning_days
+        .unwrap_or(DEFAULT_CALIBRATION_DUE_SOON_WARNING_DAYS);
+    let payload_json = register_instrument_payload_json(&input, warning_days);
 
-    let connection = open_metrology_connection(storage_root)?;
+    let mut connection = open_metrology_connection_with_sync(storage_root)?;
+    if let Some(operation) = existing_metrology_operation(&connection, &input.context.operation_id)?
+    {
+        ensure_metrology_operation_replay(
+            &operation,
+            &input.context.operation_id,
+            MetrologyOperationFingerprintInput {
+                entity_type: "instrument",
+                entity_id: asset_id.as_str(),
+                operation_kind: "instrument_registered",
+                base_revision: "rev-0000",
+                actor_id: &input.context.actor,
+                device_id: &input.context.device_id,
+                correlation_id: &input.context.correlation_id,
+                payload_json: &payload_json,
+            },
+        )?;
+        return get_metrology_instrument(storage_root, asset_id.as_str());
+    }
     if load_instrument(&connection, asset_id.as_str())?.is_some() {
         return Err(AgentError::new(
             "metrology_instrument_already_exists",
@@ -125,8 +192,13 @@ pub fn register_metrology_instrument(
         ));
     }
     let now = utc_timestamp()?;
+    let resulting_revision = revision_for("instrument", asset_id.as_str(), &now);
+    let sequence = next_metrology_audit_sequence(&connection, "instrument", asset_id.as_str())?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
     insert_instrument(
-        &connection,
+        &transaction,
         NewInstrumentRecord {
             asset_id: asset_id.as_str(),
             family: input.family.trim(),
@@ -141,9 +213,7 @@ pub fn register_metrology_instrument(
                 .filter(|value| !value.is_empty()),
             calibration_requirement: input.calibration_requirement.trim(),
             calibration_period_months: input.calibration_period_months,
-            calibration_due_warning_days: input
-                .calibration_due_warning_days
-                .unwrap_or(DEFAULT_CALIBRATION_DUE_SOON_WARNING_DAYS),
+            calibration_due_warning_days: warning_days,
             capabilities_json: input.capabilities_json.trim(),
             metrology_notes: input.metrology_notes.trim(),
             serviceability_status: input.serviceability_status.trim(),
@@ -151,6 +221,23 @@ pub fn register_metrology_instrument(
             timestamp: &now,
         },
     )?;
+    write_metrology_audit_and_outbox(
+        &transaction,
+        MetrologyAuditWrite {
+            entity_type: "instrument",
+            entity_id: asset_id.as_str(),
+            sequence,
+            action: "instrument_registered",
+            base_revision: "rev-0000",
+            resulting_revision: &resulting_revision,
+            context: &input.context,
+            payload_json: &payload_json,
+            timestamp: &now,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
     get_metrology_instrument(storage_root, asset_id.as_str())
 }
 
@@ -160,6 +247,7 @@ pub fn record_metrology_calibration(
 ) -> Result<String, AgentError> {
     let event_id = safe_identifier(&input.event_id, "event_id")?;
     let asset_id = InstrumentCode::parse(input.asset_id.clone()).map_err(domain_error)?;
+    validate_operation_context(&input.context)?;
     require_non_empty(&input.certificate_reference, "certificate_reference")?;
     require_non_empty(&input.provider, "provider")?;
     require_non_empty(&input.recorded_by, "recorded_by")?;
@@ -177,12 +265,39 @@ pub fn record_metrology_calibration(
         ));
     }
 
-    let connection = open_metrology_connection(storage_root)?;
+    let payload_json = calibration_event_payload_json(&input);
+    let mut connection = open_metrology_connection_with_sync(storage_root)?;
     if load_instrument(&connection, asset_id.as_str())?.is_none() {
         return Err(AgentError::new(
             "metrology_instrument_not_found",
             format!("instrument does not exist: {}", asset_id.as_str()),
         ));
+    }
+    if let Some(operation) = existing_metrology_operation(&connection, &input.context.operation_id)?
+    {
+        ensure_metrology_operation_replay(
+            &operation,
+            &input.context.operation_id,
+            MetrologyOperationFingerprintInput {
+                entity_type: "calibration_event",
+                entity_id: event_id.as_str(),
+                operation_kind: "calibration_recorded",
+                base_revision: "rev-0000",
+                actor_id: &input.context.actor,
+                device_id: &input.context.device_id,
+                correlation_id: &input.context.correlation_id,
+                payload_json: &payload_json,
+            },
+        )?;
+        let event = load_calibration_event(&connection, event_id.as_str())?.ok_or_else(|| {
+            AgentError::new(
+                "operation_replay_missing_entity",
+                "operation exists but calibration event is missing",
+            )
+        })?;
+        return Ok(render_json(&CalibrationEventEnvelopeDto {
+            calibration_event: calibration_event_dto(&event),
+        }));
     }
     if load_calibration_event(&connection, event_id.as_str())?.is_some() {
         return Err(AgentError::new(
@@ -206,8 +321,13 @@ pub fn record_metrology_calibration(
 
     let recorded_at = utc_timestamp()?;
     let revision = revision_for("calibration_event", event_id.as_str(), &recorded_at);
+    let sequence =
+        next_metrology_audit_sequence(&connection, "calibration_event", event_id.as_str())?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
     insert_calibration_event(
-        &connection,
+        &transaction,
         NewCalibrationEventRecord {
             event_id: event_id.as_str(),
             asset_id: asset_id.as_str(),
@@ -228,6 +348,24 @@ pub fn record_metrology_calibration(
             revision: &revision,
         },
     )?;
+    write_metrology_audit_and_outbox(
+        &transaction,
+        MetrologyAuditWrite {
+            entity_type: "calibration_event",
+            entity_id: event_id.as_str(),
+            sequence,
+            action: "calibration_recorded",
+            base_revision: "rev-0000",
+            resulting_revision: &revision,
+            context: &input.context,
+            payload_json: &payload_json,
+            timestamp: &recorded_at,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+    let connection = open_metrology_connection(storage_root)?;
     let event = load_calibration_event(&connection, event_id.as_str())?.ok_or_else(|| {
         AgentError::new(
             "metrology_calibration_query_failed",
@@ -275,6 +413,230 @@ pub fn get_metrology_calibration_status(
     Ok(render_json(&status))
 }
 
+pub fn set_metrology_serviceability(
+    storage_root: &Path,
+    input: SetServiceabilityInput,
+) -> Result<String, AgentError> {
+    let asset_id = InstrumentCode::parse(input.asset_id.clone()).map_err(domain_error)?;
+    validate_operation_context(&input.context)?;
+    validate_serviceability_status(&input.serviceability_status)?;
+    require_non_empty(&input.serviceability_reason, "serviceability_reason")?;
+
+    let mut connection = open_metrology_connection_with_sync(storage_root)?;
+    let instrument = load_instrument(&connection, asset_id.as_str())?.ok_or_else(|| {
+        AgentError::new(
+            "metrology_instrument_not_found",
+            format!("instrument does not exist: {}", asset_id.as_str()),
+        )
+    })?;
+    let payload_json = serviceability_payload_json(&input);
+    if let Some(operation) = existing_metrology_operation(&connection, &input.context.operation_id)?
+    {
+        ensure_metrology_operation_replay(
+            &operation,
+            &input.context.operation_id,
+            MetrologyOperationFingerprintInput {
+                entity_type: "instrument",
+                entity_id: asset_id.as_str(),
+                operation_kind: "instrument_serviceability_changed",
+                base_revision: &instrument.revision,
+                actor_id: &input.context.actor,
+                device_id: &input.context.device_id,
+                correlation_id: &input.context.correlation_id,
+                payload_json: &payload_json,
+            },
+        )?;
+        return get_metrology_instrument(storage_root, asset_id.as_str());
+    }
+
+    let now = utc_timestamp()?;
+    let resulting_revision = revision_for("instrument", asset_id.as_str(), &now);
+    let sequence = next_metrology_audit_sequence(&connection, "instrument", asset_id.as_str())?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    update_instrument_serviceability(
+        &transaction,
+        asset_id.as_str(),
+        input.serviceability_status.trim(),
+        input.serviceability_reason.trim(),
+        &now,
+    )?;
+    write_metrology_audit_and_outbox(
+        &transaction,
+        MetrologyAuditWrite {
+            entity_type: "instrument",
+            entity_id: asset_id.as_str(),
+            sequence,
+            action: "instrument_serviceability_changed",
+            base_revision: &instrument.revision,
+            resulting_revision: &resulting_revision,
+            context: &input.context,
+            payload_json: &payload_json,
+            timestamp: &now,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+    get_metrology_instrument(storage_root, asset_id.as_str())
+}
+
+pub fn assess_metrology_readiness(
+    storage_root: &Path,
+    input: AssessReadinessInput,
+) -> Result<String, AgentError> {
+    if input.asset_ids.is_empty() {
+        return Err(AgentError::new(
+            "invalid_metrology_readiness",
+            "asset_ids must not be empty",
+        ));
+    }
+    let checked_on = parse_metrology_date(&input.checked_on, "checked_on")?;
+    validate_execution_mode(&input.execution_mode)?;
+    let connection = open_metrology_connection(storage_root)?;
+    let mut instrument_results = Vec::new();
+    let mut blocking_issues = Vec::new();
+    let mut warnings = Vec::new();
+
+    for asset_id in &input.asset_ids {
+        let parsed_asset = InstrumentCode::parse(asset_id.clone()).map_err(domain_error)?;
+        let Some(instrument) = load_instrument(&connection, parsed_asset.as_str())? else {
+            let issue = ReadinessIssueDto {
+                asset_id: parsed_asset.as_str().to_owned(),
+                code: "instrument_unknown".to_owned(),
+                message: "instrument is not registered".to_owned(),
+            };
+            blocking_issues.push(issue);
+            instrument_results.push(ReadinessInstrumentResultDto {
+                asset_id: parsed_asset.as_str().to_owned(),
+                manufacturer: None,
+                model: None,
+                serial_number: None,
+                serviceability_status: None,
+                calibration_requirement: None,
+                calibration_status: "unknown".to_owned(),
+                due_at: None,
+                reasons: vec!["instrument_unknown".to_owned()],
+                blocking: true,
+                instrument_revision: None,
+                calibration_revision: None,
+            });
+            continue;
+        };
+        let latest = load_latest_calibration_event(&connection, &instrument.asset_id)?;
+        let status = computed_status(&instrument, latest.as_ref(), checked_on)?;
+        let mut reasons = status.reasons.clone();
+        let mut blocking = false;
+
+        if matches!(
+            instrument.serviceability_status.as_str(),
+            "out_of_service" | "retired"
+        ) {
+            blocking = true;
+            reasons.push(instrument.serviceability_status.clone());
+            blocking_issues.push(ReadinessIssueDto {
+                asset_id: instrument.asset_id.clone(),
+                code: instrument.serviceability_status.clone(),
+                message: "instrument is not operationally usable".to_owned(),
+            });
+        }
+        if instrument.serviceability_status == "restricted" {
+            warnings.push(ReadinessIssueDto {
+                asset_id: instrument.asset_id.clone(),
+                code: "restricted".to_owned(),
+                message: "instrument has serviceability restrictions".to_owned(),
+            });
+        }
+
+        let calibration_blocks = input.execution_mode == "accredited"
+            && instrument.calibration_requirement == "required";
+        match status.calibration_status.as_str() {
+            "missing" | "expired" if calibration_blocks => {
+                blocking = true;
+                blocking_issues.push(ReadinessIssueDto {
+                    asset_id: instrument.asset_id.clone(),
+                    code: format!("calibration_{}", status.calibration_status),
+                    message: "required calibration is not valid".to_owned(),
+                });
+            }
+            "nonconforming" => {
+                blocking = true;
+                blocking_issues.push(ReadinessIssueDto {
+                    asset_id: instrument.asset_id.clone(),
+                    code: "calibration_nonconforming".to_owned(),
+                    message: "latest calibration decision is not conforming".to_owned(),
+                });
+            }
+            "due_soon" => warnings.push(ReadinessIssueDto {
+                asset_id: instrument.asset_id.clone(),
+                code: "calibration_due_soon".to_owned(),
+                message: "calibration due date is near".to_owned(),
+            }),
+            "missing" | "expired" => warnings.push(ReadinessIssueDto {
+                asset_id: instrument.asset_id.clone(),
+                code: format!("calibration_{}", status.calibration_status),
+                message: "calibration status requires attention".to_owned(),
+            }),
+            _ => {}
+        }
+
+        instrument_results.push(ReadinessInstrumentResultDto {
+            asset_id: instrument.asset_id.clone(),
+            manufacturer: Some(instrument.manufacturer.clone()),
+            model: Some(instrument.model.clone()),
+            serial_number: Some(instrument.serial_number.clone()),
+            serviceability_status: Some(instrument.serviceability_status.clone()),
+            calibration_requirement: Some(instrument.calibration_requirement.clone()),
+            calibration_status: status.calibration_status,
+            due_at: status.due_at,
+            reasons,
+            blocking,
+            instrument_revision: Some(instrument.revision),
+            calibration_revision: status.latest_calibration_revision,
+        });
+    }
+
+    Ok(render_json(&ReadinessReportDto {
+        ready: blocking_issues.is_empty(),
+        checked_on: format_metrology_date(checked_on),
+        execution_mode: input.execution_mode,
+        context: input.context,
+        instrument_results,
+        blocking_issues,
+        warnings,
+    }))
+}
+
+pub fn list_metrology_audit_events(
+    storage_root: &Path,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<String, AgentError> {
+    let connection = open_metrology_connection(storage_root)?;
+    let events = load_metrology_audit_events(&connection, entity_type, entity_id)?;
+    Ok(render_json(&MetrologyAuditEventsDto {
+        entity_type: entity_type.to_owned(),
+        entity_id: entity_id.to_owned(),
+        audit_events: events
+            .into_iter()
+            .map(|event| MetrologyAuditEventDto {
+                sequence: event.sequence,
+                actor: event.actor,
+                action: event.action,
+                reason: event.reason,
+                operation_id: event.operation_id,
+                correlation_id: event.correlation_id,
+                device_id: event.device_id,
+                base_revision: event.base_revision,
+                resulting_revision: event.resulting_revision,
+                payload_json: event.payload_json,
+                occurred_at: event.occurred_at,
+            })
+            .collect(),
+    }))
+}
+
 fn validate_calibration_requirement(value: &str) -> Result<(), AgentError> {
     match value.trim() {
         "required" | "conditional" | "not_required" => Ok(()),
@@ -316,6 +678,25 @@ fn validate_serviceability_status(value: &str) -> Result<(), AgentError> {
     }
 }
 
+fn validate_execution_mode(value: &str) -> Result<(), AgentError> {
+    match value.trim() {
+        "accredited" | "non_accredited" | "investigation" => Ok(()),
+        other => Err(AgentError::new(
+            "invalid_metrology_readiness",
+            format!("unknown execution mode: {other}"),
+        )),
+    }
+}
+
+fn validate_operation_context(context: &MetrologyOperationContext) -> Result<(), AgentError> {
+    safe_identifier(&context.operation_id, "operation_id")?;
+    safe_identifier(&context.correlation_id, "correlation_id")?;
+    safe_identifier(&context.device_id, "device_id")?;
+    require_non_empty(&context.actor, "actor")?;
+    require_non_empty(&context.reason, "reason")?;
+    Ok(())
+}
+
 fn validate_capabilities_json(value: &str) -> Result<(), AgentError> {
     let parsed = serde_json::from_str::<serde_json::Value>(value)
         .map_err(|error| AgentError::new("invalid_metrology_instrument", error.to_string()))?;
@@ -326,6 +707,93 @@ fn validate_capabilities_json(value: &str) -> Result<(), AgentError> {
         ));
     }
     Ok(())
+}
+
+fn register_instrument_payload_json(input: &RegisterInstrumentInput, warning_days: u32) -> String {
+    render_json(&serde_json::json!({
+        "asset_id": input.asset_id.trim(),
+        "family": input.family.trim(),
+        "category_code": input.category_code.trim(),
+        "manufacturer": input.manufacturer.trim(),
+        "model": input.model.trim(),
+        "serial_number": input.serial_number.trim(),
+        "part_number": trimmed_optional(input.part_number.as_deref()),
+        "calibration_requirement": input.calibration_requirement.trim(),
+        "calibration_period_months": input.calibration_period_months,
+        "calibration_due_warning_days": warning_days,
+        "serviceability_status": input.serviceability_status.trim(),
+        "serviceability_reason": input.serviceability_reason.trim(),
+        "capabilities_json": input.capabilities_json.trim(),
+        "metrology_notes": input.metrology_notes.trim(),
+    }))
+}
+
+fn calibration_event_payload_json(input: &RecordCalibrationInput) -> String {
+    render_json(&serde_json::json!({
+        "event_id": input.event_id.trim(),
+        "asset_id": input.asset_id.trim(),
+        "certificate_reference": input.certificate_reference.trim(),
+        "calibrated_at": input.calibrated_at.trim(),
+        "due_at": input.due_at.trim(),
+        "provider": input.provider.trim(),
+        "decision": input.decision.trim(),
+        "as_found_status": trimmed_optional(input.as_found_status.as_deref()),
+        "as_left_status": trimmed_optional(input.as_left_status.as_deref()),
+        "adjustment_performed": input.adjustment_performed,
+        "uncertainty_summary_json": input.uncertainty_summary_json.trim(),
+        "traceability_reference": trimmed_optional(input.traceability_reference.as_deref()),
+        "comment": input.comment.trim(),
+        "document_manifest_json": trimmed_optional(input.document_manifest_json.as_deref()),
+        "recorded_by": input.recorded_by.trim(),
+    }))
+}
+
+fn serviceability_payload_json(input: &SetServiceabilityInput) -> String {
+    render_json(&serde_json::json!({
+        "asset_id": input.asset_id.trim(),
+        "serviceability_status": input.serviceability_status.trim(),
+        "serviceability_reason": input.serviceability_reason.trim(),
+    }))
+}
+
+fn write_metrology_audit_and_outbox(
+    transaction: &rusqlite::Transaction<'_>,
+    input: MetrologyAuditWrite<'_>,
+) -> Result<(), AgentError> {
+    insert_metrology_audit_event(
+        transaction,
+        MetrologyAuditEventInput {
+            entity_type: input.entity_type,
+            entity_id: input.entity_id,
+            sequence: input.sequence,
+            actor: input.context.actor.trim(),
+            action: input.action,
+            reason: input.context.reason.trim(),
+            operation_id: input.context.operation_id.trim(),
+            correlation_id: input.context.correlation_id.trim(),
+            device_id: input.context.device_id.trim(),
+            base_revision: input.base_revision,
+            resulting_revision: input.resulting_revision,
+            payload_json: input.payload_json,
+            timestamp: input.timestamp,
+        },
+    )?;
+    insert_metrology_sync_operation(
+        transaction,
+        MetrologySyncOperationInput {
+            operation_id: input.context.operation_id.trim(),
+            entity_type: input.entity_type,
+            entity_id: input.entity_id,
+            operation_kind: input.action,
+            base_revision: input.base_revision,
+            resulting_revision: input.resulting_revision,
+            actor_id: input.context.actor.trim(),
+            device_id: input.context.device_id.trim(),
+            correlation_id: input.context.correlation_id.trim(),
+            payload_json: input.payload_json,
+            timestamp: input.timestamp,
+        },
+    )
 }
 
 fn validate_json_object(value: &str, field: &'static str) -> Result<Value, AgentError> {
@@ -492,12 +960,7 @@ fn status_dto(
 ) -> CalibrationStatusDto {
     CalibrationStatusDto {
         asset_id: instrument.asset_id.clone(),
-        checked_on: format!(
-            "{:04}-{:02}-{:02}",
-            checked_on.year(),
-            checked_on.month(),
-            checked_on.day()
-        ),
+        checked_on: format_metrology_date(checked_on),
         calibration_status: calibration_status.to_owned(),
         serviceability_status: instrument.serviceability_status.clone(),
         calibration_requirement: instrument.calibration_requirement.clone(),
@@ -509,6 +972,10 @@ fn status_dto(
         instrument_revision: instrument.revision.clone(),
         reasons,
     }
+}
+
+fn format_metrology_date(date: MetrologyDate) -> String {
+    format!("{:04}-{:02}-{:02}", date.year(), date.month(), date.day())
 }
 
 fn trimmed_optional(value: Option<&str>) -> Option<&str> {
@@ -607,6 +1074,7 @@ mod tests {
                     serviceability_reason: String::new(),
                     capabilities_json: "{\"frequency_max_hz\":44000000000}".to_owned(),
                     metrology_notes: "Agent registration".to_owned(),
+                    context: test_context("op-register-SA-REG-001"),
                 },
             )
             .unwrap(),
@@ -658,6 +1126,7 @@ mod tests {
                         "a".repeat(64)
                     )),
                     recorded_by: "metrology.admin".to_owned(),
+                    context: test_context("op-record-CAL-SA-001-2026"),
                 },
             )
             .unwrap(),
@@ -711,6 +1180,7 @@ mod tests {
                 comment: "Out of tolerance".to_owned(),
                 document_manifest_json: None,
                 recorded_by: "metrology.admin".to_owned(),
+                context: test_context("op-record-CAL-SA-001-NC"),
             },
         )
         .unwrap();
@@ -771,8 +1241,19 @@ mod tests {
     fn initialized_storage_root(name: &str) -> PathBuf {
         let storage_root = temporary_storage_root(name);
         fs::create_dir_all(&storage_root).unwrap();
-        let connection = Connection::open(storage_root.join("metrology.sqlite")).unwrap();
-        let migrations_root = repo_root().join("storage/sqlite/metrology");
+        apply_migrations(
+            &storage_root.join("metrology.sqlite"),
+            &repo_root().join("storage/sqlite/metrology"),
+        );
+        apply_migrations(
+            &storage_root.join("sync.sqlite"),
+            &repo_root().join("storage/sqlite/sync"),
+        );
+        storage_root
+    }
+
+    fn apply_migrations(database: &Path, migrations_root: &Path) {
+        let connection = Connection::open(database).unwrap();
         let mut migrations = fs::read_dir(migrations_root)
             .unwrap()
             .map(|entry| entry.unwrap().path())
@@ -783,7 +1264,6 @@ mod tests {
             let sql = fs::read_to_string(migration).unwrap();
             connection.execute_batch(&sql).unwrap();
         }
-        storage_root
     }
 
     fn repo_root() -> PathBuf {
@@ -810,6 +1290,16 @@ mod tests {
     fn remove_temporary_storage_root(root: &Path) {
         if root.exists() {
             fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    fn test_context(operation_id: &str) -> MetrologyOperationContext {
+        MetrologyOperationContext {
+            actor: "metrology.admin".to_owned(),
+            reason: "test operation".to_owned(),
+            operation_id: operation_id.to_owned(),
+            correlation_id: operation_id.to_owned(),
+            device_id: "station-test".to_owned(),
         }
     }
 }

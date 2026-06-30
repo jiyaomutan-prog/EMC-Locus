@@ -8,6 +8,26 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-06-30
+
+### Added
+
+- Added metrology migration `0006_metrology_audit_events.sql` for
+  per-entity audit events with operation fingerprint evidence.
+- Added operation context, strict replay checks, metrology audit rows, and
+  `sync_operations` outbox rows for agent-backed instrument registration and
+  calibration-event recording.
+- Added agent-backed serviceability changes with audit/outbox evidence.
+- Added structured metrology readiness assessment through CLI and
+  `POST /api/v1/metrology/readiness`.
+- Added metrology audit reads through CLI and
+  `GET /api/v1/metrology/instruments/{asset_id}/audit-events`.
+
+### Changed
+
+- Metrology write routes now require `actor`, `reason`, and `operation_id`.
+- Bumped the synchronized Rust/Python software version to `0.6.5`.
+
 ## [0.6.4] - 2026-06-30
 
 ### Added

@@ -46,7 +46,7 @@ fn main() {
         Err(error) => {
             eprintln!("{}", error.to_json());
             eprintln!(
-                "usage: emc-locus-agent health [--storage-root PATH] | storage <init|status|verify> --storage-root PATH [--migrations-root PATH] | projects <create|list|get|contract-review|complete-review-item|to-test-planning|audit-events> --storage-root PATH ... | metrology <register-instrument|list-instruments|get-instrument|record-calibration|list-calibrations|status> --storage-root PATH ... | sync outbox --storage-root PATH | serve --storage-root PATH [--migrations-root PATH] [--bind 127.0.0.1:8765]"
+                "usage: emc-locus-agent health [--storage-root PATH] | storage <init|status|verify> --storage-root PATH [--migrations-root PATH] | projects <create|list|get|contract-review|complete-review-item|to-test-planning|audit-events> --storage-root PATH ... | metrology <register-instrument|list-instruments|get-instrument|record-calibration|list-calibrations|status|set-serviceability|readiness|audit-events> --storage-root PATH ... | sync outbox --storage-root PATH | serve --storage-root PATH [--migrations-root PATH] [--bind 127.0.0.1:8765]"
             );
             process::exit(2);
         }

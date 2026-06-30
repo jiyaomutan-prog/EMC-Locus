@@ -103,6 +103,62 @@ pub struct CalibrationStatusDto {
     pub reasons: Vec<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ReadinessReportDto {
+    pub ready: bool,
+    pub checked_on: String,
+    pub execution_mode: String,
+    pub context: Option<String>,
+    pub instrument_results: Vec<ReadinessInstrumentResultDto>,
+    pub blocking_issues: Vec<ReadinessIssueDto>,
+    pub warnings: Vec<ReadinessIssueDto>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ReadinessInstrumentResultDto {
+    pub asset_id: String,
+    pub manufacturer: Option<String>,
+    pub model: Option<String>,
+    pub serial_number: Option<String>,
+    pub serviceability_status: Option<String>,
+    pub calibration_requirement: Option<String>,
+    pub calibration_status: String,
+    pub due_at: Option<String>,
+    pub reasons: Vec<String>,
+    pub blocking: bool,
+    pub instrument_revision: Option<String>,
+    pub calibration_revision: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ReadinessIssueDto {
+    pub asset_id: String,
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MetrologyAuditEventsDto {
+    pub entity_type: String,
+    pub entity_id: String,
+    pub audit_events: Vec<MetrologyAuditEventDto>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MetrologyAuditEventDto {
+    pub sequence: u64,
+    pub actor: String,
+    pub action: String,
+    pub reason: String,
+    pub operation_id: String,
+    pub correlation_id: String,
+    pub device_id: String,
+    pub base_revision: String,
+    pub resulting_revision: String,
+    pub payload_json: String,
+    pub occurred_at: String,
+}
+
 pub(crate) fn instrument_dto(
     instrument: &StoredInstrument,
     latest_calibration: Option<&StoredCalibrationRecord>,

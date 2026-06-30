@@ -15,6 +15,9 @@ GET  /api/v1/metrology/instruments/{asset_id}
 GET  /api/v1/metrology/instruments/{asset_id}/calibrations
 POST /api/v1/metrology/instruments/{asset_id}/calibrations
 GET  /api/v1/metrology/instruments/{asset_id}/status?checked_on=YYYY-MM-DD
+POST /api/v1/metrology/instruments/{asset_id}/serviceability
+POST /api/v1/metrology/readiness
+GET  /api/v1/metrology/instruments/{asset_id}/audit-events
 ```
 
 ## Register Instrument
@@ -39,12 +42,16 @@ GET  /api/v1/metrology/instruments/{asset_id}/status?checked_on=YYYY-MM-DD
       "max": 3000000000
     }
   },
-  "metrology_notes": "Reference spectrum analyzer"
+  "metrology_notes": "Reference spectrum analyzer",
+  "actor": "metrology.admin",
+  "reason": "Initial registration",
+  "operation_id": "op-register-SA-001"
 }
 ```
 
 Required fields are `asset_id`, `family`, `category_code`, `manufacturer`,
-`model`, `serial_number`, and `calibration_requirement`.
+`model`, `serial_number`, `calibration_requirement`, `actor`, `reason`, and
+`operation_id`.
 
 Accepted calibration requirements are:
 
@@ -93,7 +100,10 @@ string is also accepted by the local API for simple clients.
     "storage_key": "metrology/SA-001/cert.pdf",
     "revision": "A"
   },
-  "recorded_by": "metrology.admin"
+  "recorded_by": "metrology.admin",
+  "actor": "metrology.admin",
+  "reason": "Annual calibration",
+  "operation_id": "op-cal-SA-001-2026"
 }
 ```
 
@@ -128,10 +138,35 @@ not_required
 nonconforming
 ```
 
+## Serviceability And Readiness
+
+```json
+{
+  "serviceability_status": "out_of_service",
+  "serviceability_reason": "Damaged input connector",
+  "actor": "metrology.admin",
+  "reason": "Asset quarantine",
+  "operation_id": "op-service-SA-001"
+}
+```
+
+```json
+{
+  "asset_ids": ["SA-001"],
+  "execution_mode": "accredited",
+  "checked_on": "2026-07-01",
+  "context": "pre-run check"
+}
+```
+
+Readiness responses include `ready`, `instrument_results`, `blocking_issues`,
+and `warnings`.
+
 ## Current Boundary
 
-Version `0.6.4` intentionally limits this API to instrument registration,
-instrument reads, calibration-event recording, calibration-event reads, and
-computed calibration status. Serviceability changes, readiness assessment,
-metrology audit events, and strict operation-id idempotence are delivered in
-later `0.6.x` tranches on the path to `0.7.0`.
+Version `0.6.5` covers instrument registration, instrument reads,
+calibration-event recording, calibration-event reads, computed calibration
+status, serviceability changes, readiness assessment, audit-event reads, and
+strict operation-id idempotence for migrated write paths. Qt migration and the
+full HTTP E2E scenario are delivered in later `0.6.x` tranches on the path to
+`0.7.0`.
