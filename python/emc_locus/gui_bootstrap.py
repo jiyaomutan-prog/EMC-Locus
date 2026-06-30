@@ -55,10 +55,10 @@ FALLBACK_BOOTSTRAP: BootstrapData = {
         ["CEM-2026-002", "method_available", "yes", "technical.lead", "Methode conduite disponible"],
     ],
     "instruments": [
-        ["RX-001", "Receiver", "Available", "CERT-2026-001", "2027-01-01", "ok", "EMI test receiver", "detectors", "Rohde Schwarz", "ESW", "100001", "ESW44", "2026-01-01", "12", "2"],
-        ["GEN-002", "Generator", "Reserved", "CERT-2025-044", "2026-07-12", "warn", "RF signal generator", "scpi", "Keysight", "N5183B", "100002", "N5183B-540", "2025-07-12", "12", "1"],
-        ["DAQ-OPEN-01", "DAQ", "Available", "CERT-2026-112", "2027-03-18", "ok", "DAQ chassis and modules", "8 channels", "openDAQ", "Reference DAQ", "DAQ001", "ODAQ-8", "2026-03-18", "12", "3"],
-        ["AMP-004", "Amplifier", "Out of service", "CERT-2024-090", "2025-12-04", "danger", "RF power amplifier", "interlock", "RF Lab", "AMP-250", "AMP004", "AMP-250", "2024-12-04", "12", "1"],
+        ["RX-001", "Receiver", "Usable", "Available", "CERT-2026-001", "2027-01-01", "ok", "EMI test receiver", "detectors", "Rohde Schwarz", "ESW", "100001", "ESW44", "2026-01-01", "12", "2"],
+        ["GEN-002", "Generator", "Usable", "Reserved", "CERT-2025-044", "2026-07-12", "warn", "RF signal generator", "scpi", "Keysight", "N5183B", "100002", "N5183B-540", "2025-07-12", "12", "1"],
+        ["DAQ-OPEN-01", "DAQ", "Usable", "Available", "CERT-2026-112", "2027-03-18", "ok", "DAQ chassis and modules", "8 channels", "openDAQ", "Reference DAQ", "DAQ001", "ODAQ-8", "2026-03-18", "12", "3"],
+        ["AMP-004", "Amplifier", "Out of service", "Available", "CERT-2024-090", "2025-12-04", "danger", "RF power amplifier", "interlock", "RF Lab", "AMP-250", "AMP004", "AMP-250", "2024-12-04", "12", "1"],
     ],
     "instrument_documents": [
         ["RX-001", "certificate", "Certificat 2026", "metrology/RX-001/cert-2026.pdf", "A", "receiver calibration"],
@@ -127,6 +127,13 @@ AVAILABILITY_LABELS = {
     "available": "Available",
     "reserved": "Reserved",
     "out_of_service": "Out of service",
+}
+
+SERVICEABILITY_LABELS = {
+    "usable": "Usable",
+    "restricted": "Restricted",
+    "out_of_service": "Out of service",
+    "retired": "Retired",
 }
 
 
@@ -376,16 +383,21 @@ def _instrument_row(
     row: dict[str, object],
 ) -> list[str]:
     calibration = repository.latest_calibration_record(str(row["asset_id"]))
-    status = str(row["availability"])
+    availability = str(row["availability"])
+    serviceability = str(
+        row.get("serviceability_status")
+        or ("out_of_service" if availability == "out_of_service" else "usable")
+    )
     calibration_status = str(calibration["status_at_import"]) if calibration else "missing"
     category_label = _instrument_category_label(repository, row)
     return [
         str(row["asset_id"]),
         str(row["family"]),
-        AVAILABILITY_LABELS.get(status, status),
+        SERVICEABILITY_LABELS.get(serviceability, serviceability),
+        AVAILABILITY_LABELS.get(availability, availability),
         str(calibration["certificate_reference"]) if calibration else "missing",
         str(calibration["due_at"]) if calibration else "missing",
-        _instrument_tone(status, calibration_status),
+        _instrument_tone(serviceability, calibration_status),
         category_label,
         _capabilities_preview(str(row["capabilities_json"])),
         str(row.get("manufacturer") or ""),
@@ -512,10 +524,12 @@ def _update_row(row: dict[str, object]) -> list[str]:
     ]
 
 
-def _instrument_tone(availability: str, calibration_status: str) -> str:
-    if availability == "out_of_service" or calibration_status in {"expired", "missing"}:
+def _instrument_tone(serviceability: str, calibration_status: str) -> str:
+    if serviceability in {"out_of_service", "retired"}:
         return "danger"
-    if availability == "reserved" or calibration_status == "due_soon":
+    if calibration_status in {"expired", "missing"}:
+        return "danger"
+    if serviceability == "restricted" or calibration_status == "due_soon":
         return "warn"
     return "ok"
 

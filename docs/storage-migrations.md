@@ -26,7 +26,10 @@ project records or raw measurement data.
 Owns instrument identities, instrument categories, families, availability,
 calibration requirements, calibration certificates, and category source
 provenance. Version 3 adds part numbers, calibration periodicity, metrology
-notes, and controlled instrument document attachments.
+notes, and controlled instrument document attachments. Version 4 adds
+`serviceability_status`, `serviceability_reason`,
+`serviceability_updated_at`, and `legacy_availability` so planning reservations
+remain separate from operational service state.
 
 ### Projects
 
@@ -115,6 +118,7 @@ perform minimal insert/count/query operations for smoke testing:
 - project lookup/listing;
 - ordered project audit-event listing.
 - instrument availability and capability updates;
+- instrument serviceability updates separate from legacy availability;
 - calibration attachment updates;
 - instrument document insert/list APIs;
 - project stage changes with an audit event in the same transaction;

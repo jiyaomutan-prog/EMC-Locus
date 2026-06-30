@@ -73,6 +73,7 @@ class QtConsoleTests(unittest.TestCase):
                     [
                         "DAQ-001",
                         "DAQ",
+                        "Usable",
                         "Available",
                         "CERT-1",
                         "2027-01-01",
@@ -166,7 +167,8 @@ class QtConsoleTests(unittest.TestCase):
             (
                 "Actif",
                 "Famille",
-                "Etat",
+                "Service",
+                "Planning",
                 "Certificat",
                 "Validite",
                 "Alerte",
@@ -181,8 +183,14 @@ class QtConsoleTests(unittest.TestCase):
                 "Docs",
             ),
         )
-        self.assertEqual(metrology_table.rows[0][5:8], ("warn", "DAQ chassis and modules", "channels=8"))
-        self.assertEqual(metrology_table.rows[0][8:15], ("openDAQ", "Reference DAQ", "DAQ001", "ODAQ-8", "2026-03-18", "12", "2"))
+        self.assertEqual(
+            metrology_table.rows[0][6:9],
+            ("warn", "DAQ chassis and modules", "channels=8"),
+        )
+        self.assertEqual(
+            metrology_table.rows[0][9:16],
+            ("openDAQ", "Reference DAQ", "DAQ001", "ODAQ-8", "2026-03-18", "12", "2"),
+        )
         self.assertEqual(document_table.rows[0][0:3], ("DAQ-001", "script", "setup.py"))
         self.assertEqual(schedule_table.rows[0][0:4], ("PLAN-QT-001", "CEM-QT-001", "Inrush", "emission_transient_time_domain"))
         self.assertEqual(test_category_table.rows[1][0:3], ("emission_conducted", "emission", "Emission conduite"))
@@ -260,6 +268,7 @@ class QtConsoleTests(unittest.TestCase):
         self.assertTrue(by_id["advance_project"].enabled)
         self.assertTrue(by_id["register_instrument"].enabled)
         self.assertTrue(by_id["attach_instrument_document"].enabled)
+        self.assertTrue(by_id["set_instrument_serviceability"].enabled)
         self.assertTrue(by_id["schedule_service_item"].enabled)
         self.assertTrue(by_id["create_test_category"].enabled)
         self.assertIn(
@@ -296,6 +305,8 @@ class QtConsoleTests(unittest.TestCase):
                     "model": "Reference",
                     "serial_number": "QT001",
                     "category_code": "daq_chassis",
+                    "serviceability_status": "usable",
+                    "serviceability_reason": "",
                     "part_number": "ODAQ-QT",
                     "calibration_period_months": "12",
                     "certificate_reference": "CERT-QT-001",
@@ -328,6 +339,7 @@ class QtConsoleTests(unittest.TestCase):
             documents = repository.list_instrument_documents("DAQ-QT-FORM")
 
         self.assertEqual(instrument["part_number"], "ODAQ-QT")
+        self.assertEqual(instrument["serviceability_status"], "usable")
         self.assertEqual(instrument["calibration_period_months"], 12)
         self.assertEqual(calibration["due_at"], "2027-06-28")
         self.assertEqual(documents[0]["document_kind"], "script")

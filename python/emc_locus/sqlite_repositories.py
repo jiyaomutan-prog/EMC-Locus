@@ -32,6 +32,12 @@ RETENTION_STATUSES = {
 PROCESSING_GRAPH_STATUSES = {"draft", "active", "superseded", "rejected"}
 PROCESSING_GRAPH_ARTIFACT_KINDS = {"processed_signal", "result_table"}
 PROCESSING_GRAPH_EXECUTION_STATUSES = {"completed", "failed"}
+INSTRUMENT_SERVICEABILITY_STATUSES = {
+    "usable",
+    "restricted",
+    "out_of_service",
+    "retired",
+}
 SYNC_CHECKPOINT_DIRECTIONS = {"push", "pull", "bidirectional"}
 _PACKAGE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SIGNAL_REFERENCE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -43,6 +49,12 @@ def utc_timestamp() -> str:
     """Return a compact UTC timestamp for deterministic storage columns."""
 
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def serviceability_from_legacy_availability(availability: str) -> str:
+    """Map the legacy availability field to the new serviceability concept."""
+
+    return "out_of_service" if availability == "out_of_service" else "usable"
 
 
 def _validate_signal_reference(value: str, *, field_name: str) -> None:
@@ -134,8 +146,13 @@ class MetrologyRepository(SQLiteDomainRepository):
         part_number: str | None = None,
         calibration_period_months: int | None = None,
         metrology_notes: str = "",
+        serviceability_status: str | None = None,
+        serviceability_reason: str = "",
     ) -> None:
         now = utc_timestamp()
+        serviceability_status = serviceability_status or serviceability_from_legacy_availability(
+            availability
+        )
         with closing(self.connect()) as connection:
             with connection:
                 connection.execute(
@@ -153,10 +170,14 @@ class MetrologyRepository(SQLiteDomainRepository):
                         part_number,
                         calibration_period_months,
                         metrology_notes,
+                        serviceability_status,
+                        serviceability_reason,
+                        serviceability_updated_at,
+                        legacy_availability,
                         created_at,
                         updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         asset_id,
@@ -171,6 +192,10 @@ class MetrologyRepository(SQLiteDomainRepository):
                         part_number,
                         calibration_period_months,
                         metrology_notes,
+                        serviceability_status,
+                        serviceability_reason,
+                        now,
+                        availability,
                         now,
                         now,
                     ),
@@ -191,6 +216,8 @@ class MetrologyRepository(SQLiteDomainRepository):
         part_number: str | None = None,
         calibration_period_months: int | None = None,
         metrology_notes: str = "",
+        serviceability_status: str | None = None,
+        serviceability_reason: str = "",
         certificate_reference: str | None = None,
         calibrated_at: str | None = None,
         due_at: str | None = None,
@@ -203,6 +230,9 @@ class MetrologyRepository(SQLiteDomainRepository):
         """Register an instrument and optional initial calibration atomically."""
 
         now = utc_timestamp()
+        serviceability_status = serviceability_status or serviceability_from_legacy_availability(
+            availability
+        )
         with closing(self.connect()) as connection:
             with connection:
                 connection.execute(
@@ -220,10 +250,14 @@ class MetrologyRepository(SQLiteDomainRepository):
                         part_number,
                         calibration_period_months,
                         metrology_notes,
+                        serviceability_status,
+                        serviceability_reason,
+                        serviceability_updated_at,
+                        legacy_availability,
                         created_at,
                         updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         asset_id,
@@ -238,6 +272,10 @@ class MetrologyRepository(SQLiteDomainRepository):
                         part_number,
                         calibration_period_months,
                         metrology_notes,
+                        serviceability_status,
+                        serviceability_reason,
+                        now,
+                        availability,
                         now,
                         now,
                     ),
@@ -527,15 +565,63 @@ class MetrologyRepository(SQLiteDomainRepository):
 
     def update_instrument_availability(self, *, asset_id: str, availability: str) -> bool:
         now = utc_timestamp()
+        serviceability_status = serviceability_from_legacy_availability(availability)
+        serviceability_reason = (
+            "Set through legacy availability compatibility path"
+            if availability == "out_of_service"
+            else ""
+        )
         with closing(self.connect()) as connection:
             with connection:
                 cursor = connection.execute(
                     """
                     UPDATE instruments
-                    SET availability = ?, updated_at = ?
+                    SET availability = ?,
+                        legacy_availability = ?,
+                        serviceability_status = ?,
+                        serviceability_reason = ?,
+                        serviceability_updated_at = ?,
+                        updated_at = ?
                     WHERE asset_id = ?
                     """,
-                    (availability, now, asset_id),
+                    (
+                        availability,
+                        availability,
+                        serviceability_status,
+                        serviceability_reason,
+                        now,
+                        now,
+                        asset_id,
+                    ),
+                )
+        return cursor.rowcount == 1
+
+    def update_instrument_serviceability(
+        self,
+        *,
+        asset_id: str,
+        serviceability_status: str,
+        serviceability_reason: str = "",
+    ) -> bool:
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """
+                    UPDATE instruments
+                    SET serviceability_status = ?,
+                        serviceability_reason = ?,
+                        serviceability_updated_at = ?,
+                        updated_at = ?
+                    WHERE asset_id = ?
+                    """,
+                    (
+                        serviceability_status,
+                        serviceability_reason,
+                        now,
+                        now,
+                        asset_id,
+                    ),
                 )
         return cursor.rowcount == 1
 

@@ -55,7 +55,7 @@ Important fields:
 - model;
 - serial number;
 - supported capabilities;
-- current availability status.
+- current serviceability status and legacy availability/planning status.
 
 ### Instrument Category
 
@@ -259,7 +259,8 @@ The Rust core now owns the first metrology registry primitives:
 - instrument family;
 - instrument category reference;
 - manufacturer, model, and serial number;
-- availability status;
+- serviceability status;
+- legacy availability status retained for migration and planning compatibility;
 - calibration requirement;
 - calibration certificate reference;
 - issue date, due date, and provider;
@@ -267,7 +268,7 @@ The Rust core now owns the first metrology registry primitives:
 
 Accredited work blocks when a required instrument has no valid calibration.
 Non-accredited work still reports missing or expired calibration, but those
-issues are non-blocking unless another safety or availability issue exists.
+issues are non-blocking unless another safety or serviceability issue exists.
 Investigation mode can run exploratory checks with relaxed calibration
 constraints, while out-of-service equipment remains blocking in every mode.
 

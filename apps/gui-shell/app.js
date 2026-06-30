@@ -41,10 +41,10 @@ const fallbackData = {
     ["CEM-2026-002", "method_available", "yes", "technical.lead", "Methode conduite disponible"],
   ],
   instruments: [
-    ["RX-001", "Receiver", "Available", "CERT-2026-001", "2027-01-01", "ok", "EMI test receiver", "detectors", "Rohde Schwarz", "ESW", "100001", "ESW44", "2026-01-01", "12", "2"],
-    ["GEN-002", "Generator", "Reserved", "CERT-2025-044", "2026-07-12", "warn", "RF signal generator", "scpi", "Keysight", "N5183B", "100002", "N5183B-540", "2025-07-12", "12", "1"],
-    ["DAQ-OPEN-01", "DAQ", "Available", "CERT-2026-112", "2027-03-18", "ok", "DAQ chassis and modules", "8 channels", "openDAQ", "Reference DAQ", "DAQ001", "ODAQ-8", "2026-03-18", "12", "3"],
-    ["AMP-004", "Amplifier", "Out of service", "CERT-2024-090", "2025-12-04", "danger", "RF power amplifier", "interlock", "RF Lab", "AMP-250", "AMP004", "AMP-250", "2024-12-04", "12", "1"],
+    ["RX-001", "Receiver", "Usable", "Available", "CERT-2026-001", "2027-01-01", "ok", "EMI test receiver", "detectors", "Rohde Schwarz", "ESW", "100001", "ESW44", "2026-01-01", "12", "2"],
+    ["GEN-002", "Generator", "Usable", "Reserved", "CERT-2025-044", "2026-07-12", "warn", "RF signal generator", "scpi", "Keysight", "N5183B", "100002", "N5183B-540", "2025-07-12", "12", "1"],
+    ["DAQ-OPEN-01", "DAQ", "Usable", "Available", "CERT-2026-112", "2027-03-18", "ok", "DAQ chassis and modules", "8 channels", "openDAQ", "Reference DAQ", "DAQ001", "ODAQ-8", "2026-03-18", "12", "3"],
+    ["AMP-004", "Amplifier", "Out of service", "Available", "CERT-2024-090", "2025-12-04", "danger", "RF power amplifier", "interlock", "RF Lab", "AMP-250", "AMP004", "AMP-250", "2024-12-04", "12", "1"],
   ],
   instrument_documents: [
     ["RX-001", "certificate", "Certificat 2026", "metrology/RX-001/cert-2026.pdf", "A", "receiver calibration"],
@@ -129,7 +129,7 @@ function statusTone(value) {
 
 function renderStatus() {
   const activeProjects = data.projects.length;
-  const readyInstruments = data.instruments.filter((item) => item[5] === "ok").length;
+  const readyInstruments = data.instruments.filter((item) => item[6] === "ok").length;
   const approvedMethods = data.methods.filter((item) => item[3] === "approved").length;
   const immutableDatasets = data.datasets.filter((item) => item[4] === "Immutable").length;
   const instrumentCategories = (data.instrument_categories || []).length;
@@ -169,12 +169,12 @@ function renderDashboard() {
     .join("");
 
   const readiness = data.instruments
-    .filter((item) => item[5] !== "ok")
+    .filter((item) => item[6] !== "ok")
     .map(
       (item) => `
       <div class="queue-item">
-        <strong>${item[0]} ${badge(item[2], item[5])}</strong>
-        <span>${item[1]} - ${item[3]} - ${item[4]}</span>
+        <strong>${item[0]} ${badge(item[2], item[6])}</strong>
+        <span>${item[1]} - ${item[3]} - ${item[4]} - ${item[5]}</span>
       </div>`
     );
   document.querySelector("#readiness-count").textContent = `${readiness.length} points`;
@@ -258,18 +258,19 @@ function renderMetrology() {
       <tr>
         <td>${item[0]}</td>
         <td>${item[1]}</td>
-        <td>${badge(item[2], item[5])}</td>
+        <td>${badge(item[2], item[6])}</td>
         <td>${item[3]}</td>
         <td>${item[4]}</td>
-        <td>${item[6] || item[1]}</td>
-        <td>${item[7] || "none"}</td>
-        <td>${item[8] || ""}</td>
+        <td>${item[5]}</td>
+        <td>${item[7] || item[1]}</td>
+        <td>${item[8] || "none"}</td>
         <td>${item[9] || ""}</td>
         <td>${item[10] || ""}</td>
         <td>${item[11] || ""}</td>
-        <td>${item[12] || "missing"}</td>
-        <td>${item[13] || ""}</td>
-        <td>${item[14] || "0"}</td>
+        <td>${item[12] || ""}</td>
+        <td>${item[13] || "missing"}</td>
+        <td>${item[14] || ""}</td>
+        <td>${item[15] || "0"}</td>
       </tr>`
     )
     .join("");

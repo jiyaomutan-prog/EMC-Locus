@@ -2162,7 +2162,7 @@ fn equipment_due_soon_is_reported_as_non_blocking_attention_point() {
 fn out_of_service_equipment_blocks_every_execution_mode() {
     let code = InstrumentCode::parse("RX-001").unwrap();
     let mut receiver = reference_receiver(code.clone());
-    receiver.set_availability(InstrumentAvailability::OutOfService);
+    receiver.set_serviceability(InstrumentServiceability::OutOfService);
     let mut registry = MetrologyRegistry::new();
     registry.register_instrument(receiver).unwrap();
 
@@ -2175,6 +2175,36 @@ fn out_of_service_equipment_blocks_every_execution_mode() {
     assert!(!report.is_ready());
     assert_eq!(report.issues()[0].kind(), EquipmentIssueKind::OutOfService);
     assert!(report.issues()[0].is_blocking());
+}
+
+#[test]
+fn reserved_equipment_remains_serviceable_for_readiness() {
+    let code = InstrumentCode::parse("RX-001").unwrap();
+    let mut receiver = reference_receiver(code.clone());
+    receiver.set_availability(InstrumentAvailability::Reserved);
+    let mut registry = MetrologyRegistry::new();
+    registry.register_instrument(receiver).unwrap();
+    registry
+        .record_calibration(
+            CalibrationRecord::new(
+                code.clone(),
+                "CERT-2026-001",
+                MetrologyDate::new(2026, 1, 1).unwrap(),
+                MetrologyDate::new(2027, 1, 1).unwrap(),
+                "Accredited Provider",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    let report = registry.assess_equipment_readiness(
+        &[code],
+        ExecutionMode::Accredited,
+        MetrologyDate::new(2026, 6, 27).unwrap(),
+    );
+
+    assert!(report.is_ready());
+    assert!(report.issues().is_empty());
 }
 
 #[test]

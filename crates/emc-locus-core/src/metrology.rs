@@ -125,6 +125,14 @@ pub enum InstrumentAvailability {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstrumentServiceability {
+    Usable,
+    Restricted,
+    OutOfService,
+    Retired,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CalibrationRequirement {
     Required,
     Conditional,
@@ -148,6 +156,7 @@ pub struct InstrumentRecord {
     model: String,
     serial_number: String,
     availability: InstrumentAvailability,
+    serviceability: InstrumentServiceability,
     calibration_requirement: CalibrationRequirement,
 }
 
@@ -173,6 +182,7 @@ impl InstrumentRecord {
             model,
             serial_number,
             availability: InstrumentAvailability::Available,
+            serviceability: InstrumentServiceability::Usable,
             calibration_requirement,
         })
     }
@@ -201,12 +211,20 @@ impl InstrumentRecord {
         self.availability
     }
 
+    pub fn serviceability(&self) -> InstrumentServiceability {
+        self.serviceability
+    }
+
     pub fn calibration_requirement(&self) -> CalibrationRequirement {
         self.calibration_requirement
     }
 
     pub fn set_availability(&mut self, availability: InstrumentAvailability) {
         self.availability = availability;
+    }
+
+    pub fn set_serviceability(&mut self, serviceability: InstrumentServiceability) {
+        self.serviceability = serviceability;
     }
 }
 
@@ -455,7 +473,10 @@ impl MetrologyRegistry {
                 continue;
             };
 
-            if instrument.availability() == InstrumentAvailability::OutOfService {
+            if matches!(
+                instrument.serviceability(),
+                InstrumentServiceability::OutOfService | InstrumentServiceability::Retired
+            ) {
                 issues.push(EquipmentIssue::new(
                     requested.clone(),
                     EquipmentIssueKind::OutOfService,

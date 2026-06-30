@@ -19,7 +19,8 @@ RUNTIME_COLUMNS = (
 INSTRUMENT_COLUMNS = (
     "Actif",
     "Famille",
-    "Etat",
+    "Service",
+    "Planning",
     "Certificat",
     "Validite",
     "Alerte",
@@ -291,6 +292,20 @@ def build_operator_form_specs(
                     required=True,
                     choices=instrument_categories,
                 ),
+                FormFieldSpec(
+                    "serviceability_status",
+                    "Service",
+                    "choice",
+                    required=True,
+                    default="usable",
+                    choices=(
+                        ("usable", "Utilisable"),
+                        ("restricted", "Restreint"),
+                        ("out_of_service", "Hors service"),
+                        ("retired", "Retire"),
+                    ),
+                ),
+                FormFieldSpec("serviceability_reason", "Raison service", "multiline"),
                 FormFieldSpec("part_number", "Part number", "text"),
                 FormFieldSpec("calibration_period_months", "Periodicite mois", "text"),
                 FormFieldSpec("certificate_reference", "Certificat", "text"),
@@ -299,6 +314,40 @@ def build_operator_form_specs(
                 FormFieldSpec("file_reference", "Fichier certificat", "text"),
                 FormFieldSpec("capabilities_json", "Capacites JSON", "multiline", default="[]"),
                 FormFieldSpec("metrology_notes", "Notes", "multiline"),
+            ),
+        ),
+        OperatorFormSpec(
+            action_id="set_instrument_serviceability",
+            title="Etat de service",
+            submit_label="Mettre a jour",
+            enabled=has_metrology and bool(instruments),
+            disabled_reason=_disabled_reason(
+                has_metrology,
+                bool(instruments),
+                "Depot metrologie requis",
+                "Aucun instrument disponible",
+            ),
+            fields=(
+                FormFieldSpec(
+                    "asset_id",
+                    "Materiel",
+                    "choice",
+                    required=True,
+                    choices=instruments,
+                ),
+                FormFieldSpec(
+                    "serviceability_status",
+                    "Service",
+                    "choice",
+                    required=True,
+                    choices=(
+                        ("usable", "Utilisable"),
+                        ("restricted", "Restreint"),
+                        ("out_of_service", "Hors service"),
+                        ("retired", "Retire"),
+                    ),
+                ),
+                FormFieldSpec("serviceability_reason", "Raison", "multiline"),
             ),
         ),
         OperatorFormSpec(
@@ -609,7 +658,7 @@ def _status_metrics(bootstrap: dict[str, Any]) -> tuple[StatusMetric, ...]:
     updates = _list_rows(bootstrap.get("updates"), 5)
 
     active_projects = sum(1 for row in projects if row[2] != "Archived")
-    instrument_alerts = sum(1 for row in instruments if row[5] in {"warn", "danger"})
+    instrument_alerts = sum(1 for row in instruments if row[6] in {"warn", "danger"})
     runtime_failures = sum(1 for row in runtime if row[3].lower() in {"echec", "failed"})
     max_runtime_attempts = max((_positive_int(row[7]) for row in runtime), default=0)
     retained_datasets = sum(1 for row in datasets if row[4] in {"Immutable", "retained"})

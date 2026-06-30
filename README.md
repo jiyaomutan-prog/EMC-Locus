@@ -79,7 +79,13 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.6.0`.
+Current software version: `0.6.1`.
+
+Version `0.6.1` starts the metrology vertical-slice hardening by separating
+instrument serviceability from the legacy availability/reservation field. Legacy
+`reserved` instruments remain serviceable by default, out-of-service assets map
+to a dedicated service state, and both the Qt/Python surface and static GUI show
+service state separately from planning availability.
 
 Version `0.5.0` delivers the first agent-backed project vertical slice:
 initialized local project storage, loopback API, project creation,

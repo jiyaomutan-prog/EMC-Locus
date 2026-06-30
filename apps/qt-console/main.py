@@ -30,6 +30,7 @@ from emc_locus.gui_actions import (
     create_test_category,
     register_metrology_instrument,
     schedule_service_item,
+    set_metrology_instrument_serviceability,
 )
 from emc_locus.local_agent_client import LocalAgentClient, LocalAgentError
 from emc_locus.qt_console_models import (
@@ -510,6 +511,8 @@ def _execute_form_action(
             model=values["model"],
             serial_number=values["serial_number"],
             category_code=values["category_code"],
+            serviceability_status=values["serviceability_status"],
+            serviceability_reason=values["serviceability_reason"],
             part_number=_optional(values["part_number"]),
             calibration_period_months=_optional_int(
                 values["calibration_period_months"],
@@ -573,6 +576,16 @@ def _execute_form_action(
             checksum=_optional(values["checksum"]),
             revision=_optional(values["revision"]),
             applies_to_function=_optional(values["applies_to_function"]),
+        )
+        return
+
+    if action_id == "set_instrument_serviceability":
+        set_metrology_instrument_serviceability(
+            metrology_db=_required_path(args.metrology_db, "metrology"),
+            migrations_root=args.migrations_root,
+            asset_id=values["asset_id"],
+            serviceability_status=values["serviceability_status"],
+            serviceability_reason=values["serviceability_reason"],
         )
         return
 

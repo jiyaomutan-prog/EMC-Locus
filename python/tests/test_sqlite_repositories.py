@@ -29,6 +29,7 @@ from emc_locus import (
     schedule_service_item,
     set_metrology_instrument_capabilities,
     set_metrology_instrument_availability,
+    set_metrology_instrument_serviceability,
     write_bootstrap_js,
 )
 
@@ -582,7 +583,7 @@ class MetrologyRepositoryTests(unittest.TestCase):
                         encoding="utf-8"
                     )
                 )
-                connection.execute(
+                connection.executemany(
                     """
                     INSERT INTO instruments (
                         asset_id,
@@ -599,16 +600,42 @@ class MetrologyRepositoryTests(unittest.TestCase):
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        "LEGACY-001",
-                        "Receiver",
-                        "Legacy",
-                        "Model",
-                        "SN-001",
-                        "available",
-                        "required",
-                        "[]",
-                        "1970-01-01T00:00:00Z",
-                        "1970-01-01T00:00:00Z",
+                        (
+                            "LEGACY-001",
+                            "Receiver",
+                            "Legacy",
+                            "Model",
+                            "SN-001",
+                            "available",
+                            "required",
+                            "[]",
+                            "1970-01-01T00:00:00Z",
+                            "1970-01-01T00:00:00Z",
+                        ),
+                        (
+                            "LEGACY-RES",
+                            "Receiver",
+                            "Legacy",
+                            "Model",
+                            "SN-RES",
+                            "reserved",
+                            "required",
+                            "[]",
+                            "1970-01-01T00:00:00Z",
+                            "1970-01-01T00:00:00Z",
+                        ),
+                        (
+                            "LEGACY-OOS",
+                            "Receiver",
+                            "Legacy",
+                            "Model",
+                            "SN-OOS",
+                            "out_of_service",
+                            "required",
+                            "[]",
+                            "1970-01-01T00:00:00Z",
+                            "1970-01-01T00:00:00Z",
+                        ),
                     ),
                 )
                 connection.commit()
@@ -626,12 +653,34 @@ class MetrologyRepositoryTests(unittest.TestCase):
                     "PRAGMA table_info(instruments)"
                 ).fetchall()
 
-            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3])
+            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4])
             self.assertIn("category_code", {row["name"] for row in instrument_columns})
             self.assertIn("part_number", {row["name"] for row in instrument_columns})
             self.assertIn("calibration_period_months", {row["name"] for row in instrument_columns})
+            self.assertIn("serviceability_status", {row["name"] for row in instrument_columns})
+            self.assertIn("legacy_availability", {row["name"] for row in instrument_columns})
             self.assertEqual(repository.category_count(), 34)
             self.assertIsNone(repository.get_instrument("LEGACY-001")["category_code"])
+            self.assertEqual(
+                repository.get_instrument("LEGACY-001")["serviceability_status"],
+                "usable",
+            )
+            self.assertEqual(
+                repository.get_instrument("LEGACY-RES")["legacy_availability"],
+                "reserved",
+            )
+            self.assertEqual(
+                repository.get_instrument("LEGACY-RES")["serviceability_status"],
+                "usable",
+            )
+            self.assertIn(
+                "legacy reservation",
+                repository.get_instrument("LEGACY-RES")["serviceability_reason"],
+            )
+            self.assertEqual(
+                repository.get_instrument("LEGACY-OOS")["serviceability_status"],
+                "out_of_service",
+            )
 
 
 class GuiBootstrapTests(unittest.TestCase):
@@ -768,13 +817,15 @@ class GuiBootstrapTests(unittest.TestCase):
             self.assertEqual(payload["contract_review_items"][0][1], "requirements_reviewed")
             self.assertEqual(payload["contract_review_items"][0][2], "yes")
             self.assertEqual(payload["instruments"][0][0], "DAQ-001")
-            self.assertEqual(payload["instruments"][0][5], "ok")
-            self.assertEqual(payload["instruments"][0][6], "DAQ chassis and modules")
-            self.assertEqual(payload["instruments"][0][7], "channels=8")
-            self.assertEqual(payload["instruments"][0][11], "ODAQ-8")
-            self.assertEqual(payload["instruments"][0][12], "2026-01-01")
-            self.assertEqual(payload["instruments"][0][13], "12")
-            self.assertEqual(payload["instruments"][0][14], "1")
+            self.assertEqual(payload["instruments"][0][2], "Usable")
+            self.assertEqual(payload["instruments"][0][3], "Available")
+            self.assertEqual(payload["instruments"][0][6], "ok")
+            self.assertEqual(payload["instruments"][0][7], "DAQ chassis and modules")
+            self.assertEqual(payload["instruments"][0][8], "channels=8")
+            self.assertEqual(payload["instruments"][0][12], "ODAQ-8")
+            self.assertEqual(payload["instruments"][0][13], "2026-01-01")
+            self.assertEqual(payload["instruments"][0][14], "12")
+            self.assertEqual(payload["instruments"][0][15], "1")
             self.assertEqual(payload["instrument_documents"][0][2], "DAQ setup script")
             self.assertEqual(payload["schedule"][0][0], "PLAN-BOOT-001")
             self.assertIn(
@@ -1111,9 +1162,11 @@ class GuiActionTests(unittest.TestCase):
             self.assertEqual(result["part_number"], "ESW44")
             self.assertEqual(result["calibration_period_months"], 12)
             self.assertEqual(result["calibration_requirement"], "required")
+            self.assertEqual(result["serviceability_status"], "usable")
             self.assertTrue(result["calibration_recorded"])
             self.assertEqual(instrument["category_code"], "emi_receiver")
             self.assertEqual(instrument["part_number"], "ESW44")
+            self.assertEqual(instrument["serviceability_status"], "usable")
             self.assertEqual(instrument["calibration_period_months"], 12)
             self.assertEqual(calibration["certificate_reference"], "CERT-RX-001")
             self.assertEqual(calibration["due_at"], "2027-06-01")
@@ -1271,11 +1324,58 @@ class GuiActionTests(unittest.TestCase):
             bootstrap_text = bootstrap_output.read_text()
 
             self.assertEqual(result["previous_availability"], "available")
+            self.assertEqual(result["previous_serviceability_status"], "usable")
             self.assertEqual(result["new_availability"], "out_of_service")
+            self.assertEqual(result["new_serviceability_status"], "out_of_service")
             self.assertEqual(instrument["availability"], "out_of_service")
+            self.assertEqual(instrument["serviceability_status"], "out_of_service")
             self.assertIn("AMP-STATUS-001", bootstrap_text)
             self.assertIn("Out of service", bootstrap_text)
             self.assertIn("danger", bootstrap_text)
+
+    def test_set_metrology_instrument_serviceability_updates_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            base = Path(temporary_directory)
+            metrology_db = base / "metrology.sqlite"
+            bootstrap_output = base / "bootstrap.js"
+
+            register_metrology_instrument(
+                metrology_db=metrology_db,
+                asset_id="SA-SERVICE-001",
+                family="Spectrum analyzer",
+                manufacturer="RF Bench",
+                model="SA",
+                serial_number="SERVICE-001",
+                category_code="spectrum_analyzer",
+                calibration_period_months=12,
+                certificate_reference="CERT-SA-SERVICE-001",
+                calibrated_at="2026-06-30",
+                provider="Metrology Lab",
+            )
+
+            result = set_metrology_instrument_serviceability(
+                metrology_db=metrology_db,
+                asset_id="SA-SERVICE-001",
+                serviceability_status="restricted",
+                serviceability_reason="Input attenuator under investigation",
+                bootstrap_output=bootstrap_output,
+            )
+
+            repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
+            instrument = repository.get_instrument("SA-SERVICE-001")
+            bootstrap_text = bootstrap_output.read_text()
+
+            self.assertEqual(result["previous_serviceability_status"], "usable")
+            self.assertEqual(result["new_serviceability_status"], "restricted")
+            self.assertEqual(instrument["availability"], "available")
+            self.assertEqual(instrument["serviceability_status"], "restricted")
+            self.assertEqual(
+                instrument["serviceability_reason"],
+                "Input attenuator under investigation",
+            )
+            self.assertIn("SA-SERVICE-001", bootstrap_text)
+            self.assertIn("Restricted", bootstrap_text)
+            self.assertIn("warn", bootstrap_text)
 
     def test_set_metrology_instrument_availability_rejects_invalid_requests(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

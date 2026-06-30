@@ -8,6 +8,28 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-06-30
+
+### Added
+
+- Added a non-destructive metrology migration for instrument
+  `serviceability_status`, `serviceability_reason`,
+  `serviceability_updated_at`, and `legacy_availability`, preserving the legacy
+  `availability` column while converting `reserved` to serviceable by default.
+- Added Rust `InstrumentServiceability` and updated equipment readiness so
+  serviceability, not planning reservation, drives out-of-service blocking.
+- Added Python and Qt action support for setting instrument serviceability, plus
+  GUI/bootstrap columns that show service state separately from planning
+  availability.
+
+### Changed
+
+- Legacy `set-instrument-availability` remains available, but now synchronizes
+  serviceability through a compatibility path so older out-of-service actions
+  keep their safety effect.
+- Static GUI fallback data and metrology tables now use the same service/planning
+  instrument row contract as the Qt console.
+
 ### Fixed
 
 - Processing graph execution records now reject result artifacts produced from a

@@ -134,7 +134,22 @@ The GUI bootstrap displays the latest calibration record for each instrument,
 while older calibration rows remain in the metrology database for history and
 audit review.
 
-The operational status can be changed without modifying calibration history:
+The operational service state can be changed without modifying calibration
+history:
+
+```text
+$env:PYTHONPATH='python'
+python -m emc_locus.actions_cli set-instrument-serviceability `
+  --metrology-db local/metrology.sqlite `
+  --asset-id RX-001 `
+  --serviceability-status out_of_service `
+  --serviceability-reason "Damaged input connector" `
+  --bootstrap-output apps/gui-shell/bootstrap.js
+```
+
+The older availability command remains available for compatibility, but
+`reserved` is treated as planning history rather than metrological
+unavailability:
 
 ```text
 $env:PYTHONPATH='python'
@@ -145,8 +160,9 @@ python -m emc_locus.actions_cli set-instrument-availability `
   --bootstrap-output apps/gui-shell/bootstrap.js
 ```
 
-Allowed status values are `available`, `reserved`, and `out_of_service`.
-Out-of-service instruments remain blocking in readiness checks.
+Allowed legacy availability values are `available`, `reserved`, and
+`out_of_service`. Out-of-service instruments remain blocking in readiness checks
+through the new serviceability state.
 
 Instrument capabilities can be updated as controlled JSON. Typical content is
 category-specific: RF range, channel count, supported transports, sensor type,

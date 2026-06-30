@@ -16,6 +16,7 @@ from .gui_actions import (
     schedule_service_item,
     set_metrology_instrument_capabilities,
     set_metrology_instrument_availability,
+    set_metrology_instrument_serviceability,
 )
 from .gui_bootstrap import build_bootstrap, build_fixture_bootstrap, write_bootstrap_js
 from .local_agent_client import LocalAgentClient, LocalAgentError, generate_operation_id
@@ -84,6 +85,7 @@ __all__ = [
     "schedule_service_item",
     "set_metrology_instrument_capabilities",
     "set_metrology_instrument_availability",
+    "set_metrology_instrument_serviceability",
     "validate_sqlite_migrations",
     "write_bootstrap_js",
 ]

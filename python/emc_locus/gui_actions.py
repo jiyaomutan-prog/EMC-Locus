@@ -12,12 +12,14 @@ from typing import Any
 from .gui_bootstrap import build_bootstrap, write_bootstrap_js
 from .local_agent_client import LocalAgentClient
 from .sqlite_repositories import (
+    INSTRUMENT_SERVICEABILITY_STATUSES,
     MeasurementDataRepository,
     MetrologyRepository,
     ProjectRepository,
     TestDefinitionRepository,
     UpdateCatalogRepository,
     require_non_empty,
+    serviceability_from_legacy_availability,
 )
 
 
@@ -299,6 +301,8 @@ def register_metrology_instrument(
     category_code: str,
     calibration_requirement: str | None = None,
     availability: str = "available",
+    serviceability_status: str | None = None,
+    serviceability_reason: str | None = "",
     capabilities_json: str = "[]",
     part_number: str | None = None,
     calibration_period_months: int | None = None,
@@ -327,6 +331,17 @@ def register_metrology_instrument(
     serial_number = require_non_empty(serial_number, "serial_number")
     category_code = require_non_empty(category_code, "category_code")
     availability = require_non_empty(availability, "availability")
+    if availability not in INSTRUMENT_AVAILABILITY_STATUSES:
+        raise ValueError(f"unknown instrument availability: {availability}")
+    if serviceability_status is None:
+        serviceability_status = serviceability_from_legacy_availability(availability)
+    serviceability_status = require_non_empty(
+        serviceability_status,
+        "serviceability_status",
+    )
+    if serviceability_status not in INSTRUMENT_SERVICEABILITY_STATUSES:
+        raise ValueError(f"unknown instrument serviceability: {serviceability_status}")
+    serviceability_reason = serviceability_reason or ""
     capabilities_json = _normalized_json(capabilities_json, "capabilities_json")
     uncertainty_json = _normalized_json(uncertainty_json, "uncertainty_json")
     calibration_period_months = _positive_optional_int(
@@ -376,6 +391,8 @@ def register_metrology_instrument(
         serial_number=serial_number,
         calibration_requirement=calibration_requirement,
         availability=availability,
+        serviceability_status=serviceability_status,
+        serviceability_reason=serviceability_reason,
         capabilities_json=capabilities_json,
         category_code=category_code,
         part_number=part_number,
@@ -410,6 +427,7 @@ def register_metrology_instrument(
         "part_number": part_number,
         "calibration_period_months": calibration_period_months,
         "calibration_requirement": calibration_requirement,
+        "serviceability_status": serviceability_status,
         "calibration_recorded": latest_calibration is not None,
         "certificate_reference": (
             str(latest_calibration["certificate_reference"])
@@ -697,7 +715,7 @@ def set_metrology_instrument_availability(
     measurement_data_db: Path | str | None = None,
     update_catalog_db: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Set the operational availability of an existing metrology asset."""
+    """Set the legacy availability of an existing metrology asset."""
 
     asset_id = require_non_empty(asset_id, "asset_id")
     availability = require_non_empty(availability, "availability")
@@ -731,7 +749,66 @@ def set_metrology_instrument_availability(
     return {
         "asset_id": asset_id,
         "previous_availability": str(before["availability"]),
+        "previous_serviceability_status": str(before["serviceability_status"]),
         "new_availability": availability,
+        "new_serviceability_status": serviceability_from_legacy_availability(availability),
+    }
+
+
+def set_metrology_instrument_serviceability(
+    *,
+    metrology_db: Path | str,
+    asset_id: str,
+    serviceability_status: str,
+    serviceability_reason: str | None = "",
+    migrations_root: Path | str = Path("storage/sqlite"),
+    bootstrap_output: Path | str | None = None,
+    projects_db: Path | str | None = None,
+    test_definitions_db: Path | str | None = None,
+    measurement_data_db: Path | str | None = None,
+    update_catalog_db: Path | str | None = None,
+) -> dict[str, Any]:
+    """Set the serviceability state that drives metrology readiness."""
+
+    asset_id = require_non_empty(asset_id, "asset_id")
+    serviceability_status = require_non_empty(
+        serviceability_status,
+        "serviceability_status",
+    )
+    if serviceability_status not in INSTRUMENT_SERVICEABILITY_STATUSES:
+        raise ValueError(f"unknown instrument serviceability: {serviceability_status}")
+    serviceability_reason = serviceability_reason or ""
+
+    repository = MetrologyRepository(Path(metrology_db), Path(migrations_root))
+    repository.initialize()
+    before = repository.get_instrument(asset_id)
+    if before is None:
+        raise ValueError("instrument does not exist")
+
+    updated = repository.update_instrument_serviceability(
+        asset_id=asset_id,
+        serviceability_status=serviceability_status,
+        serviceability_reason=serviceability_reason,
+    )
+    if not updated:
+        raise ValueError("instrument does not exist")
+
+    if bootstrap_output is not None:
+        refresh_bootstrap(
+            output=bootstrap_output,
+            migrations_root=migrations_root,
+            projects_db=projects_db,
+            metrology_db=metrology_db,
+            test_definitions_db=test_definitions_db,
+            measurement_data_db=measurement_data_db,
+            update_catalog_db=update_catalog_db,
+        )
+
+    return {
+        "asset_id": asset_id,
+        "previous_serviceability_status": str(before["serviceability_status"]),
+        "new_serviceability_status": serviceability_status,
+        "serviceability_reason": serviceability_reason,
     }
 
 
@@ -1156,6 +1233,11 @@ def main(argv: list[str] | None = None) -> int:
     register_parser.add_argument("--category-code", required=True)
     register_parser.add_argument("--calibration-requirement")
     register_parser.add_argument("--availability", default="available")
+    register_parser.add_argument(
+        "--serviceability-status",
+        choices=sorted(INSTRUMENT_SERVICEABILITY_STATUSES),
+    )
+    register_parser.add_argument("--serviceability-reason", default="")
     register_parser.add_argument("--capabilities-json", default="[]")
     register_parser.add_argument("--part-number")
     register_parser.add_argument("--calibration-period-months", type=int)
@@ -1211,6 +1293,18 @@ def main(argv: list[str] | None = None) -> int:
         choices=sorted(INSTRUMENT_AVAILABILITY_STATUSES),
     )
     availability_parser.add_argument("--bootstrap-output", type=Path)
+
+    serviceability_parser = subcommands.add_parser("set-instrument-serviceability")
+    _add_repository_args(serviceability_parser, include_metrology=False)
+    serviceability_parser.add_argument("--metrology-db", required=True, type=Path)
+    serviceability_parser.add_argument("--asset-id", required=True)
+    serviceability_parser.add_argument(
+        "--serviceability-status",
+        required=True,
+        choices=sorted(INSTRUMENT_SERVICEABILITY_STATUSES),
+    )
+    serviceability_parser.add_argument("--serviceability-reason", default="")
+    serviceability_parser.add_argument("--bootstrap-output", type=Path)
 
     capabilities_parser = subcommands.add_parser("set-instrument-capabilities")
     _add_repository_args(capabilities_parser, include_metrology=False)
@@ -1372,6 +1466,8 @@ def main(argv: list[str] | None = None) -> int:
             category_code=args.category_code,
             calibration_requirement=args.calibration_requirement,
             availability=args.availability,
+            serviceability_status=args.serviceability_status,
+            serviceability_reason=args.serviceability_reason,
             capabilities_json=args.capabilities_json,
             part_number=args.part_number,
             calibration_period_months=args.calibration_period_months,
@@ -1442,6 +1538,22 @@ def main(argv: list[str] | None = None) -> int:
             metrology_db=args.metrology_db,
             asset_id=args.asset_id,
             availability=args.availability,
+            migrations_root=args.migrations_root,
+            bootstrap_output=args.bootstrap_output,
+            projects_db=args.projects_db,
+            test_definitions_db=args.test_definitions_db,
+            measurement_data_db=args.measurement_data_db,
+            update_catalog_db=args.update_catalog_db,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "set-instrument-serviceability":
+        result = set_metrology_instrument_serviceability(
+            metrology_db=args.metrology_db,
+            asset_id=args.asset_id,
+            serviceability_status=args.serviceability_status,
+            serviceability_reason=args.serviceability_reason,
             migrations_root=args.migrations_root,
             bootstrap_output=args.bootstrap_output,
             projects_db=args.projects_db,
