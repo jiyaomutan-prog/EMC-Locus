@@ -127,6 +127,9 @@ Deliverables:
   instance;
 - failed processing graph executions are covered by the same persisted-artifact
   count invariant as completed executions;
+- Python measurement-data writes now reject processing graph result artifacts
+  whose output signal reference or raw-lineage JSON cannot be parsed as
+  controlled signal traceability evidence;
 - CEM time-domain test families such as railway harmonics, axle counters, and
   inrush measurements.
 

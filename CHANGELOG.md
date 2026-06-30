@@ -18,6 +18,9 @@ change should remain traceable through Git history, session logs, and this file.
   graph instance.
 - Failed processing graph executions are now covered by the same Python
   persisted-artifact count invariant as completed executions.
+- Python measurement-data writes for processing graph instance artifacts now
+  reject malformed output signal references and raw-lineage JSON before
+  persisting traceability evidence.
 
 ## [0.6.0] - 2026-06-29
 

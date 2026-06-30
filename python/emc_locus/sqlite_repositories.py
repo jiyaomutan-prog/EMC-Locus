@@ -34,6 +34,7 @@ PROCESSING_GRAPH_ARTIFACT_KINDS = {"processed_signal", "result_table"}
 PROCESSING_GRAPH_EXECUTION_STATUSES = {"completed", "failed"}
 SYNC_CHECKPOINT_DIRECTIONS = {"push", "pull", "bidirectional"}
 _PACKAGE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+_SIGNAL_REFERENCE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SOFTWARE_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 _SHA256_CHECKSUM = re.compile(r"^sha256:[0-9A-Fa-f]{64}$")
 
@@ -42,6 +43,27 @@ def utc_timestamp() -> str:
     """Return a compact UTC timestamp for deterministic storage columns."""
 
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _validate_signal_reference(value: str, *, field_name: str) -> None:
+    trimmed = value.strip()
+    if not trimmed or not _SIGNAL_REFERENCE.fullmatch(trimmed):
+        raise ValueError(f"invalid signal reference in {field_name}: {value}")
+
+
+def _validate_raw_lineage_json(raw_lineage_json: str) -> None:
+    try:
+        raw_lineage = json.loads(raw_lineage_json)
+    except json.JSONDecodeError as error:
+        raise ValueError("raw lineage must be valid JSON") from error
+
+    if not isinstance(raw_lineage, list):
+        raise ValueError("raw lineage must be a JSON array")
+
+    for signal_reference in raw_lineage:
+        if not isinstance(signal_reference, str):
+            raise ValueError("raw lineage entries must be signal references")
+        _validate_signal_reference(signal_reference, field_name="raw lineage")
 
 
 @dataclass(frozen=True)
@@ -1601,6 +1623,11 @@ class MeasurementDataRepository(SQLiteDomainRepository):
     ) -> int:
         if artifact_kind not in PROCESSING_GRAPH_ARTIFACT_KINDS:
             raise ValueError(f"invalid processing graph artifact kind: {artifact_kind}")
+        _validate_signal_reference(
+            output_signal_reference,
+            field_name="output signal reference",
+        )
+        _validate_raw_lineage_json(raw_lineage_json)
 
         with closing(self.connect()) as connection:
             with connection:

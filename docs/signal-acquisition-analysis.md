@@ -158,6 +158,8 @@ Implemented in the Rust core:
 18. Python measurement-data writes reject graph execution records whose output
     artifact count does not match the persisted artifacts for the same graph
     instance, including failed executions that produced no output artifacts.
+19. Python measurement-data writes reject processing graph result artifacts
+    whose output signal reference or raw-lineage JSON is malformed.
 
 Not yet implemented:
 

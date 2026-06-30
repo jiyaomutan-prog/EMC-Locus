@@ -411,6 +411,36 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                 )
 
             with self.assertRaises(ValueError):
+                repository.add_processing_graph_instance_artifact(
+                    processing_graph_instance_id=second_revision_id,
+                    output_signal_reference="current l1 fft",
+                    artifact_kind="processed_signal",
+                    file_reference="data/RUN-FFT-001/current-l1-fft.csv",
+                    checksum="sha256:invalidsignalref",
+                    raw_lineage_json='["current_l1"]',
+                )
+
+            with self.assertRaises(ValueError):
+                repository.add_processing_graph_instance_artifact(
+                    processing_graph_instance_id=second_revision_id,
+                    output_signal_reference="current_l1_fft_invalid_lineage",
+                    artifact_kind="processed_signal",
+                    file_reference="data/RUN-FFT-001/current-l1-fft-invalid.csv",
+                    checksum="sha256:invalidlineage",
+                    raw_lineage_json='{"source": "current_l1"}',
+                )
+
+            with self.assertRaises(ValueError):
+                repository.add_processing_graph_instance_artifact(
+                    processing_graph_instance_id=second_revision_id,
+                    output_signal_reference="current_l1_fft_invalid_signal",
+                    artifact_kind="processed_signal",
+                    file_reference="data/RUN-FFT-001/current-l1-fft-invalid-signal.csv",
+                    checksum="sha256:invalidlineagesignal",
+                    raw_lineage_json='["current l1"]',
+                )
+
+            with self.assertRaises(ValueError):
                 repository.add_processing_graph_execution(
                     processing_graph_instance_id=second_revision_id,
                     execution_reference="exec-fft-empty",
