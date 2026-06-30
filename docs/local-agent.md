@@ -22,13 +22,14 @@ This command is not the final service API. It is the first executable boundary
 that lets the project move Python and Qt workflows behind local Rust services
 one capability at a time.
 
-## Project Slice Storage Commands
+## Agent Storage Commands
 
-The first storage commands are scoped to the project vertical slice. They manage
-only:
+The first storage commands started with the project vertical slice and now also
+prepare the first metrology agent database. They manage:
 
 - `projects.sqlite`;
-- `sync.sqlite`.
+- `sync.sqlite`;
+- `metrology.sqlite`.
 
 Use an explicit storage root and migration root:
 
@@ -39,9 +40,9 @@ cargo run -q -p emc-locus-agent -- storage verify --storage-root data\agent --mi
 ```
 
 `storage init` creates the storage directory if needed and applies missing
-project/sync migrations. `storage status` reports whether the databases are
-missing, current, invalid, or need migration. `storage verify` fails when a
-database is not current or fails SQLite integrity checks.
+project, sync, and metrology migrations. `storage status` reports whether the
+databases are missing, current, invalid, or need migration. `storage verify`
+fails when a database is not current or fails SQLite integrity checks.
 
 For the project vertical slice, `projects.sqlite` and `sync.sqlite` stay as two
 files but must use rollback journal modes so attached-database commits remain
@@ -70,6 +71,22 @@ returns the stored result instead of duplicating project, audit, or outbox rows.
 The initial agent-created project stage defaults to `contract_review` so the
 vertical slice can exercise the contract-review gate and the transition to
 `test_planning`.
+
+## Metrology Registry Commands
+
+Version `0.6.3` adds the first agent-backed metrology registry commands. They
+operate on initialized `metrology.sqlite` storage:
+
+```text
+cargo run -q -p emc-locus-agent -- metrology register-instrument --storage-root data\agent --asset-id SA-001 --family receiver --category-code RF-SPECTRUM-ANALYZER --manufacturer Example --model SA9000 --serial-number SN-001 --part-number PN-SA9000 --calibration-requirement required --calibration-period-months 12 --serviceability-status usable --capabilities-json "{\"frequency_hz\":{\"min\":9000,\"max\":3000000000}}" --metrology-notes "Reference spectrum analyzer"
+cargo run -q -p emc-locus-agent -- metrology list-instruments --storage-root data\agent
+cargo run -q -p emc-locus-agent -- metrology get-instrument --storage-root data\agent --asset-id SA-001
+```
+
+The registry validates stable asset identifiers, required identity fields,
+calibration requirement, optional calibration period, serviceability state, and
+structured capabilities JSON. It does not yet write metrology audit or sync
+outbox rows; those are part of the later readiness vertical slice.
 
 The accredited review checklist uses the Rust core item slugs:
 
@@ -108,15 +125,24 @@ POST /api/v1/projects/{code}/contract-review/items/{item}/complete
 POST /api/v1/projects/{code}/transitions/to-test-planning
 GET  /api/v1/projects/{code}/audit-events
 GET  /api/v1/sync/outbox
+GET  /api/v1/metrology/instruments
+POST /api/v1/metrology/instruments
+GET  /api/v1/metrology/instruments/{asset_id}
 ```
 
-`GET /api/v1/storage/status` returns the project/sync storage status used by Qt
-to display connected, unavailable, storage-not-initialized, migration-required,
-and integrity-error states without opening SQLite directly.
+`GET /api/v1/storage/status` returns the project/sync/metrology storage status
+used by Qt to display connected, unavailable, storage-not-initialized,
+migration-required, and integrity-error states without opening SQLite directly.
 
 The API is intentionally local and narrow. It does not expose central
 synchronization, PostgreSQL, object storage, instrument control, or acquisition
 runtime features.
+
+For metrology, `POST /api/v1/metrology/instruments` accepts the same fields as
+the `metrology register-instrument` command, with `capabilities` accepted as a
+structured JSON object or array. `GET /api/v1/metrology/instruments` returns the
+registry list, and `GET /api/v1/metrology/instruments/{asset_id}` returns one
+instrument detail with its latest calibration summary when present.
 
 ## Python And Qt Client Path
 
@@ -151,4 +177,5 @@ thread remains responsive.
 
 The remaining Qt write forms for metrology, service planning, test categories,
 measurement data, updates, and runtime actions remain legacy direct SQLite until
-their own migration slices.
+their own migration slices. The metrology agent API exists from `0.6.3`, but Qt
+is migrated to it in a later dedicated tranche.

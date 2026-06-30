@@ -58,6 +58,8 @@ docs/
   signal-acquisition-analysis.md Time-domain DAQ and signal processing
   gui-technology.md    Qt desktop direction for the operator console
   local-agent.md       Rust local agent command surface and growth path
+  project-api.md       Local project API contract
+  metrology-api.md     Local metrology API contract
   session-logs/          Dated development session records
   competitive-analysis/  Public feature baselines and product positioning
   roadmap.md             Incremental delivery plan
@@ -79,7 +81,12 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.6.2`.
+Current software version: `0.6.3`.
+
+Version `0.6.3` makes the first instrument registry agent-backed: local storage
+initialization now creates `metrology.sqlite`, the Rust agent exposes metrology
+CLI actions, and the loopback API can register, list, and read instruments
+through `/api/v1/metrology/instruments`.
 
 Version `0.6.2` adds the first Rust metrology DTO and repository boundary:
 typed instrument/calibration DTOs, checked `metrology.sqlite` opening, service

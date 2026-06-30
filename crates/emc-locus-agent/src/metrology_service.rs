@@ -1,9 +1,29 @@
 use crate::metrology_dto::{instrument_dto, InstrumentEnvelopeDto, InstrumentListDto};
 use crate::metrology_repository::{
-    load_instrument, load_instruments, load_latest_calibration_record, open_metrology_connection,
+    insert_instrument, load_instrument, load_instruments, load_latest_calibration_record,
+    open_metrology_connection, NewInstrumentRecord,
 };
 use crate::{render_json, AgentError};
+use emc_locus_core::{DomainError, InstrumentCode};
 use std::path::Path;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RegisterInstrumentInput {
+    pub asset_id: String,
+    pub family: String,
+    pub category_code: String,
+    pub manufacturer: String,
+    pub model: String,
+    pub serial_number: String,
+    pub part_number: Option<String>,
+    pub calibration_requirement: String,
+    pub calibration_period_months: Option<u32>,
+    pub serviceability_status: String,
+    pub serviceability_reason: String,
+    pub capabilities_json: String,
+    pub metrology_notes: String,
+}
 
 pub fn list_metrology_instruments(storage_root: &Path) -> Result<String, AgentError> {
     let connection = open_metrology_connection(storage_root)?;
@@ -30,6 +50,112 @@ pub fn get_metrology_instrument(storage_root: &Path, asset_id: &str) -> Result<S
     Ok(render_json(&InstrumentEnvelopeDto {
         instrument: instrument_dto(&instrument, calibration.as_ref()),
     }))
+}
+
+pub fn register_metrology_instrument(
+    storage_root: &Path,
+    input: RegisterInstrumentInput,
+) -> Result<String, AgentError> {
+    let asset_id = InstrumentCode::parse(input.asset_id.clone()).map_err(domain_error)?;
+    require_non_empty(&input.family, "family")?;
+    require_non_empty(&input.category_code, "category_code")?;
+    require_non_empty(&input.manufacturer, "manufacturer")?;
+    require_non_empty(&input.model, "model")?;
+    require_non_empty(&input.serial_number, "serial_number")?;
+    validate_calibration_requirement(&input.calibration_requirement)?;
+    validate_serviceability_status(&input.serviceability_status)?;
+    validate_capabilities_json(&input.capabilities_json)?;
+    if input.calibration_period_months == Some(0) {
+        return Err(AgentError::new(
+            "invalid_metrology_instrument",
+            "calibration_period_months must be positive",
+        ));
+    }
+
+    let connection = open_metrology_connection(storage_root)?;
+    if load_instrument(&connection, asset_id.as_str())?.is_some() {
+        return Err(AgentError::new(
+            "metrology_instrument_already_exists",
+            format!("instrument already exists: {}", asset_id.as_str()),
+        ));
+    }
+    let now = utc_timestamp()?;
+    insert_instrument(
+        &connection,
+        NewInstrumentRecord {
+            asset_id: asset_id.as_str(),
+            family: input.family.trim(),
+            manufacturer: input.manufacturer.trim(),
+            model: input.model.trim(),
+            serial_number: input.serial_number.trim(),
+            category_code: input.category_code.trim(),
+            part_number: input
+                .part_number
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+            calibration_requirement: input.calibration_requirement.trim(),
+            calibration_period_months: input.calibration_period_months,
+            capabilities_json: input.capabilities_json.trim(),
+            metrology_notes: input.metrology_notes.trim(),
+            serviceability_status: input.serviceability_status.trim(),
+            serviceability_reason: input.serviceability_reason.trim(),
+            timestamp: &now,
+        },
+    )?;
+    get_metrology_instrument(storage_root, asset_id.as_str())
+}
+
+fn validate_calibration_requirement(value: &str) -> Result<(), AgentError> {
+    match value.trim() {
+        "required" | "conditional" | "not_required" => Ok(()),
+        other => Err(AgentError::new(
+            "invalid_metrology_instrument",
+            format!("unknown calibration requirement: {other}"),
+        )),
+    }
+}
+
+fn validate_serviceability_status(value: &str) -> Result<(), AgentError> {
+    match value.trim() {
+        "usable" | "restricted" | "out_of_service" | "retired" => Ok(()),
+        other => Err(AgentError::new(
+            "invalid_metrology_instrument",
+            format!("unknown serviceability status: {other}"),
+        )),
+    }
+}
+
+fn validate_capabilities_json(value: &str) -> Result<(), AgentError> {
+    let parsed = serde_json::from_str::<serde_json::Value>(value)
+        .map_err(|error| AgentError::new("invalid_metrology_instrument", error.to_string()))?;
+    if !(parsed.is_array() || parsed.is_object()) {
+        return Err(AgentError::new(
+            "invalid_metrology_instrument",
+            "capabilities_json must be a JSON object or array",
+        ));
+    }
+    Ok(())
+}
+
+fn require_non_empty(value: &str, field: &'static str) -> Result<(), AgentError> {
+    if value.trim().is_empty() {
+        return Err(AgentError::new(
+            "invalid_metrology_instrument",
+            format!("{field} is required"),
+        ));
+    }
+    Ok(())
+}
+
+fn utc_timestamp() -> Result<String, AgentError> {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .map_err(|error| AgentError::new("timestamp_format_failed", error.to_string()))
+}
+
+fn domain_error(error: DomainError) -> AgentError {
+    AgentError::new("domain_error", format!("{error:?}"))
 }
 
 #[cfg(test)]
@@ -67,6 +193,41 @@ mod tests {
             .starts_with("rev-"));
 
         drop(connection);
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn register_metrology_instrument_persists_agent_owned_asset() {
+        let storage_root = initialized_storage_root("metrology-service-register");
+
+        let value: Value = serde_json::from_str(
+            &register_metrology_instrument(
+                &storage_root,
+                RegisterInstrumentInput {
+                    asset_id: "SA-REG-001".to_owned(),
+                    family: "SpectrumAnalyzer".to_owned(),
+                    category_code: "spectrum_analyzer".to_owned(),
+                    manufacturer: "Rohde Schwarz".to_owned(),
+                    model: "FSW".to_owned(),
+                    serial_number: "REG-001".to_owned(),
+                    part_number: Some("FSW44".to_owned()),
+                    calibration_requirement: "required".to_owned(),
+                    calibration_period_months: Some(12),
+                    serviceability_status: "usable".to_owned(),
+                    serviceability_reason: String::new(),
+                    capabilities_json: "{\"frequency_max_hz\":44000000000}".to_owned(),
+                    metrology_notes: "Agent registration".to_owned(),
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(value["instrument"]["asset_id"], "SA-REG-001");
+        assert_eq!(value["instrument"]["category_code"], "spectrum_analyzer");
+        assert_eq!(value["instrument"]["part_number"], "FSW44");
+        assert_eq!(value["instrument"]["serviceability_status"], "usable");
+        assert_eq!(value["instrument"]["latest_calibration"], Value::Null);
         remove_temporary_storage_root(&storage_root);
     }
 

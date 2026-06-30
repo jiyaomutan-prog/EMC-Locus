@@ -41,6 +41,23 @@ pub struct StoredCalibrationRecord {
     pub created_at: String,
 }
 
+pub struct NewInstrumentRecord<'a> {
+    pub asset_id: &'a str,
+    pub family: &'a str,
+    pub manufacturer: &'a str,
+    pub model: &'a str,
+    pub serial_number: &'a str,
+    pub category_code: &'a str,
+    pub part_number: Option<&'a str>,
+    pub calibration_requirement: &'a str,
+    pub calibration_period_months: Option<u32>,
+    pub capabilities_json: &'a str,
+    pub metrology_notes: &'a str,
+    pub serviceability_status: &'a str,
+    pub serviceability_reason: &'a str,
+    pub timestamp: &'a str,
+}
+
 pub fn open_metrology_connection(storage_root: &Path) -> Result<Connection, AgentError> {
     let database = storage_root.join("metrology.sqlite");
     if !database.exists() {
@@ -220,6 +237,40 @@ pub fn load_latest_calibration_record(
         )
         .optional()
         .map_err(|error| AgentError::new("metrology_calibration_query_failed", error.to_string()))
+}
+
+pub fn insert_instrument(
+    connection: &Connection,
+    input: NewInstrumentRecord<'_>,
+) -> Result<(), AgentError> {
+    connection
+        .execute(
+            concat!(
+                "INSERT INTO instruments (asset_id, family, manufacturer, model, serial_number, ",
+                "availability, calibration_requirement, capabilities_json, category_code, ",
+                "part_number, calibration_period_months, metrology_notes, serviceability_status, ",
+                "serviceability_reason, serviceability_updated_at, legacy_availability, created_at, updated_at) ",
+                "VALUES (?1, ?2, ?3, ?4, ?5, 'available', ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 'available', ?14, ?14)"
+            ),
+            params![
+                input.asset_id,
+                input.family,
+                input.manufacturer,
+                input.model,
+                input.serial_number,
+                input.calibration_requirement,
+                input.capabilities_json,
+                input.category_code,
+                input.part_number,
+                input.calibration_period_months,
+                input.metrology_notes,
+                input.serviceability_status,
+                input.serviceability_reason,
+                input.timestamp,
+            ],
+        )
+        .map_err(|error| AgentError::new("metrology_instrument_write_failed", error.to_string()))?;
+    Ok(())
 }
 
 fn revision_for(entity_type: &str, entity_id: &str, updated_at: &str) -> String {

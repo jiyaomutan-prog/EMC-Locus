@@ -8,6 +8,28 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-06-30
+
+### Added
+
+- Added Rust metrology agent actions for registering, listing, and reading
+  instruments through the same command-dispatch pattern used by the project
+  slice.
+- Added loopback API routes for `GET/POST /api/v1/metrology/instruments` and
+  `GET /api/v1/metrology/instruments/{asset_id}`.
+- Added agent-backed instrument registration validation for stable asset ids,
+  required fields, calibration requirement, serviceability state, and structured
+  capabilities JSON.
+- Added `docs/metrology-api.md` and updated local-agent documentation for the
+  first metrology routes and storage lifecycle.
+
+### Changed
+
+- `storage init/status/verify` now includes `metrology.sqlite` alongside the
+  project/sync databases so the first metrology API routes work after a normal
+  local storage initialization.
+- Bumped the synchronized Rust/Python software version to `0.6.3`.
+
 ## [0.6.2] - 2026-06-30
 
 ### Added

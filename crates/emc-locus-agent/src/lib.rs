@@ -1,4 +1,5 @@
 mod local_api;
+mod metrology_agent;
 mod metrology_dto;
 mod metrology_repository;
 mod metrology_service;
@@ -10,7 +11,9 @@ mod sqlite_policy;
 
 use emc_locus_core::{baseline_repository_domains, RepositoryDomain};
 pub use local_api::{run_local_api_server, ApiServerConfig};
+pub use metrology_agent::{run_metrology_command, MetrologyAction};
 pub use metrology_service::{get_metrology_instrument, list_metrology_instruments};
+pub use metrology_service::{register_metrology_instrument, RegisterInstrumentInput};
 pub use project_agent::{run_project_command, run_sync_command, ProjectAction, SyncAction};
 use rusqlite::Connection;
 use serde::Serialize;
@@ -36,6 +39,10 @@ pub enum AgentCommand {
     },
     Projects {
         action: ProjectAction,
+        storage_root: PathBuf,
+    },
+    Metrology {
+        action: MetrologyAction,
         storage_root: PathBuf,
     },
     Sync {
@@ -277,6 +284,9 @@ where
     if command == "projects" {
         return project_agent::parse_project_args(args);
     }
+    if command == "metrology" {
+        return metrology_agent::parse_metrology_args(args);
+    }
     if command == "sync" {
         return project_agent::parse_sync_args(args);
     }
@@ -452,7 +462,7 @@ struct StorageDomainSpec {
     migration_folder: &'static str,
 }
 
-fn project_slice_domains() -> [StorageDomainSpec; 2] {
+fn project_slice_domains() -> [StorageDomainSpec; 3] {
     [
         StorageDomainSpec {
             domain: "projects",
@@ -463,6 +473,11 @@ fn project_slice_domains() -> [StorageDomainSpec; 2] {
             domain: "sync",
             database_file: "sync.sqlite",
             migration_folder: "sync",
+        },
+        StorageDomainSpec {
+            domain: "metrology",
+            database_file: "metrology.sqlite",
+            migration_folder: "metrology",
         },
     ]
 }
@@ -769,9 +784,10 @@ mod tests {
         let second_report =
             run_storage_action(StorageAction::Init, storage_root.clone(), migrations_root).unwrap();
 
-        assert_eq!(report.domains.len(), 2);
+        assert_eq!(report.domains.len(), 3);
         assert!(storage_root.join("projects.sqlite").exists());
         assert!(storage_root.join("sync.sqlite").exists());
+        assert!(storage_root.join("metrology.sqlite").exists());
         assert!(report
             .domains
             .iter()
@@ -788,6 +804,15 @@ mod tests {
                 .unwrap()
                 .schema_version,
             Some(2)
+        );
+        assert_eq!(
+            second_report
+                .domains
+                .iter()
+                .find(|domain| domain.domain == "metrology")
+                .unwrap()
+                .schema_version,
+            Some(4)
         );
 
         remove_temporary_storage_root(&storage_root);

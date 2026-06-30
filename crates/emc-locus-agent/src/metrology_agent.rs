@@ -1,0 +1,201 @@
+use super::{AgentCommand, AgentError};
+use crate::metrology_service::{register_metrology_instrument, RegisterInstrumentInput};
+use crate::{get_metrology_instrument, list_metrology_instruments};
+use std::{collections::BTreeMap, path::PathBuf};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MetrologyAction {
+    Register(Box<RegisterInstrumentInput>),
+    List,
+    Get { asset_id: String },
+}
+
+pub(crate) fn parse_metrology_args<I>(mut args: I) -> Result<AgentCommand, AgentError>
+where
+    I: Iterator<Item = String>,
+{
+    let action = args
+        .next()
+        .ok_or_else(|| AgentError::new("missing_metrology_action", "missing metrology action"))?;
+    let mut flags = parse_flags(args)?;
+    let storage_root = required_path(&mut flags, "--storage-root")?;
+    let action = match action.as_str() {
+        "register-instrument" => MetrologyAction::Register(Box::new(RegisterInstrumentInput {
+            asset_id: required_value(&mut flags, "--asset-id")?,
+            family: required_value(&mut flags, "--family")?,
+            category_code: required_value(&mut flags, "--category-code")?,
+            manufacturer: required_value(&mut flags, "--manufacturer")?,
+            model: required_value(&mut flags, "--model")?,
+            serial_number: required_value(&mut flags, "--serial-number")?,
+            part_number: optional_value(&mut flags, "--part-number"),
+            calibration_requirement: required_value(&mut flags, "--calibration-requirement")?,
+            calibration_period_months: optional_u32(&mut flags, "--calibration-period-months")?,
+            serviceability_status: optional_value(&mut flags, "--serviceability-status")
+                .unwrap_or_else(|| "usable".to_owned()),
+            serviceability_reason: optional_value(&mut flags, "--serviceability-reason")
+                .unwrap_or_default(),
+            capabilities_json: optional_value(&mut flags, "--capabilities-json")
+                .unwrap_or_else(|| "[]".to_owned()),
+            metrology_notes: optional_value(&mut flags, "--metrology-notes").unwrap_or_default(),
+        })),
+        "list-instruments" => MetrologyAction::List,
+        "get-instrument" => MetrologyAction::Get {
+            asset_id: required_value(&mut flags, "--asset-id")?,
+        },
+        other => {
+            return Err(AgentError::new(
+                "unknown_metrology_action",
+                format!("unknown metrology action: {other}"),
+            ))
+        }
+    };
+    ensure_no_unknown_flags(flags)?;
+
+    Ok(AgentCommand::Metrology {
+        action,
+        storage_root,
+    })
+}
+
+pub fn run_metrology_command(command: AgentCommand) -> Result<String, AgentError> {
+    match command {
+        AgentCommand::Metrology {
+            action,
+            storage_root,
+        } => match action {
+            MetrologyAction::Register(input) => {
+                register_metrology_instrument(&storage_root, *input)
+            }
+            MetrologyAction::List => list_metrology_instruments(&storage_root),
+            MetrologyAction::Get { asset_id } => get_metrology_instrument(&storage_root, &asset_id),
+        },
+        _ => Err(AgentError::new(
+            "invalid_metrology_command",
+            "expected a metrology command",
+        )),
+    }
+}
+
+fn parse_flags<I>(args: I) -> Result<BTreeMap<String, String>, AgentError>
+where
+    I: Iterator<Item = String>,
+{
+    let mut flags = BTreeMap::new();
+    let mut args = args.peekable();
+    while let Some(argument) = args.next() {
+        if !argument.starts_with("--") {
+            return Err(AgentError::new(
+                "unknown_argument",
+                format!("unknown argument: {argument}"),
+            ));
+        }
+        let value = args.next().ok_or_else(|| {
+            AgentError::new("missing_argument", format!("missing value for {argument}"))
+        })?;
+        flags.insert(argument, value);
+    }
+    Ok(flags)
+}
+
+fn required_path(
+    flags: &mut BTreeMap<String, String>,
+    name: &'static str,
+) -> Result<PathBuf, AgentError> {
+    required_value(flags, name).map(PathBuf::from)
+}
+
+fn required_value(
+    flags: &mut BTreeMap<String, String>,
+    name: &'static str,
+) -> Result<String, AgentError> {
+    flags
+        .remove(name)
+        .ok_or_else(|| AgentError::new("missing_argument", format!("missing required {name}")))
+}
+
+fn optional_value(flags: &mut BTreeMap<String, String>, name: &'static str) -> Option<String> {
+    flags.remove(name)
+}
+
+fn optional_u32(
+    flags: &mut BTreeMap<String, String>,
+    name: &'static str,
+) -> Result<Option<u32>, AgentError> {
+    optional_value(flags, name)
+        .map(|value| {
+            value.parse::<u32>().map_err(|_| {
+                AgentError::new(
+                    "invalid_argument",
+                    format!("{name} must be a positive integer"),
+                )
+            })
+        })
+        .transpose()
+}
+
+fn ensure_no_unknown_flags(flags: BTreeMap<String, String>) -> Result<(), AgentError> {
+    if let Some(unknown) = flags.keys().next() {
+        return Err(AgentError::new(
+            "unknown_argument",
+            format!("unknown argument: {unknown}"),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_metrology_register_command() {
+        let command = parse_metrology_args(
+            [
+                "register-instrument",
+                "--storage-root",
+                "E:/emc-locus/data",
+                "--asset-id",
+                "SA-001",
+                "--family",
+                "SpectrumAnalyzer",
+                "--category-code",
+                "spectrum_analyzer",
+                "--manufacturer",
+                "Rohde Schwarz",
+                "--model",
+                "FSW",
+                "--serial-number",
+                "100001",
+                "--calibration-requirement",
+                "required",
+                "--calibration-period-months",
+                "12",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        )
+        .unwrap();
+
+        assert_eq!(
+            command,
+            AgentCommand::Metrology {
+                storage_root: PathBuf::from("E:/emc-locus/data"),
+                action: MetrologyAction::Register(Box::new(RegisterInstrumentInput {
+                    asset_id: "SA-001".to_owned(),
+                    family: "SpectrumAnalyzer".to_owned(),
+                    category_code: "spectrum_analyzer".to_owned(),
+                    manufacturer: "Rohde Schwarz".to_owned(),
+                    model: "FSW".to_owned(),
+                    serial_number: "100001".to_owned(),
+                    part_number: None,
+                    calibration_requirement: "required".to_owned(),
+                    calibration_period_months: Some(12),
+                    serviceability_status: "usable".to_owned(),
+                    serviceability_reason: String::new(),
+                    capabilities_json: "[]".to_owned(),
+                    metrology_notes: String::new(),
+                }))
+            }
+        );
+    }
+}

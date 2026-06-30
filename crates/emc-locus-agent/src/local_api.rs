@@ -1,7 +1,9 @@
 use super::{
-    build_health_report, render_json, run_project_command, run_storage_action, run_sync_command,
-    AgentCommand, AgentError, ProjectAction, StorageAction, SyncAction,
+    build_health_report, render_json, run_metrology_command, run_project_command,
+    run_storage_action, run_sync_command, AgentCommand, AgentError, MetrologyAction, ProjectAction,
+    StorageAction, SyncAction,
 };
+use crate::metrology_service::RegisterInstrumentInput;
 use crate::project_agent::{
     AdvanceToTestPlanningInput, CompleteReviewItemInput, CreateProjectInput,
 };
@@ -161,6 +163,19 @@ fn route_api_request(
             storage_root: config.storage_root.clone(),
         });
     }
+    if parts.as_slice() == ["api", "v1", "metrology", "instruments"] && method == "GET" {
+        return run_metrology_command(AgentCommand::Metrology {
+            action: MetrologyAction::List,
+            storage_root: config.storage_root.clone(),
+        });
+    }
+    if parts.as_slice() == ["api", "v1", "metrology", "instruments"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return run_metrology_command(AgentCommand::Metrology {
+            action: MetrologyAction::Register(Box::new(register_instrument_input(&payload)?)),
+            storage_root: config.storage_root.clone(),
+        });
+    }
     if parts.as_slice() == ["api", "v1", "sync", "outbox"] && method == "GET" {
         return run_sync_command(AgentCommand::Sync {
             action: SyncAction::Outbox,
@@ -207,6 +222,14 @@ fn route_api_request(
             run_project_command(AgentCommand::Projects {
                 action: ProjectAction::AuditEvents {
                     code: (*code).to_owned(),
+                },
+                storage_root: config.storage_root.clone(),
+            })
+        }
+        ["api", "v1", "metrology", "instruments", asset_id] if method == "GET" => {
+            run_metrology_command(AgentCommand::Metrology {
+                action: MetrologyAction::Get {
+                    asset_id: (*asset_id).to_owned(),
                 },
                 storage_root: config.storage_root.clone(),
             })
@@ -291,6 +314,30 @@ fn to_test_planning_input(
     })
 }
 
+fn register_instrument_input(payload: &Value) -> Result<RegisterInstrumentInput, AgentError> {
+    Ok(RegisterInstrumentInput {
+        asset_id: required_string(payload, "asset_id")?,
+        family: required_string(payload, "family")?,
+        category_code: required_string(payload, "category_code")?,
+        manufacturer: required_string(payload, "manufacturer")?,
+        model: required_string(payload, "model")?,
+        serial_number: required_string(payload, "serial_number")?,
+        part_number: optional_string(payload, "part_number"),
+        calibration_requirement: required_string(payload, "calibration_requirement")?,
+        calibration_period_months: optional_u32(payload, "calibration_period_months")?,
+        serviceability_status: optional_string(payload, "serviceability_status")
+            .unwrap_or_else(|| "usable".to_owned()),
+        serviceability_reason: optional_string(payload, "serviceability_reason")
+            .unwrap_or_default(),
+        capabilities_json: payload
+            .get("capabilities")
+            .map(render_json)
+            .or_else(|| optional_string(payload, "capabilities_json"))
+            .unwrap_or_else(|| "[]".to_owned()),
+        metrology_notes: optional_string(payload, "metrology_notes").unwrap_or_default(),
+    })
+}
+
 fn required_string(payload: &Value, key: &'static str) -> Result<String, AgentError> {
     optional_string(payload, key).ok_or_else(|| {
         AgentError::with_details(
@@ -310,21 +357,46 @@ fn optional_string(payload: &Value, key: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn optional_u32(payload: &Value, key: &str) -> Result<Option<u32>, AgentError> {
+    let Some(value) = payload.get(key) else {
+        return Ok(None);
+    };
+    let Some(value) = value.as_u64() else {
+        return Err(AgentError::with_details(
+            "invalid_json_field",
+            format!("{key} must be a positive integer"),
+            json!({ "field": key }),
+        ));
+    };
+    if value == 0 || value > u64::from(u32::MAX) {
+        return Err(AgentError::with_details(
+            "invalid_json_field",
+            format!("{key} must be a positive integer"),
+            json!({ "field": key }),
+        ));
+    }
+    Ok(Some(value as u32))
+}
+
 fn status_for_error(code: &str) -> u16 {
     match code {
-        "api_route_not_found" | "project_not_found" => 404,
+        "api_route_not_found" | "project_not_found" | "metrology_instrument_not_found" => 404,
         "contract_review_incomplete"
         | "invalid_project_transition"
         | "project_already_exists"
-        | "operation_replay_mismatch" => 409,
+        | "operation_replay_mismatch"
+        | "metrology_instrument_already_exists" => 409,
         "storage_not_initialized" => 503,
         "invalid_json_body"
         | "missing_json_field"
+        | "invalid_json_field"
         | "missing_argument"
         | "invalid_project_code"
         | "invalid_customer_name"
         | "invalid_actor"
         | "invalid_reason"
+        | "domain_error"
+        | "invalid_metrology_instrument"
         | "unknown_execution_mode"
         | "unknown_contract_review_item" => 400,
         _ => 500,
@@ -525,6 +597,61 @@ mod tests {
 
         assert_eq!(response.status, 400);
         assert!(response.body.contains("invalid_json_body"));
+    }
+
+    #[test]
+    fn local_api_registers_and_lists_metrology_instruments() {
+        let storage_root = temporary_storage_root("agent-api-metrology");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            max_requests: None,
+        };
+
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+        let created = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments",
+            r#"{
+                "asset_id": "SA-API-001",
+                "family": "SpectrumAnalyzer",
+                "category_code": "spectrum_analyzer",
+                "manufacturer": "Rohde Schwarz",
+                "model": "FSW",
+                "serial_number": "API-001",
+                "part_number": "FSW44",
+                "calibration_requirement": "required",
+                "calibration_period_months": 12,
+                "capabilities": {"frequency_max_hz": 44000000000},
+                "metrology_notes": "registered through local API"
+            }"#,
+            &config,
+        );
+        assert_eq!(created.status, 200);
+        assert!(created.body.contains("\"asset_id\":\"SA-API-001\""));
+        assert!(created
+            .body
+            .contains("\"serviceability_status\":\"usable\""));
+
+        let list = handle_api_request("GET", "/api/v1/metrology/instruments", "", &config);
+        assert_eq!(list.status, 200);
+        assert!(list.body.contains("\"instruments\""));
+        assert!(list.body.contains("\"SA-API-001\""));
+
+        let detail = handle_api_request(
+            "GET",
+            "/api/v1/metrology/instruments/SA-API-001",
+            "",
+            &config,
+        );
+        assert_eq!(detail.status, 200);
+        assert!(detail.body.contains("\"part_number\":\"FSW44\""));
+
+        remove_temporary_storage_root(&storage_root);
     }
 
     #[test]
