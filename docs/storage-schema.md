@@ -277,6 +277,11 @@ CREATE TABLE processing_graph_executions (
 );
 ```
 
+Repository writes record graph executions only for existing graph instances. A
+completed execution must have at least one output artifact, and
+`output_artifact_count` must match the number of persisted
+`processing_graph_instance_artifacts` rows for the same graph instance.
+
 ### instrument_observations
 
 ```sql

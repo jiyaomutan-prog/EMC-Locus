@@ -154,7 +154,10 @@ Implemented in the Rust core:
 16. windowed FFT execution with window traceability and optimized-backend
     compatibility;
 17. graph execution records with execution reference, actor, software version,
-    status, and output artifact count.
+    status, and output artifact count;
+18. Python measurement-data writes reject graph execution records whose output
+    artifact count does not match the persisted artifacts for the same graph
+    instance.
 
 Not yet implemented:
 

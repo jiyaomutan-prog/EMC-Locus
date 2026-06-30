@@ -1679,6 +1679,20 @@ class MeasurementDataRepository(SQLiteDomainRepository):
                 if instance is None:
                     raise ValueError("processing graph instance does not exist")
 
+                artifact_count = connection.execute(
+                    """
+                    SELECT COUNT(*) AS artifact_count
+                    FROM processing_graph_instance_artifacts
+                    WHERE processing_graph_instance_id = ?
+                    """,
+                    (processing_graph_instance_id,),
+                ).fetchone()["artifact_count"]
+                if output_artifact_count != artifact_count:
+                    raise ValueError(
+                        "processing graph execution artifact count does not "
+                        "match persisted artifacts"
+                    )
+
                 cursor = connection.execute(
                     """
                     INSERT INTO processing_graph_executions (

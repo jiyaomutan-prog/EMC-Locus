@@ -13,6 +13,9 @@ change should remain traceable through Git history, session logs, and this file.
 - Processing graph execution records now reject result artifacts produced from a
   different graph reference or revision, preserving traceability between the
   execution evidence and the revisioned graph instance.
+- Python measurement-data writes for processing graph executions now reject
+  output artifact counts that do not match the artifacts persisted for the same
+  graph instance.
 
 ## [0.6.0] - 2026-06-29
 

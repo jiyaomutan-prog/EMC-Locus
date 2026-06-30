@@ -122,6 +122,9 @@ Deliverables:
   Python repository APIs added;
 - execution records now reject artifacts from a different processing graph
   reference or revision, preserving graph-to-result evidence integrity;
+- Python measurement-data writes now reject graph execution records whose
+  output artifact count does not match the artifacts persisted for that graph
+  instance;
 - CEM time-domain test families such as railway harmonics, axle counters, and
   inrush measurements.
 

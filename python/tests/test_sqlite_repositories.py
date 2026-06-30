@@ -420,6 +420,26 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                     output_artifact_count=0,
                 )
 
+            with self.assertRaises(ValueError):
+                repository.add_processing_graph_execution(
+                    processing_graph_instance_id=first_revision_id,
+                    execution_reference="exec-fft-missing-artifact",
+                    executed_by="signal.engine",
+                    software_version="0.1.0",
+                    status="completed",
+                    output_artifact_count=1,
+                )
+
+            with self.assertRaises(ValueError):
+                repository.add_processing_graph_execution(
+                    processing_graph_instance_id=second_revision_id,
+                    execution_reference="exec-fft-count-mismatch",
+                    executed_by="signal.engine",
+                    software_version="0.1.0",
+                    status="completed",
+                    output_artifact_count=2,
+                )
+
 
 class MetrologyRepositoryTests(unittest.TestCase):
     def test_lists_instrument_categories_and_links_assets(self) -> None:
