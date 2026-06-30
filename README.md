@@ -81,7 +81,14 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.8.0`.
+Current software version: `0.8.1`.
+
+Version `0.8.1` adds the first shared attached-document registry behind the
+Rust local agent. Locus Metrology, Locus Lab Management, and Locus Test Station
+now have a common metadata shape for controlled documents: owner surface,
+owner entity, classification, storage URI, checksum, revision, applicability,
+confidentiality, audit, and sync outbox evidence. This slice does not upload or
+store file bytes.
 
 Version `0.8.0` adds the first simulated EMC test execution workflow. A local
 operator can launch one simulated EMC attempt through the Rust agent or the

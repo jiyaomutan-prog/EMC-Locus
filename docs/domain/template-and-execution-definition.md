@@ -5,7 +5,7 @@
 EMC Locus needs a stable backbone for templates, methods, execution instances,
 and results before adding more runtime slices. This document defines the target
 business vocabulary that should guide future schemas, routes, Qt models, and
-LAB CONSOLE screens.
+Locus Lab Management screens.
 
 The key rule is simple: generic definitions, project instances, executed
 instances, and results are different objects. They may reference each other, but
@@ -310,7 +310,7 @@ Examples:
 ### Executed Instance
 
 An executed instance is the evidence of what actually happened. It is produced
-by TEST CONSOLE or another controlled execution path.
+by Locus Test Station or another controlled execution path.
 
 Examples:
 

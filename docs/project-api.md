@@ -20,6 +20,10 @@ POST /api/v1/projects/{code}/contract-review/items/{item}/complete
 POST /api/v1/projects/{code}/transitions/to-test-planning
 GET  /api/v1/projects/{code}/audit-events
 GET  /api/v1/projects/{code}/test-executions
+GET  /api/v1/documents
+POST /api/v1/documents
+GET  /api/v1/documents/{document_id}
+GET  /api/v1/documents/{document_id}/audit-events
 POST /api/v1/test-executions/simulated-emc
 GET  /api/v1/test-executions/{attempt_id}
 GET  /api/v1/sync/outbox
@@ -119,8 +123,9 @@ project commands return a structured `storage_journal_mode_incompatible` error
 if an operator or external tool switches either file to an incompatible mode.
 
 This API is the local boundary for the project vertical slice. Metrology,
-planning, documents, instrument control, and acquisition remain separate work
-until they are explicitly migrated behind the agent.
+planning, instrument control, and acquisition remain separate work until they
+are explicitly migrated behind the agent. Attached document metadata is now a
+first shared agent-owned registry; see `document-api.md`.
 
 Qt/Python clients configured with `agent_url` use these routes for migrated
 project-slice reads and writes. They should not open `projects.sqlite` directly

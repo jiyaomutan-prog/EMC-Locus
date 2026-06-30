@@ -8,11 +8,29 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
-### Fixed
+## [0.8.1] - 2026-06-30
 
-- Project repository service-schedule writes now enforce the same local
-  date-time, same-day, and business-day block validation as the GUI/CLI action,
-  preventing direct repository calls from bypassing planning safeguards.
+### Added
+
+- Added the first shared attached-document registry behind the Rust local
+  agent, with document metadata, owner surface/entity, storage URI, checksum,
+  revision, applicability, confidentiality, audit, and sync outbox evidence.
+- Added project migration `0004_attached_documents.sql` for
+  `attached_documents` and `document_audit_events`.
+- Added local API routes for registering documents, listing documents,
+  filtering by owner, reading document detail, and reading document audit
+  events.
+- Added Python local-agent client methods for document registration, document
+  reads, owner-filtered lists, and document audit reads.
+- Added ADR 0003 for the three Locus surfaces and the agent-owned document
+  registry.
+
+### Changed
+
+- Bumped the synchronized Rust/Python software version to `0.8.1`.
+- Updated the static GUI shell and architecture documentation from a two-surface
+  console split to the three-product target: Locus Metrology, Locus Lab
+  Management, and Locus Test Station.
 
 ## [0.8.0] - 2026-06-30
 

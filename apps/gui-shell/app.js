@@ -2,13 +2,30 @@ const fallbackData = {
   lab_console_version: "ia-0.1",
   surfaces: [
     {
-      name: "LAB CONSOLE",
+      name: "Locus Metrology",
+      role: "Parc et aptitude metrologique",
+      owns: [
+        "parc instruments",
+        "etalonnages",
+        "restrictions",
+        "certificats",
+        "datasheets",
+        "scripts",
+        "reservations externes",
+        "readiness metrologie",
+      ],
+    },
+    {
+      name: "Locus Lab Management",
       role: "Gestion laboratoire",
       owns: [
         "clients",
+        "demandes",
+        "devis",
         "produits",
         "projets",
         "campagnes",
+        "communications",
         "templates",
         "methodes",
         "documents",
@@ -19,9 +36,10 @@ const fallbackData = {
       ],
     },
     {
-      name: "TEST CONSOLE",
+      name: "Locus Test Station",
       role: "Execution locale Qt",
       owns: [
+        "preparation essai",
         "readiness",
         "chainage instrumental",
         "sequence",
@@ -38,6 +56,9 @@ const fallbackData = {
     "audit",
     "outbox",
     "repositories SQLite",
+    "PostgreSQL central futur",
+    "stockage objet futur",
+    "metadonnees documentaires",
     "templates revisionnes",
     "methodes approuvees",
     "documents controles",
@@ -59,7 +80,7 @@ const fallbackData = {
     "Projet",
     "Campagne",
     "Test instance",
-    "Execution Qt",
+    "Execution Test Station",
     "Resultat valide",
     "Publication",
   ],
@@ -126,7 +147,7 @@ const fallbackData = {
       objective: "Regrouper les essais, ressources, methodes et preuves d'execution pour un projet.",
       objects: ["campagne", "test instance", "package offline", "conditions", "evidence retour"],
       actions: ["creer depuis template", "planifier essais", "figer package Qt", "recevoir evidence", "cloturer"],
-      relations: ["appartient projet", "instancie templates essais", "alimente TEST CONSOLE", "recoit resultats"],
+      relations: ["appartient projet", "instancie templates essais", "alimente Locus Test Station", "recoit resultats"],
       columns: ["Campagne", "Projet", "Tests", "Package", "Etat"],
       records: [
         ["CMP-001-A", "CEM-2026-001", "7", "field-pack-001", "figee"],
@@ -154,7 +175,7 @@ const fallbackData = {
       objective: "Composer des ensembles d'essais reutilisables et preparer les packages d'execution.",
       objects: ["template campagne", "revision", "liste essais", "sequence", "competences"],
       actions: ["creer revision", "lier templates essais", "approuver", "instancier campagne"],
-      relations: ["utilise par projets", "reference templates essais", "definit paquet TEST CONSOLE"],
+      relations: ["utilise par projets", "reference templates essais", "definit paquet Locus Test Station"],
       columns: ["Template", "Revision", "Tests inclus", "Competence", "Etat"],
       records: [
         ["Railway EMC baseline", "CMP-T-3", "11", "ferroviaire CEM", "approved"],
@@ -252,7 +273,7 @@ const fallbackData = {
       objective: "Planifier essais, salles, bancs, instruments internes/externes et operateurs competents.",
       objects: ["creneau", "reservation", "operateur", "salle", "instrument", "conflit"],
       actions: ["reserver", "assigner", "detecter conflit", "figer package", "replanifier"],
-      relations: ["planifie campagnes", "utilise metrologie", "assigne personnes", "alimente TEST CONSOLE"],
+      relations: ["planifie campagnes", "utilise Locus Metrology", "assigne personnes", "alimente Locus Test Station"],
       columns: ["Creneau", "Campagne", "Ressource", "Operateur", "Etat"],
       records: [
         ["2026-07-01 09:00", "CMP-001-A", "Lab A + RX-001", "operator.one", "confirmed"],
@@ -283,8 +304,8 @@ const fallbackData = {
       relations: ["recoit evenements des surfaces", "prepare offline", "trace revisions", "protege station"],
       columns: ["Objet", "Type", "Etat", "Source", "Action requise"],
       records: [
-        ["OP-893", "outbox", "pending", "TEST CONSOLE", "sync package"],
-        ["SNAP-2026-07", "snapshot", "signed", "LAB CONSOLE", "ready field"],
+        ["OP-893", "outbox", "pending", "Locus Test Station", "sync package"],
+        ["SNAP-2026-07", "snapshot", "signed", "Locus Lab Management", "ready field"],
         ["driver-pack-visa", "update", "pending validation", "catalog", "quality review"],
       ],
     },
@@ -353,7 +374,7 @@ function renderStatus() {
 function renderOverview() {
   selectors.title.textContent = "Carte labo";
   selectors.summary.textContent =
-    "Architecture d'information LAB CONSOLE, distincte de TEST CONSOLE et du runtime d'execution.";
+    "Architecture d'information des trois surfaces Locus partageant le Local Agent et les memes objets metier.";
 
   document.querySelector("#surface-grid").innerHTML = data.surfaces
     .map(

@@ -46,7 +46,10 @@ planning items used to schedule test execution. Version 3 adds
 `simulated_test_executions` and `simulated_test_execution_instruments` so the
 first simulated EMC launch workflow can persist refused and completed attempts,
 metrology-readiness verdicts, instrumentation snapshots, and deterministic
-simulated results.
+simulated results. Version 4 adds `attached_documents` and
+`document_audit_events` for the first shared document registry. The table stores
+metadata, owner references, storage URI, checksum, revision, applicability, and
+confidentiality only; file bytes remain outside SQLite.
 
 ### Test Definitions
 

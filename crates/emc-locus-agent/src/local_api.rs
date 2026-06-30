@@ -3,6 +3,10 @@ use super::{
     run_storage_action, run_sync_command, AgentCommand, AgentError, MetrologyAction, ProjectAction,
     StorageAction, SyncAction,
 };
+use crate::document_service::{
+    get_document, list_document_audit_events, list_documents, register_attached_document,
+    ListAttachedDocumentsInput, RegisterAttachedDocumentInput,
+};
 use crate::metrology_service::{
     AssessReadinessInput, MetrologyOperationContext, RecordCalibrationInput,
     RegisterInstrumentInput, SetServiceabilityInput,
@@ -190,6 +194,16 @@ fn route_api_request(
             storage_root: config.storage_root.clone(),
         });
     }
+    if parts.as_slice() == ["api", "v1", "documents"] && method == "GET" {
+        return list_documents(&config.storage_root, list_documents_input(query));
+    }
+    if parts.as_slice() == ["api", "v1", "documents"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return register_attached_document(
+            config.storage_root.clone(),
+            register_document_input(&payload)?,
+        );
+    }
     if parts.as_slice() == ["api", "v1", "test-executions", "simulated-emc"] && method == "POST" {
         let payload = parse_json_body(body)?;
         return run_simulated_emc_test(&config.storage_root, simulated_emc_input(&payload)?);
@@ -243,6 +257,12 @@ fn route_api_request(
         }
         ["api", "v1", "test-executions", attempt_id] if method == "GET" => {
             get_simulated_test_execution(&config.storage_root, attempt_id)
+        }
+        ["api", "v1", "documents", document_id] if method == "GET" => {
+            get_document(&config.storage_root, document_id)
+        }
+        ["api", "v1", "documents", document_id, "audit-events"] if method == "GET" => {
+            list_document_audit_events(&config.storage_root, document_id)
         }
         ["api", "v1", "metrology", "instruments", asset_id] if method == "GET" => {
             run_metrology_command(AgentCommand::Metrology {
@@ -513,6 +533,45 @@ fn simulated_emc_input(payload: &Value) -> Result<RunSimulatedEmcTestInput, Agen
     })
 }
 
+fn register_document_input(payload: &Value) -> Result<RegisterAttachedDocumentInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(RegisterAttachedDocumentInput {
+        document_id: required_string(payload, "document_id")?,
+        classification: required_string(payload, "classification")?,
+        title: required_string(payload, "title")?,
+        owner_domain: required_string(payload, "owner_domain")?,
+        owner_entity_type: required_string(payload, "owner_entity_type")?,
+        owner_entity_id: required_string(payload, "owner_entity_id")?,
+        storage_backend: optional_string(payload, "storage_backend")
+            .unwrap_or_else(|| "object_store".to_owned()),
+        storage_uri: required_string(payload, "storage_uri")?,
+        original_filename: required_string(payload, "original_filename")?,
+        mime_type: required_string(payload, "mime_type")?,
+        size_bytes: required_u64(payload, "size_bytes")?,
+        sha256: required_string(payload, "sha256")?,
+        revision: optional_string(payload, "revision").unwrap_or_else(|| "A".to_owned()),
+        applicability: optional_string(payload, "applicability")
+            .unwrap_or_else(|| "applicable".to_owned()),
+        confidentiality: optional_string(payload, "confidentiality")
+            .unwrap_or_else(|| "internal".to_owned()),
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn list_documents_input(query: &str) -> ListAttachedDocumentsInput {
+    ListAttachedDocumentsInput {
+        owner_domain: optional_query_value(query, "owner_domain"),
+        owner_entity_type: optional_query_value(query, "owner_entity_type"),
+        owner_entity_id: optional_query_value(query, "owner_entity_id"),
+    }
+}
+
 fn operation_context(payload: &Value) -> Result<MetrologyOperationContext, AgentError> {
     let operation_id = required_string(payload, "operation_id")?;
     Ok(MetrologyOperationContext {
@@ -550,6 +609,16 @@ fn required_query_value(query: &str, key: &'static str) -> Result<String, AgentE
     ))
 }
 
+fn optional_query_value(query: &str, key: &'static str) -> Option<String> {
+    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+        let (candidate, value) = pair.split_once('=').unwrap_or((pair, ""));
+        if candidate == key && !value.trim().is_empty() {
+            return Some(value.to_owned());
+        }
+    }
+    None
+}
+
 fn optional_string(payload: &Value, key: &str) -> Option<String> {
     payload
         .get(key)
@@ -580,6 +649,16 @@ fn optional_u32(payload: &Value, key: &str) -> Result<Option<u32>, AgentError> {
     Ok(Some(value as u32))
 }
 
+fn required_u64(payload: &Value, key: &'static str) -> Result<u64, AgentError> {
+    payload.get(key).and_then(Value::as_u64).ok_or_else(|| {
+        AgentError::with_details(
+            "invalid_json_field",
+            format!("{key} must be a non-negative integer"),
+            json!({ "field": key }),
+        )
+    })
+}
+
 fn optional_bool(payload: &Value, key: &str) -> Result<Option<bool>, AgentError> {
     let Some(value) = payload.get(key) else {
         return Ok(None);
@@ -597,6 +676,8 @@ fn optional_bool(payload: &Value, key: &str) -> Result<Option<bool>, AgentError>
 fn status_for_error(code: &str) -> u16 {
     match code {
         "api_route_not_found"
+        | "attached_document_not_found"
+        | "document_owner_not_found"
         | "project_not_found"
         | "test_execution_not_found"
         | "metrology_instrument_not_found" => 404,
@@ -604,6 +685,7 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_project_transition"
         | "project_already_exists"
         | "test_execution_attempt_exists"
+        | "attached_document_already_exists"
         | "operation_replay_mismatch"
         | "metrology_instrument_already_exists"
         | "metrology_calibration_already_exists" => 409,
@@ -612,6 +694,7 @@ fn status_for_error(code: &str) -> u16 {
         | "missing_json_field"
         | "missing_query_field"
         | "invalid_json_field"
+        | "invalid_attached_document"
         | "invalid_metrology_date"
         | "missing_argument"
         | "invalid_project_code"
@@ -808,6 +891,140 @@ mod tests {
 
         assert_eq!(response.status, 404);
         assert!(response.body.contains("api_route_not_found"));
+    }
+
+    #[test]
+    fn local_api_registers_attached_document_with_audit_and_outbox() {
+        let storage_root = temporary_storage_root("agent-api-documents");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            max_requests: None,
+        };
+
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+        assert_eq!(
+            handle_api_request(
+                "POST",
+                "/api/v1/projects",
+                r#"{
+                    "code": "CEM-DOC-001",
+                    "customer_name": "Document Customer",
+                    "execution_mode": "accredited",
+                    "actor": "quality.lead",
+                    "reason": "contract accepted",
+                    "operation_id": "op-doc-project"
+                }"#,
+                &config,
+            )
+            .status,
+            200
+        );
+
+        let register_body = &format!(
+            r#"{{
+                "document_id": "DOC-CEM-DOC-001-REQ-A",
+                "classification": "client_document",
+                "title": "Customer EMC requirements",
+                "owner_domain": "locus_lab_management",
+                "owner_entity_type": "project",
+                "owner_entity_id": "CEM-DOC-001",
+                "storage_backend": "object_store",
+                "storage_uri": "objects/projects/CEM-DOC-001/requirements-A.pdf",
+                "original_filename": "requirements.pdf",
+                "mime_type": "application/pdf",
+                "size_bytes": 12345,
+                "sha256": "{}",
+                "revision": "A",
+                "applicability": "applicable",
+                "confidentiality": "customer_visible",
+                "actor": "project.manager",
+                "reason": "customer requirement received",
+                "operation_id": "op-doc-register"
+            }}"#,
+            "e".repeat(64)
+        );
+        let registered = handle_api_request("POST", "/api/v1/documents", register_body, &config);
+        assert_eq!(registered.status, 200);
+        assert!(registered
+            .body
+            .contains("\"document_id\":\"DOC-CEM-DOC-001-REQ-A\""));
+        assert!(registered
+            .body
+            .contains("\"owner_domain\":\"locus_lab_management\""));
+
+        let detail = handle_api_request(
+            "GET",
+            "/api/v1/documents/DOC-CEM-DOC-001-REQ-A",
+            "",
+            &config,
+        );
+        let filtered = handle_api_request(
+            "GET",
+            "/api/v1/documents?owner_domain=locus_lab_management&owner_entity_type=project&owner_entity_id=CEM-DOC-001",
+            "",
+            &config,
+        );
+        let audit = handle_api_request(
+            "GET",
+            "/api/v1/documents/DOC-CEM-DOC-001-REQ-A/audit-events",
+            "",
+            &config,
+        );
+        let outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
+
+        assert_eq!(detail.status, 200);
+        assert_eq!(filtered.status, 200);
+        assert_eq!(audit.status, 200);
+        assert_eq!(outbox.status, 200);
+        assert!(detail.body.contains("\"storage_backend\":\"object_store\""));
+        assert_eq!(filtered.body.matches("\"document_id\"").count(), 1);
+        assert!(audit
+            .body
+            .contains("\"action\":\"attached_document_registered\""));
+        assert!(outbox
+            .body
+            .contains("\"entity_type\":\"attached_document\""));
+        assert!(outbox
+            .body
+            .contains("\"operation_kind\":\"attached_document_registered\""));
+
+        let replay = handle_api_request("POST", "/api/v1/documents", register_body, &config);
+        assert_eq!(replay.status, 200);
+        assert!(replay.body.contains("\"replayed\":true"));
+
+        let conflict = handle_api_request(
+            "POST",
+            "/api/v1/documents",
+            &format!(
+                r#"{{
+                    "document_id": "DOC-CEM-DOC-001-REQ-A",
+                    "classification": "client_document",
+                    "title": "Changed title",
+                    "owner_domain": "locus_lab_management",
+                    "owner_entity_type": "project",
+                    "owner_entity_id": "CEM-DOC-001",
+                    "storage_uri": "objects/projects/CEM-DOC-001/requirements-A.pdf",
+                    "original_filename": "requirements.pdf",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 12345,
+                    "sha256": "{}",
+                    "actor": "project.manager",
+                    "reason": "conflicting replay",
+                    "operation_id": "op-doc-register"
+                }}"#,
+                "e".repeat(64)
+            ),
+            &config,
+        );
+        assert_eq!(conflict.status, 409);
+        assert!(conflict.body.contains("operation_replay_mismatch"));
+
+        remove_temporary_storage_root(&storage_root);
     }
 
     #[test]

@@ -109,6 +109,34 @@ class LocalAgentClient:
     def get_test_execution(self, attempt_id: str) -> dict[str, Any]:
         return self.request_json("GET", f"/api/v1/test-executions/{quote(attempt_id)}")
 
+    def list_documents(
+        self,
+        *,
+        owner_domain: str | None = None,
+        owner_entity_type: str | None = None,
+        owner_entity_id: str | None = None,
+    ) -> dict[str, Any]:
+        query = {
+            key: value
+            for key, value in {
+                "owner_domain": owner_domain,
+                "owner_entity_type": owner_entity_type,
+                "owner_entity_id": owner_entity_id,
+            }.items()
+            if value
+        }
+        suffix = f"?{urlencode(query)}" if query else ""
+        return self.request_json("GET", f"/api/v1/documents{suffix}")
+
+    def get_document(self, document_id: str) -> dict[str, Any]:
+        return self.request_json("GET", f"/api/v1/documents/{quote(document_id)}")
+
+    def document_audit_events(self, document_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/documents/{quote(document_id)}/audit-events",
+        )
+
     def create_project(
         self,
         *,
@@ -135,6 +163,55 @@ class LocalAgentClient:
         _put_optional(payload, "correlation_id", correlation_id)
         _put_optional(payload, "device_id", device_id)
         return self.request_json("POST", "/api/v1/projects", payload)
+
+    def register_attached_document(
+        self,
+        *,
+        document_id: str,
+        classification: str,
+        title: str,
+        owner_domain: str,
+        owner_entity_type: str,
+        owner_entity_id: str,
+        storage_uri: str,
+        original_filename: str,
+        mime_type: str,
+        size_bytes: int,
+        sha256: str,
+        actor: str,
+        reason: str,
+        storage_backend: str = "object_store",
+        revision: str = "A",
+        applicability: str = "applicable",
+        confidentiality: str = "internal",
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id("document-register", document_id)
+        payload: dict[str, Any] = {
+            "document_id": document_id,
+            "classification": classification,
+            "title": title,
+            "owner_domain": owner_domain,
+            "owner_entity_type": owner_entity_type,
+            "owner_entity_id": owner_entity_id,
+            "storage_backend": storage_backend,
+            "storage_uri": storage_uri,
+            "original_filename": original_filename,
+            "mime_type": mime_type,
+            "size_bytes": size_bytes,
+            "sha256": sha256,
+            "revision": revision,
+            "applicability": applicability,
+            "confidentiality": confidentiality,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json("POST", "/api/v1/documents", payload)
 
     def complete_contract_review_item(
         self,

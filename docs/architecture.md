@@ -23,7 +23,7 @@ The Rust core owns business invariants:
 This layer should not depend on a database, UI framework, or hardware driver.
 The current module map is documented in `core-structure.md`.
 
-### 2. Storage and Audit
+### 2. Storage, Objects, And Audit
 
 The storage layer should preserve:
 
@@ -32,6 +32,8 @@ The storage layer should preserve:
 - instrument identity and calibration records;
 - user actions and system actions;
 - report package history.
+- attached document metadata with storage reference, checksum, revision,
+  applicability, confidentiality, audit, and outbox evidence.
 
 EMC Locus should not depend on a single remote repository during acquisition.
 The first architecture target is a set of local SQLite repositories split by
@@ -40,6 +42,14 @@ coordination has its own local repository for conflict and action-plan evidence.
 The first versioned SQLite migrations live under `storage/sqlite/`. See
 `offline-first-architecture.md` for the repository split and
 `storage-migrations.md` for the migration layout.
+
+The target central deployment uses PostgreSQL for relational metadata and
+object storage for documents and scientific datasets. SQLite and PostgreSQL
+store metadata, relationships, revisions, decisions, states, and audits. Large
+scientific data and files remain separate: Parquet for tabular or
+frequency-domain datasets, HDF5 or another fit-for-purpose container for
+multichannel temporal acquisitions, and object storage for PDF, Word, Excel,
+images, scripts, and other files.
 
 ### 3. Instrument Runtime
 
@@ -128,13 +138,18 @@ User/UI
 
 ## GUI And Template Backbone
 
-The GUI split is now explicit:
+The application product split is now explicit:
 
-- LAB CONSOLE is the laboratory management surface.
-- TEST CONSOLE is the Qt local/offline execution surface.
+- Locus Metrology owns metrology assets, calibration evidence, restrictions,
+  documents, traceability, and aptitude.
+- Locus Lab Management owns clients, requests, quotations, contract review,
+  projects, communications, planning, reports, delivery, and archiving.
+- Locus Test Station is the Qt local/offline execution surface.
 
-The current static web shell is a LAB CONSOLE information-architecture
-prototype only. See `gui/gui-dual-surface-architecture.md`,
+All three surfaces write through the Locus Local Agent, which owns local
+SQLite, audit, outbox, and future sync. The current static web shell is an
+information-architecture prototype only. See
+`gui/gui-dual-surface-architecture.md`,
 `gui/lab-console-information-architecture.md`,
 `gui/test-console-workspace.md`, and
 `domain/template-and-execution-definition.md`.

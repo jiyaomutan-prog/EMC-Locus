@@ -197,6 +197,13 @@ class LocalAgentClientTests(unittest.TestCase):
             "http://127.0.0.1:8765/api/v1/test-executions/RUN-READ-001": {
                 "execution": {"attempt_id": "RUN-READ-001"}
             },
+            "http://127.0.0.1:8765/api/v1/documents": {"documents": []},
+            "http://127.0.0.1:8765/api/v1/documents/DOC-READ-001": {
+                "document": {"document_id": "DOC-READ-001"}
+            },
+            "http://127.0.0.1:8765/api/v1/documents/DOC-READ-001/audit-events": {
+                "audit_events": []
+            },
             "http://127.0.0.1:8765/api/v1/sync/outbox": {"sync_outbox": []},
         }
 
@@ -221,6 +228,12 @@ class LocalAgentClientTests(unittest.TestCase):
                 client.get_test_execution("RUN-READ-001")["execution"]["attempt_id"],
                 "RUN-READ-001",
             )
+            self.assertEqual(client.list_documents()["documents"], [])
+            self.assertEqual(
+                client.get_document("DOC-READ-001")["document"]["document_id"],
+                "DOC-READ-001",
+            )
+            self.assertEqual(client.document_audit_events("DOC-READ-001")["audit_events"], [])
             self.assertEqual(client.sync_outbox()["sync_outbox"], [])
 
         self.assertEqual(
@@ -235,8 +248,76 @@ class LocalAgentClientTests(unittest.TestCase):
                 ("GET", "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/audit-events"),
                 ("GET", "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/test-executions"),
                 ("GET", "http://127.0.0.1:8765/api/v1/test-executions/RUN-READ-001"),
+                ("GET", "http://127.0.0.1:8765/api/v1/documents"),
+                ("GET", "http://127.0.0.1:8765/api/v1/documents/DOC-READ-001"),
+                ("GET", "http://127.0.0.1:8765/api/v1/documents/DOC-READ-001/audit-events"),
                 ("GET", "http://127.0.0.1:8765/api/v1/sync/outbox"),
             ],
+        )
+
+    def test_posts_attached_document_payload(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            captured["body"] = json.loads(request.data.decode("utf-8"))
+            return _FakeResponse(
+                {
+                    "operation_id": "op-doc",
+                    "replayed": False,
+                    "document": {
+                        "document_id": "DOC-PY-001",
+                        "owner_domain": "locus_lab_management",
+                    },
+                }
+            )
+
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            response = LocalAgentClient("http://127.0.0.1:8765").register_attached_document(
+                document_id="DOC-PY-001",
+                classification="client_document",
+                title="Customer requirements",
+                owner_domain="locus_lab_management",
+                owner_entity_type="project",
+                owner_entity_id="CEM-PY",
+                storage_uri="objects/projects/CEM-PY/requirements.pdf",
+                original_filename="requirements.pdf",
+                mime_type="application/pdf",
+                size_bytes=123,
+                sha256="f" * 64,
+                actor="project.manager",
+                reason="customer requirement received",
+                operation_id="op-doc",
+            )
+
+        self.assertEqual(captured["url"], "http://127.0.0.1:8765/api/v1/documents")
+        self.assertEqual(captured["method"], "POST")
+        body = captured["body"]
+        self.assertEqual(body["document_id"], "DOC-PY-001")
+        self.assertEqual(body["storage_backend"], "object_store")
+        self.assertEqual(body["sha256"], "f" * 64)
+        self.assertEqual(response["document"]["owner_domain"], "locus_lab_management")
+
+    def test_list_documents_encodes_owner_filter(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            return _FakeResponse({"documents": []})
+
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            LocalAgentClient("http://127.0.0.1:8765").list_documents(
+                owner_domain="locus_lab_management",
+                owner_entity_type="project",
+                owner_entity_id="CEM PY",
+            )
+
+        self.assertEqual(captured["method"], "GET")
+        self.assertEqual(
+            captured["url"],
+            "http://127.0.0.1:8765/api/v1/documents?owner_domain=locus_lab_management&owner_entity_type=project&owner_entity_id=CEM+PY",
         )
 
     def test_posts_simulated_emc_execution_payload(self) -> None:

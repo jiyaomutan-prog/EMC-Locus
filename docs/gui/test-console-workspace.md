@@ -1,8 +1,8 @@
-# TEST CONSOLE Workspace
+# Locus Test Station Workspace
 
 ## Direction
 
-TEST CONSOLE is the Qt desktop workspace for local and field execution. It is
+Locus Test Station is the Qt desktop workspace for local and field execution. It is
 not a project dashboard. It is the operator station used when a test is being
 prepared, run, monitored, corrected, rerun, or published as execution evidence.
 
@@ -191,5 +191,5 @@ A material substitution record captures:
 - approval requirement and approval status.
 
 The execution can continue only if the quality mode and method policy allow the
-deviation or substitution state. Otherwise TEST CONSOLE records a structured
+deviation or substitution state. Otherwise Locus Test Station records a structured
 refusal rather than presenting a fake green workflow.

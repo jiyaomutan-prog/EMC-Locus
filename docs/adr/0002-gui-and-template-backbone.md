@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Superseded by `0003-three-surface-and-document-registry.md`.
 
 ## Context
 

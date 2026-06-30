@@ -136,6 +136,10 @@ POST /api/v1/projects/{code}/transitions/to-test-planning
 GET  /api/v1/projects/{code}/audit-events
 GET  /api/v1/projects/{code}/test-executions
 GET  /api/v1/sync/outbox
+GET  /api/v1/documents
+POST /api/v1/documents
+GET  /api/v1/documents/{document_id}
+GET  /api/v1/documents/{document_id}/audit-events
 POST /api/v1/test-executions/simulated-emc
 GET  /api/v1/test-executions/{attempt_id}
 GET  /api/v1/metrology/instruments
@@ -240,3 +244,10 @@ simulation result when the preflight passes. The workflow also writes a project
 audit event and a pending sync outbox operation for entity type
 `simulated_test_execution`. Qt exposes this as a single operator form instead
 of a dispersed CRUD surface.
+
+Version `0.8.1` adds the first shared attached-document registry. `POST
+/api/v1/documents` registers document metadata with owner surface/entity,
+classification, storage URI, checksum, revision, applicability, and
+confidentiality. It does not upload file bytes. Successful writes persist an
+`attached_documents` row, a `document_audit_events` row, and a pending outbox
+operation with entity type `attached_document`.

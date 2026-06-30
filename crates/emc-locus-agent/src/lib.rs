@@ -1,3 +1,6 @@
+mod document_dto;
+mod document_repository;
+mod document_service;
 mod local_api;
 mod metrology_agent;
 mod metrology_dto;
@@ -12,6 +15,10 @@ mod test_execution_dto;
 mod test_execution_repository;
 mod test_execution_service;
 
+pub use document_service::{
+    get_document, list_document_audit_events, list_documents, register_attached_document,
+    ListAttachedDocumentsInput, RegisterAttachedDocumentInput,
+};
 use emc_locus_core::{baseline_repository_domains, RepositoryDomain};
 pub use local_api::{run_local_api_server, ApiServerConfig};
 pub use metrology_agent::{run_metrology_command, MetrologyAction};
@@ -811,7 +818,7 @@ mod tests {
                 .find(|domain| domain.domain == "projects")
                 .unwrap()
                 .schema_version,
-            Some(3)
+            Some(4)
         );
         assert_eq!(
             second_report
