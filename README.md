@@ -33,8 +33,8 @@ technical review, report delivery, and archive.
 - Python layer for laboratory scripting, adapters, data import/export, analysis
   pipelines, and fast prototyping.
 - Qt desktop console for the local measurement-station operator experience.
-  A static GUI shell exists as a workflow prototype and dashboard mockup, not as
-  the long-term UI technology for advanced acquisition work.
+- React/TypeScript LAB CONSOLE for laboratory management workflows, served by
+  the local Rust agent from the versioned production build under `/lab/`.
 
 ## Repository Layout
 
@@ -43,7 +43,7 @@ crates/
   emc-locus-agent/       Rust local agent executable skeleton
   emc-locus-core/        Rust domain model and core invariants
 apps/
-  gui-shell/             Static LAB CONSOLE information-architecture prototype
+  lab-console/           React/TypeScript LAB CONSOLE Template Studio
   qt-console/            Qt desktop TEST CONSOLE bootstrap for measurement stations
 docs/
   architecture.md        System boundaries and technical direction
@@ -83,15 +83,16 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.9.2`.
+Current software version: `0.10.0`.
 
-Version `0.9.2` fixes the Windows launchers introduced in `0.9.1` so they work
-from double-click, from any current directory, and from repository paths that
-contain spaces. The launchers now use relative arguments with a repository
-`WorkingDirectory`, wait for real HTTP readiness before declaring success,
-record PID state under `logs/launchers/runtime`, provide targeted stop scripts,
-and include an executable smoke-test script for prototype, agent, and Qt launch
-modes. This is a launch reliability release only.
+Version `0.10.0` delivers LAB CONSOLE Template Studio v1. The web surface is now
+a real React/TypeScript/Vite application served by the Rust local agent under
+`/lab/`, with a template library, create/clone flows, structured section
+editors, server validation, checksum-based draft saving, submit/approve/derive
+workflow, revision history, audit view, system status, demo API seed, launcher
+support, unit tests, and Playwright E2E coverage. It is still not a campaign
+instantiation engine, instrument runtime, acquisition system, reporting tool,
+authentication/RBAC domain, or signal-processing engine.
 
 Version `0.9.1` is a repair and launchability release. The static LAB CONSOLE
 bootstrap remains browser-loadable JavaScript while exposing strict JSON for
@@ -234,28 +235,14 @@ idempotence, Serde DTO responses, split Rust project modules, explicit
 multi-SQLite atomicity policy, Qt/Python project reads and writes through the
 local agent when configured, and CI coverage for the local validation matrix.
 
-## Launching Prototypes And Qt Console
-
-The static LAB CONSOLE information-architecture prototype can be opened
-directly:
-
-```powershell
-.\apps\gui-shell\index.html
-```
-
-It can also be served from the repository root:
-
-```powershell
-py -m http.server 8000 --directory ./apps/gui-shell
-```
-
-Then open `http://127.0.0.1:8000/`. In Git Bash, keep the POSIX-style path
-`./apps/gui-shell`; do not use `apps\gui-shell`.
+## Launching LAB CONSOLE And TEST CONSOLE
 
 Windows launchers are available from any working directory:
 
 ```powershell
-.\scripts\start-proto.ps1
+.\scripts\start-lab.ps1
+.\scripts\start-lab.ps1 -SeedDemo
+.\scripts\start-full-demo.ps1
 .\scripts\start-qt-demo.ps1 -Mode Static
 .\scripts\start-qt-demo.ps1 -Mode Auto
 .\scripts\start-agent-qt.ps1
@@ -265,26 +252,27 @@ Windows launchers are available from any working directory:
 Equivalent BAT wrappers are available for shell double-click or `cmd.exe` use:
 
 ```bat
-scripts\start-proto.bat
+scripts\start-lab.bat
+scripts\start-full-demo.bat
 scripts\start-qt-demo.bat
 scripts\start-agent-qt.bat
 scripts\stop-all.bat
 ```
 
-`start-proto` verifies Python, starts a local static web server, waits for HTTP
-200, then opens the browser. `start-qt-demo -Mode Static` never contacts the
-agent. `start-qt-demo -Mode Agent` fails if a compatible healthy agent is not
-available. `start-qt-demo -Mode Auto` uses the agent only when health and
-storage match, otherwise it starts from the static bootstrap. `start-agent-qt`
-initializes local SQLite storage, starts the Rust agent on `127.0.0.1:8765`,
-waits for `/api/v1/health`, verifies the returned storage root, then opens Qt.
-It never deletes data unless `-Reset` is passed explicitly.
+`start-lab` verifies the versioned LAB CONSOLE build, starts or reuses the Rust
+agent on `127.0.0.1:8765`, waits for `/api/v1/health` and `/lab/`, then opens
+the browser. `-SeedDemo` creates demonstration templates through the public API.
+`-Rebuild` rebuilds the React application when Node/npm or pnpm is available;
+normal release launch uses the committed `apps/lab-console/dist` bundle and does
+not require Node. `start-full-demo` opens LAB CONSOLE and then launches TEST
+CONSOLE Qt against the same local storage. `start-qt-demo -Mode Static` now uses
+`apps/qt-console/demo/bootstrap.json`, a strict JSON fixture owned by the Qt
+console, not a LAB web bootstrap script.
 
 Launcher-owned processes are tracked under `logs/launchers/runtime` and can be
 stopped without killing unrelated Python or Cargo processes:
 
 ```powershell
-.\scripts\stop-proto.ps1
 .\scripts\stop-agent.ps1
 .\scripts\stop-all.ps1
 ```
@@ -307,5 +295,13 @@ $env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrat
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-node --check apps\gui-shell\app.js
+cd apps\lab-console
+npm ci
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+npm run test:e2e
+cd ..\..
+.\scripts\smoke-launchers.ps1 -SkipQtOffscreen
 ```

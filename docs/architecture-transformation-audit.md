@@ -18,7 +18,7 @@ offline-first SQLite workflows.
 | Rust domains | `project.rs`, `measurement.rs`, `metrology.rs`, `repositories.rs`, `instrument.rs`, `instrument_runtime.rs`, `signal.rs`, `reporting.rs`, `updates.rs` |
 | Architecture docs | `docs/architecture.md`, `docs/core-structure.md`, `docs/domain-model.md`, `docs/gui-technology.md`, `docs/offline-first-architecture.md`, `docs/instrument-control-architecture.md`, `docs/signal-acquisition-analysis.md` |
 | Storage docs | `docs/storage-schema.md`, `docs/storage-migrations.md`, `storage/sqlite/**` |
-| UI/adapters | `apps/qt-console/main.py`, `apps/qt-console/README.md`, `apps/gui-shell/**` |
+| UI/adapters | `apps/lab-console/**`, `apps/qt-console/main.py`, `apps/qt-console/README.md` |
 | Python services | `python/emc_locus/gui_actions.py`, `gui_bootstrap.py`, `sqlite_repositories.py`, `qt_console_models.py`, `migrations.py`, `session_plan.py` |
 
 ### Repo Cartography

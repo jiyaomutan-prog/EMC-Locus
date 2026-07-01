@@ -1,10 +1,10 @@
 @echo off
 setlocal
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start-proto.ps1" %*
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0seed-lab-demo.ps1" %*
 set "exitcode=%ERRORLEVEL%"
 if not "%exitcode%"=="0" (
   echo.
-  echo EMC Locus prototype launcher failed with exit code %exitcode%.
+  echo EMC Locus LAB demo seed failed with exit code %exitcode%.
   echo Logs are under "%~dp0..\logs\launchers".
   pause
 )

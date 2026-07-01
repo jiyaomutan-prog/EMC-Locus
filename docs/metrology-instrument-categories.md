@@ -105,7 +105,7 @@ python -m emc_locus.actions_cli register-instrument `
   --certificate-reference CERT-RX-001 `
   --calibrated-at 2026-06-01 `
   --provider "Accredited Lab" `
-  --bootstrap-output apps/gui-shell/bootstrap.js
+  --bootstrap-output local/bootstrap.js
 ```
 
 If `--calibration-requirement` is omitted, the action takes the default from the
@@ -127,7 +127,7 @@ python -m emc_locus.actions_cli record-calibration `
   --due-at 2028-05-20 `
   --provider "Accredited Lab" `
   --uncertainty-json '{\"level_db\":0.5}' `
-  --bootstrap-output apps/gui-shell/bootstrap.js
+  --bootstrap-output local/bootstrap.js
 ```
 
 The GUI bootstrap displays the latest calibration record for each instrument,
@@ -144,7 +144,7 @@ python -m emc_locus.actions_cli set-instrument-serviceability `
   --asset-id RX-001 `
   --serviceability-status out_of_service `
   --serviceability-reason "Damaged input connector" `
-  --bootstrap-output apps/gui-shell/bootstrap.js
+  --bootstrap-output local/bootstrap.js
 ```
 
 The older availability command remains available for compatibility, but
@@ -157,7 +157,7 @@ python -m emc_locus.actions_cli set-instrument-availability `
   --metrology-db local/metrology.sqlite `
   --asset-id RX-001 `
   --availability out_of_service `
-  --bootstrap-output apps/gui-shell/bootstrap.js
+  --bootstrap-output local/bootstrap.js
 ```
 
 Allowed legacy availability values are `available`, `reserved`, and
@@ -174,7 +174,7 @@ python -m emc_locus.actions_cli set-instrument-capabilities `
   --metrology-db local/metrology.sqlite `
   --asset-id DAQ-001 `
   --capabilities-json '{\"channels\":8,\"transports\":[\"opendaq\",\"ethernet\"]}' `
-  --bootstrap-output apps/gui-shell/bootstrap.js
+  --bootstrap-output local/bootstrap.js
 ```
 
 Documents can be attached to the asset lifecycle. Supported document kinds are:

@@ -1,0 +1,72 @@
+{
+  "qt_console_version": "static-demo-v1",
+  "projects": [
+    {
+      "code": "QT-DEMO-001",
+      "customer": "Local demo customer",
+      "stage": "Contract review",
+      "mode": "Investigation",
+      "blocker": "Aucun",
+      "run": "RUN-QT-DEMO-001",
+      "method": "Static Qt fixture"
+    }
+  ],
+  "datasets": [
+    ["RUN-QT-DEMO-001", "raw_signal", "demo/raw_signal.opendata", "sha256:demo", "Immutable"]
+  ],
+  "instruments": [
+    [
+      "DAQ-QT-DEMO",
+      "DAQ",
+      "Usable",
+      "Available",
+      "CERT-QT-DEMO",
+      "2027-01-01",
+      "ok",
+      "DAQ chassis and modules",
+      "channels=8; sync=ptp",
+      "openDAQ",
+      "Reference DAQ",
+      "QT001",
+      "ODAQ-QT",
+      "2026-01-01",
+      "12",
+      "1"
+    ]
+  ],
+  "instrument_documents": [
+    ["DAQ-QT-DEMO", "datasheet", "DAQ demo datasheet", "docs/daq-demo.pdf", "A", "measurement"]
+  ],
+  "metrology_readiness": [
+    ["pret", "DAQ-QT-DEMO", "usable", "valid", "non", "", "", ""]
+  ],
+  "schedule": [
+    [
+      "PLAN-QT-DEMO",
+      "QT-DEMO-001",
+      "Static demo sequence",
+      "emission_conducted",
+      "2026-07-01T09:00",
+      "2026-07-01T12:00",
+      "operator.demo",
+      "Local station",
+      "planned"
+    ]
+  ],
+  "contract_review_items": [
+    ["QT-DEMO-001", "scope_confirmed", "yes", "quality.demo", "Static demo ready"]
+  ],
+  "runtime": [
+    ["DAQ-QT-DEMO", "simulated", "SIM::DAQ-QT-DEMO", "OK", "RUN-QT-DEMO-001", "1", "READ? -> OK", "1"]
+  ],
+  "updates": [
+    ["core", "0.10.0", "Signed", "Installed", "release_bundle"]
+  ],
+  "instrument_categories": [
+    ["daq_chassis", "data_monitoring", "DAQ chassis and modules", "required", "data_acquisition"]
+  ],
+  "test_categories": [
+    ["emission", "", "Emission", "active"],
+    ["emission_conducted", "emission", "Emission conduite", "active"]
+  ]
+}

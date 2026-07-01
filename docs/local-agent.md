@@ -123,7 +123,7 @@ path. The server binds to loopback by default:
 cargo run -q -p emc-locus-agent -- serve --storage-root data\agent --migrations-root storage\sqlite --bind 127.0.0.1:8765
 ```
 
-The server can also serve a prebuilt LAB CONSOLE bundle under `/lab/`:
+The server also serves the prebuilt LAB CONSOLE bundle under `/lab/`:
 
 ```text
 cargo run -q -p emc-locus-agent -- serve --storage-root data\agent --migrations-root storage\sqlite --bind 127.0.0.1:8765 --lab-console-dist apps\lab-console\dist
@@ -131,8 +131,20 @@ cargo run -q -p emc-locus-agent -- serve --storage-root data\agent --migrations-
 
 `GET /` redirects to `/lab/`. If `index.html` is missing, LAB CONSOLE requests
 return a structured `lab_console_build_missing` error while `/api/v1/...`
-routes remain available. This only serves static build output; it is not a
-backend for a complete LAB CONSOLE editor.
+routes remain available. The same Rust process serves LAB CONSOLE and the API;
+there is no production Node server.
+
+The normal release launcher is:
+
+```powershell
+.\scripts\start-lab.ps1
+.\scripts\start-lab.ps1 -SeedDemo
+.\scripts\start-full-demo.ps1
+```
+
+`start-lab` does not require Node when the committed `apps/lab-console/dist`
+bundle is present. Developers can pass `-Rebuild` or run
+`.\scripts\build-lab.ps1` on a machine with npm or pnpm.
 
 The implemented routes are:
 
@@ -185,9 +197,10 @@ GET  /api/v1/metrology/instruments/{asset_id}/audit-events
 used by Qt to display connected, unavailable, storage-not-initialized,
 migration-required, and integrity-error states without opening SQLite directly.
 
-The API is intentionally local and narrow. It does not expose central
-synchronization, PostgreSQL, object storage, instrument control, or acquisition
-runtime features.
+The API is intentionally local and narrow. It backs LAB CONSOLE Template Studio
+v1 for test-template authoring, but it does not expose central synchronization,
+PostgreSQL, object storage, instrument control, acquisition runtime features,
+campaign instantiation, or reporting.
 
 For metrology, `POST /api/v1/metrology/instruments` accepts the same fields as
 the `metrology register-instrument` command, with `capabilities` accepted as a
@@ -334,5 +347,12 @@ agent on the same port when it points at another storage root. Qt is launched
 only after positive health. `scripts/start-qt-demo.ps1` has explicit `-Mode
 Static`, `-Mode Agent`, and `-Mode Auto` behavior. Launcher-owned processes are
 recorded under `logs\launchers\runtime` and can be stopped with
-`scripts/stop-agent.ps1`, `scripts/stop-proto.ps1`, or `scripts/stop-all.ps1`
-without killing unrelated Python, Cargo, or agent processes.
+`scripts/stop-agent.ps1` or `scripts/stop-all.ps1` without killing unrelated
+Python, Cargo, or agent processes.
+
+Version `0.10.0` adds the normal LAB launcher layer. `scripts/start-lab.ps1`
+verifies the committed LAB CONSOLE build, starts or reuses the compatible local
+agent, waits for `/api/v1/health` and `/lab/`, then opens the browser unless
+`-NoBrowser` is passed. `scripts/seed-lab-demo.ps1` creates demonstration
+templates through the public API only. `scripts/start-full-demo.ps1` opens LAB
+CONSOLE and starts TEST CONSOLE Qt against the same `data\local-agent` storage.

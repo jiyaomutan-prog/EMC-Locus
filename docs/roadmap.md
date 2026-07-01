@@ -88,10 +88,11 @@ Deliverables:
   pointers for current approved/latest/active draft revisions, approval-time
   supersession of older approved revisions, strict GUI bootstrap JSON, and
   Windows launchers for the prototype and Qt console.
-- The local agent now exposes a narrow template-authoring support surface for
-  future LAB CONSOLE work: structural definition validation, approved-template
-  cloning into a new draft identity, and optional static serving of a built LAB
-  CONSOLE bundle under `/lab/`.
+- `0.10.0` delivers LAB CONSOLE Template Studio v1: a React/TypeScript
+  application served by the local agent under `/lab/`, backed only by public API
+  routes, with template library, create/clone, structured draft editing,
+  validation, checksum save, submit, approve, derive, history, audit, demo seed,
+  launchers, CI, unit tests, and Playwright E2E coverage.
 
 ## Phase 3: Measurement Runtime
 
@@ -265,10 +266,11 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should turn the persisted approved template
-revision link into a small execution-package snapshot: resolve one controlled
-variable set, copy the approved definition snapshot into the execution record,
-and keep the scope short of a LAB CONSOLE editor.
+Recommended next vertical: `0.11.0 - Campaign Test Instantiation And Immutable
+Execution Package Snapshot`. It should link an approved template revision to a
+planned campaign test and freeze an immutable copy of the definition, resolved
+variables, required instruments, and applicable rules. It should not become a
+real acquisition runtime, FFT engine, report generator, or RBAC implementation.
 
 The parallel runtime stream should continue guarded serial or VISA IO behind the
 adapter skeletons.

@@ -43,7 +43,7 @@ python -m emc_locus.actions_cli schedule-service-item `
   --assigned-operator operator.one `
   --location "Lab A" `
   --equipment-under-test "EUT rail" `
-  --bootstrap-output apps/gui-shell/bootstrap.js
+  --bootstrap-output local/bootstrap.js
 ```
 
 The browser and Qt bootstrap now include a `schedule` table.
@@ -78,7 +78,7 @@ python -m emc_locus.actions_cli create-test-category `
   --label "Champ magnetique" `
   --description "Essais d immunite au champ magnetique basse frequence" `
   --sort-order 30 `
-  --bootstrap-output apps/gui-shell/bootstrap.js
+  --bootstrap-output local/bootstrap.js
 ```
 
 The browser and Qt bootstrap now include a `test_categories` table so the

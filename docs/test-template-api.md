@@ -1,12 +1,14 @@
 # Test Template API
 
-The 0.9.x test-template API keeps the 0.9.0 revisioned business aggregate and
-hardens its launchability, validation, cloning, and concurrency behavior in the
-Rust local agent.
+The 0.10.0 test-template API keeps the 0.9.0 revisioned business aggregate and
+is now the authority used by LAB CONSOLE Template Studio v1. The browser client
+does not own business state; it creates, clones, validates, edits, submits,
+approves, derives, and audits templates through these local-agent routes.
 
 The API manages reusable test definitions only. It does not instantiate a
 campaign test, run instruments, acquire data, execute post-processing, or build
-the future LAB CONSOLE editor.
+campaign test, run instruments, acquire data, execute post-processing, or
+produce reports.
 
 ## Vocabulary
 

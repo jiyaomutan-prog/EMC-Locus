@@ -9,11 +9,10 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Get-LauncherRepoRoot
 $paths = Initialize-LauncherPaths -RepoRoot $RepoRoot
-$StartProto = Join-Path $PSScriptRoot "start-proto.ps1"
-$StopProto = Join-Path $PSScriptRoot "stop-proto.ps1"
-$StartAgentQt = Join-Path $PSScriptRoot "start-agent-qt.ps1"
+$StartLab = Join-Path $PSScriptRoot "start-lab.ps1"
 $StopAgent = Join-Path $PSScriptRoot "stop-agent.ps1"
 $StartQtDemo = Join-Path $PSScriptRoot "start-qt-demo.ps1"
+$SeedLabDemo = Join-Path $PSScriptRoot "seed-lab-demo.ps1"
 
 function Invoke-Step {
     param(
@@ -55,6 +54,29 @@ function Assert-HttpStatus {
     if ($response.StatusCode -ne $ExpectedStatus) {
         throw "Expected HTTP $ExpectedStatus from $Url, got $($response.StatusCode)."
     }
+    return $response
+}
+
+function Assert-RedirectToLab {
+    param([string]$Url)
+    $response = $null
+    try {
+        $request = [System.Net.HttpWebRequest]::Create($Url)
+        $request.AllowAutoRedirect = $false
+        $request.Timeout = 5000
+        $response = $request.GetResponse()
+    } catch {
+        $response = $_.Exception.Response
+    }
+    if ($null -eq $response) {
+        throw "No redirect response from $Url."
+    }
+    $status = [int]$response.StatusCode
+    $location = $response.Headers["Location"]
+    if ($status -lt 300 -or $status -gt 399 -or $location -ne "/lab/") {
+        throw "Expected redirect to /lab/ from $Url, got status $status and Location '$location'."
+    }
+    $response.Close()
 }
 
 function Start-DummyPortListener {
@@ -64,138 +86,79 @@ function Start-DummyPortListener {
     return $listener
 }
 
+function Assert-LabAssetServed {
+    param([string]$AgentUrl)
+    $index = Assert-HttpStatus "$AgentUrl/lab/"
+    $matches = [regex]::Matches($index.Content, "/lab/assets/[^`"']+")
+    if ($matches.Count -eq 0) {
+        throw "LAB index does not reference built assets."
+    }
+    foreach ($match in $matches) {
+        Assert-HttpStatus "$AgentUrl$($match.Value)" | Out-Null
+    }
+}
+
 Set-Location $RepoRoot
-$protoPort = Get-FreeLoopbackPort
-$agentPort = Get-FreeLoopbackPort
+$labPort = Get-FreeLoopbackPort
 $busyPort = Get-FreeLoopbackPort
-$wrongStoragePort = Get-FreeLoopbackPort
-$failingAgentPort = Get-FreeLoopbackPort
 
 try {
-    Invoke-Step "prototype starts, serves HTML/CSS/JS, and stops" {
+    Invoke-Step "LAB starts from a path with spaces, serves API, root redirect, SPA, assets, and stops" {
         Push-Location ([System.IO.Path]::GetTempPath())
         try {
-            & $StartProto -Port $protoPort -NoBrowser -PythonCommand $PythonCommand
+            & $StartLab -Port $labPort -NoBrowser -Reset -CargoCommand $CargoCommand -PythonCommand $PythonCommand
         } finally {
             Pop-Location
         }
-        Assert-HttpStatus "http://127.0.0.1:$protoPort/"
-        Assert-HttpStatus "http://127.0.0.1:$protoPort/styles.css"
-        Assert-HttpStatus "http://127.0.0.1:$protoPort/bootstrap.js"
-        Assert-HttpStatus "http://127.0.0.1:$protoPort/app.js"
-        & $StopProto
-    }
-
-    Invoke-Step "prototype refuses occupied port" {
-        & $StartProto -Port $protoPort -NoBrowser -PythonCommand $PythonCommand
-        try {
-            Expect-Failure "start-proto occupied port" {
-                & $StartProto -Port $protoPort -NoBrowser -PythonCommand $PythonCommand
-            } "already in use"
-        } finally {
-            & $StopProto
-        }
-    }
-
-    Expect-Failure "prototype detects missing Python command" {
-        & $StartProto -Port (Get-FreeLoopbackPort) -NoBrowser -PythonCommand "__missing_py_for_emc_locus__"
-    } "Required command"
-
-    Invoke-Step "agent starts, exposes health, validates storage, and stops" {
-        Push-Location ([System.IO.Path]::GetTempPath())
-        try {
-            & $StartAgentQt -Port $agentPort -NoQt -CargoCommand $CargoCommand -PythonCommand $PythonCommand
-        } finally {
-            Pop-Location
-        }
-        Assert-HttpStatus "http://127.0.0.1:$agentPort/api/v1/health"
-        Assert-AgentStorageRoot -RepoRoot $RepoRoot -AgentUrl "http://127.0.0.1:$agentPort" -ExpectedStorageRoot "data\local-agent" | Out-Null
+        $agentUrl = "http://127.0.0.1:$labPort"
+        Assert-HttpStatus "$agentUrl/api/v1/health" | Out-Null
+        Assert-AgentStorageRoot -RepoRoot $RepoRoot -AgentUrl $agentUrl -ExpectedStorageRoot "data\local-agent" | Out-Null
+        Assert-RedirectToLab "$agentUrl/"
+        Assert-HttpStatus "$agentUrl/lab/" | Out-Null
+        Assert-HttpStatus "$agentUrl/lab/templates/does-not-exist" | Out-Null
+        Assert-LabAssetServed -AgentUrl $agentUrl
         & $StopAgent
     }
 
-    Invoke-Step "agent refuses non-EMC occupied port" {
+    Invoke-Step "LAB seed uses public API and library data becomes visible through API" {
+        & $StartLab -Port $labPort -NoBrowser -Reset -CargoCommand $CargoCommand -PythonCommand $PythonCommand
+        try {
+            $agentUrl = "http://127.0.0.1:$labPort"
+            & $SeedLabDemo -AgentUrl $agentUrl
+            $templates = Invoke-RestMethod -Uri "$agentUrl/api/v1/test-templates" -TimeoutSec 10
+            $ids = @($templates.test_templates | ForEach-Object { $_.identity.template_id })
+            foreach ($expected in @("DEMO-APPROVED-001", "DEMO-DRAFT-001", "DEMO-RICH-001")) {
+                if ($ids -notcontains $expected) {
+                    throw "Seeded template missing from API library: $expected"
+                }
+            }
+        } finally {
+            & $StopAgent
+        }
+    }
+
+    Invoke-Step "LAB refuses non-EMC occupied port" {
         $listener = Start-DummyPortListener -Port $busyPort
         try {
-            Expect-Failure "start-agent occupied by other service" {
-                & $StartAgentQt -Port $busyPort -NoQt -CargoCommand $CargoCommand -PythonCommand $PythonCommand
+            Expect-Failure "start-lab occupied by other service" {
+                & $StartLab -Port $busyPort -NoBrowser -CargoCommand $CargoCommand -PythonCommand $PythonCommand
             } "health is not available"
         } finally {
             $listener.Stop()
         }
     }
 
-    Invoke-Step "agent refuses existing healthy agent with wrong storage" {
-        & $CargoCommand build -q -p emc-locus-agent
-        if ($LASTEXITCODE -ne 0) {
-            throw "Cargo build failed for wrong-storage smoke."
-        }
-        $agentExe = Join-Path $RepoRoot "target\debug\emc-locus-agent.exe"
-        if (-not (Test-Path $agentExe)) {
-            $agentExe = Join-Path $RepoRoot "target\debug\emc-locus-agent"
-        }
-        & $agentExe storage init --storage-root "data\wrong-agent-smoke" --migrations-root "storage\sqlite"
-        if ($LASTEXITCODE -ne 0) {
-            throw "Wrong-storage initialization failed."
-        }
-        $wrongStdout = Join-Path $paths.LogRoot "wrong-storage-agent.out.log"
-        $wrongStderr = Join-Path $paths.LogRoot "wrong-storage-agent.err.log"
-        $wrongProcess = Start-Process `
-            -FilePath $agentExe `
-            -ArgumentList @("serve", "--storage-root", "data\wrong-agent-smoke", "--migrations-root", "storage\sqlite", "--bind", "127.0.0.1:$wrongStoragePort") `
-            -WorkingDirectory $RepoRoot `
-            -RedirectStandardOutput $wrongStdout `
-            -RedirectStandardError $wrongStderr `
-            -WindowStyle Hidden `
-            -PassThru
-        try {
-            Wait-HttpReady -Url "http://127.0.0.1:$wrongStoragePort/api/v1/health" -TimeoutSeconds 30 -Process $wrongProcess -StderrLog $wrongStderr | Out-Null
-            Expect-Failure "start-agent wrong storage" {
-                & $StartAgentQt -Port $wrongStoragePort -NoQt -CargoCommand $CargoCommand -PythonCommand $PythonCommand
-            } "expected"
-        } finally {
-            Stop-Process -Id $wrongProcess.Id -Force -ErrorAction SilentlyContinue
-        }
-    }
-
-    Expect-Failure "agent startup failure surfaces stderr" {
-        $pythonExe = Get-PythonExecutable -PythonCommand $PythonCommand
-        $failAgent = Join-Path $paths.RuntimeRoot "fail-agent.py"
-        "import sys; sys.stderr.write('intentional launcher smoke failure\n'); sys.exit(7)" | Set-Content -Path $failAgent -Encoding UTF8
-        & $StartAgentQt `
-            -Port $failingAgentPort `
-            -NoQt `
-            -CargoCommand $CargoCommand `
-            -PythonCommand $PythonCommand `
-            -AgentExecutableOverride $pythonExe `
-            -AgentArgumentPrefixOverride @("logs\launchers\runtime\fail-agent.py")
-    } "intentional launcher smoke failure"
-
-    Invoke-Step "Qt Static mode builds command without contacting agent" {
+    Invoke-Step "Qt Static mode uses strict JSON fixture" {
         $output = & $StartQtDemo -Mode Static -AgentUrl "http://127.0.0.1:1" -DryRun -PythonCommand $PythonCommand 2>&1
-        if (($output | Out-String) -notlike "*Qt demo mode: Static*") {
-            throw "Static mode was not selected. Output: $output"
+        $text = $output | Out-String
+        if ($text -notlike "*Qt demo mode: Static*" -or $text -notlike "*apps\qt-console\demo\bootstrap.json*") {
+            throw "Static mode did not use the Qt JSON fixture. Output: $text"
         }
     }
 
     Expect-Failure "Qt Agent mode fails when agent is unavailable" {
         & $StartQtDemo -Mode Agent -AgentUrl "http://127.0.0.1:1" -DryRun -PythonCommand $PythonCommand
     } "Mode Agent requested"
-
-    Invoke-Step "Qt Auto and Agent modes select healthy compatible agent" {
-        & $StartAgentQt -Port $agentPort -NoQt -CargoCommand $CargoCommand -PythonCommand $PythonCommand
-        try {
-            $autoOutput = & $StartQtDemo -Mode Auto -AgentUrl "http://127.0.0.1:$agentPort" -DryRun -PythonCommand $PythonCommand 2>&1
-            if (($autoOutput | Out-String) -notlike "*Qt demo mode: Agent*") {
-                throw "Auto mode did not select the healthy agent. Output: $autoOutput"
-            }
-            $agentOutput = & $StartQtDemo -Mode Agent -AgentUrl "http://127.0.0.1:$agentPort" -DryRun -PythonCommand $PythonCommand 2>&1
-            if (($agentOutput | Out-String) -notlike "*Qt demo mode: Agent*") {
-                throw "Agent mode did not build an agent command. Output: $agentOutput"
-            }
-        } finally {
-            & $StopAgent
-        }
-    }
 
     if (-not $SkipQtOffscreen) {
         Invoke-Step "Qt offscreen smoke when PySide6 is available" {
@@ -211,7 +174,7 @@ try {
             $env:QT_QPA_PLATFORM = "offscreen"
             $qtProcess = Start-Process `
                 -FilePath $pythonExe `
-                -ArgumentList @("apps\qt-console\main.py", "--bootstrap", "apps\gui-shell\bootstrap.js") `
+                -ArgumentList @("apps\qt-console\main.py", "--bootstrap", "apps\qt-console\demo\bootstrap.json") `
                 -WorkingDirectory $RepoRoot `
                 -RedirectStandardOutput $qtStdout `
                 -RedirectStandardError $qtStderr `
@@ -232,7 +195,6 @@ try {
         }
     }
 } finally {
-    & $StopProto *> $null
     & $StopAgent *> $null
 }
 

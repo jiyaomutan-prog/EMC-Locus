@@ -35,10 +35,11 @@ readiness dependency. It is not a reason to add a third fake dashboard or to
 let TEST CONSOLE become the source editor for calibration and serviceability
 records.
 
-The static shell under `apps/gui-shell` is explicitly a LAB CONSOLE information
-architecture prototype. It may show hierarchy, relationships, sample rows, and
-surface boundaries. It is not the final LAB CONSOLE application architecture and
-must not host TEST CONSOLE runtime concepts as fake web behavior.
+The former static shell under `apps/gui-shell` was explicitly a LAB CONSOLE
+information architecture prototype. In `0.10.0` it is replaced by
+`apps/lab-console`, a real React/TypeScript application served by the Rust local
+agent. LAB CONSOLE still must not host TEST CONSOLE runtime concepts as fake web
+behavior.
 
 Before adding another major runtime vertical, the project must stabilize the
 template and execution-definition backbone:

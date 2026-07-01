@@ -90,7 +90,7 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.9.2` was validated on 2026-07-01 with:
+Version `0.10.0` was validated on 2026-07-01 with:
 
 ```text
 cargo fmt --check
@@ -100,9 +100,16 @@ py -m compileall python\emc_locus
 py -m py_compile apps\qt-console\main.py
 $env:PYTHONPATH='python'; py -m unittest discover -s python\tests
 $env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrations import validate_sqlite_migrations; print(validate_sqlite_migrations(Path('storage/sqlite')))"
-C:\Users\gtrai\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe --check apps\gui-shell\app.js
+cd apps\lab-console
+npm ci
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+npm run test:e2e
+cd ..\..
 $env:PYTHONPATH='python'; py -m unittest python.tests.test_release_consistency
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-launchers.ps1 -SkipQtOffscreen
 git diff --check
 git diff --cached --check
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-launchers.ps1
 ```

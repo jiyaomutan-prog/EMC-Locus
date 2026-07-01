@@ -14,7 +14,12 @@ __pycache__/
 venv/
 build/
 dist/
+node_modules/
+playwright-report/
+test-results/
 *.egg-info/
+!apps/lab-console/dist/
+!apps/lab-console/dist/**
 
 # Editors
 .idea/

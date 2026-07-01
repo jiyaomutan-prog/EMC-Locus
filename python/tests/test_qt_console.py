@@ -33,27 +33,30 @@ def load_qt_console_module():
 
 
 class QtConsoleTests(unittest.TestCase):
-    def test_loads_bootstrap_js_payload_without_requiring_pyside(self) -> None:
+    def test_loads_strict_json_bootstrap_without_requiring_pyside(self) -> None:
+        module = load_qt_console_module()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            bootstrap = Path(temporary_directory) / "bootstrap.json"
+            bootstrap.write_text(
+                '{"projects": [{"code": "CEM-QT-001"}]}\n',
+                encoding="utf-8",
+            )
+
+            payload = module.load_bootstrap_json(bootstrap)
+
+        self.assertEqual(payload["projects"][0]["code"], "CEM-QT-001")
+
+    def test_rejects_legacy_javascript_bootstrap_payload(self) -> None:
         module = load_qt_console_module()
         with tempfile.TemporaryDirectory() as temporary_directory:
             bootstrap = Path(temporary_directory) / "bootstrap.js"
             bootstrap.write_text(
-                'window.EMC_LOCUS_BOOTSTRAP = {"projects": [{"code": "CEM-QT-001"}]};\n',
+                'window.EMC_LOCUS_BOOTSTRAP = {"projects": []};',
                 encoding="utf-8",
             )
 
-            payload = module.load_bootstrap_js(bootstrap)
-
-        self.assertEqual(payload["projects"][0]["code"], "CEM-QT-001")
-
-    def test_rejects_non_bootstrap_payload(self) -> None:
-        module = load_qt_console_module()
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            bootstrap = Path(temporary_directory) / "bootstrap.js"
-            bootstrap.write_text('{"projects": []}', encoding="utf-8")
-
             with self.assertRaises(ValueError):
-                module.load_bootstrap_js(bootstrap)
+                module.load_bootstrap_json(bootstrap)
 
     def test_builds_explicit_console_table_models(self) -> None:
         model = build_console_view_model(

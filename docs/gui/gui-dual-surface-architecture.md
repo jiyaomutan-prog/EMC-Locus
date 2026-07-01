@@ -12,9 +12,10 @@ SQLite repositories, audit trail, outbox, future synchronization contracts, and
 controlled document model. They must not become two competing implementations of
 the same screens.
 
-The current static web shell under `apps/gui-shell` is only an information
-architecture prototype for LAB CONSOLE. It is not the final web application
-architecture, and it must never become an instrument-facing execution console.
+As of `0.10.0`, LAB CONSOLE is a React/TypeScript application under
+`apps/lab-console` and is served by the local Rust agent under `/lab/`. The old
+`apps/gui-shell` prototype has been removed from the normal product path. LAB
+CONSOLE must still never become an instrument-facing execution console.
 
 ## LAB CONSOLE
 

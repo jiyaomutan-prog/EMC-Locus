@@ -15,7 +15,6 @@ import sys
 from typing import Any
 
 
-BOOTSTRAP_PREFIX = "window.EMC_LOCUS_BOOTSTRAP = "
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PYTHON_ROOT = REPOSITORY_ROOT / "python"
 if str(PYTHON_ROOT) not in sys.path:
@@ -83,18 +82,10 @@ class QtBindings:
     Slot: Any
 
 
-def load_bootstrap_js(path: Path) -> dict[str, Any]:
-    """Load the GUI bootstrap payload generated for the static prototype."""
+def load_bootstrap_json(path: Path) -> dict[str, Any]:
+    """Load the strict JSON fixture used by the static Qt demo."""
 
-    text = path.read_text(encoding="utf-8").strip()
-    if not text.startswith(BOOTSTRAP_PREFIX):
-        raise ValueError(f"unsupported bootstrap format: {path}")
-
-    payload = text[len(BOOTSTRAP_PREFIX) :]
-    if payload.endswith(";"):
-        payload = payload[:-1]
-
-    data = json.loads(payload)
+    data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError("bootstrap payload must be a JSON object")
     return data
@@ -106,7 +97,7 @@ def run(argv: list[str] | None = None) -> int:
         "--bootstrap",
         type=Path,
         default=None,
-        help="Path to a generated bootstrap.js file.",
+        help="Path to a strict JSON bootstrap fixture for static Qt mode.",
     )
     parser.add_argument("--migrations-root", type=Path, default=REPOSITORY_ROOT / "storage" / "sqlite")
     parser.add_argument("--projects-db", type=Path)
@@ -713,8 +704,8 @@ def _load_console_data(args: argparse.Namespace) -> dict[str, Any]:
             agent_url=agent_url,
         )
 
-    bootstrap = args.bootstrap or REPOSITORY_ROOT / "apps" / "gui-shell" / "bootstrap.js"
-    return load_bootstrap_js(bootstrap)
+    bootstrap = args.bootstrap or REPOSITORY_ROOT / "apps" / "qt-console" / "demo" / "bootstrap.json"
+    return load_bootstrap_json(bootstrap)
 
 
 def _has_repository_paths(args: argparse.Namespace) -> bool:
@@ -737,8 +728,8 @@ def _status_message(args: argparse.Namespace) -> str:
     if _has_repository_paths(args):
         return "Donnees chargees depuis les depots SQLite locaux"
 
-    bootstrap = args.bootstrap or REPOSITORY_ROOT / "apps" / "gui-shell" / "bootstrap.js"
-    return f"Bootstrap local: {bootstrap}"
+    bootstrap = args.bootstrap or REPOSITORY_ROOT / "apps" / "qt-console" / "demo" / "bootstrap.json"
+    return f"Fixture JSON Qt: {bootstrap}"
 
 
 def _load_qt() -> QtBindings:

@@ -8,8 +8,18 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-01
+
 ### Added
 
+- Added `apps/lab-console`, a React/TypeScript/Vite LAB CONSOLE application
+  for the first real Template Studio workflow: template library, create/clone,
+  structured draft editing, server validation, checksum save, submit, approve,
+  derive, revision history, audit, and system status.
+- Added a versioned production build under `apps/lab-console/dist` so release
+  launch does not require Node on the user machine.
+- Added Vitest/React Testing Library unit coverage and Playwright E2E coverage
+  for the template workflow against a real local agent.
 - Added optional local-agent serving for a built LAB CONSOLE under `/lab/`,
   with root redirect, asset serving, SPA fallback, explicit missing-build
   errors, and traversal-safe asset paths.
@@ -19,6 +29,20 @@ change should remain traceable through Git history, session logs, and this file.
   draft template identity with audit/outbox evidence and idempotent replay.
 - Added `dimensionless=true` for numeric template variables that intentionally
   have no engineering unit.
+- Added `scripts/start-lab`, `scripts/start-full-demo`, `scripts/build-lab`,
+  and `scripts/seed-lab-demo` with BAT wrappers.
+- Added a strict JSON Qt demo fixture under `apps/qt-console/demo/bootstrap.json`.
+
+### Changed
+
+- Replaced the provisional `apps/gui-shell` static prototype with LAB CONSOLE.
+- Decoupled TEST CONSOLE Qt from LAB web bootstrap JavaScript; static Qt mode
+  now loads strict JSON directly.
+- Reworked launcher smoke coverage around `/api/v1/health`, `/`, `/lab/`,
+  built assets, API seeding, and Qt static mode.
+- Updated CI to run npm install/build/test, Playwright E2E, `dist` consistency,
+  and the LAB launcher smoke.
+- Bumped synchronized Rust, Python, and frontend versions to `0.10.0`.
 
 ### Fixed
 

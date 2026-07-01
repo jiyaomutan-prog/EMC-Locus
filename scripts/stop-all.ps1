@@ -3,5 +3,4 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Get-LauncherRepoRoot
 $paths = Initialize-LauncherPaths -RepoRoot $RepoRoot
-Stop-LauncherProcess -RuntimeRoot $paths.RuntimeRoot -Name "proto"
 Stop-LauncherProcess -RuntimeRoot $paths.RuntimeRoot -Name "agent"

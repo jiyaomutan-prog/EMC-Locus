@@ -59,13 +59,48 @@ jobs:
           PYTHONPATH: python
         run: py -c "from pathlib import Path; from emc_locus.migrations import validate_sqlite_migrations; print(validate_sqlite_migrations(Path('storage/sqlite')))"
 
-      - name: Check GUI shell JavaScript
-        run: node --check apps\gui-shell\app.js
+      - name: Install LAB CONSOLE dependencies
+        working-directory: apps/lab-console
+        run: npm ci
+
+      - name: Typecheck LAB CONSOLE
+        working-directory: apps/lab-console
+        run: npm run typecheck
+
+      - name: Lint LAB CONSOLE
+        working-directory: apps/lab-console
+        run: npm run lint
+
+      - name: Test LAB CONSOLE units
+        working-directory: apps/lab-console
+        run: npm run test
+
+      - name: Build LAB CONSOLE
+        working-directory: apps/lab-console
+        run: npm run build
+
+      - name: Verify versioned LAB CONSOLE dist
+        run: git diff --exit-code -- apps/lab-console/dist
+
+      - name: Install Playwright browser
+        working-directory: apps/lab-console
+        run: npx playwright install chromium
+
+      - name: Run LAB CONSOLE E2E
+        working-directory: apps/lab-console
+        env:
+          PYTHONPATH: python
+        run: npm run test:e2e
 
       - name: Check release consistency
         env:
           PYTHONPATH: python
         run: py -m unittest python.tests.test_release_consistency
+
+      - name: Run launcher smoke
+        env:
+          PYTHONPATH: python
+        run: .\scripts\smoke-launchers.ps1 -SkipQtOffscreen
 
       - name: Check whitespace
         run: git diff --check

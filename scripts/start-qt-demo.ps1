@@ -12,7 +12,7 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Get-LauncherRepoRoot
 $paths = Initialize-LauncherPaths -RepoRoot $RepoRoot
-$Bootstrap = "apps\gui-shell\bootstrap.js"
+$Bootstrap = "apps\qt-console\demo\bootstrap.json"
 
 Assert-CommandAvailable $PythonCommand
 Set-Location $RepoRoot

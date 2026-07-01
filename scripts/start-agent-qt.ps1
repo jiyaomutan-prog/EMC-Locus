@@ -122,7 +122,7 @@ Write-Host "Agent ready: $AgentUrl/api/v1/health"
 
 if ($NoQt) {
     Write-Host "NoQt requested; leaving the healthy agent running."
-    exit 0
+    return
 }
 
 function Ensure-PySide6 {
