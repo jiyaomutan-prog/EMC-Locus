@@ -8,6 +8,12 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Tightened local service-planning timestamp validation so schedule rows must
+  use canonical `YYYY-MM-DDTHH:MM` local date-times instead of Python-accepted
+  ISO variants such as week-date or compact forms.
+
 ## [0.10.0] - 2026-07-01
 
 ### Added

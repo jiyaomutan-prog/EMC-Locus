@@ -43,6 +43,7 @@ _PACKAGE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SIGNAL_REFERENCE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SOFTWARE_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 _SHA256_CHECKSUM = re.compile(r"^sha256:[0-9A-Fa-f]{64}$")
+_SCHEDULE_LOCAL_DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$")
 
 
 def utc_timestamp() -> str:
@@ -58,12 +59,12 @@ def serviceability_from_legacy_availability(availability: str) -> str:
 
 
 def _parse_schedule_datetime(value: str, field_name: str) -> datetime:
-    if "T" not in value:
-        raise ValueError(f"{field_name} must be an ISO 8601 local date-time")
+    if not _SCHEDULE_LOCAL_DATETIME.fullmatch(value):
+        raise ValueError(f"{field_name} must use YYYY-MM-DDTHH:MM local date-time")
     try:
         parsed = datetime.fromisoformat(value)
     except ValueError as exc:
-        raise ValueError(f"{field_name} must be an ISO 8601 local date-time") from exc
+        raise ValueError(f"{field_name} must use YYYY-MM-DDTHH:MM local date-time") from exc
     if parsed.tzinfo is not None:
         raise ValueError(f"{field_name} must be a local date-time without timezone")
     return parsed

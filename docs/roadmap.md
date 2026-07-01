@@ -251,8 +251,8 @@ Deliverables:
 - service planning table for scheduling test execution by project, operator,
   category, location, EUT, status, and planned time window; initial
   SQLite/Python/Qt/browser support added;
-- local service-planning actions now reject malformed local date-time blocks and
-  weekend-crossing schedule items before repository writes;
+- local service-planning actions now reject non-canonical local date-time
+  blocks and weekend-crossing schedule items before repository writes;
 - local service-planning actions now also reject multi-day business-day blocks,
   keeping each scheduled execution item as a single intra-day lab block;
 - project repository service-schedule inserts now enforce the same one
