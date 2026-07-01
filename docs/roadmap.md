@@ -83,6 +83,11 @@ Deliverables:
   from approved revisions, audit/outbox evidence, Python client routes, and real
   HTTP restart E2E coverage. This is not a LAB CONSOLE editor and not a runtime
   execution engine.
+- `0.9.1` hardens that baseline for future editor work: SQL-level CAS for draft
+  edits and transitions, one active draft per template, explicit aggregate DTO
+  pointers for current approved/latest/active draft revisions, approval-time
+  supersession of older approved revisions, strict GUI bootstrap JSON, and
+  Windows launchers for the prototype and Qt console.
 
 ## Phase 3: Measurement Runtime
 

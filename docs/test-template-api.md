@@ -1,7 +1,7 @@
 # Test Template API
 
-The 0.9.0 test-template API replaces the 0.8.x one-row template model with a
-revisioned business aggregate owned by the Rust local agent.
+The 0.9.1 test-template API keeps the 0.9.0 revisioned business aggregate and
+hardens its launchability and concurrency behavior in the Rust local agent.
 
 The API manages reusable test definitions only. It does not instantiate a
 campaign test, run instruments, acquire data, execute post-processing, or build
@@ -155,9 +155,12 @@ returns HTTP `409` with `test_template_definition_checksum_mismatch`.
 If the revision is `under_review` or `approved`, the agent returns HTTP `409`
 with `test_template_revision_immutable`.
 
+The checksum comparison is enforced in the SQLite `UPDATE` statement itself,
+not only by a prior read.
+
 ## Transitions
 
-Supported transitions in 0.9.0:
+Supported transitions in 0.9.1:
 
 - `draft` -> `under_review`;
 - `under_review` -> `approved`.
@@ -186,8 +189,13 @@ Both requests require:
 
 The release does not implement authentication, RBAC, competence checks,
 author/approver separation, or configurable second approval. Those belong to a
-future people/roles/competence domain, so 0.9.0 records `actor`, `reason`, and
+future people/roles/competence domain, so 0.9.x records `actor`, `reason`, and
 `operation_id` without imposing an arbitrary approval policy.
+
+Transition status comparisons are also enforced in the SQLite `UPDATE`
+statement. A stale transition returns HTTP `409` with
+`test_template_revision_transition_conflict` when the stored status changed
+between read and commit.
 
 ## Derive A New Revision
 
@@ -211,6 +219,14 @@ The new revision receives the next deterministic revision number, a parent
 revision reference, and a copied canonical definition. Historical revisions
 remain readable.
 
+Only one active `draft` revision is allowed per template identity. Creating a
+second draft while another one exists returns HTTP `409` with
+`test_template_active_draft_exists`.
+
+Approving a newer revision updates `current_approved_revision_id` and moves any
+older approved revision for the same template to `superseded` in the same
+transaction, with separate audit and outbox evidence.
+
 ## Response Shape
 
 Write responses contain:
@@ -227,7 +243,14 @@ Write responses contain:
       "category_code": "emission_transient_time_domain",
       "current_approved_revision_id": null
     },
-    "current_revision": {
+    "current_approved_revision": null,
+    "latest_revision": {
+      "revision_id": "TT-INRUSH-001-rev-0001",
+      "revision_number": 1,
+      "status": "draft",
+      "definition_checksum": "sha256:..."
+    },
+    "active_draft_revision": {
       "revision_id": "TT-INRUSH-001-rev-0001",
       "revision_number": 1,
       "status": "draft",
@@ -271,6 +294,9 @@ The sync outbox uses domain `test_definitions` and entity type
 0.9.0 intentionally resets the 0.8.3/0.8.4 `test_templates` storage shape via
 `storage/sqlite/test_definitions/0004_template_revision_aggregate.sql`. There
 is no dual-read, dual-write, or legacy DTO in the runtime after migration.
+
+0.9.1 adds `storage/sqlite/test_definitions/0005_single_active_draft.sql` with a
+partial unique index that enforces one active draft per template identity.
 
 ## Simulated Execution Link
 

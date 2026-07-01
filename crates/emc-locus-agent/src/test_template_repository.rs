@@ -39,7 +39,9 @@ pub(crate) struct StoredTestTemplateRevision {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct StoredTestTemplateAggregate {
     pub(crate) identity: StoredTestTemplateIdentity,
-    pub(crate) current_revision: Option<StoredTestTemplateRevision>,
+    pub(crate) current_approved_revision: Option<StoredTestTemplateRevision>,
+    pub(crate) latest_revision: Option<StoredTestTemplateRevision>,
+    pub(crate) active_draft_revision: Option<StoredTestTemplateRevision>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -114,7 +116,9 @@ pub(crate) struct NewTestTemplateRevisionRecord<'a> {
 }
 
 pub(crate) struct UpdateTestTemplateRevisionDefinitionInput<'a> {
+    pub(crate) template_id: &'a str,
     pub(crate) revision_id: &'a str,
+    pub(crate) expected_definition_checksum: &'a str,
     pub(crate) definition_schema_version: &'a str,
     pub(crate) definition_json: &'a str,
     pub(crate) definition_checksum: &'a str,
@@ -124,6 +128,7 @@ pub(crate) struct UpdateTestTemplateRevisionDefinitionInput<'a> {
 pub(crate) struct UpdateTestTemplateRevisionStatusInput<'a> {
     pub(crate) template_id: &'a str,
     pub(crate) revision_id: &'a str,
+    pub(crate) expected_current_status: &'a str,
     pub(crate) status: &'a str,
     pub(crate) timestamp: &'a str,
 }
@@ -375,22 +380,71 @@ pub(crate) fn load_test_template_revision(
         .map_err(|error| AgentError::new("test_template_revision_query_failed", error.to_string()))
 }
 
-pub(crate) fn load_current_test_template_revision(
+pub(crate) fn load_current_approved_test_template_revision(
     connection: &Connection,
     identity: &StoredTestTemplateIdentity,
 ) -> Result<Option<StoredTestTemplateRevision>, AgentError> {
     if let Some(revision_id) = identity.current_approved_revision_id.as_deref() {
         return load_test_template_revision(connection, &identity.template_id, revision_id);
     }
+    Ok(None)
+}
+
+pub(crate) fn load_latest_test_template_revision(
+    connection: &Connection,
+    template_id: &str,
+) -> Result<Option<StoredTestTemplateRevision>, AgentError> {
     connection
         .query_row(
             revision_select_sql("WHERE template_id = ?1 ORDER BY revision_number DESC LIMIT 1")
                 .as_str(),
-            params![identity.template_id],
+            params![template_id],
             stored_revision_from_row,
         )
         .optional()
         .map_err(|error| AgentError::new("test_template_revision_query_failed", error.to_string()))
+}
+
+pub(crate) fn load_active_draft_test_template_revision(
+    connection: &Connection,
+    template_id: &str,
+) -> Result<Option<StoredTestTemplateRevision>, AgentError> {
+    connection
+        .query_row(
+            revision_select_sql("WHERE template_id = ?1 AND status = 'draft' LIMIT 1").as_str(),
+            params![template_id],
+            stored_revision_from_row,
+        )
+        .optional()
+        .map_err(|error| AgentError::new("test_template_revision_query_failed", error.to_string()))
+}
+
+pub(crate) fn list_approved_test_template_revisions(
+    connection: &Connection,
+    template_id: &str,
+) -> Result<Vec<StoredTestTemplateRevision>, AgentError> {
+    let mut statement = connection
+        .prepare(
+            revision_select_sql(
+                "WHERE template_id = ?1 AND status = 'approved' ORDER BY revision_number",
+            )
+            .as_str(),
+        )
+        .map_err(|error| {
+            AgentError::new("test_template_revision_query_failed", error.to_string())
+        })?;
+    let rows = statement
+        .query_map(params![template_id], stored_revision_from_row)
+        .map_err(|error| {
+            AgentError::new("test_template_revision_query_failed", error.to_string())
+        })?;
+    let mut revisions = Vec::new();
+    for row in rows {
+        revisions.push(row.map_err(|error| {
+            AgentError::new("test_template_revision_query_failed", error.to_string())
+        })?);
+    }
+    Ok(revisions)
 }
 
 pub(crate) fn list_test_template_revisions(
@@ -514,16 +568,19 @@ pub(crate) fn insert_test_template_revision(
 pub(crate) fn update_test_template_revision_definition(
     transaction: &Transaction<'_>,
     input: UpdateTestTemplateRevisionDefinitionInput<'_>,
-) -> Result<(), AgentError> {
+) -> Result<usize, AgentError> {
     let updated = transaction
         .execute(
             concat!(
-                "UPDATE test_template_revisions SET definition_schema_version = ?2, ",
-                "definition_json = ?3, definition_checksum = ?4, updated_at = ?5 ",
-                "WHERE revision_id = ?1 AND status = 'draft'"
+                "UPDATE test_template_revisions SET definition_schema_version = ?4, ",
+                "definition_json = ?5, definition_checksum = ?6, updated_at = ?7 ",
+                "WHERE template_id = ?1 AND revision_id = ?2 AND status = 'draft' ",
+                "AND definition_checksum = ?3"
             ),
             params![
+                input.template_id,
                 input.revision_id,
+                input.expected_definition_checksum,
                 input.definition_schema_version,
                 input.definition_json,
                 input.definition_checksum,
@@ -533,19 +590,13 @@ pub(crate) fn update_test_template_revision_definition(
         .map_err(|error| {
             AgentError::new("test_template_revision_write_failed", error.to_string())
         })?;
-    if updated == 0 {
-        return Err(AgentError::new(
-            "test_template_revision_immutable",
-            "only draft template revisions can be modified",
-        ));
-    }
-    Ok(())
+    Ok(updated)
 }
 
 pub(crate) fn update_test_template_revision_status(
     transaction: &Transaction<'_>,
     input: UpdateTestTemplateRevisionStatusInput<'_>,
-) -> Result<(), AgentError> {
+) -> Result<usize, AgentError> {
     let (submitted_at, approved_at): (Option<&str>, Option<&str>) = match input.status {
         "under_review" => (Some(input.timestamp), None),
         "approved" => (Some(input.timestamp), Some(input.timestamp)),
@@ -556,7 +607,7 @@ pub(crate) fn update_test_template_revision_status(
             concat!(
                 "UPDATE test_template_revisions SET status = ?3, updated_at = ?4, ",
                 "submitted_at = COALESCE(submitted_at, ?5), approved_at = COALESCE(approved_at, ?6) ",
-                "WHERE template_id = ?1 AND revision_id = ?2"
+                "WHERE template_id = ?1 AND revision_id = ?2 AND status = ?7"
             ),
             params![
                 input.template_id,
@@ -565,14 +616,12 @@ pub(crate) fn update_test_template_revision_status(
                 input.timestamp,
                 submitted_at,
                 approved_at,
+                input.expected_current_status,
             ],
         )
         .map_err(|error| AgentError::new("test_template_revision_write_failed", error.to_string()))?;
     if updated == 0 {
-        return Err(AgentError::new(
-            "test_template_revision_not_found",
-            "template revision does not exist",
-        ));
+        return Ok(0);
     }
     if input.status == "approved" {
         transaction
@@ -592,7 +641,24 @@ pub(crate) fn update_test_template_revision_status(
             )
             .map_err(|error| AgentError::new("test_template_write_failed", error.to_string()))?;
     }
-    Ok(())
+    Ok(updated)
+}
+
+pub(crate) fn supersede_approved_test_template_revision(
+    transaction: &Transaction<'_>,
+    template_id: &str,
+    revision_id: &str,
+    timestamp: &str,
+) -> Result<usize, AgentError> {
+    transaction
+        .execute(
+            concat!(
+                "UPDATE test_template_revisions SET status = 'superseded', updated_at = ?3 ",
+                "WHERE template_id = ?1 AND revision_id = ?2 AND status = 'approved'"
+            ),
+            params![template_id, revision_id, timestamp],
+        )
+        .map_err(|error| AgentError::new("test_template_revision_write_failed", error.to_string()))
 }
 
 pub(crate) fn touch_test_template_identity(
@@ -839,4 +905,157 @@ fn test_template_operation_fingerprint(
 fn payload_checksum(payload_json: &str) -> String {
     let digest = Sha256::digest(payload_json.as_bytes());
     format!("sha256:{digest:x}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn connection_with_revision() -> Connection {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE test_template_identities (
+                    template_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    category_code TEXT NOT NULL,
+                    current_approved_revision_id TEXT,
+                    created_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE test_template_revisions (
+                    revision_id TEXT PRIMARY KEY,
+                    template_id TEXT NOT NULL,
+                    revision_number INTEGER NOT NULL,
+                    parent_revision_id TEXT,
+                    status TEXT NOT NULL,
+                    definition_schema_version TEXT NOT NULL,
+                    definition_json TEXT NOT NULL,
+                    definition_checksum TEXT NOT NULL,
+                    created_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    submitted_at TEXT,
+                    approved_at TEXT
+                );
+
+                INSERT INTO test_template_identities (
+                    template_id, title, category_code, created_by, created_at, updated_at
+                )
+                VALUES (
+                    'TT-CAS', 'CAS template', 'emission_transient_time_domain',
+                    'method.author', '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z'
+                );
+
+                INSERT INTO test_template_revisions (
+                    revision_id, template_id, revision_number, status,
+                    definition_schema_version, definition_json, definition_checksum,
+                    created_by, created_at, updated_at
+                )
+                VALUES (
+                    'TT-CAS-rev-0001', 'TT-CAS', 1, 'draft',
+                    'emc-locus.test-template-definition.v1', '{}',
+                    'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    'method.author', '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z'
+                );
+                "#,
+            )
+            .unwrap();
+        connection
+    }
+
+    #[test]
+    fn definition_update_is_atomic_on_expected_checksum() {
+        let mut connection = connection_with_revision();
+        let transaction = connection.transaction().unwrap();
+        let updated = update_test_template_revision_definition(
+            &transaction,
+            UpdateTestTemplateRevisionDefinitionInput {
+                template_id: "TT-CAS",
+                revision_id: "TT-CAS-rev-0001",
+                expected_definition_checksum:
+                    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                definition_schema_version: "emc-locus.test-template-definition.v1",
+                definition_json: "{\"changed\":true}",
+                definition_checksum:
+                    "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                timestamp: "2026-07-01T00:00:01Z",
+            },
+        )
+        .unwrap();
+        assert_eq!(updated, 1);
+        transaction.commit().unwrap();
+
+        let transaction = connection.transaction().unwrap();
+        let stale = update_test_template_revision_definition(
+            &transaction,
+            UpdateTestTemplateRevisionDefinitionInput {
+                template_id: "TT-CAS",
+                revision_id: "TT-CAS-rev-0001",
+                expected_definition_checksum:
+                    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                definition_schema_version: "emc-locus.test-template-definition.v1",
+                definition_json: "{\"changed\":\"stale\"}",
+                definition_checksum:
+                    "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                timestamp: "2026-07-01T00:00:02Z",
+            },
+        )
+        .unwrap();
+        assert_eq!(stale, 0);
+    }
+
+    #[test]
+    fn status_update_is_atomic_on_expected_status() {
+        let mut connection = connection_with_revision();
+        let transaction = connection.transaction().unwrap();
+        let submitted = update_test_template_revision_status(
+            &transaction,
+            UpdateTestTemplateRevisionStatusInput {
+                template_id: "TT-CAS",
+                revision_id: "TT-CAS-rev-0001",
+                expected_current_status: "draft",
+                status: "under_review",
+                timestamp: "2026-07-01T00:00:01Z",
+            },
+        )
+        .unwrap();
+        assert_eq!(submitted, 1);
+        transaction.commit().unwrap();
+
+        let transaction = connection.transaction().unwrap();
+        let stale_transition = update_test_template_revision_status(
+            &transaction,
+            UpdateTestTemplateRevisionStatusInput {
+                template_id: "TT-CAS",
+                revision_id: "TT-CAS-rev-0001",
+                expected_current_status: "draft",
+                status: "approved",
+                timestamp: "2026-07-01T00:00:02Z",
+            },
+        )
+        .unwrap();
+        assert_eq!(stale_transition, 0);
+        transaction.commit().unwrap();
+
+        let status: String = connection
+            .query_row(
+                "SELECT status FROM test_template_revisions WHERE revision_id = 'TT-CAS-rev-0001'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "under_review");
+        let current_approved: Option<String> = connection
+            .query_row(
+                "SELECT current_approved_revision_id FROM test_template_identities WHERE template_id = 'TT-CAS'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(current_approved, None);
+    }
 }

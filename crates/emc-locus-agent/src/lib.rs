@@ -853,7 +853,7 @@ mod tests {
                 .find(|domain| domain.domain == "test_definitions")
                 .unwrap()
                 .schema_version,
-            Some(4)
+            Some(5)
         );
 
         remove_temporary_storage_root(&storage_root);

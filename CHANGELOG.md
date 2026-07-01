@@ -8,6 +8,8 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-07-01
+
 ### Added
 
 - Added `storage/sqlite/projects/0005_simulated_execution_template_revision.sql`
@@ -16,6 +18,25 @@ change should remain traceable through Git history, session logs, and this file.
 - Simulated EMC execution responses now expose an optional
   `test_template_revision` object with template id, revision id, and definition
   checksum when `test_method_reference` matches an approved stored template.
+- Added `storage/sqlite/test_definitions/0005_single_active_draft.sql` with a
+  partial unique index enforcing one active draft revision per template.
+- Added Windows launchers for the static prototype, Qt demo, and local
+  agent-plus-Qt workflow under `scripts/`, with logs in `logs/launchers`.
+- Added a Python smoke test for the GUI shell bootstrap and relative static
+  asset paths.
+
+### Changed
+
+- Test-template aggregate DTOs now expose `current_approved_revision`,
+  `latest_revision`, and `active_draft_revision` instead of the ambiguous
+  `current_revision`.
+- Draft definition replacement and lifecycle transitions now use SQL-level
+  compare-and-swap guards for checksum/status concurrency.
+- Approving a newer template revision now supersedes older approved revisions
+  for the same template in the same transaction, with audit and outbox records.
+- `apps/gui-shell/bootstrap.js` remains a browser script but now carries a
+  strict JSON payload parseable by the Qt Python loader.
+- Bumped the synchronized Rust/Python software version to `0.9.1`.
 
 ## [0.9.0] - 2026-07-01
 

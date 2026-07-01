@@ -10,16 +10,18 @@ use crate::{
         approved_method_revision_exists, ensure_test_template_operation_replay,
         existing_test_template_operation, insert_test_template_audit_event,
         insert_test_template_identity, insert_test_template_revision,
-        insert_test_template_sync_operation, list_test_template_identities,
-        list_test_template_revisions as load_revision_history, load_current_test_template_revision,
-        load_test_template_audit_events, load_test_template_identity, load_test_template_revision,
+        insert_test_template_sync_operation, list_approved_test_template_revisions,
+        list_test_template_identities, list_test_template_revisions as load_revision_history,
+        load_active_draft_test_template_revision, load_current_approved_test_template_revision,
+        load_latest_test_template_revision, load_test_template_audit_events,
+        load_test_template_identity, load_test_template_revision,
         next_test_template_revision_number, open_test_template_connection,
-        open_test_template_connection_with_sync, test_category_exists,
-        touch_test_template_identity, update_test_template_revision_definition,
-        update_test_template_revision_status, NewTestTemplateIdentityRecord,
-        NewTestTemplateRevisionRecord, StoredTestTemplateAggregate, StoredTestTemplateIdentity,
-        StoredTestTemplateOperation, StoredTestTemplateRevision, TestTemplateAuditEventInput,
-        TestTemplateListFilter, TestTemplateOperationFingerprintInput,
+        open_test_template_connection_with_sync, supersede_approved_test_template_revision,
+        test_category_exists, touch_test_template_identity,
+        update_test_template_revision_definition, update_test_template_revision_status,
+        NewTestTemplateIdentityRecord, NewTestTemplateRevisionRecord, StoredTestTemplateAggregate,
+        StoredTestTemplateIdentity, StoredTestTemplateOperation, StoredTestTemplateRevision,
+        TestTemplateAuditEventInput, TestTemplateListFilter, TestTemplateOperationFingerprintInput,
         TestTemplateSyncOperationInput, UpdateTestTemplateRevisionDefinitionInput,
         UpdateTestTemplateRevisionStatusInput,
     },
@@ -335,16 +337,22 @@ pub fn replace_test_template_revision_definition(
     let transaction = connection
         .transaction()
         .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
-    update_test_template_revision_definition(
+    let updated = update_test_template_revision_definition(
         &transaction,
         UpdateTestTemplateRevisionDefinitionInput {
+            template_id: &input.template_id,
             revision_id: &input.revision_id,
+            expected_definition_checksum: &input.expected_definition_checksum,
             definition_schema_version: &definition.definition_schema_version,
             definition_json: &definition.canonical_json,
             definition_checksum: &definition.definition_checksum,
             timestamp: &now,
         },
     )?;
+    if updated == 0 {
+        drop(transaction);
+        return definition_update_conflict(&connection, &input);
+    }
     touch_test_template_identity(&transaction, &input.template_id, &now)?;
     insert_test_template_audit_event(
         &transaction,
@@ -454,6 +462,19 @@ pub fn create_test_template_revision(
             },
         )?;
         return operation_replay_result(&connection, &operation);
+    }
+    if let Some(active_draft) =
+        load_active_draft_test_template_revision(&connection, &input.template_id)?
+    {
+        return Err(AgentError::with_details(
+            "test_template_active_draft_exists",
+            "a template identity can only have one active draft revision",
+            json!({
+                "template_id": input.template_id,
+                "existing_draft_revision_id": active_draft.revision_id,
+                "source_revision_id": input.source_revision_id,
+            }),
+        ));
     }
 
     let revision_number = next_test_template_revision_number(&connection, &input.template_id)?;
@@ -577,20 +598,34 @@ pub fn transition_test_template_revision(
             }),
         ));
     }
+    let approved_revisions_to_supersede = if input.target_status == TemplateRevisionStatus::Approved
+    {
+        list_approved_test_template_revisions(&connection, &input.template_id)?
+            .into_iter()
+            .filter(|approved| approved.revision_id != input.revision_id)
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     let now = utc_timestamp()?;
     let transaction = connection
         .transaction()
         .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
-    update_test_template_revision_status(
+    let updated = update_test_template_revision_status(
         &transaction,
         UpdateTestTemplateRevisionStatusInput {
             template_id: &input.template_id,
             revision_id: &input.revision_id,
+            expected_current_status: &revision.status,
             status: revision_status_text(&input.target_status),
             timestamp: &now,
         },
     )?;
+    if updated == 0 {
+        drop(transaction);
+        return transition_cas_conflict(&connection, &input, &revision.status);
+    }
     insert_test_template_audit_event(
         &transaction,
         TestTemplateAuditEventInput {
@@ -610,6 +645,62 @@ pub fn transition_test_template_revision(
             timestamp: &now,
         },
     )?;
+    if input.target_status == TemplateRevisionStatus::Approved {
+        for superseded_revision in approved_revisions_to_supersede {
+            let superseded = supersede_approved_test_template_revision(
+                &transaction,
+                &input.template_id,
+                &superseded_revision.revision_id,
+                &now,
+            )?;
+            if superseded == 0 {
+                continue;
+            }
+            let supersede_operation_id = format!(
+                "{}:supersede:{}",
+                input.operation_id, superseded_revision.revision_id
+            );
+            let supersede_payload_json = supersede_payload_json(&input, &superseded_revision);
+            insert_test_template_audit_event(
+                &transaction,
+                TestTemplateAuditEventInput {
+                    template_id: &input.template_id,
+                    revision_id: Some(&superseded_revision.revision_id),
+                    action: "test_template_revision_superseded",
+                    actor: &input.actor,
+                    reason: &input.reason,
+                    operation_id: &supersede_operation_id,
+                    correlation_id: &input.correlation_id,
+                    device_id: &input.device_id,
+                    old_revision_id: Some(&superseded_revision.revision_id),
+                    new_revision_id: Some(&input.revision_id),
+                    old_definition_checksum: Some(&superseded_revision.definition_checksum),
+                    new_definition_checksum: Some(&revision.definition_checksum),
+                    payload_json: &supersede_payload_json,
+                    timestamp: &now,
+                },
+            )?;
+            insert_test_template_sync_operation(
+                &transaction,
+                TestTemplateSyncOperationInput {
+                    operation_id: &supersede_operation_id,
+                    entity_type: "test_template_revision",
+                    entity_id: &superseded_revision.revision_id,
+                    operation_kind: "test_template_revision_superseded",
+                    base_revision: &status_cursor("approved", &superseded_revision.revision_id),
+                    resulting_revision: &status_cursor(
+                        "superseded",
+                        &superseded_revision.revision_id,
+                    ),
+                    actor_id: &input.actor,
+                    device_id: &input.device_id,
+                    correlation_id: &input.correlation_id,
+                    payload_json: &supersede_payload_json,
+                    timestamp: &now,
+                },
+            )?;
+        }
+    }
     insert_test_template_sync_operation(
         &transaction,
         TestTemplateSyncOperationInput {
@@ -870,6 +961,78 @@ fn load_required_revision(
     })
 }
 
+fn definition_update_conflict(
+    connection: &rusqlite::Connection,
+    input: &ReplaceTestTemplateDefinitionInput,
+) -> Result<String, AgentError> {
+    let Some(revision) =
+        load_test_template_revision(connection, &input.template_id, &input.revision_id)?
+    else {
+        return Err(AgentError::new(
+            "test_template_revision_not_found",
+            "template revision does not exist",
+        ));
+    };
+    if revision.status != revision_status_text(&TemplateRevisionStatus::Draft) {
+        return Err(AgentError::with_details(
+            "test_template_revision_immutable",
+            "only draft template revisions can be modified",
+            json!({
+                "template_id": input.template_id,
+                "revision_id": input.revision_id,
+                "status": revision.status,
+            }),
+        ));
+    }
+    if revision.definition_checksum != input.expected_definition_checksum {
+        return Err(AgentError::with_details(
+            "test_template_definition_checksum_mismatch",
+            "draft definition was modified by another operation",
+            json!({
+                "template_id": input.template_id,
+                "revision_id": input.revision_id,
+                "expected_definition_checksum": input.expected_definition_checksum,
+                "actual_definition_checksum": revision.definition_checksum,
+            }),
+        ));
+    }
+    Err(AgentError::with_details(
+        "test_template_definition_concurrent_update",
+        "draft definition update lost the compare-and-swap race",
+        json!({
+            "template_id": input.template_id,
+            "revision_id": input.revision_id,
+            "expected_definition_checksum": input.expected_definition_checksum,
+        }),
+    ))
+}
+
+fn transition_cas_conflict(
+    connection: &rusqlite::Connection,
+    input: &TransitionTestTemplateRevisionInput,
+    expected_status: &str,
+) -> Result<String, AgentError> {
+    let Some(revision) =
+        load_test_template_revision(connection, &input.template_id, &input.revision_id)?
+    else {
+        return Err(AgentError::new(
+            "test_template_revision_not_found",
+            "template revision does not exist",
+        ));
+    };
+    Err(AgentError::with_details(
+        "test_template_revision_transition_conflict",
+        "template revision status changed before the transition could be committed",
+        json!({
+            "template_id": input.template_id,
+            "revision_id": input.revision_id,
+            "expected_status": expected_status,
+            "actual_status": revision.status,
+            "target_status": revision_status_text(&input.target_status),
+        }),
+    ))
+}
+
 fn load_aggregate(
     connection: &rusqlite::Connection,
     template_id: &str,
@@ -886,7 +1049,14 @@ fn aggregate_for_identity(
 ) -> Result<StoredTestTemplateAggregate, AgentError> {
     Ok(StoredTestTemplateAggregate {
         identity: identity.clone(),
-        current_revision: load_current_test_template_revision(connection, identity)?,
+        current_approved_revision: load_current_approved_test_template_revision(
+            connection, identity,
+        )?,
+        latest_revision: load_latest_test_template_revision(connection, &identity.template_id)?,
+        active_draft_revision: load_active_draft_test_template_revision(
+            connection,
+            &identity.template_id,
+        )?,
     })
 }
 
@@ -932,7 +1102,12 @@ fn operation_result_for_revision(
 fn aggregate_dto(aggregate: &StoredTestTemplateAggregate) -> TestTemplateAggregateDto {
     TestTemplateAggregateDto {
         identity: identity_dto(&aggregate.identity),
-        current_revision: aggregate.current_revision.as_ref().map(revision_dto),
+        current_approved_revision: aggregate
+            .current_approved_revision
+            .as_ref()
+            .map(revision_dto),
+        latest_revision: aggregate.latest_revision.as_ref().map(revision_dto),
+        active_draft_revision: aggregate.active_draft_revision.as_ref().map(revision_dto),
     }
 }
 
@@ -1006,6 +1181,18 @@ fn transition_payload_json(input: &TransitionTestTemplateRevisionInput) -> Strin
         "template_id": input.template_id,
         "revision_id": input.revision_id,
         "target_status": revision_status_text(&input.target_status),
+        "reason": input.reason.trim(),
+    }))
+}
+
+fn supersede_payload_json(
+    input: &TransitionTestTemplateRevisionInput,
+    superseded_revision: &StoredTestTemplateRevision,
+) -> String {
+    render_json(&json!({
+        "template_id": input.template_id,
+        "superseded_revision_id": superseded_revision.revision_id,
+        "approved_revision_id": input.revision_id,
         "reason": input.reason.trim(),
     }))
 }

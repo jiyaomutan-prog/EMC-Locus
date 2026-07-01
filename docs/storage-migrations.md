@@ -70,7 +70,9 @@ Version 4 is a deliberate 0.9.0 reset of that provisional shape. It drops the
 revisioned content, stores canonical typed definition JSON and SHA-256
 definition checksums, tracks parent revisions, and records audit events with
 explicit old/new revision and checksum fields. There is no dual-read or
-dual-write compatibility path after migration.
+dual-write compatibility path after migration. Version 5 adds a partial unique
+index on `test_template_revisions(template_id) WHERE status = 'draft'` so the
+database enforces one active draft per template identity.
 
 ### Measurement Data
 

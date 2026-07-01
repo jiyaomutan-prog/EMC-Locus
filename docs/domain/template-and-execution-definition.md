@@ -99,6 +99,13 @@ requirements, execution steps, branch rules, limits, post-processing operations,
 and revision status. The future LAB CONSOLE editor must build on this
 aggregate, not on the retired 0.8.x JSON-column shape.
 
+0.9.1 keeps that scope deliberately narrow and hardens the aggregate boundary:
+draft edits and status transitions are compare-and-swap writes, each template
+can have only one active draft, the aggregate read model distinguishes current
+approved, latest, and active draft revisions, and approval of a newer revision
+supersedes older approved revisions with audit/outbox evidence. It is still not
+a Template Studio editor or an execution runtime.
+
 ### Method Revision
 
 A controlled laboratory method at a specific revision.

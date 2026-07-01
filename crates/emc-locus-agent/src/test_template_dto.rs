@@ -32,7 +32,9 @@ pub(crate) struct TestTemplateRevisionDto {
 #[derive(Serialize)]
 pub(crate) struct TestTemplateAggregateDto {
     pub(crate) identity: TestTemplateIdentityDto,
-    pub(crate) current_revision: Option<TestTemplateRevisionDto>,
+    pub(crate) current_approved_revision: Option<TestTemplateRevisionDto>,
+    pub(crate) latest_revision: Option<TestTemplateRevisionDto>,
+    pub(crate) active_draft_revision: Option<TestTemplateRevisionDto>,
 }
 
 #[derive(Serialize)]

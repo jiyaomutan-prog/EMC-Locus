@@ -869,8 +869,11 @@ fn status_for_error(code: &str) -> u16 {
         | "test_execution_template_not_approved"
         | "test_template_already_exists"
         | "test_template_definition_checksum_mismatch"
+        | "test_template_definition_concurrent_update"
+        | "test_template_active_draft_exists"
         | "test_template_revision_immutable"
         | "test_template_revision_source_not_approved"
+        | "test_template_revision_transition_conflict"
         | "test_template_revision_transition_not_allowed"
         | "attached_document_already_exists"
         | "operation_replay_mismatch"
@@ -1448,6 +1451,60 @@ mod tests {
             .contains("\"revision_id\":\"TT-INRUSH-001-rev-0002\""));
         assert!(second_revision.body.contains("\"status\":\"draft\""));
 
+        let aggregate_with_draft =
+            handle_api_request("GET", "/api/v1/test-templates/TT-INRUSH-001", "", &config);
+        assert_eq!(aggregate_with_draft.status, 200);
+        assert!(aggregate_with_draft
+            .body
+            .contains("\"current_approved_revision\":{\"revision_id\":\"TT-INRUSH-001-rev-0001\""));
+        assert!(aggregate_with_draft
+            .body
+            .contains("\"active_draft_revision\":{\"revision_id\":\"TT-INRUSH-001-rev-0002\""));
+
+        let duplicate_draft = handle_api_request(
+            "POST",
+            "/api/v1/test-templates/TT-INRUSH-001/revisions",
+            r#"{
+                "source_revision_id": "TT-INRUSH-001-rev-0001",
+                "actor": "method.author",
+                "reason": "attempt second active draft",
+                "operation_id": "op-create-test-template-rev3-blocked"
+            }"#,
+            &config,
+        );
+        assert_eq!(duplicate_draft.status, 409);
+        assert!(duplicate_draft
+            .body
+            .contains("test_template_active_draft_exists"));
+
+        let submitted_second = handle_api_request(
+            "POST",
+            "/api/v1/test-templates/TT-INRUSH-001/revisions/TT-INRUSH-001-rev-0002/transitions/submit-for-review",
+            r#"{
+                "actor": "method.author",
+                "reason": "revision two ready for review",
+                "operation_id": "op-submit-test-template-rev2"
+            }"#,
+            &config,
+        );
+        assert_eq!(submitted_second.status, 200);
+        assert!(submitted_second
+            .body
+            .contains("\"status\":\"under_review\""));
+
+        let approved_second = handle_api_request(
+            "POST",
+            "/api/v1/test-templates/TT-INRUSH-001/revisions/TT-INRUSH-001-rev-0002/transitions/approve",
+            r#"{
+                "actor": "technical.reviewer",
+                "reason": "revision two accepted",
+                "operation_id": "op-approve-test-template-rev2"
+            }"#,
+            &config,
+        );
+        assert_eq!(approved_second.status, 200);
+        assert!(approved_second.body.contains("\"status\":\"approved\""));
+
         let revisions = handle_api_request(
             "GET",
             "/api/v1/test-templates/TT-INRUSH-001/revisions",
@@ -1461,6 +1518,20 @@ mod tests {
         assert!(revisions
             .body
             .contains("\"revision_id\":\"TT-INRUSH-001-rev-0002\""));
+        let revisions_json: Value = serde_json::from_str(&revisions.body).unwrap();
+        let revision_statuses: std::collections::HashMap<_, _> = revisions_json["revisions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|revision| {
+                (
+                    revision["revision_id"].as_str().unwrap().to_owned(),
+                    revision["status"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect();
+        assert_eq!(revision_statuses["TT-INRUSH-001-rev-0001"], "superseded");
+        assert_eq!(revision_statuses["TT-INRUSH-001-rev-0002"], "approved");
 
         let approved_list = handle_api_request(
             "GET",
@@ -1480,19 +1551,25 @@ mod tests {
         assert_eq!(lifecycle_outbox.status, 200);
         assert!(approved_list
             .body
-            .contains("\"current_approved_revision_id\":\"TT-INRUSH-001-rev-0001\""));
+            .contains("\"current_approved_revision_id\":\"TT-INRUSH-001-rev-0002\""));
         assert!(lifecycle_audit
             .body
             .contains("\"action\":\"test_template_submitted_for_review\""));
         assert!(lifecycle_audit
             .body
             .contains("\"action\":\"test_template_approved\""));
+        assert!(lifecycle_audit
+            .body
+            .contains("\"action\":\"test_template_revision_superseded\""));
         assert!(lifecycle_outbox
             .body
             .contains("\"operation_kind\":\"test_template_submitted_for_review\""));
         assert!(lifecycle_outbox
             .body
             .contains("\"operation_kind\":\"test_template_approved\""));
+        assert!(lifecycle_outbox
+            .body
+            .contains("\"operation_kind\":\"test_template_revision_superseded\""));
         assert!(lifecycle_outbox
             .body
             .contains("\"operation_kind\":\"test_template_revision_created\""));
@@ -2779,7 +2856,7 @@ mod tests {
             bind: first_address.clone(),
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
-            max_requests: Some(10),
+            max_requests: Some(12),
         });
 
         assert_eq!(wait_for_http(&first_address, "/api/v1/health").0, 200);
@@ -2873,6 +2950,34 @@ mod tests {
         assert!(second_revision
             .1
             .contains("\"revision_id\":\"TT-HTTP-REV-rev-0002\""));
+        assert_eq!(
+            http_request(
+                "POST",
+                &first_address,
+                "/api/v1/test-templates/TT-HTTP-REV/revisions/TT-HTTP-REV-rev-0002/transitions/submit-for-review",
+                r#"{
+                    "actor": "method.author",
+                    "reason": "HTTP E2E submit revision two",
+                    "operation_id": "op-http-template-submit-rev2"
+                }"#,
+            )
+            .0,
+            200
+        );
+        assert_eq!(
+            http_request(
+                "POST",
+                &first_address,
+                "/api/v1/test-templates/TT-HTTP-REV/revisions/TT-HTTP-REV-rev-0002/transitions/approve",
+                r#"{
+                    "actor": "quality.reviewer",
+                    "reason": "HTTP E2E approve revision two",
+                    "operation_id": "op-http-template-approve-rev2"
+                }"#,
+            )
+            .0,
+            200
+        );
 
         let revisions = http_request(
             "GET",
@@ -2896,10 +3001,17 @@ mod tests {
         assert!(revisions
             .1
             .contains("\"revision_id\":\"TT-HTTP-REV-rev-0002\""));
+        assert!(revisions.1.contains("\"status\":\"superseded\""));
         assert!(audit.1.contains("\"action\":\"test_template_approved\""));
+        assert!(audit
+            .1
+            .contains("\"action\":\"test_template_revision_superseded\""));
         assert!(outbox
             .1
             .contains("\"operation_kind\":\"test_template_revision_created\""));
+        assert!(outbox
+            .1
+            .contains("\"operation_kind\":\"test_template_revision_superseded\""));
         first_server
             .join()
             .expect("server thread panicked")
@@ -2932,10 +3044,11 @@ mod tests {
         assert_eq!(reloaded_outbox.0, 200);
         assert!(reloaded_template
             .1
-            .contains("\"current_approved_revision_id\":\"TT-HTTP-REV-rev-0001\""));
+            .contains("\"current_approved_revision_id\":\"TT-HTTP-REV-rev-0002\""));
         assert!(reloaded_revisions
             .1
             .contains("\"revision_id\":\"TT-HTTP-REV-rev-0002\""));
+        assert!(reloaded_revisions.1.contains("\"status\":\"superseded\""));
         assert!(reloaded_outbox
             .1
             .contains("\"entity_type\":\"test_template_revision\""));

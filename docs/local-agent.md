@@ -301,3 +301,11 @@ execution and response include `test_template_revision` with `template_id`,
 `revision_id`, and `definition_checksum`. This is still not a campaign
 execution-package binding, variable-resolution workflow, or copied definition
 snapshot.
+
+Version `0.9.1` hardens this template workflow without adding Template Studio
+or a new runtime. Draft definition replacement now uses a SQL compare-and-swap
+on `definition_checksum`; lifecycle transitions use a SQL compare-and-swap on
+the current status; the API aggregate exposes `current_approved_revision`,
+`latest_revision`, and `active_draft_revision`; SQLite enforces one active
+draft per template identity; and approving a newer revision supersedes older
+approved revisions in the same transaction with audit/outbox evidence.

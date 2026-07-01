@@ -1772,6 +1772,11 @@ class TestDefinitionRepositoryTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
+            connection.executescript(
+                (migrations / "0005_single_active_draft.sql").read_text(
+                    encoding="utf-8"
+                )
+            )
 
             tables = {
                 row[0]
@@ -1787,13 +1792,29 @@ class TestDefinitionRepositoryTests(unittest.TestCase):
                 connection.execute(
                     "SELECT MAX(version) FROM schema_migrations"
                 ).fetchone()[0],
-                4,
+                5,
+            )
+            self.assertEqual(
+                connection.execute(
+                    """
+                    SELECT COUNT(*) FROM sqlite_master
+                    WHERE type = 'index'
+                      AND name = 'test_template_one_active_draft_idx'
+                    """
+                ).fetchone()[0],
+                1,
             )
             self.assertEqual(
                 connection.execute(
                     "SELECT value FROM repository_metadata WHERE key = 'test_template_0_9_migration_policy'"
                 ).fetchone()[0],
                 "reset_0_8_template_rows_no_dual_runtime",
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT value FROM repository_metadata WHERE key = 'test_template_active_draft_policy'"
+                ).fetchone()[0],
+                "one_active_draft_per_template",
             )
         finally:
             connection.close()

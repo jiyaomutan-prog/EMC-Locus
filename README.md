@@ -83,13 +83,19 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.9.0`.
+Current software version: `0.9.1`.
 
-Unreleased work after `0.9.0` now records the approved test-template revision
-selected by a simulated EMC execution attempt when the operator launch refers
-to a stored template id. This preserves the revision id and definition checksum
-on the execution record, but it is still not a full execution-package
-instantiation or variable-resolution workflow.
+Version `0.9.1` is a repair and launchability release. The static LAB CONSOLE
+bootstrap remains browser-loadable JavaScript while exposing strict JSON for
+the Qt loader, Windows launchers can start the web prototype, the Qt demo, or
+the local agent plus Qt from any working directory, and the 0.9.x template
+aggregate now uses SQL-level compare-and-swap for draft edits and lifecycle
+transitions. Template aggregates expose current approved, latest, and active
+draft revisions separately; only one active draft is allowed per template; and
+approving a newer revision supersedes older approved revisions with audit and
+outbox evidence. Simulated EMC execution attempts also persist the approved
+test-template revision selected at launch. This is still not Template Studio,
+not a full execution package model, and not a real acquisition runtime.
 
 Version `0.9.0` replaces the provisional test-template model with a real
 revisioned aggregate. Test templates now have stable identities, deterministic
@@ -219,6 +225,48 @@ Version `0.6.0` finalizes the hardened project vertical slice: strict
 idempotence, Serde DTO responses, split Rust project modules, explicit
 multi-SQLite atomicity policy, Qt/Python project reads and writes through the
 local agent when configured, and CI coverage for the local validation matrix.
+
+## Launching Prototypes And Qt Console
+
+The static LAB CONSOLE information-architecture prototype can be opened
+directly:
+
+```powershell
+.\apps\gui-shell\index.html
+```
+
+It can also be served from the repository root:
+
+```powershell
+py -m http.server 8000 --directory ./apps/gui-shell
+```
+
+Then open `http://127.0.0.1:8000/`. In Git Bash, keep the POSIX-style path
+`./apps/gui-shell`; do not use `apps\gui-shell`.
+
+Windows launchers are available from any working directory:
+
+```powershell
+.\scripts\start-proto.ps1
+.\scripts\start-qt-demo.ps1
+.\scripts\start-agent-qt.ps1
+```
+
+Equivalent BAT wrappers are available for shell double-click or `cmd.exe` use:
+
+```bat
+scripts\start-proto.bat
+scripts\start-qt-demo.bat
+scripts\start-agent-qt.bat
+```
+
+`start-proto` starts a local static web server and opens the browser.
+`start-qt-demo` installs PySide6 if needed, then launches Qt connected to an
+already healthy agent or falls back to the strict JSON `bootstrap.js`.
+`start-agent-qt` initializes local SQLite storage, starts the Rust agent on
+`127.0.0.1:8765`, waits for `/api/v1/health`, then opens Qt connected to the
+agent and local repositories. It never deletes data unless `-Reset` is passed
+explicitly.
 
 Revision tracking uses:
 

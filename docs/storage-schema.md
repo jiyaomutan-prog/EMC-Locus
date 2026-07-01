@@ -215,12 +215,17 @@ CREATE TABLE test_template_revisions (
     approved_at TEXT,
     UNIQUE(template_id, revision_number)
 );
+
+CREATE UNIQUE INDEX test_template_one_active_draft_idx
+    ON test_template_revisions(template_id)
+    WHERE status = 'draft';
 ```
 
 `definition_json` is canonical JSON produced from the typed core definition.
 `definition_checksum` is the SHA-256 content checksum of that canonical JSON.
 The checksum is not an audit-event sequence and not a freely supplied client
-revision string.
+revision string. The partial unique index enforces the 0.9.1 rule that a
+template identity can have at most one active draft revision.
 
 ### test_template_audit_events
 

@@ -4,7 +4,16 @@ This folder contains a static information-architecture prototype for EMC Locus
 LAB CONSOLE. It is not the TEST CONSOLE execution surface and not the final web
 application architecture.
 
-Open `index.html` directly in a browser.
+Open `index.html` directly in a browser, or serve it from the repository root:
+
+```powershell
+py -m http.server 8000 --directory ./apps/gui-shell
+```
+
+Then open `http://127.0.0.1:8000/`.
+
+When using Git Bash, keep the POSIX-style path `./apps/gui-shell`; do not use
+`apps\gui-shell`.
 
 Current intent:
 
@@ -27,3 +36,10 @@ not be edited from the execution prototype.
 `bootstrap.js` can provide small static overrides for this prototype when it
 sets `lab_console_version` to `ia-0.2`. Older bootstrap files generated for the
 previous dashboard shape are intentionally ignored by `app.js`.
+
+Manual smoke test:
+
+1. Open `index.html` directly and confirm the LAB Console IA shell renders.
+2. Run `py -m http.server 8000 --directory ./apps/gui-shell` from the repository root.
+3. Open `http://127.0.0.1:8000/` and confirm the same shell renders.
+4. Run `py -m unittest python.tests.test_gui_shell_smoke`.
