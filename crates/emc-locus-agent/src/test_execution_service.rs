@@ -7,16 +7,18 @@ use crate::project_repository::{
 };
 use crate::test_execution_dto::{
     ExecutionInstrumentSnapshotDto, ExecutionRefusalCauseDto, ExecutionRefusalDto,
-    SimulatedEmcResultDto, SimulatedTestExecutionDto, SimulatedTestExecutionEnvelopeDto,
-    SimulatedTestExecutionListDto, SimulatedTestExecutionResultDto,
-    SimulatedTestExecutionSummaryDto,
+    ExecutionTemplateRevisionDto, SimulatedEmcResultDto, SimulatedTestExecutionDto,
+    SimulatedTestExecutionEnvelopeDto, SimulatedTestExecutionListDto,
+    SimulatedTestExecutionResultDto, SimulatedTestExecutionSummaryDto,
 };
 use crate::test_execution_repository::{
     ensure_simulated_execution_tables, insert_execution_instrument, insert_simulated_execution,
     load_execution_instruments, load_project_simulated_executions, load_simulated_execution,
     InsertExecutionInstrumentInput, InsertSimulatedExecutionInput, StoredSimulatedTestExecution,
 };
-use crate::test_template_repository::{load_test_template_identity, open_test_template_connection};
+use crate::test_template_repository::{
+    load_test_template_identity, load_test_template_revision, open_test_template_connection,
+};
 use crate::{render_json, AgentError};
 use emc_locus_core::{
     AuditActor, AuditReason, ExecutionMode, InstrumentCode, MeasurementRunReference, MetrologyDate,
@@ -40,6 +42,13 @@ pub(crate) struct RunSimulatedEmcTestInput {
     pub(crate) operation_id: String,
     pub(crate) correlation_id: String,
     pub(crate) device_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ApprovedTemplateSelection {
+    template_id: String,
+    revision_id: String,
+    definition_checksum: String,
 }
 
 pub(crate) fn run_simulated_emc_test(
@@ -88,7 +97,8 @@ pub(crate) fn run_simulated_emc_test(
             "simulated test execution requires an existing project",
         )
     })?;
-    ensure_approved_template_reference(storage_root, &input.test_method_reference)?;
+    let template_selection =
+        resolve_approved_template_reference(storage_root, &input.test_method_reference)?;
     if load_simulated_execution(&connection, &input.attempt_id)?.is_some() {
         return Err(AgentError::new(
             "test_execution_attempt_exists",
@@ -141,6 +151,7 @@ pub(crate) fn run_simulated_emc_test(
         &readiness,
         refusal.as_ref(),
         simulation_result.as_ref(),
+        template_selection.as_ref(),
     );
 
     let sequence = next_audit_sequence(&connection, &input.project_code)?;
@@ -154,6 +165,15 @@ pub(crate) fn run_simulated_emc_test(
             project_code: &input.project_code,
             test_type: "simulated_emc",
             test_method_reference: &input.test_method_reference,
+            approved_template_id: template_selection
+                .as_ref()
+                .map(|selection| selection.template_id.as_str()),
+            approved_template_revision_id: template_selection
+                .as_ref()
+                .map(|selection| selection.revision_id.as_str()),
+            approved_template_definition_checksum: template_selection
+                .as_ref()
+                .map(|selection| selection.definition_checksum.as_str()),
             execution_mode: &input.execution_mode,
             operator: &input.operator,
             checked_on: &input.checked_on,
@@ -287,20 +307,47 @@ fn validate_simulated_emc_input(input: &RunSimulatedEmcTestInput) -> Result<(), 
     Ok(())
 }
 
-fn ensure_approved_template_reference(
+fn resolve_approved_template_reference(
     storage_root: &Path,
     test_method_reference: &str,
-) -> Result<(), AgentError> {
+) -> Result<Option<ApprovedTemplateSelection>, AgentError> {
     let connection = match open_test_template_connection(storage_root) {
         Ok(connection) => connection,
-        Err(error) if error.code == "storage_not_initialized" => return Ok(()),
+        Err(error) if error.code == "storage_not_initialized" => return Ok(None),
         Err(error) => return Err(error),
     };
     let Some(template) = load_test_template_identity(&connection, test_method_reference)? else {
-        return Ok(());
+        return Ok(None);
     };
-    if template.current_approved_revision_id.is_some() {
-        return Ok(());
+    if let Some(revision_id) = template.current_approved_revision_id.as_deref() {
+        let revision =
+            load_test_template_revision(&connection, &template.template_id, revision_id)?
+                .ok_or_else(|| {
+                    AgentError::with_details(
+                        "test_template_revision_not_found",
+                        "current approved template revision is missing",
+                        json!({
+                            "template_id": template.template_id,
+                            "current_approved_revision_id": revision_id,
+                        }),
+                    )
+                })?;
+        if revision.status != "approved" {
+            return Err(AgentError::with_details(
+                "test_execution_template_not_approved",
+                "simulated test execution requires a current approved test-template revision",
+                json!({
+                    "template_id": template.template_id,
+                    "current_approved_revision_id": revision_id,
+                    "revision_status": revision.status,
+                }),
+            ));
+        }
+        return Ok(Some(ApprovedTemplateSelection {
+            template_id: template.template_id,
+            revision_id: revision.revision_id,
+            definition_checksum: revision.definition_checksum,
+        }));
     }
     Err(AgentError::with_details(
         "test_execution_template_not_approved",
@@ -439,6 +486,7 @@ fn execution_dto(
         project_code: execution.project_code.clone(),
         test_type: execution.test_type.clone(),
         test_method_reference: execution.test_method_reference.clone(),
+        test_template_revision: execution_template_revision_dto(execution),
         execution_mode: execution.execution_mode.clone(),
         operator: execution.operator.clone(),
         checked_on: execution.checked_on.clone(),
@@ -461,6 +509,7 @@ fn execution_summary_dto(
         attempt_id: execution.attempt_id.clone(),
         project_code: execution.project_code.clone(),
         test_method_reference: execution.test_method_reference.clone(),
+        test_template_revision: execution_template_revision_dto(execution),
         execution_mode: execution.execution_mode.clone(),
         operator: execution.operator.clone(),
         status: execution.status.clone(),
@@ -469,6 +518,16 @@ fn execution_summary_dto(
         completed_at: execution.completed_at.clone(),
         revision: execution.revision.clone(),
     }
+}
+
+fn execution_template_revision_dto(
+    execution: &StoredSimulatedTestExecution,
+) -> Option<ExecutionTemplateRevisionDto> {
+    Some(ExecutionTemplateRevisionDto {
+        template_id: execution.approved_template_id.clone()?,
+        revision_id: execution.approved_template_revision_id.clone()?,
+        definition_checksum: execution.approved_template_definition_checksum.clone()?,
+    })
 }
 
 fn readiness_context(input: &RunSimulatedEmcTestInput) -> String {
@@ -498,10 +557,12 @@ fn audit_payload_json(
     readiness: &ReadinessReportDto,
     refusal: Option<&ExecutionRefusalDto>,
     simulation_result: Option<&SimulatedEmcResultDto>,
+    template_selection: Option<&ApprovedTemplateSelection>,
 ) -> String {
     render_json(&json!({
         "command": serde_json::from_str::<serde_json::Value>(&command_payload_json(input))
             .expect("command payload is valid JSON"),
+        "test_template_revision": template_selection.map(template_selection_json),
         "status": status,
         "readiness_ready": readiness.ready,
         "blocking_issue_count": readiness.blocking_issues.len(),
@@ -509,6 +570,14 @@ fn audit_payload_json(
         "refusal": refusal,
         "simulation_result": simulation_result,
     }))
+}
+
+fn template_selection_json(selection: &ApprovedTemplateSelection) -> serde_json::Value {
+    json!({
+        "template_id": selection.template_id,
+        "revision_id": selection.revision_id,
+        "definition_checksum": selection.definition_checksum,
+    })
 }
 
 fn parse_execution_mode(mode: &str) -> Result<ExecutionMode, AgentError> {

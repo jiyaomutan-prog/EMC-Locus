@@ -296,5 +296,8 @@ The simulated execution path checks this new model when an operator launch uses
 a stored template id as `test_method_reference`: known template identities must
 have a `current_approved_revision_id`, otherwise
 `POST /api/v1/test-executions/simulated-emc` returns
-`test_execution_template_not_approved`. This is still only a guardrail, not a
-campaign execution-package binding.
+`test_execution_template_not_approved`. When the launch is accepted, the stored
+execution and response include `test_template_revision` with `template_id`,
+`revision_id`, and `definition_checksum`. This is still not a campaign
+execution-package binding, variable-resolution workflow, or copied definition
+snapshot.

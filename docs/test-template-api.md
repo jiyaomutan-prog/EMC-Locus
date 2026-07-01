@@ -276,8 +276,22 @@ is no dual-read, dual-write, or legacy DTO in the runtime after migration.
 
 The simulated EMC execution route may still receive a stored `template_id` in
 `test_method_reference`. When it matches a known template identity, the launch
-requires `current_approved_revision_id` to be set. This is only a guardrail, not
-an execution-package binding or a template instantiation engine.
+requires `current_approved_revision_id` to be set. Accepted launches persist
+and return the selected approved revision evidence:
+
+```json
+{
+  "test_method_reference": "TT-INRUSH-001",
+  "test_template_revision": {
+    "template_id": "TT-INRUSH-001",
+    "revision_id": "TT-INRUSH-001-rev-0001",
+    "definition_checksum": "sha256:..."
+  }
+}
+```
+
+This is still not an execution-package binding, copied definition snapshot,
+variable-resolution workflow, or template instantiation engine.
 
 ## Limits
 

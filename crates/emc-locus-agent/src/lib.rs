@@ -835,7 +835,7 @@ mod tests {
                 .find(|domain| domain.domain == "projects")
                 .unwrap()
                 .schema_version,
-            Some(4)
+            Some(5)
         );
         assert_eq!(
             second_report

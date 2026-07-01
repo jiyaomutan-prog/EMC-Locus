@@ -85,6 +85,12 @@ and Python modules.
 
 Current software version: `0.9.0`.
 
+Unreleased work after `0.9.0` now records the approved test-template revision
+selected by a simulated EMC execution attempt when the operator launch refers
+to a stored template id. This preserves the revision id and definition checksum
+on the execution record, but it is still not a full execution-package
+instantiation or variable-resolution workflow.
+
 Version `0.9.0` replaces the provisional test-template model with a real
 revisioned aggregate. Test templates now have stable identities, deterministic
 content revisions, typed core definitions, canonical JSON and SHA-256

@@ -8,6 +8,15 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added `storage/sqlite/projects/0005_simulated_execution_template_revision.sql`
+  so simulated EMC execution attempts can persist the approved test-template
+  revision selected at launch.
+- Simulated EMC execution responses now expose an optional
+  `test_template_revision` object with template id, revision id, and definition
+  checksum when `test_method_reference` matches an approved stored template.
+
 ## [0.9.0] - 2026-07-01
 
 ### Added

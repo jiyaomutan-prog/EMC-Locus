@@ -25,6 +25,8 @@ pub(crate) struct SimulatedTestExecutionDto {
     pub(crate) project_code: String,
     pub(crate) test_type: String,
     pub(crate) test_method_reference: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) test_template_revision: Option<ExecutionTemplateRevisionDto>,
     pub(crate) execution_mode: String,
     pub(crate) operator: String,
     pub(crate) checked_on: String,
@@ -46,6 +48,8 @@ pub(crate) struct SimulatedTestExecutionSummaryDto {
     pub(crate) attempt_id: String,
     pub(crate) project_code: String,
     pub(crate) test_method_reference: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) test_template_revision: Option<ExecutionTemplateRevisionDto>,
     pub(crate) execution_mode: String,
     pub(crate) operator: String,
     pub(crate) status: String,
@@ -53,6 +57,13 @@ pub(crate) struct SimulatedTestExecutionSummaryDto {
     pub(crate) checked_on: String,
     pub(crate) completed_at: String,
     pub(crate) revision: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct ExecutionTemplateRevisionDto {
+    pub(crate) template_id: String,
+    pub(crate) revision_id: String,
+    pub(crate) definition_checksum: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

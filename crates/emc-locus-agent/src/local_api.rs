@@ -1735,6 +1735,25 @@ mod tests {
         assert!(approved_execution
             .body
             .contains("\"test_method_reference\":\"TT-INRUSH-EXEC\""));
+        let approved_json: Value = serde_json::from_str(&approved_execution.body).unwrap();
+        assert_eq!(
+            approved_json["execution"]["test_template_revision"]["template_id"]
+                .as_str()
+                .unwrap(),
+            "TT-INRUSH-EXEC"
+        );
+        assert_eq!(
+            approved_json["execution"]["test_template_revision"]["revision_id"]
+                .as_str()
+                .unwrap(),
+            "TT-INRUSH-EXEC-rev-0001"
+        );
+        assert!(
+            approved_json["execution"]["test_template_revision"]["definition_checksum"]
+                .as_str()
+                .unwrap()
+                .starts_with("sha256:")
+        );
         assert!(approved_execution
             .body
             .contains("\"code\":\"equipment_readiness_blocked\""));

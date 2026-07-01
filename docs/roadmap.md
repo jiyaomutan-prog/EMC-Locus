@@ -74,8 +74,9 @@ Deliverables:
   persisted completed result, instrumentation snapshot, project audit/outbox,
   local API routes, and a minimal Qt operator form.
 - Simulated EMC execution launch now blocks known agent-owned test templates
-  unless the referenced template is approved, while the full execution-package
-  binding remains a future slice.
+  unless the referenced template is approved, and persists the selected
+  approved revision id plus definition checksum on the execution attempt while
+  the full execution-package binding remains a future slice.
 - Revisioned test-template aggregate delivered as the `0.9.0` baseline:
   typed core definition, canonical JSON and checksum, draft replacement with
   optimistic concurrency, immutable submitted/approved revisions, derivation
@@ -255,10 +256,10 @@ Deliverables:
 
 ## Near-Term Next Session
 
-The next productive session should bind simulated execution attempts to an
-approved test-template revision explicitly: resolve variables, copy the approved
-definition snapshot into an execution package, and persist the selected template
-revision on the execution attempt without building the full LAB CONSOLE editor.
+The next productive session should turn the persisted approved template
+revision link into a small execution-package snapshot: resolve one controlled
+variable set, copy the approved definition snapshot into the execution record,
+and keep the scope short of a LAB CONSOLE editor.
 
 The parallel runtime stream should continue guarded serial or VISA IO behind the
 adapter skeletons.
