@@ -13,6 +13,9 @@ change should remain traceable through Git history, session logs, and this file.
 - Test-template creation now accepts method links only when the referenced
   method revision is approved, preventing draft or retired method revisions from
   becoming executable template sources.
+- Simulated EMC executions now reject references to stored test templates unless
+  the template is approved, preventing draft templates from becoming executable
+  launch references.
 
 ## [0.8.4] - 2026-06-30
 

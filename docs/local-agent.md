@@ -276,3 +276,10 @@ under-review template to `approved`. Direct approval from `draft` is refused
 with `test_template_transition_not_allowed`. Successful transitions are
 idempotent by `operation_id`, update the template status, append
 `test_template_audit_events`, and emit `test_definitions` outbox operations.
+
+The current `Unreleased` hardening links the simulated execution path to that
+controlled status when an operator launch uses a stored template id as
+`test_method_reference`. `POST /api/v1/test-executions/simulated-emc` now
+rejects known templates whose status is not `approved` with
+`test_execution_template_not_approved`; free-form method references continue to
+work until the future execution-package model makes template binding explicit.

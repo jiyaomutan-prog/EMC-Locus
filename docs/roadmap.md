@@ -73,6 +73,9 @@ Deliverables:
   operator launch attempt, test-context metrology preflight, structured refusal,
   persisted completed result, instrumentation snapshot, project audit/outbox,
   local API routes, and a minimal Qt operator form.
+- Simulated EMC execution launch now blocks known agent-owned test templates
+  unless the referenced template is approved, while the full execution-package
+  binding remains a future slice.
 
 ## Phase 3: Measurement Runtime
 
@@ -246,7 +249,7 @@ Deliverables:
 ## Near-Term Next Session
 
 The next productive session should deepen the simulated EMC execution workflow:
-bind it to approved test definitions, persist method parameters, and create
+persist approved-template parameters on the execution attempt and create
 measurement-data evidence records for the simulated result.
 
 The parallel runtime stream should continue guarded serial or VISA IO behind the

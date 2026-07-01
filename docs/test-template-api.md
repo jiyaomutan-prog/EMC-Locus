@@ -203,6 +203,19 @@ status, writes one `test_template_audit_events` row, and emits one pending
 - `test_template_submitted_for_review`;
 - `test_template_approved`.
 
+## Simulated Execution Link
+
+The simulated EMC execution route can use a stored `template_id` as its
+`test_method_reference`. When that reference matches a test template in
+`test_definitions.sqlite`, the template must have status `approved`; otherwise
+the launch is rejected with HTTP `409` and
+`test_execution_template_not_approved`.
+
+This is a guardrail, not a full campaign instantiation model. The execution
+record still stores the existing `test_method_reference` field and does not yet
+persist resolved template variables, sequence steps, limits, or post-processing
+outputs.
+
 ## Limits
 
 - No configurable second-approval workflow.

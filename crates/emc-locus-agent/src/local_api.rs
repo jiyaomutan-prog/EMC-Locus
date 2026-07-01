@@ -807,6 +807,7 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_project_transition"
         | "project_already_exists"
         | "test_execution_attempt_exists"
+        | "test_execution_template_not_approved"
         | "test_template_already_exists"
         | "test_template_transition_not_allowed"
         | "attached_document_already_exists"
@@ -1482,6 +1483,165 @@ mod tests {
             .body
             .contains("\"template_id\":\"TT-APPROVED-METHOD\""));
         assert!(created.body.contains("\"method_revision\":\"A\""));
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn local_api_requires_approved_test_template_for_simulated_execution() {
+        let storage_root = temporary_storage_root("agent-api-execution-approved-template");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            max_requests: None,
+        };
+
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+        assert_eq!(
+            handle_api_request(
+                "POST",
+                "/api/v1/projects",
+                r#"{
+                    "code": "CEM-TPL-001",
+                    "customer_name": "Template-linked EMC Customer",
+                    "execution_mode": "accredited",
+                    "actor": "quality.lead",
+                    "reason": "contract accepted",
+                    "operation_id": "op-template-exec-project"
+                }"#,
+                &config,
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            handle_api_request(
+                "POST",
+                "/api/v1/metrology/instruments",
+                r#"{
+                    "asset_id": "SA-TPL-001",
+                    "family": "SpectrumAnalyzer",
+                    "category_code": "spectrum_analyzer",
+                    "manufacturer": "Rohde Schwarz",
+                    "model": "FSW",
+                    "serial_number": "TPL-001",
+                    "calibration_requirement": "required",
+                    "calibration_period_months": 12,
+                    "capabilities": {"frequency_max_hz": 30000000},
+                    "actor": "metrology.admin",
+                    "reason": "register template-linked asset",
+                    "operation_id": "op-template-exec-register"
+                }"#,
+                &config,
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            handle_api_request(
+                "POST",
+                "/api/v1/test-templates",
+                r#"{
+                    "template_id": "TT-INRUSH-EXEC",
+                    "template_revision": "A",
+                    "title": "Execution linked template",
+                    "description": "Template used as a controlled execution reference.",
+                    "category_code": "emission_transient_time_domain",
+                    "measurement_axis": "time_series",
+                    "variables": {},
+                    "lock_policy": {},
+                    "instrumentation_chain": [],
+                    "sequence": [],
+                    "limits": [],
+                    "post_processing": [],
+                    "actor": "method.author",
+                    "reason": "draft template for execution binding",
+                    "operation_id": "op-template-exec-create"
+                }"#,
+                &config,
+            )
+            .status,
+            200
+        );
+
+        let draft_execution = handle_api_request(
+            "POST",
+            "/api/v1/test-executions/simulated-emc",
+            r#"{
+                "attempt_id": "RUN-TPL-001",
+                "project_code": "CEM-TPL-001",
+                "test_method_reference": "TT-INRUSH-EXEC",
+                "execution_mode": "accredited",
+                "required_asset_ids": ["SA-TPL-001"],
+                "operator": "operator.one",
+                "checked_on": "2026-07-01",
+                "reason": "operator launch against draft template",
+                "operation_id": "op-template-exec-draft"
+            }"#,
+            &config,
+        );
+        assert_eq!(draft_execution.status, 409);
+        assert!(draft_execution
+            .body
+            .contains("test_execution_template_not_approved"));
+
+        assert_eq!(
+            handle_api_request(
+                "POST",
+                "/api/v1/test-templates/TT-INRUSH-EXEC/transitions/submit-for-review",
+                r#"{
+                    "actor": "method.author",
+                    "reason": "ready for technical review",
+                    "operation_id": "op-template-exec-submit"
+                }"#,
+                &config,
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            handle_api_request(
+                "POST",
+                "/api/v1/test-templates/TT-INRUSH-EXEC/transitions/approve",
+                r#"{
+                    "actor": "technical.reviewer",
+                    "reason": "approved for simulated execution",
+                    "operation_id": "op-template-exec-approve"
+                }"#,
+                &config,
+            )
+            .status,
+            200
+        );
+
+        let approved_execution = handle_api_request(
+            "POST",
+            "/api/v1/test-executions/simulated-emc",
+            r#"{
+                "attempt_id": "RUN-TPL-002",
+                "project_code": "CEM-TPL-001",
+                "test_method_reference": "TT-INRUSH-EXEC",
+                "execution_mode": "accredited",
+                "required_asset_ids": ["SA-TPL-001"],
+                "operator": "operator.one",
+                "checked_on": "2026-07-01",
+                "reason": "operator launch against approved template",
+                "operation_id": "op-template-exec-approved"
+            }"#,
+            &config,
+        );
+        assert_eq!(approved_execution.status, 200);
+        assert!(approved_execution.body.contains("\"status\":\"refused\""));
+        assert!(approved_execution
+            .body
+            .contains("\"test_method_reference\":\"TT-INRUSH-EXEC\""));
+        assert!(approved_execution
+            .body
+            .contains("\"code\":\"equipment_readiness_blocked\""));
 
         remove_temporary_storage_root(&storage_root);
     }

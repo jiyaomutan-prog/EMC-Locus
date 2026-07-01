@@ -16,6 +16,7 @@ use crate::test_execution_repository::{
     load_execution_instruments, load_project_simulated_executions, load_simulated_execution,
     InsertExecutionInstrumentInput, InsertSimulatedExecutionInput, StoredSimulatedTestExecution,
 };
+use crate::test_template_repository::{load_test_template, open_test_template_connection};
 use crate::{render_json, AgentError};
 use emc_locus_core::{
     AuditActor, AuditReason, ExecutionMode, InstrumentCode, MeasurementRunReference, MetrologyDate,
@@ -87,6 +88,7 @@ pub(crate) fn run_simulated_emc_test(
             "simulated test execution requires an existing project",
         )
     })?;
+    ensure_approved_template_reference(storage_root, &input.test_method_reference)?;
     if load_simulated_execution(&connection, &input.attempt_id)?.is_some() {
         return Err(AgentError::new(
             "test_execution_attempt_exists",
@@ -283,6 +285,31 @@ fn validate_simulated_emc_input(input: &RunSimulatedEmcTestInput) -> Result<(), 
         InstrumentCode::parse(asset_id.clone()).map_err(domain_error)?;
     }
     Ok(())
+}
+
+fn ensure_approved_template_reference(
+    storage_root: &Path,
+    test_method_reference: &str,
+) -> Result<(), AgentError> {
+    let connection = match open_test_template_connection(storage_root) {
+        Ok(connection) => connection,
+        Err(error) if error.code == "storage_not_initialized" => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let Some(template) = load_test_template(&connection, test_method_reference)? else {
+        return Ok(());
+    };
+    if template.status == "approved" {
+        return Ok(());
+    }
+    Err(AgentError::with_details(
+        "test_execution_template_not_approved",
+        "simulated test execution requires referenced test templates to be approved",
+        json!({
+            "template_id": template.template_id,
+            "status": template.status,
+        }),
+    ))
 }
 
 fn instrumentation_snapshot(readiness: &ReadinessReportDto) -> Vec<ExecutionInstrumentSnapshotDto> {
