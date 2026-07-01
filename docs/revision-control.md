@@ -90,7 +90,7 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.9.1` was validated on 2026-07-01 with:
+Version `0.9.2` was validated on 2026-07-01 with:
 
 ```text
 cargo fmt --check
@@ -104,4 +104,5 @@ C:\Users\gtrai\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin
 $env:PYTHONPATH='python'; py -m unittest python.tests.test_release_consistency
 git diff --check
 git diff --cached --check
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-launchers.ps1
 ```

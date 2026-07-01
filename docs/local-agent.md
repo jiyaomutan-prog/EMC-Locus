@@ -309,3 +309,14 @@ the current status; the API aggregate exposes `current_approved_revision`,
 `latest_revision`, and `active_draft_revision`; SQLite enforces one active
 draft per template identity; and approving a newer revision supersedes older
 approved revisions in the same transaction with audit/outbox evidence.
+
+Version `0.9.2` fixes the Windows launcher layer. `scripts/start-agent-qt.ps1`
+now builds the agent executable, initializes `data\local-agent`, starts the
+agent with relative arguments from the repository working directory, waits for
+`/api/v1/health`, verifies the returned `storage_root`, and refuses to reuse an
+agent on the same port when it points at another storage root. Qt is launched
+only after positive health. `scripts/start-qt-demo.ps1` has explicit `-Mode
+Static`, `-Mode Agent`, and `-Mode Auto` behavior. Launcher-owned processes are
+recorded under `logs\launchers\runtime` and can be stopped with
+`scripts/stop-agent.ps1`, `scripts/stop-proto.ps1`, or `scripts/stop-all.ps1`
+without killing unrelated Python, Cargo, or agent processes.

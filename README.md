@@ -83,7 +83,15 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.9.1`.
+Current software version: `0.9.2`.
+
+Version `0.9.2` fixes the Windows launchers introduced in `0.9.1` so they work
+from double-click, from any current directory, and from repository paths that
+contain spaces. The launchers now use relative arguments with a repository
+`WorkingDirectory`, wait for real HTTP readiness before declaring success,
+record PID state under `logs/launchers/runtime`, provide targeted stop scripts,
+and include an executable smoke-test script for prototype, agent, and Qt launch
+modes. This is a launch reliability release only.
 
 Version `0.9.1` is a repair and launchability release. The static LAB CONSOLE
 bootstrap remains browser-loadable JavaScript while exposing strict JSON for
@@ -248,8 +256,10 @@ Windows launchers are available from any working directory:
 
 ```powershell
 .\scripts\start-proto.ps1
-.\scripts\start-qt-demo.ps1
+.\scripts\start-qt-demo.ps1 -Mode Static
+.\scripts\start-qt-demo.ps1 -Mode Auto
 .\scripts\start-agent-qt.ps1
+.\scripts\stop-all.ps1
 ```
 
 Equivalent BAT wrappers are available for shell double-click or `cmd.exe` use:
@@ -258,15 +268,26 @@ Equivalent BAT wrappers are available for shell double-click or `cmd.exe` use:
 scripts\start-proto.bat
 scripts\start-qt-demo.bat
 scripts\start-agent-qt.bat
+scripts\stop-all.bat
 ```
 
-`start-proto` starts a local static web server and opens the browser.
-`start-qt-demo` installs PySide6 if needed, then launches Qt connected to an
-already healthy agent or falls back to the strict JSON `bootstrap.js`.
-`start-agent-qt` initializes local SQLite storage, starts the Rust agent on
-`127.0.0.1:8765`, waits for `/api/v1/health`, then opens Qt connected to the
-agent and local repositories. It never deletes data unless `-Reset` is passed
-explicitly.
+`start-proto` verifies Python, starts a local static web server, waits for HTTP
+200, then opens the browser. `start-qt-demo -Mode Static` never contacts the
+agent. `start-qt-demo -Mode Agent` fails if a compatible healthy agent is not
+available. `start-qt-demo -Mode Auto` uses the agent only when health and
+storage match, otherwise it starts from the static bootstrap. `start-agent-qt`
+initializes local SQLite storage, starts the Rust agent on `127.0.0.1:8765`,
+waits for `/api/v1/health`, verifies the returned storage root, then opens Qt.
+It never deletes data unless `-Reset` is passed explicitly.
+
+Launcher-owned processes are tracked under `logs/launchers/runtime` and can be
+stopped without killing unrelated Python or Cargo processes:
+
+```powershell
+.\scripts\stop-proto.ps1
+.\scripts\stop-agent.ps1
+.\scripts\stop-all.ps1
+```
 
 Revision tracking uses:
 

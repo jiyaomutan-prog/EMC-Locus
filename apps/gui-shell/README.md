@@ -15,6 +15,14 @@ Then open `http://127.0.0.1:8000/`.
 When using Git Bash, keep the POSIX-style path `./apps/gui-shell`; do not use
 `apps\gui-shell`.
 
+The Windows launcher performs the same job with readiness checks and works from
+paths containing spaces:
+
+```powershell
+.\scripts\start-proto.ps1
+.\scripts\stop-proto.ps1
+```
+
 Current intent:
 
 - show the future LAB CONSOLE navigation hierarchy;
@@ -43,3 +51,5 @@ Manual smoke test:
 2. Run `py -m http.server 8000 --directory ./apps/gui-shell` from the repository root.
 3. Open `http://127.0.0.1:8000/` and confirm the same shell renders.
 4. Run `py -m unittest python.tests.test_gui_shell_smoke`.
+5. Run `.\scripts\start-proto.ps1`, confirm the browser opens after HTTP 200,
+   then run `.\scripts\stop-proto.ps1`.

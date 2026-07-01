@@ -1,66 +1,26 @@
 param(
     [int]$Port = 8765,
-    [switch]$Reset
+    [switch]$Reset,
+    [switch]$NoQt,
+    [string]$PythonCommand = "py",
+    [string]$CargoCommand = "cargo",
+    [string]$AgentExecutableOverride = "",
+    [string[]]$AgentArgumentPrefixOverride = @()
 )
 
 $ErrorActionPreference = "Stop"
-$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$DataRoot = Join-Path $RepoRoot "data"
-$StorageRoot = Join-Path $DataRoot "local-agent"
-$MigrationsRoot = Join-Path $RepoRoot "storage\sqlite"
-$LogRoot = Join-Path $RepoRoot "logs\launchers"
+. (Join-Path $PSScriptRoot "launcher-common.ps1")
+
+$RepoRoot = Get-LauncherRepoRoot
+$paths = Initialize-LauncherPaths -RepoRoot $RepoRoot
+$RelativeStorageRoot = "data\local-agent"
+$RelativeMigrationsRoot = "storage\sqlite"
+$StorageRoot = Resolve-LauncherPath -RepoRoot $RepoRoot -Path $RelativeStorageRoot
+$DataRoot = Resolve-LauncherPath -RepoRoot $RepoRoot -Path "data"
 $AgentUrl = "http://127.0.0.1:$Port"
-New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
 
-function Test-PortInUse {
-    param([int]$Port)
-    $listener = $null
-    try {
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse("127.0.0.1"), $Port)
-        $listener.Start()
-        return $false
-    } catch {
-        return $true
-    } finally {
-        if ($null -ne $listener) {
-            $listener.Stop()
-        }
-    }
-}
-
-function Test-AgentHealth {
-    param([string]$Url)
-    try {
-        Invoke-RestMethod -Uri "$Url/api/v1/health" -TimeoutSec 2 | Out-Null
-        return $true
-    } catch {
-        return $false
-    }
-}
-
-function Wait-AgentHealth {
-    param([string]$Url)
-    for ($i = 0; $i -lt 60; $i++) {
-        if (Test-AgentHealth -Url $Url) {
-            return
-        }
-        Start-Sleep -Seconds 1
-    }
-    throw "Agent did not become healthy at $Url within 60 seconds."
-}
-
-function Ensure-PySide6 {
-    & py -c "import PySide6" *> $null
-    if ($LASTEXITCODE -eq 0) {
-        return
-    }
-    Write-Host "PySide6 is not installed for this Python. Installing PySide6..."
-    & py -m pip install PySide6
-    if ($LASTEXITCODE -ne 0) {
-        throw "PySide6 installation failed."
-    }
-}
-
+Assert-CommandAvailable $CargoCommand
+Assert-CommandAvailable $PythonCommand
 Set-Location $RepoRoot
 
 if ($Reset) {
@@ -80,43 +40,112 @@ if ($Reset) {
 }
 
 New-Item -ItemType Directory -Force -Path $StorageRoot | Out-Null
-Ensure-PySide6
 
 if (Test-PortInUse -Port $Port) {
-    if (-not (Test-AgentHealth -Url $AgentUrl)) {
+    $health = Get-AgentHealth -AgentUrl $AgentUrl
+    if ($null -eq $health) {
         throw "Port 127.0.0.1:$Port is in use, but EMC Locus health is not available."
     }
-    Write-Host "Using existing EMC Locus agent at $AgentUrl"
+    Assert-AgentStorageRoot -RepoRoot $RepoRoot -AgentUrl $AgentUrl -ExpectedStorageRoot $RelativeStorageRoot | Out-Null
+    Write-Host "Using existing EMC Locus agent at $AgentUrl with expected storage."
 } else {
+    Write-Host "Building EMC Locus agent..."
+    & $CargoCommand build -q -p emc-locus-agent
+    if ($LASTEXITCODE -ne 0) {
+        throw "Cargo build failed."
+    }
+    $AgentExe = Join-Path $RepoRoot "target\debug\emc-locus-agent.exe"
+    if (-not (Test-Path $AgentExe)) {
+        $AgentExe = Join-Path $RepoRoot "target\debug\emc-locus-agent"
+    }
+    if (-not (Test-Path $AgentExe)) {
+        throw "Agent executable is missing: $AgentExe"
+    }
+    $ServeExe = $AgentExe
+    if ($AgentExecutableOverride) {
+        $ServeExe = Resolve-LauncherPath -RepoRoot $RepoRoot -Path $AgentExecutableOverride
+        if (-not (Test-Path $ServeExe)) {
+            throw "Serve executable override is missing: $ServeExe"
+        }
+    }
+
     Write-Host "Initializing local agent storage at $StorageRoot"
-    & cargo run -q -p emc-locus-agent -- storage init --storage-root $StorageRoot --migrations-root $MigrationsRoot
+    & $AgentExe storage init --storage-root $RelativeStorageRoot --migrations-root $RelativeMigrationsRoot
     if ($LASTEXITCODE -ne 0) {
         throw "Storage initialization failed."
     }
 
     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-    $stdoutLog = Join-Path $LogRoot "start-agent-$timestamp.out.log"
-    $stderrLog = Join-Path $LogRoot "start-agent-$timestamp.err.log"
+    $stdoutLog = Join-Path $paths.LogRoot "start-agent-$timestamp.out.log"
+    $stderrLog = Join-Path $paths.LogRoot "start-agent-$timestamp.err.log"
     Write-Host "Starting EMC Locus agent at $AgentUrl"
     Write-Host "Logs: $stdoutLog / $stderrLog"
-    Start-Process `
-        -FilePath "cargo" `
-        -ArgumentList @("run", "-q", "-p", "emc-locus-agent", "--", "serve", "--storage-root", $StorageRoot, "--migrations-root", $MigrationsRoot, "--bind", "127.0.0.1:$Port") `
+
+    $serveArguments = @($AgentArgumentPrefixOverride) + @("serve", "--storage-root", $RelativeStorageRoot, "--migrations-root", $RelativeMigrationsRoot, "--bind", "127.0.0.1:$Port")
+
+    $process = Start-Process `
+        -FilePath $ServeExe `
+        -ArgumentList $serveArguments `
         -WorkingDirectory $RepoRoot `
         -RedirectStandardOutput $stdoutLog `
         -RedirectStandardError $stderrLog `
-        -WindowStyle Hidden
-    Wait-AgentHealth -Url $AgentUrl
+        -WindowStyle Hidden `
+        -PassThru
+
+    Write-LauncherState `
+        -RuntimeRoot $paths.RuntimeRoot `
+        -Name "agent" `
+        -State @{
+            kind = "agent"
+            process_id = $process.Id
+            process_name = $process.ProcessName
+            repo_root = $RepoRoot
+            storage_root = $StorageRoot
+            port = $Port
+            url = $AgentUrl
+            stdout_log = $stdoutLog
+            stderr_log = $stderrLog
+            match_tokens = @("serve", "--storage-root", $RelativeStorageRoot, "127.0.0.1:$Port")
+        }
+
+    try {
+        Wait-HttpReady -Url "$AgentUrl/api/v1/health" -TimeoutSeconds 60 -Process $process -StderrLog $stderrLog | Out-Null
+        Assert-AgentStorageRoot -RepoRoot $RepoRoot -AgentUrl $AgentUrl -ExpectedStorageRoot $RelativeStorageRoot | Out-Null
+    } catch {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        Remove-LauncherState -RuntimeRoot $paths.RuntimeRoot -Name "agent"
+        throw
+    }
 }
 
+Write-Host "Agent ready: $AgentUrl/api/v1/health"
+
+if ($NoQt) {
+    Write-Host "NoQt requested; leaving the healthy agent running."
+    exit 0
+}
+
+function Ensure-PySide6 {
+    & $PythonCommand -c "import PySide6" *> $null
+    if ($LASTEXITCODE -eq 0) {
+        return
+    }
+    Write-Host "PySide6 is not installed for this Python. Installing PySide6..."
+    & $PythonCommand -m pip install PySide6
+    if ($LASTEXITCODE -ne 0) {
+        throw "PySide6 installation failed."
+    }
+}
+
+Ensure-PySide6
 $qtTimestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$qtLog = Join-Path $LogRoot "start-agent-qt-$qtTimestamp.log"
+$qtLog = Join-Path $paths.LogRoot "start-agent-qt-$qtTimestamp.log"
 Write-Host "Launching Qt console connected to $AgentUrl"
-& py "apps\qt-console\main.py" `
+& $PythonCommand "apps\qt-console\main.py" `
     --agent-url $AgentUrl `
-    --projects-db (Join-Path $StorageRoot "projects.sqlite") `
-    --metrology-db (Join-Path $StorageRoot "metrology.sqlite") `
-    --test-definitions-db (Join-Path $StorageRoot "test_definitions.sqlite") `
+    --projects-db (Join-Path $RelativeStorageRoot "projects.sqlite") `
+    --metrology-db (Join-Path $RelativeStorageRoot "metrology.sqlite") `
+    --test-definitions-db (Join-Path $RelativeStorageRoot "test_definitions.sqlite") `
     2>&1 | Tee-Object -FilePath $qtLog
 
 exit $LASTEXITCODE

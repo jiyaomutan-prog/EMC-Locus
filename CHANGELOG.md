@@ -8,6 +8,34 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-07-01
+
+### Added
+
+- Added shared PowerShell launcher utilities for command checks, HTTP readiness
+  waits, agent storage validation, PID state, and safe stop behavior.
+- Added stop scripts for prototype, agent, and all EMC Locus launcher-owned
+  processes.
+- Added `scripts/smoke-launchers.ps1` to execute real launcher smoke tests,
+  including paths with spaces.
+- Added `logs/` to `.gitignore` because launcher logs and runtime PID state are
+  local machine artifacts.
+
+### Changed
+
+- Fixed launcher process argument handling so repository paths with spaces are
+  not split by `Start-Process -ArgumentList`.
+- `start-proto.ps1` now verifies `py`, validates the static shell entry point,
+  waits for HTTP 200, and opens the browser only after readiness.
+- `start-agent-qt.ps1` now builds/starts the agent executable directly, verifies
+  `/api/v1/health`, validates the returned storage root, refuses incompatible
+  existing agents, and never launches Qt before positive agent health.
+- `start-qt-demo.ps1` now supports explicit `-Mode Static`, `-Mode Agent`, and
+  `-Mode Auto` behavior.
+- BAT wrappers now preserve the window on errors and return the PowerShell exit
+  code.
+- Bumped the synchronized Rust/Python software version to `0.9.2`.
+
 ## [0.9.1] - 2026-07-01
 
 ### Added
