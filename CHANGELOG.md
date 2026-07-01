@@ -8,6 +8,12 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Test-template creation now accepts method links only when the referenced
+  method revision is approved, preventing draft or retired method revisions from
+  becoming executable template sources.
+
 ## [0.8.4] - 2026-06-30
 
 ### Added

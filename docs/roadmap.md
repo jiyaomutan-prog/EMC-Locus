@@ -238,6 +238,8 @@ Deliverables:
 - project repository service-schedule inserts now enforce the same one
   intra-day business-block validation, so lower-level Python callers cannot
   bypass the planning safeguard;
+- agent-owned test templates now require any referenced method revision to be
+  approved before the template can be created;
 - future Qt model/view screens backed by application services;
 - future Rust-backed command execution bridge for instrument runtime actions.
 

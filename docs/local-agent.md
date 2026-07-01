@@ -263,9 +263,10 @@ operation with entity type `attached_document`.
 Version `0.8.3` adds the first agent-owned test-template draft workflow. `POST
 /api/v1/test-templates` creates one controlled draft test template in
 `test_definitions.sqlite`, validates its category and structured definition
-blocks, writes `test_template_audit_events`, and emits a `test_definitions`
-outbox operation. The slice does not yet approve templates, instantiate campaign
-tests, or execute acquisition/post-processing.
+blocks, requires referenced method revisions to be approved, writes
+`test_template_audit_events`, and emits a `test_definitions` outbox operation.
+The slice does not yet approve templates, instantiate campaign tests, or
+execute acquisition/post-processing.
 
 Version `0.8.4` adds the first controlled template lifecycle transitions.
 `POST /api/v1/test-templates/{template_id}/transitions/submit-for-review`

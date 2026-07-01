@@ -240,7 +240,7 @@ pub(crate) fn test_category_exists(
         .map_err(|error| AgentError::new("test_template_query_failed", error.to_string()))
 }
 
-pub(crate) fn method_revision_exists(
+pub(crate) fn approved_method_revision_exists(
     connection: &Connection,
     method_code: &str,
     revision: &str,
@@ -249,7 +249,7 @@ pub(crate) fn method_revision_exists(
         .query_row(
             concat!(
                 "SELECT COUNT(*) FROM test_method_revisions ",
-                "WHERE method_code = ?1 AND revision = ?2"
+                "WHERE method_code = ?1 AND revision = ?2 AND status = 'approved'"
             ),
             params![method_code, revision],
             |row| row.get::<_, u32>(0),

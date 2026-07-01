@@ -5,10 +5,10 @@ use crate::{
         TestTemplateEnvelopeDto, TestTemplateListDto, TestTemplateOperationResultDto,
     },
     test_template_repository::{
-        ensure_test_template_operation_replay, existing_test_template_operation,
-        insert_test_template, insert_test_template_audit_event,
+        approved_method_revision_exists, ensure_test_template_operation_replay,
+        existing_test_template_operation, insert_test_template, insert_test_template_audit_event,
         insert_test_template_sync_operation, list_test_templates, load_test_template,
-        load_test_template_audit_events, method_revision_exists, next_test_template_audit_sequence,
+        load_test_template_audit_events, next_test_template_audit_sequence,
         open_test_template_connection, open_test_template_connection_with_sync,
         test_category_exists, update_test_template_status, NewTestTemplateRecord,
         StoredTestTemplate, TestTemplateAuditEventInput, TestTemplateListFilter,
@@ -116,10 +116,10 @@ pub fn create_test_template(
         input.method_code.as_deref(),
         input.method_revision.as_deref(),
     ) {
-        if !method_revision_exists(&connection, method_code, method_revision)? {
+        if !approved_method_revision_exists(&connection, method_code, method_revision)? {
             return Err(AgentError::new(
                 "test_template_method_revision_not_found",
-                format!("method revision does not exist: {method_code}/{method_revision}"),
+                format!("approved method revision does not exist: {method_code}/{method_revision}"),
             ));
         }
     }

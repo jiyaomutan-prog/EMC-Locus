@@ -109,7 +109,7 @@ hold canonical JSON strings:
 
 `method_code` and `method_revision` are optional in this first slice, but they
 must be provided together. When present, the referenced method revision must
-already exist in `test_method_revisions`.
+already exist in `test_method_revisions` with status `approved`.
 
 This lets a laboratory author early draft templates before the method lifecycle
 is migrated to the agent, while still validating method links when they exist.

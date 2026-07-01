@@ -1383,6 +1383,110 @@ mod tests {
     }
 
     #[test]
+    fn local_api_requires_approved_method_revision_for_test_template() {
+        let storage_root = temporary_storage_root("agent-api-test-template-method-status");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            max_requests: None,
+        };
+
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+        let connection =
+            rusqlite::Connection::open(storage_root.join("test_definitions.sqlite")).unwrap();
+        connection
+            .execute_batch(
+                r#"
+                INSERT INTO test_methods (
+                    code, standard_code, name, family, measurement_axis,
+                    controlled, category_code, created_at, updated_at
+                )
+                VALUES (
+                    'TD-INRUSH', NULL, 'Inrush method', 'inrush',
+                    'time_series', 1, 'emission_transient_time_domain',
+                    '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z'
+                );
+                INSERT INTO test_method_revisions (
+                    method_code, revision, status, parameters_json,
+                    acceptance_criteria_json, processing_graph_json
+                )
+                VALUES
+                    ('TD-INRUSH', 'DRAFT', 'draft', '{}', '{}', '{}'),
+                    ('TD-INRUSH', 'A', 'approved', '{}', '{}', '{}');
+                "#,
+            )
+            .unwrap();
+        drop(connection);
+
+        let draft_method_template = r#"{
+            "template_id": "TT-DRAFT-METHOD",
+            "template_revision": "A",
+            "title": "Draft method linked template",
+            "description": "Template attempting to link an unapproved method revision.",
+            "category_code": "emission_transient_time_domain",
+            "measurement_axis": "time_series",
+            "method_code": "TD-INRUSH",
+            "method_revision": "DRAFT",
+            "variables": {},
+            "lock_policy": {},
+            "instrumentation_chain": [],
+            "sequence": [],
+            "limits": [],
+            "post_processing": [],
+            "actor": "method.author",
+            "reason": "draft method should not be executable",
+            "operation_id": "op-draft-method-template"
+        }"#;
+        let rejected = handle_api_request(
+            "POST",
+            "/api/v1/test-templates",
+            draft_method_template,
+            &config,
+        );
+        assert_eq!(rejected.status, 404);
+        assert!(rejected
+            .body
+            .contains("test_template_method_revision_not_found"));
+
+        let approved_method_template = r#"{
+            "template_id": "TT-APPROVED-METHOD",
+            "template_revision": "A",
+            "title": "Approved method linked template",
+            "description": "Template linking an approved method revision.",
+            "category_code": "emission_transient_time_domain",
+            "measurement_axis": "time_series",
+            "method_code": "TD-INRUSH",
+            "method_revision": "A",
+            "variables": {},
+            "lock_policy": {},
+            "instrumentation_chain": [],
+            "sequence": [],
+            "limits": [],
+            "post_processing": [],
+            "actor": "method.author",
+            "reason": "approved method can be templated",
+            "operation_id": "op-approved-method-template"
+        }"#;
+        let created = handle_api_request(
+            "POST",
+            "/api/v1/test-templates",
+            approved_method_template,
+            &config,
+        );
+        assert_eq!(created.status, 200);
+        assert!(created
+            .body
+            .contains("\"template_id\":\"TT-APPROVED-METHOD\""));
+        assert!(created.body.contains("\"method_revision\":\"A\""));
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
     fn local_api_rejects_invalid_json_payloads() {
         let config = ApiServerConfig {
             bind: "127.0.0.1:0".to_owned(),
