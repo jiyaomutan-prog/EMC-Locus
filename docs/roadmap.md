@@ -76,6 +76,12 @@ Deliverables:
 - Simulated EMC execution launch now blocks known agent-owned test templates
   unless the referenced template is approved, while the full execution-package
   binding remains a future slice.
+- Revisioned test-template aggregate delivered as the `0.9.0` baseline:
+  typed core definition, canonical JSON and checksum, draft replacement with
+  optimistic concurrency, immutable submitted/approved revisions, derivation
+  from approved revisions, audit/outbox evidence, Python client routes, and real
+  HTTP restart E2E coverage. This is not a LAB CONSOLE editor and not a runtime
+  execution engine.
 
 ## Phase 3: Measurement Runtime
 
@@ -242,15 +248,17 @@ Deliverables:
   intra-day business-block validation, so lower-level Python callers cannot
   bypass the planning safeguard;
 - agent-owned test templates now require any referenced method revision to be
-  approved before the template can be created;
+  approved before the template can be created and store content as explicit
+  immutable revisions after review;
 - future Qt model/view screens backed by application services;
 - future Rust-backed command execution bridge for instrument runtime actions.
 
 ## Near-Term Next Session
 
-The next productive session should deepen the simulated EMC execution workflow:
-persist approved-template parameters on the execution attempt and create
-measurement-data evidence records for the simulated result.
+The next productive session should bind simulated execution attempts to an
+approved test-template revision explicitly: resolve variables, copy the approved
+definition snapshot into an execution package, and persist the selected template
+revision on the execution attempt without building the full LAB CONSOLE editor.
 
 The parallel runtime stream should continue guarded serial or VISA IO behind the
 adapter skeletons.

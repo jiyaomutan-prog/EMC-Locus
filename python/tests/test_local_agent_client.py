@@ -39,6 +39,79 @@ class _FakeResponse:
         return None
 
 
+def _template_definition(sample_rate_hz: float = 100_000.0) -> dict[str, object]:
+    return {
+        "definition_schema_version": "emc-locus.test-template-definition.v1",
+        "title": "Inrush current capture",
+        "description": "Time-domain inrush capture for EMC investigations.",
+        "measurement_axis": "time_series",
+        "standard_references": ["IEC-61000-4-30"],
+        "variables": [
+            {
+                "variable_id": "sample_rate_hz",
+                "label": "Sample rate",
+                "value_type": "number",
+                "default_value": sample_rate_hz,
+                "constraints": {
+                    "required": True,
+                    "unit": "Hz",
+                    "minimum": 1000.0,
+                    "maximum": 1000000.0,
+                },
+            }
+        ],
+        "lock_policy": [
+            {
+                "variable_id": "sample_rate_hz",
+                "policy": "editable_until_campaign_freeze",
+            }
+        ],
+        "instrumentation_chain": [
+            {
+                "slot_id": "daq",
+                "label": "DAQ",
+                "required_category": "daq_chassis",
+                "required": True,
+                "calibration_requirement": "if_used",
+                "substitution_policy": "same_capability",
+            }
+        ],
+        "entry_step_id": "capture",
+        "sequence": [
+            {
+                "step_id": "capture",
+                "order": 10,
+                "kind": "acquire",
+                "label": "Capture transient",
+                "required_slots": ["daq"],
+            }
+        ],
+        "limits": [
+            {
+                "limit_id": "peak_current",
+                "kind": "scalar_threshold",
+                "axis": "time_series",
+                "unit": "A",
+                "application_domain": "inrush",
+                "source_reference": "method:TD-INRUSH:A",
+                "threshold": 30.0,
+                "variable_refs": ["sample_rate_hz"],
+            }
+        ],
+        "post_processing": [
+            {
+                "operation_id": "peak",
+                "order": 10,
+                "operation_type": "peak",
+                "inputs": ["raw.current"],
+                "outputs": ["calculated.peak_current"],
+                "parameters": {"absolute": True},
+            }
+        ],
+        "method_parameters": {},
+    }
+
+
 class LocalAgentClientTests(unittest.TestCase):
     def test_posts_project_creation_payload(self) -> None:
         captured: dict[str, object] = {}
@@ -206,7 +279,13 @@ class LocalAgentClientTests(unittest.TestCase):
             },
             "http://127.0.0.1:8765/api/v1/test-templates": {"test_templates": []},
             "http://127.0.0.1:8765/api/v1/test-templates/TT-READ-001": {
-                "test_template": {"template_id": "TT-READ-001"}
+                "test_template": {"identity": {"template_id": "TT-READ-001"}}
+            },
+            "http://127.0.0.1:8765/api/v1/test-templates/TT-READ-001/revisions": {
+                "revisions": []
+            },
+            "http://127.0.0.1:8765/api/v1/test-templates/TT-READ-001/revisions/TT-READ-001-rev-0001": {
+                "revision": {"revision_id": "TT-READ-001-rev-0001"}
             },
             "http://127.0.0.1:8765/api/v1/test-templates/TT-READ-001/audit-events": {
                 "audit_events": []
@@ -243,8 +322,16 @@ class LocalAgentClientTests(unittest.TestCase):
             self.assertEqual(client.document_audit_events("DOC-READ-001")["audit_events"], [])
             self.assertEqual(client.list_test_templates()["test_templates"], [])
             self.assertEqual(
-                client.get_test_template("TT-READ-001")["test_template"]["template_id"],
+                client.get_test_template("TT-READ-001")["test_template"]["identity"]["template_id"],
                 "TT-READ-001",
+            )
+            self.assertEqual(client.list_test_template_revisions("TT-READ-001")["revisions"], [])
+            self.assertEqual(
+                client.get_test_template_revision(
+                    "TT-READ-001",
+                    "TT-READ-001-rev-0001",
+                )["revision"]["revision_id"],
+                "TT-READ-001-rev-0001",
             )
             self.assertEqual(client.test_template_audit_events("TT-READ-001")["audit_events"], [])
             self.assertEqual(client.sync_outbox()["sync_outbox"], [])
@@ -266,6 +353,11 @@ class LocalAgentClientTests(unittest.TestCase):
                 ("GET", "http://127.0.0.1:8765/api/v1/documents/DOC-READ-001/audit-events"),
                 ("GET", "http://127.0.0.1:8765/api/v1/test-templates"),
                 ("GET", "http://127.0.0.1:8765/api/v1/test-templates/TT-READ-001"),
+                ("GET", "http://127.0.0.1:8765/api/v1/test-templates/TT-READ-001/revisions"),
+                (
+                    "GET",
+                    "http://127.0.0.1:8765/api/v1/test-templates/TT-READ-001/revisions/TT-READ-001-rev-0001",
+                ),
                 ("GET", "http://127.0.0.1:8765/api/v1/test-templates/TT-READ-001/audit-events"),
                 ("GET", "http://127.0.0.1:8765/api/v1/sync/outbox"),
             ],
@@ -348,7 +440,10 @@ class LocalAgentClientTests(unittest.TestCase):
                     "operation_id": "op-template",
                     "replayed": False,
                     "test_template": {
-                        "template_id": "TT-PY-001",
+                        "identity": {"template_id": "TT-PY-001"},
+                    },
+                    "revision": {
+                        "revision_id": "TT-PY-001-rev-0001",
                         "status": "draft",
                     },
                 }
@@ -358,15 +453,8 @@ class LocalAgentClientTests(unittest.TestCase):
             response = LocalAgentClient("http://127.0.0.1:8765").create_test_template(
                 template_id="TT-PY-001",
                 title="Python client template",
-                description="Template created through the local agent client",
                 category_code="emission_transient_time_domain",
-                measurement_axis="time_series",
-                variables={"sample_rate_hz": {"default": 100000}},
-                lock_policy={"sample_rate_hz": "editable_until_campaign_freeze"},
-                instrumentation_chain=[{"slot": "daq", "required_category": "daq_chassis"}],
-                sequence=[{"step": "capture", "instruction": "Capture transient"}],
-                limits=[{"name": "peak_current", "unit": "A"}],
-                post_processing=[{"operation": "peak"}],
+                definition=_template_definition(),
                 actor="method.author",
                 reason="first draft",
                 operation_id="op-template",
@@ -376,10 +464,10 @@ class LocalAgentClientTests(unittest.TestCase):
         self.assertEqual(captured["method"], "POST")
         body = captured["body"]
         self.assertEqual(body["template_id"], "TT-PY-001")
-        self.assertEqual(body["status"], "draft")
-        self.assertEqual(body["variables"]["sample_rate_hz"]["default"], 100000)
-        self.assertEqual(body["instrumentation_chain"][0]["slot"], "daq")
-        self.assertEqual(response["test_template"]["status"], "draft")
+        self.assertEqual(body["definition"]["definition_schema_version"], "emc-locus.test-template-definition.v1")
+        self.assertEqual(body["definition"]["variables"][0]["variable_id"], "sample_rate_hz")
+        self.assertEqual(body["definition"]["instrumentation_chain"][0]["slot_id"], "daq")
+        self.assertEqual(response["revision"]["status"], "draft")
 
     def test_list_test_templates_encodes_filters(self) -> None:
         captured: dict[str, object] = {}
@@ -392,13 +480,85 @@ class LocalAgentClientTests(unittest.TestCase):
         with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
             LocalAgentClient("http://127.0.0.1:8765").list_test_templates(
                 category_code="emission_transient_time_domain",
-                status="draft",
             )
 
         self.assertEqual(captured["method"], "GET")
         self.assertEqual(
             captured["url"],
-            "http://127.0.0.1:8765/api/v1/test-templates?category_code=emission_transient_time_domain&status=draft",
+            "http://127.0.0.1:8765/api/v1/test-templates?category_code=emission_transient_time_domain",
+        )
+
+    def test_posts_test_template_revision_edit_and_derivation_payloads(self) -> None:
+        captured: list[tuple[str, str, dict[str, object]]] = []
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            body = json.loads(request.data.decode("utf-8"))
+            captured.append((request.get_method(), request.full_url, body))
+            operation = (
+                "test_template_definition_replaced"
+                if request.get_method() == "PUT"
+                else "test_template_revision_created"
+            )
+            revision_id = (
+                "TT-PY-001-rev-0001"
+                if request.get_method() == "PUT"
+                else "TT-PY-001-rev-0002"
+            )
+            return _FakeResponse(
+                {
+                    "operation": operation,
+                    "operation_id": body["operation_id"],
+                    "replayed": False,
+                    "revision": {"revision_id": revision_id, "status": "draft"},
+                }
+            )
+
+        client = LocalAgentClient("http://127.0.0.1:8765")
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            edited = client.replace_test_template_revision_definition(
+                template_id="TT-PY-001",
+                revision_id="TT-PY-001-rev-0001",
+                expected_definition_checksum="sha256:" + "a" * 64,
+                definition=_template_definition(200_000.0),
+                actor="method.author",
+                reason="update draft",
+                operation_id="op-edit",
+            )
+            derived = client.create_test_template_revision(
+                template_id="TT-PY-001",
+                source_revision_id="TT-PY-001-rev-0001",
+                actor="method.author",
+                reason="derive next revision",
+                operation_id="op-rev2",
+            )
+
+        self.assertEqual(edited["operation"], "test_template_definition_replaced")
+        self.assertEqual(derived["operation"], "test_template_revision_created")
+        self.assertEqual(
+            captured,
+            [
+                (
+                    "PUT",
+                    "http://127.0.0.1:8765/api/v1/test-templates/TT-PY-001/revisions/TT-PY-001-rev-0001/definition",
+                    {
+                        "expected_definition_checksum": "sha256:" + "a" * 64,
+                        "definition": _template_definition(200_000.0),
+                        "actor": "method.author",
+                        "reason": "update draft",
+                        "operation_id": "op-edit",
+                    },
+                ),
+                (
+                    "POST",
+                    "http://127.0.0.1:8765/api/v1/test-templates/TT-PY-001/revisions",
+                    {
+                        "source_revision_id": "TT-PY-001-rev-0001",
+                        "actor": "method.author",
+                        "reason": "derive next revision",
+                        "operation_id": "op-rev2",
+                    },
+                ),
+            ],
         )
 
     def test_posts_test_template_lifecycle_transition_payloads(self) -> None:
@@ -412,8 +572,8 @@ class LocalAgentClientTests(unittest.TestCase):
                 {
                     "operation_id": body["operation_id"],
                     "replayed": False,
-                    "test_template": {
-                        "template_id": "TT-PY-001",
+                    "revision": {
+                        "revision_id": "TT-PY-001-rev-0001",
                         "status": status,
                     },
                 }
@@ -421,27 +581,29 @@ class LocalAgentClientTests(unittest.TestCase):
 
         client = LocalAgentClient("http://127.0.0.1:8765")
         with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
-            submitted = client.submit_test_template_for_review(
+            submitted = client.submit_test_template_revision_for_review(
                 template_id="TT-PY-001",
+                revision_id="TT-PY-001-rev-0001",
                 actor="method.author",
                 reason="ready for review",
                 operation_id="op-submit",
             )
-            approved = client.approve_test_template(
+            approved = client.approve_test_template_revision(
                 template_id="TT-PY-001",
+                revision_id="TT-PY-001-rev-0001",
                 actor="technical.reviewer",
                 reason="review accepted",
                 operation_id="op-approve",
             )
 
-        self.assertEqual(submitted["test_template"]["status"], "under_review")
-        self.assertEqual(approved["test_template"]["status"], "approved")
+        self.assertEqual(submitted["revision"]["status"], "under_review")
+        self.assertEqual(approved["revision"]["status"], "approved")
         self.assertEqual(
             captured,
             [
                 (
                     "POST",
-                    "http://127.0.0.1:8765/api/v1/test-templates/TT-PY-001/transitions/submit-for-review",
+                    "http://127.0.0.1:8765/api/v1/test-templates/TT-PY-001/revisions/TT-PY-001-rev-0001/transitions/submit-for-review",
                     {
                         "actor": "method.author",
                         "reason": "ready for review",
@@ -450,7 +612,7 @@ class LocalAgentClientTests(unittest.TestCase):
                 ),
                 (
                     "POST",
-                    "http://127.0.0.1:8765/api/v1/test-templates/TT-PY-001/transitions/approve",
+                    "http://127.0.0.1:8765/api/v1/test-templates/TT-PY-001/revisions/TT-PY-001-rev-0001/transitions/approve",
                     {
                         "actor": "technical.reviewer",
                         "reason": "review accepted",

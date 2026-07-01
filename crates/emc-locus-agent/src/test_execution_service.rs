@@ -16,7 +16,7 @@ use crate::test_execution_repository::{
     load_execution_instruments, load_project_simulated_executions, load_simulated_execution,
     InsertExecutionInstrumentInput, InsertSimulatedExecutionInput, StoredSimulatedTestExecution,
 };
-use crate::test_template_repository::{load_test_template, open_test_template_connection};
+use crate::test_template_repository::{load_test_template_identity, open_test_template_connection};
 use crate::{render_json, AgentError};
 use emc_locus_core::{
     AuditActor, AuditReason, ExecutionMode, InstrumentCode, MeasurementRunReference, MetrologyDate,
@@ -296,18 +296,18 @@ fn ensure_approved_template_reference(
         Err(error) if error.code == "storage_not_initialized" => return Ok(()),
         Err(error) => return Err(error),
     };
-    let Some(template) = load_test_template(&connection, test_method_reference)? else {
+    let Some(template) = load_test_template_identity(&connection, test_method_reference)? else {
         return Ok(());
     };
-    if template.status == "approved" {
+    if template.current_approved_revision_id.is_some() {
         return Ok(());
     }
     Err(AgentError::with_details(
         "test_execution_template_not_approved",
-        "simulated test execution requires referenced test templates to be approved",
+        "simulated test execution requires a current approved test-template revision",
         json!({
             "template_id": template.template_id,
-            "status": template.status,
+            "current_approved_revision_id": template.current_approved_revision_id,
         }),
     ))
 }

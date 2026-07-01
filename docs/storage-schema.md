@@ -182,6 +182,73 @@ CREATE TABLE test_steps (
 );
 ```
 
+### test_template_identities
+
+```sql
+CREATE TABLE test_template_identities (
+    template_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    category_code TEXT NOT NULL REFERENCES test_categories(code),
+    current_approved_revision_id TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+```
+
+### test_template_revisions
+
+```sql
+CREATE TABLE test_template_revisions (
+    revision_id TEXT PRIMARY KEY,
+    template_id TEXT NOT NULL REFERENCES test_template_identities(template_id),
+    revision_number INTEGER NOT NULL,
+    parent_revision_id TEXT REFERENCES test_template_revisions(revision_id),
+    status TEXT NOT NULL,
+    definition_schema_version TEXT NOT NULL,
+    definition_json TEXT NOT NULL,
+    definition_checksum TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    submitted_at TEXT,
+    approved_at TEXT,
+    UNIQUE(template_id, revision_number)
+);
+```
+
+`definition_json` is canonical JSON produced from the typed core definition.
+`definition_checksum` is the SHA-256 content checksum of that canonical JSON.
+The checksum is not an audit-event sequence and not a freely supplied client
+revision string.
+
+### test_template_audit_events
+
+```sql
+CREATE TABLE test_template_audit_events (
+    audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    template_id TEXT NOT NULL REFERENCES test_template_identities(template_id),
+    revision_id TEXT REFERENCES test_template_revisions(revision_id),
+    action TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    old_revision_id TEXT,
+    new_revision_id TEXT,
+    old_definition_checksum TEXT,
+    new_definition_checksum TEXT,
+    operation_id TEXT NOT NULL UNIQUE,
+    device_id TEXT NOT NULL,
+    correlation_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    payload_checksum TEXT NOT NULL,
+    occurred_at TEXT NOT NULL
+);
+```
+
+The audit id gives local event order only. Template content history is carried
+by `test_template_revisions.revision_number`, `parent_revision_id`, and
+definition checksums.
+
 ### measurement_run_instruments
 
 ```sql

@@ -83,7 +83,15 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.8.4`.
+Current software version: `0.9.0`.
+
+Version `0.9.0` replaces the provisional test-template model with a real
+revisioned aggregate. Test templates now have stable identities, deterministic
+content revisions, typed core definitions, canonical JSON and SHA-256
+definition checksums, editable drafts with optimistic concurrency, immutable
+submitted/approved revisions, derived draft revisions from approved sources,
+and audit/outbox evidence tied to explicit revision ids. This is not yet a LAB
+CONSOLE editor, a campaign instantiation engine, or a real execution runtime.
 
 Version `0.8.4` adds the first controlled lifecycle transitions for agent-owned
 test templates. The local API can submit a draft template for review and approve

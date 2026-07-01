@@ -43,9 +43,12 @@ use std::{
     path::{Path, PathBuf},
 };
 pub use test_template_service::{
-    create_test_template, get_test_template_definition, list_test_template_audit_events,
-    list_test_template_definitions, transition_test_template_status, CreateTestTemplateInput,
-    ListTestTemplatesInput, TransitionTestTemplateStatusInput,
+    create_test_template, create_test_template_revision, get_test_template_definition,
+    get_test_template_revision, list_test_template_audit_events, list_test_template_definitions,
+    list_test_template_revisions, replace_test_template_revision_definition,
+    transition_test_template_revision, CreateTestTemplateInput, CreateTestTemplateRevisionInput,
+    ListTestTemplatesInput, ReplaceTestTemplateDefinitionInput,
+    TransitionTestTemplateRevisionInput,
 };
 
 pub const AGENT_NAME: &str = "emc-locus-agent";
@@ -850,7 +853,7 @@ mod tests {
                 .find(|domain| domain.domain == "test_definitions")
                 .unwrap()
                 .schema_version,
-            Some(3)
+            Some(4)
         );
 
         remove_temporary_storage_root(&storage_root);

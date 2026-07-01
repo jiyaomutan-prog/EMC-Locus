@@ -63,6 +63,14 @@ post-processing definitions as metadata JSON; execution data remains outside
 this repository. The 0.8.4 lifecycle slice reuses this schema to move templates
 from `draft` to `under_review` and from `under_review` to `approved` with audit
 and sync outbox evidence; no additional migration is required for that behavior.
+Version 4 is a deliberate 0.9.0 reset of that provisional shape. It drops the
+0.8.x `test_templates` table and recreates the runtime model as
+`test_template_identities`, `test_template_revisions`, and
+`test_template_audit_events`. The new model separates stable identity from
+revisioned content, stores canonical typed definition JSON and SHA-256
+definition checksums, tracks parent revisions, and records audit events with
+explicit old/new revision and checksum fields. There is no dual-read or
+dual-write compatibility path after migration.
 
 ### Measurement Data
 

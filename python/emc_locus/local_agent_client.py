@@ -141,13 +141,11 @@ class LocalAgentClient:
         self,
         *,
         category_code: str | None = None,
-        status: str | None = None,
     ) -> dict[str, Any]:
         query = {
             key: value
             for key, value in {
                 "category_code": category_code,
-                "status": status,
             }.items()
             if value
         }
@@ -156,6 +154,22 @@ class LocalAgentClient:
 
     def get_test_template(self, template_id: str) -> dict[str, Any]:
         return self.request_json("GET", f"/api/v1/test-templates/{quote(template_id)}")
+
+    def list_test_template_revisions(self, template_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/test-templates/{quote(template_id)}/revisions",
+        )
+
+    def get_test_template_revision(
+        self,
+        template_id: str,
+        revision_id: str,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/test-templates/{quote(template_id)}/revisions/{quote(revision_id)}",
+        )
 
     def test_template_audit_events(self, template_id: str) -> dict[str, Any]:
         return self.request_json(
@@ -244,21 +258,10 @@ class LocalAgentClient:
         *,
         template_id: str,
         title: str,
-        description: str,
         category_code: str,
-        measurement_axis: str,
-        variables: dict[str, Any],
-        lock_policy: dict[str, Any],
-        instrumentation_chain: list[dict[str, Any]],
-        sequence: list[dict[str, Any]],
-        limits: list[dict[str, Any]],
-        post_processing: list[dict[str, Any]],
+        definition: dict[str, Any],
         actor: str,
         reason: str,
-        template_revision: str = "A",
-        method_code: str | None = None,
-        method_revision: str | None = None,
-        status: str = "draft",
         operation_id: str | None = None,
         correlation_id: str | None = None,
         device_id: str | None = None,
@@ -266,32 +269,24 @@ class LocalAgentClient:
         operation_id = operation_id or generate_operation_id("test-template-create", template_id)
         payload: dict[str, Any] = {
             "template_id": template_id,
-            "template_revision": template_revision,
             "title": title,
-            "description": description,
             "category_code": category_code,
-            "measurement_axis": measurement_axis,
-            "variables": variables,
-            "lock_policy": lock_policy,
-            "instrumentation_chain": instrumentation_chain,
-            "sequence": sequence,
-            "limits": limits,
-            "post_processing": post_processing,
-            "status": status,
+            "definition": definition,
             "actor": actor,
             "reason": reason,
             "operation_id": operation_id,
         }
-        _put_optional(payload, "method_code", method_code)
-        _put_optional(payload, "method_revision", method_revision)
         _put_optional(payload, "correlation_id", correlation_id)
         _put_optional(payload, "device_id", device_id)
         return self.request_json("POST", "/api/v1/test-templates", payload)
 
-    def submit_test_template_for_review(
+    def replace_test_template_revision_definition(
         self,
         *,
         template_id: str,
+        revision_id: str,
+        expected_definition_checksum: str,
+        definition: dict[str, Any],
         actor: str,
         reason: str,
         operation_id: str | None = None,
@@ -299,10 +294,13 @@ class LocalAgentClient:
         device_id: str | None = None,
     ) -> dict[str, Any]:
         operation_id = operation_id or generate_operation_id(
-            "test-template-submit",
+            "test-template-definition-replace",
             template_id,
+            revision_id,
         )
         payload = {
+            "expected_definition_checksum": expected_definition_checksum,
+            "definition": definition,
             "actor": actor,
             "reason": reason,
             "operation_id": operation_id,
@@ -310,15 +308,16 @@ class LocalAgentClient:
         _put_optional(payload, "correlation_id", correlation_id)
         _put_optional(payload, "device_id", device_id)
         return self.request_json(
-            "POST",
-            f"/api/v1/test-templates/{quote(template_id)}/transitions/submit-for-review",
+            "PUT",
+            f"/api/v1/test-templates/{quote(template_id)}/revisions/{quote(revision_id)}/definition",
             payload,
         )
 
-    def approve_test_template(
+    def create_test_template_revision(
         self,
         *,
         template_id: str,
+        source_revision_id: str,
         actor: str,
         reason: str,
         operation_id: str | None = None,
@@ -326,8 +325,39 @@ class LocalAgentClient:
         device_id: str | None = None,
     ) -> dict[str, Any]:
         operation_id = operation_id or generate_operation_id(
-            "test-template-approve",
+            "test-template-revision-create",
             template_id,
+            source_revision_id,
+        )
+        payload = {
+            "source_revision_id": source_revision_id,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/test-templates/{quote(template_id)}/revisions",
+            payload,
+        )
+
+    def submit_test_template_revision_for_review(
+        self,
+        *,
+        template_id: str,
+        revision_id: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "test-template-revision-submit",
+            template_id,
+            revision_id,
         )
         payload = {
             "actor": actor,
@@ -338,7 +368,36 @@ class LocalAgentClient:
         _put_optional(payload, "device_id", device_id)
         return self.request_json(
             "POST",
-            f"/api/v1/test-templates/{quote(template_id)}/transitions/approve",
+            f"/api/v1/test-templates/{quote(template_id)}/revisions/{quote(revision_id)}/transitions/submit-for-review",
+            payload,
+        )
+
+    def approve_test_template_revision(
+        self,
+        *,
+        template_id: str,
+        revision_id: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "test-template-revision-approve",
+            template_id,
+            revision_id,
+        )
+        payload = {
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/test-templates/{quote(template_id)}/revisions/{quote(revision_id)}/transitions/approve",
             payload,
         )
 

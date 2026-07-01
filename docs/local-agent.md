@@ -145,9 +145,13 @@ GET  /api/v1/documents/{document_id}/audit-events
 GET  /api/v1/test-templates
 POST /api/v1/test-templates
 GET  /api/v1/test-templates/{template_id}
+GET  /api/v1/test-templates/{template_id}/revisions
+GET  /api/v1/test-templates/{template_id}/revisions/{revision_id}
+PUT  /api/v1/test-templates/{template_id}/revisions/{revision_id}/definition
+POST /api/v1/test-templates/{template_id}/revisions
+POST /api/v1/test-templates/{template_id}/revisions/{revision_id}/transitions/submit-for-review
+POST /api/v1/test-templates/{template_id}/revisions/{revision_id}/transitions/approve
 GET  /api/v1/test-templates/{template_id}/audit-events
-POST /api/v1/test-templates/{template_id}/transitions/submit-for-review
-POST /api/v1/test-templates/{template_id}/transitions/approve
 POST /api/v1/test-executions/simulated-emc
 GET  /api/v1/test-executions/{attempt_id}
 GET  /api/v1/metrology/instruments
@@ -277,9 +281,20 @@ with `test_template_transition_not_allowed`. Successful transitions are
 idempotent by `operation_id`, update the template status, append
 `test_template_audit_events`, and emit `test_definitions` outbox operations.
 
-The current `Unreleased` hardening links the simulated execution path to that
-controlled status when an operator launch uses a stored template id as
-`test_method_reference`. `POST /api/v1/test-executions/simulated-emc` now
-rejects known templates whose status is not `approved` with
-`test_execution_template_not_approved`; free-form method references continue to
-work until the future execution-package model makes template binding explicit.
+Version `0.9.0` replaces the 0.8.x template storage and API. Templates now have
+a stable identity plus revisioned content. `POST /api/v1/test-templates`
+creates identity plus first draft revision. Draft definitions are replaced with
+`PUT /api/v1/test-templates/{template_id}/revisions/{revision_id}/definition`
+and require `expected_definition_checksum`. Submitted and approved revisions are
+immutable. New work derives from an approved source through
+`POST /api/v1/test-templates/{template_id}/revisions`. Audit events now carry
+the template id, revision id, actor, reason, old/new revision ids, old/new
+definition checksums, operation id, device id, and correlation id. The sync
+outbox entity type is `test_template_revision`.
+
+The simulated execution path checks this new model when an operator launch uses
+a stored template id as `test_method_reference`: known template identities must
+have a `current_approved_revision_id`, otherwise
+`POST /api/v1/test-executions/simulated-emc` returns
+`test_execution_template_not_approved`. This is still only a guardrail, not a
+campaign execution-package binding.

@@ -19,6 +19,7 @@ pub mod quality;
 pub mod reporting;
 pub mod repositories;
 pub mod signal;
+pub mod test_definitions;
 pub mod traceability;
 pub mod updates;
 

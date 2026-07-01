@@ -71,6 +71,12 @@ A reusable executable test definition.
 
 Contains:
 
+- stable template identity, independent from content revision numbers;
+- revision history with deterministic revision numbers and explicit parent
+  revision links;
+- revision status, where draft content is editable and submitted/approved
+  content is immutable;
+- canonical definition JSON and SHA-256 definition checksum;
 - source method revision;
 - standard references;
 - instrumentation chain slots;
@@ -83,6 +89,15 @@ Contains:
 - rerun and supersession policy.
 
 Creates: test instances inside campaign instances.
+
+0.9.0 implements the first real test-template aggregate in `emc-locus-core` and
+the local agent. The runtime now persists `test_template_identities`,
+`test_template_revisions`, and `test_template_audit_events` instead of one
+mutable row per template. The definition is typed in Rust for measurement axis,
+variables, constraints, lock policy, instrumentation slots, calibration
+requirements, execution steps, branch rules, limits, post-processing operations,
+and revision status. The future LAB CONSOLE editor must build on this
+aggregate, not on the retired 0.8.x JSON-column shape.
 
 ### Method Revision
 

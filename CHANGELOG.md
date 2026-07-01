@@ -8,14 +8,41 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-01
+
+### Added
+
+- Added a typed `emc-locus-core` test-template definition aggregate with
+  explicit variables, constraints, lock policies, instrumentation slots,
+  calibration requirements, sequence steps, branch rules, limits,
+  post-processing definitions, revision statuses, canonical JSON, and
+  SHA-256 definition checksums.
+- Added `storage/sqlite/test_definitions/0004_template_revision_aggregate.sql`
+  with `test_template_identities`, `test_template_revisions`, and
+  `test_template_audit_events`.
+- Added local-agent routes for revision history, revision detail, draft
+  definition replacement with `expected_definition_checksum`, draft derivation
+  from an approved source revision, and transitions on explicit revision ids.
+- Added Python local-agent client methods for the 0.9.0 revisioned template API.
+- Added real HTTP E2E coverage for create, edit, submit, approve, derive,
+  audit/outbox, restart, and re-read.
+
+### Changed
+
+- Replaced the 0.8.x one-row `test_templates` runtime model. No dual-read,
+  dual-write, or legacy DTO remains in the new runtime.
+- Test-template creation now accepts method links only when the referenced
+  method revision is approved.
+- Simulated EMC executions now reject references to stored test-template
+  identities unless a current approved revision exists.
+- Bumped the synchronized Rust software version to `0.9.0`.
+
 ### Fixed
 
-- Test-template creation now accepts method links only when the referenced
-  method revision is approved, preventing draft or retired method revisions from
-  becoming executable template sources.
-- Simulated EMC executions now reject references to stored test templates unless
-  the template is approved, preventing draft templates from becoming executable
-  launch references.
+- Draft updates now use optimistic concurrency based on definition checksum, so
+  stale edits are refused with `test_template_definition_checksum_mismatch`.
+- Submitted and approved template revisions are immutable and reject definition
+  replacement with `test_template_revision_immutable`.
 
 ## [0.8.4] - 2026-06-30
 

@@ -19,10 +19,14 @@ use crate::test_execution_service::{
     RunSimulatedEmcTestInput,
 };
 use crate::test_template_service::{
-    create_test_template, get_test_template_definition, list_test_template_audit_events,
-    list_test_template_definitions, transition_test_template_status, CreateTestTemplateInput,
-    ListTestTemplatesInput, TransitionTestTemplateStatusInput,
+    create_test_template, create_test_template_revision, get_test_template_definition,
+    get_test_template_revision, list_test_template_audit_events, list_test_template_definitions,
+    list_test_template_revisions, replace_test_template_revision_definition,
+    transition_test_template_revision, CreateTestTemplateInput, CreateTestTemplateRevisionInput,
+    ListTestTemplatesInput, ReplaceTestTemplateDefinitionInput,
+    TransitionTestTemplateRevisionInput,
 };
+use emc_locus_core::test_definitions::TemplateRevisionStatus;
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, path::PathBuf};
 use tiny_http::{Header, Response, Server, StatusCode};
@@ -282,26 +286,60 @@ fn route_api_request(
         ["api", "v1", "test-templates", template_id] if method == "GET" => {
             get_test_template_definition(&config.storage_root, template_id)
         }
+        ["api", "v1", "test-templates", template_id, "revisions"] if method == "GET" => {
+            list_test_template_revisions(&config.storage_root, template_id)
+        }
+        ["api", "v1", "test-templates", template_id, "revisions"] if method == "POST" => {
+            let payload = parse_json_body(body)?;
+            create_test_template_revision(
+                &config.storage_root,
+                create_test_template_revision_input(template_id, &payload)?,
+            )
+        }
+        ["api", "v1", "test-templates", template_id, "revisions", revision_id]
+            if method == "GET" =>
+        {
+            get_test_template_revision(&config.storage_root, template_id, revision_id)
+        }
+        ["api", "v1", "test-templates", template_id, "revisions", revision_id, "definition"]
+            if method == "PUT" =>
+        {
+            let payload = parse_json_body(body)?;
+            replace_test_template_revision_definition(
+                &config.storage_root,
+                replace_test_template_definition_input(template_id, revision_id, &payload)?,
+            )
+        }
+        ["api", "v1", "test-templates", template_id, "revisions", revision_id, "transitions", "submit-for-review"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            transition_test_template_revision(
+                &config.storage_root,
+                test_template_revision_transition_input(
+                    template_id,
+                    revision_id,
+                    TemplateRevisionStatus::UnderReview,
+                    &payload,
+                )?,
+            )
+        }
+        ["api", "v1", "test-templates", template_id, "revisions", revision_id, "transitions", "approve"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            transition_test_template_revision(
+                &config.storage_root,
+                test_template_revision_transition_input(
+                    template_id,
+                    revision_id,
+                    TemplateRevisionStatus::Approved,
+                    &payload,
+                )?,
+            )
+        }
         ["api", "v1", "test-templates", template_id, "audit-events"] if method == "GET" => {
             list_test_template_audit_events(&config.storage_root, template_id)
-        }
-        ["api", "v1", "test-templates", template_id, "transitions", "submit-for-review"]
-            if method == "POST" =>
-        {
-            let payload = parse_json_body(body)?;
-            transition_test_template_status(
-                &config.storage_root,
-                test_template_transition_input(template_id, "under_review", &payload)?,
-            )
-        }
-        ["api", "v1", "test-templates", template_id, "transitions", "approve"]
-            if method == "POST" =>
-        {
-            let payload = parse_json_body(body)?;
-            transition_test_template_status(
-                &config.storage_root,
-                test_template_transition_input(template_id, "approved", &payload)?,
-            )
         }
         ["api", "v1", "metrology", "instruments", asset_id] if method == "GET" => {
             run_metrology_command(AgentCommand::Metrology {
@@ -615,29 +653,9 @@ fn create_test_template_input(payload: &Value) -> Result<CreateTestTemplateInput
     let operation_id = required_string(payload, "operation_id")?;
     Ok(CreateTestTemplateInput {
         template_id: required_string(payload, "template_id")?,
-        template_revision: optional_string(payload, "template_revision")
-            .unwrap_or_else(|| "A".to_owned()),
         title: required_string(payload, "title")?,
-        description: required_string(payload, "description")?,
         category_code: required_string(payload, "category_code")?,
-        measurement_axis: required_string(payload, "measurement_axis")?,
-        method_code: optional_string(payload, "method_code"),
-        method_revision: optional_string(payload, "method_revision"),
-        status: optional_string(payload, "status").unwrap_or_else(|| "draft".to_owned()),
-        variables_json: required_json_or_string(payload, "variables", "variables_json")?,
-        lock_policy_json: required_json_or_string(payload, "lock_policy", "lock_policy_json")?,
-        instrumentation_chain_json: required_json_or_string(
-            payload,
-            "instrumentation_chain",
-            "instrumentation_chain_json",
-        )?,
-        sequence_json: required_json_or_string(payload, "sequence", "sequence_json")?,
-        limits_json: required_json_or_string(payload, "limits", "limits_json")?,
-        post_processing_json: required_json_or_string(
-            payload,
-            "post_processing",
-            "post_processing_json",
-        )?,
+        definition_json: required_json_or_string(payload, "definition", "definition_json")?,
         actor: required_string(payload, "actor")?,
         reason: required_string(payload, "reason")?,
         correlation_id: optional_string(payload, "correlation_id")
@@ -651,19 +669,59 @@ fn create_test_template_input(payload: &Value) -> Result<CreateTestTemplateInput
 fn list_test_templates_input(query: &str) -> ListTestTemplatesInput {
     ListTestTemplatesInput {
         category_code: optional_query_value(query, "category_code"),
-        status: optional_query_value(query, "status"),
     }
 }
 
-fn test_template_transition_input(
+fn replace_test_template_definition_input(
     template_id: &str,
-    target_status: &str,
+    revision_id: &str,
     payload: &Value,
-) -> Result<TransitionTestTemplateStatusInput, AgentError> {
+) -> Result<ReplaceTestTemplateDefinitionInput, AgentError> {
     let operation_id = required_string(payload, "operation_id")?;
-    Ok(TransitionTestTemplateStatusInput {
+    Ok(ReplaceTestTemplateDefinitionInput {
         template_id: template_id.to_owned(),
-        target_status: target_status.to_owned(),
+        revision_id: revision_id.to_owned(),
+        expected_definition_checksum: required_string(payload, "expected_definition_checksum")?,
+        definition_json: required_json_or_string(payload, "definition", "definition_json")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn create_test_template_revision_input(
+    template_id: &str,
+    payload: &Value,
+) -> Result<CreateTestTemplateRevisionInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(CreateTestTemplateRevisionInput {
+        template_id: template_id.to_owned(),
+        source_revision_id: required_string(payload, "source_revision_id")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn test_template_revision_transition_input(
+    template_id: &str,
+    revision_id: &str,
+    target_status: TemplateRevisionStatus,
+    payload: &Value,
+) -> Result<TransitionTestTemplateRevisionInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(TransitionTestTemplateRevisionInput {
+        template_id: template_id.to_owned(),
+        revision_id: revision_id.to_owned(),
+        target_status,
         actor: required_string(payload, "actor")?,
         reason: required_string(payload, "reason")?,
         correlation_id: optional_string(payload, "correlation_id")
@@ -800,6 +858,7 @@ fn status_for_error(code: &str) -> u16 {
         | "project_not_found"
         | "test_execution_not_found"
         | "test_template_not_found"
+        | "test_template_revision_not_found"
         | "test_template_category_not_found"
         | "test_template_method_revision_not_found"
         | "metrology_instrument_not_found" => 404,
@@ -809,7 +868,10 @@ fn status_for_error(code: &str) -> u16 {
         | "test_execution_attempt_exists"
         | "test_execution_template_not_approved"
         | "test_template_already_exists"
-        | "test_template_transition_not_allowed"
+        | "test_template_definition_checksum_mismatch"
+        | "test_template_revision_immutable"
+        | "test_template_revision_source_not_approved"
+        | "test_template_revision_transition_not_allowed"
         | "attached_document_already_exists"
         | "operation_replay_mismatch"
         | "metrology_instrument_already_exists"
@@ -829,6 +891,8 @@ fn status_for_error(code: &str) -> u16 {
         | "domain_error"
         | "invalid_test_execution"
         | "invalid_test_template"
+        | "invalid_test_template_definition"
+        | "invalid_test_template_revision_status"
         | "invalid_metrology_calibration"
         | "invalid_metrology_instrument"
         | "invalid_metrology_readiness"
@@ -1168,75 +1232,33 @@ mod tests {
             200
         );
 
-        let template_body = r#"{
-            "template_id": "TT-INRUSH-001",
-            "template_revision": "A",
-            "title": "Inrush current capture",
-            "description": "Time-domain inrush capture template for power electronics investigations.",
-            "category_code": "emission_transient_time_domain",
-            "measurement_axis": "time_series",
-            "variables": {
-                "sample_rate_hz": {
-                    "type": "number",
-                    "unit": "Hz",
-                    "default": 100000
-                }
-            },
-            "lock_policy": {
-                "sample_rate_hz": "editable_until_campaign_freeze"
-            },
-            "instrumentation_chain": [
-                {
-                    "slot": "current_probe",
-                    "required_category": "current_probe",
-                    "calibration": "required"
-                },
-                {
-                    "slot": "daq",
-                    "required_category": "daq_chassis",
-                    "sync": "single_clock"
-                }
-            ],
-            "sequence": [
-                {
-                    "step": "arm",
-                    "instruction": "Arm acquisition and wait for trigger"
-                },
-                {
-                    "step": "capture",
-                    "instruction": "Capture inrush transient"
-                }
-            ],
-            "limits": [
-                {
-                    "name": "peak_current",
-                    "expression": "max(abs(current))",
-                    "unit": "A"
-                }
-            ],
-            "post_processing": [
-                {
-                    "operation": "peak",
-                    "input": "raw.current",
-                    "output": "calculated.peak_current"
-                }
-            ],
-            "actor": "method.author",
-            "reason": "first controlled template draft",
-            "operation_id": "op-create-test-template"
-        }"#;
-        let created = handle_api_request("POST", "/api/v1/test-templates", template_body, &config);
+        let template_body = create_template_body(
+            "TT-INRUSH-001",
+            "op-create-test-template",
+            &template_definition(100_000, None),
+        );
+        let created = handle_api_request("POST", "/api/v1/test-templates", &template_body, &config);
         assert_eq!(created.status, 200);
-        assert!(created.body.contains("\"template_id\":\"TT-INRUSH-001\""));
-        assert!(created.body.contains("\"status\":\"draft\""));
         assert!(created
             .body
-            .contains("\"measurement_axis\":\"time_series\""));
+            .contains("\"revision_id\":\"TT-INRUSH-001-rev-0001\""));
+        assert!(created.body.contains("\"status\":\"draft\""));
+        let created_json: Value = serde_json::from_str(&created.body).unwrap();
+        let revision_id = created_json["revision"]["revision_id"].as_str().unwrap();
+        let initial_checksum = created_json["revision"]["definition_checksum"]
+            .as_str()
+            .unwrap();
 
         let detail = handle_api_request("GET", "/api/v1/test-templates/TT-INRUSH-001", "", &config);
         let filtered = handle_api_request(
             "GET",
-            "/api/v1/test-templates?category_code=emission_transient_time_domain&status=draft",
+            "/api/v1/test-templates?category_code=emission_transient_time_domain",
+            "",
+            &config,
+        );
+        let revision_detail = handle_api_request(
+            "GET",
+            "/api/v1/test-templates/TT-INRUSH-001/revisions/TT-INRUSH-001-rev-0001",
             "",
             &config,
         );
@@ -1250,20 +1272,68 @@ mod tests {
 
         assert_eq!(detail.status, 200);
         assert_eq!(filtered.status, 200);
+        assert_eq!(revision_detail.status, 200);
         assert_eq!(audit.status, 200);
         assert_eq!(outbox.status, 200);
         assert!(detail.body.contains("\"instrumentation_chain\""));
-        assert_eq!(filtered.body.matches("\"template_id\"").count(), 1);
+        assert!(filtered.body.contains("\"template_id\":\"TT-INRUSH-001\""));
         assert!(audit.body.contains("\"action\":\"test_template_created\""));
         assert!(outbox.body.contains("\"domain\":\"test_definitions\""));
-        assert!(outbox.body.contains("\"entity_type\":\"test_template\""));
+        assert!(outbox
+            .body
+            .contains("\"entity_type\":\"test_template_revision\""));
         assert!(outbox
             .body
             .contains("\"operation_kind\":\"test_template_created\""));
 
+        let edited_body = format!(
+            r#"{{
+                "expected_definition_checksum": "{initial_checksum}",
+                "definition": {},
+                "actor": "method.author",
+                "reason": "increase sample rate before review",
+                "operation_id": "op-edit-test-template"
+            }}"#,
+            template_definition(200_000, None)
+        );
+        let edited = handle_api_request(
+            "PUT",
+            "/api/v1/test-templates/TT-INRUSH-001/revisions/TT-INRUSH-001-rev-0001/definition",
+            &edited_body,
+            &config,
+        );
+        assert_eq!(edited.status, 200);
+        let edited_json: Value = serde_json::from_str(&edited.body).unwrap();
+        let edited_checksum = edited_json["revision"]["definition_checksum"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_ne!(edited_checksum, initial_checksum);
+
+        let stale_body = format!(
+            r#"{{
+                "expected_definition_checksum": "{initial_checksum}",
+                "definition": {},
+                "actor": "method.author",
+                "reason": "stale concurrent edit",
+                "operation_id": "op-edit-test-template-stale"
+            }}"#,
+            template_definition(300_000, None)
+        );
+        let stale_edit = handle_api_request(
+            "PUT",
+            "/api/v1/test-templates/TT-INRUSH-001/revisions/TT-INRUSH-001-rev-0001/definition",
+            &stale_body,
+            &config,
+        );
+        assert_eq!(stale_edit.status, 409);
+        assert!(stale_edit
+            .body
+            .contains("test_template_definition_checksum_mismatch"));
+
         let early_approval = handle_api_request(
             "POST",
-            "/api/v1/test-templates/TT-INRUSH-001/transitions/approve",
+            "/api/v1/test-templates/TT-INRUSH-001/revisions/TT-INRUSH-001-rev-0001/transitions/approve",
             r#"{
                 "actor": "quality.lead",
                 "reason": "approval attempted before review",
@@ -1274,11 +1344,11 @@ mod tests {
         assert_eq!(early_approval.status, 409);
         assert!(early_approval
             .body
-            .contains("test_template_transition_not_allowed"));
+            .contains("test_template_revision_transition_not_allowed"));
 
         let submitted = handle_api_request(
             "POST",
-            "/api/v1/test-templates/TT-INRUSH-001/transitions/submit-for-review",
+            "/api/v1/test-templates/TT-INRUSH-001/revisions/TT-INRUSH-001-rev-0001/transitions/submit-for-review",
             r#"{
                 "actor": "method.author",
                 "reason": "definition ready for technical review",
@@ -1292,9 +1362,29 @@ mod tests {
             .body
             .contains("\"operation\":\"test_template_submitted_for_review\""));
 
+        let immutable_edit = handle_api_request(
+            "PUT",
+            "/api/v1/test-templates/TT-INRUSH-001/revisions/TT-INRUSH-001-rev-0001/definition",
+            &format!(
+                r#"{{
+                    "expected_definition_checksum": "{edited_checksum}",
+                    "definition": {},
+                    "actor": "method.author",
+                    "reason": "attempt edit under review",
+                    "operation_id": "op-edit-under-review"
+                }}"#,
+                template_definition(250_000, None)
+            ),
+            &config,
+        );
+        assert_eq!(immutable_edit.status, 409);
+        assert!(immutable_edit
+            .body
+            .contains("test_template_revision_immutable"));
+
         let submit_replay = handle_api_request(
             "POST",
-            "/api/v1/test-templates/TT-INRUSH-001/transitions/submit-for-review",
+            "/api/v1/test-templates/TT-INRUSH-001/revisions/TT-INRUSH-001-rev-0001/transitions/submit-for-review",
             r#"{
                 "actor": "method.author",
                 "reason": "definition ready for technical review",
@@ -1307,7 +1397,7 @@ mod tests {
 
         let approved = handle_api_request(
             "POST",
-            "/api/v1/test-templates/TT-INRUSH-001/transitions/approve",
+            "/api/v1/test-templates/TT-INRUSH-001/revisions/TT-INRUSH-001-rev-0001/transitions/approve",
             r#"{
                 "actor": "technical.reviewer",
                 "reason": "technical review accepted",
@@ -1321,9 +1411,60 @@ mod tests {
             .body
             .contains("\"operation\":\"test_template_approved\""));
 
+        let approved_edit = handle_api_request(
+            "PUT",
+            "/api/v1/test-templates/TT-INRUSH-001/revisions/TT-INRUSH-001-rev-0001/definition",
+            &format!(
+                r#"{{
+                    "expected_definition_checksum": "{edited_checksum}",
+                    "definition": {},
+                    "actor": "method.author",
+                    "reason": "attempt edit approved",
+                    "operation_id": "op-edit-approved"
+                }}"#,
+                template_definition(300_000, None)
+            ),
+            &config,
+        );
+        assert_eq!(approved_edit.status, 409);
+        assert!(approved_edit
+            .body
+            .contains("test_template_revision_immutable"));
+
+        let second_revision = handle_api_request(
+            "POST",
+            "/api/v1/test-templates/TT-INRUSH-001/revisions",
+            r#"{
+                "source_revision_id": "TT-INRUSH-001-rev-0001",
+                "actor": "method.author",
+                "reason": "prepare next controlled revision",
+                "operation_id": "op-create-test-template-rev2"
+            }"#,
+            &config,
+        );
+        assert_eq!(second_revision.status, 200);
+        assert!(second_revision
+            .body
+            .contains("\"revision_id\":\"TT-INRUSH-001-rev-0002\""));
+        assert!(second_revision.body.contains("\"status\":\"draft\""));
+
+        let revisions = handle_api_request(
+            "GET",
+            "/api/v1/test-templates/TT-INRUSH-001/revisions",
+            "",
+            &config,
+        );
+        assert_eq!(revisions.status, 200);
+        assert!(revisions
+            .body
+            .contains("\"revision_id\":\"TT-INRUSH-001-rev-0001\""));
+        assert!(revisions
+            .body
+            .contains("\"revision_id\":\"TT-INRUSH-001-rev-0002\""));
+
         let approved_list = handle_api_request(
             "GET",
-            "/api/v1/test-templates?category_code=emission_transient_time_domain&status=approved",
+            "/api/v1/test-templates?category_code=emission_transient_time_domain",
             "",
             &config,
         );
@@ -1337,7 +1478,9 @@ mod tests {
         assert_eq!(approved_list.status, 200);
         assert_eq!(lifecycle_audit.status, 200);
         assert_eq!(lifecycle_outbox.status, 200);
-        assert_eq!(approved_list.body.matches("\"template_id\"").count(), 1);
+        assert!(approved_list
+            .body
+            .contains("\"current_approved_revision_id\":\"TT-INRUSH-001-rev-0001\""));
         assert!(lifecycle_audit
             .body
             .contains("\"action\":\"test_template_submitted_for_review\""));
@@ -1350,35 +1493,28 @@ mod tests {
         assert!(lifecycle_outbox
             .body
             .contains("\"operation_kind\":\"test_template_approved\""));
+        assert!(lifecycle_outbox
+            .body
+            .contains("\"operation_kind\":\"test_template_revision_created\""));
 
-        let replay = handle_api_request("POST", "/api/v1/test-templates", template_body, &config);
+        let replay = handle_api_request("POST", "/api/v1/test-templates", &template_body, &config);
         assert_eq!(replay.status, 200);
         assert!(replay.body.contains("\"replayed\":true"));
 
         let conflict = handle_api_request(
             "POST",
             "/api/v1/test-templates",
-            r#"{
-                "template_id": "TT-INRUSH-001",
-                "template_revision": "A",
-                "title": "Changed inrush template",
-                "description": "Changed description.",
-                "category_code": "emission_transient_time_domain",
-                "measurement_axis": "time_series",
-                "variables": {},
-                "lock_policy": {},
-                "instrumentation_chain": [],
-                "sequence": [],
-                "limits": [],
-                "post_processing": [],
-                "actor": "method.author",
-                "reason": "conflicting replay",
-                "operation_id": "op-create-test-template"
-            }"#,
+            &create_template_body(
+                "TT-INRUSH-001",
+                "op-create-test-template",
+                &template_definition(400_000, None),
+            ),
             &config,
         );
         assert_eq!(conflict.status, 409);
         assert!(conflict.body.contains("operation_replay_mismatch"));
+
+        assert_eq!(revision_id, "TT-INRUSH-001-rev-0001");
 
         remove_temporary_storage_root(&storage_root);
     }
@@ -1423,29 +1559,15 @@ mod tests {
             .unwrap();
         drop(connection);
 
-        let draft_method_template = r#"{
-            "template_id": "TT-DRAFT-METHOD",
-            "template_revision": "A",
-            "title": "Draft method linked template",
-            "description": "Template attempting to link an unapproved method revision.",
-            "category_code": "emission_transient_time_domain",
-            "measurement_axis": "time_series",
-            "method_code": "TD-INRUSH",
-            "method_revision": "DRAFT",
-            "variables": {},
-            "lock_policy": {},
-            "instrumentation_chain": [],
-            "sequence": [],
-            "limits": [],
-            "post_processing": [],
-            "actor": "method.author",
-            "reason": "draft method should not be executable",
-            "operation_id": "op-draft-method-template"
-        }"#;
+        let draft_method_template = create_template_body(
+            "TT-DRAFT-METHOD",
+            "op-draft-method-template",
+            &template_definition(100_000, Some(("TD-INRUSH", "DRAFT"))),
+        );
         let rejected = handle_api_request(
             "POST",
             "/api/v1/test-templates",
-            draft_method_template,
+            &draft_method_template,
             &config,
         );
         assert_eq!(rejected.status, 404);
@@ -1453,29 +1575,15 @@ mod tests {
             .body
             .contains("test_template_method_revision_not_found"));
 
-        let approved_method_template = r#"{
-            "template_id": "TT-APPROVED-METHOD",
-            "template_revision": "A",
-            "title": "Approved method linked template",
-            "description": "Template linking an approved method revision.",
-            "category_code": "emission_transient_time_domain",
-            "measurement_axis": "time_series",
-            "method_code": "TD-INRUSH",
-            "method_revision": "A",
-            "variables": {},
-            "lock_policy": {},
-            "instrumentation_chain": [],
-            "sequence": [],
-            "limits": [],
-            "post_processing": [],
-            "actor": "method.author",
-            "reason": "approved method can be templated",
-            "operation_id": "op-approved-method-template"
-        }"#;
+        let approved_method_template = create_template_body(
+            "TT-APPROVED-METHOD",
+            "op-approved-method-template",
+            &template_definition(100_000, Some(("TD-INRUSH", "A"))),
+        );
         let created = handle_api_request(
             "POST",
             "/api/v1/test-templates",
-            approved_method_template,
+            &approved_method_template,
             &config,
         );
         assert_eq!(created.status, 200);
@@ -1545,23 +1653,11 @@ mod tests {
             handle_api_request(
                 "POST",
                 "/api/v1/test-templates",
-                r#"{
-                    "template_id": "TT-INRUSH-EXEC",
-                    "template_revision": "A",
-                    "title": "Execution linked template",
-                    "description": "Template used as a controlled execution reference.",
-                    "category_code": "emission_transient_time_domain",
-                    "measurement_axis": "time_series",
-                    "variables": {},
-                    "lock_policy": {},
-                    "instrumentation_chain": [],
-                    "sequence": [],
-                    "limits": [],
-                    "post_processing": [],
-                    "actor": "method.author",
-                    "reason": "draft template for execution binding",
-                    "operation_id": "op-template-exec-create"
-                }"#,
+                &create_template_body(
+                    "TT-INRUSH-EXEC",
+                    "op-template-exec-create",
+                    &template_definition(100_000, None),
+                ),
                 &config,
             )
             .status,
@@ -1592,7 +1688,7 @@ mod tests {
         assert_eq!(
             handle_api_request(
                 "POST",
-                "/api/v1/test-templates/TT-INRUSH-EXEC/transitions/submit-for-review",
+                "/api/v1/test-templates/TT-INRUSH-EXEC/revisions/TT-INRUSH-EXEC-rev-0001/transitions/submit-for-review",
                 r#"{
                     "actor": "method.author",
                     "reason": "ready for technical review",
@@ -1606,7 +1702,7 @@ mod tests {
         assert_eq!(
             handle_api_request(
                 "POST",
-                "/api/v1/test-templates/TT-INRUSH-EXEC/transitions/approve",
+                "/api/v1/test-templates/TT-INRUSH-EXEC/revisions/TT-INRUSH-EXEC-rev-0001/transitions/approve",
                 r#"{
                     "actor": "technical.reviewer",
                     "reason": "approved for simulated execution",
@@ -2654,6 +2750,184 @@ mod tests {
         remove_temporary_storage_root(&storage_root);
     }
 
+    #[test]
+    fn real_http_server_persists_test_template_revision_workflow_across_restart() {
+        let storage_root = temporary_storage_root("agent-api-real-test-template-revisions");
+        let migrations_root = repo_root().join("storage/sqlite");
+        let first_port = free_loopback_port();
+        let first_address = format!("127.0.0.1:{first_port}");
+        let first_server = spawn_server(ApiServerConfig {
+            bind: first_address.clone(),
+            storage_root: storage_root.clone(),
+            migrations_root: migrations_root.clone(),
+            max_requests: Some(10),
+        });
+
+        assert_eq!(wait_for_http(&first_address, "/api/v1/health").0, 200);
+        assert_eq!(
+            http_request("POST", &first_address, "/api/v1/storage/initialize", "").0,
+            200
+        );
+
+        let create_body = create_template_body(
+            "TT-HTTP-REV",
+            "op-http-template-create",
+            &template_definition(100_000, None),
+        );
+        let created = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/test-templates",
+            &create_body,
+        );
+        assert_eq!(created.0, 200);
+        let created_json: Value = serde_json::from_str(&created.1).unwrap();
+        let checksum = created_json["revision"]["definition_checksum"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            created_json["revision"]["revision_id"].as_str().unwrap(),
+            "TT-HTTP-REV-rev-0001"
+        );
+
+        let edited = http_request(
+            "PUT",
+            &first_address,
+            "/api/v1/test-templates/TT-HTTP-REV/revisions/TT-HTTP-REV-rev-0001/definition",
+            &format!(
+                r#"{{
+                    "expected_definition_checksum": "{checksum}",
+                    "definition": {},
+                    "actor": "method.author",
+                    "reason": "HTTP E2E draft replacement",
+                    "operation_id": "op-http-template-edit"
+                }}"#,
+                template_definition(200_000, None)
+            ),
+        );
+        assert_eq!(edited.0, 200);
+        assert!(edited
+            .1
+            .contains("\"operation\":\"test_template_definition_replaced\""));
+
+        assert_eq!(
+            http_request(
+                "POST",
+                &first_address,
+                "/api/v1/test-templates/TT-HTTP-REV/revisions/TT-HTTP-REV-rev-0001/transitions/submit-for-review",
+                r#"{
+                    "actor": "method.author",
+                    "reason": "HTTP E2E submit",
+                    "operation_id": "op-http-template-submit"
+                }"#,
+            )
+            .0,
+            200
+        );
+        assert_eq!(
+            http_request(
+                "POST",
+                &first_address,
+                "/api/v1/test-templates/TT-HTTP-REV/revisions/TT-HTTP-REV-rev-0001/transitions/approve",
+                r#"{
+                    "actor": "quality.reviewer",
+                    "reason": "HTTP E2E approve",
+                    "operation_id": "op-http-template-approve"
+                }"#,
+            )
+            .0,
+            200
+        );
+        let second_revision = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/test-templates/TT-HTTP-REV/revisions",
+            r#"{
+                "source_revision_id": "TT-HTTP-REV-rev-0001",
+                "actor": "method.author",
+                "reason": "HTTP E2E next draft",
+                "operation_id": "op-http-template-rev2"
+            }"#,
+        );
+        assert_eq!(second_revision.0, 200);
+        assert!(second_revision
+            .1
+            .contains("\"revision_id\":\"TT-HTTP-REV-rev-0002\""));
+
+        let revisions = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/test-templates/TT-HTTP-REV/revisions",
+            "",
+        );
+        let audit = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/test-templates/TT-HTTP-REV/audit-events",
+            "",
+        );
+        let outbox = http_request("GET", &first_address, "/api/v1/sync/outbox", "");
+        assert_eq!(revisions.0, 200);
+        assert_eq!(audit.0, 200);
+        assert_eq!(outbox.0, 200);
+        assert!(revisions
+            .1
+            .contains("\"revision_id\":\"TT-HTTP-REV-rev-0001\""));
+        assert!(revisions
+            .1
+            .contains("\"revision_id\":\"TT-HTTP-REV-rev-0002\""));
+        assert!(audit.1.contains("\"action\":\"test_template_approved\""));
+        assert!(outbox
+            .1
+            .contains("\"operation_kind\":\"test_template_revision_created\""));
+        first_server
+            .join()
+            .expect("server thread panicked")
+            .unwrap();
+
+        let second_port = free_loopback_port();
+        let second_address = format!("127.0.0.1:{second_port}");
+        let second_server = spawn_server(ApiServerConfig {
+            bind: second_address.clone(),
+            storage_root: storage_root.clone(),
+            migrations_root,
+            max_requests: Some(4),
+        });
+        assert_eq!(wait_for_http(&second_address, "/api/v1/health").0, 200);
+        let reloaded_template = http_request(
+            "GET",
+            &second_address,
+            "/api/v1/test-templates/TT-HTTP-REV",
+            "",
+        );
+        let reloaded_revisions = http_request(
+            "GET",
+            &second_address,
+            "/api/v1/test-templates/TT-HTTP-REV/revisions",
+            "",
+        );
+        let reloaded_outbox = http_request("GET", &second_address, "/api/v1/sync/outbox", "");
+        assert_eq!(reloaded_template.0, 200);
+        assert_eq!(reloaded_revisions.0, 200);
+        assert_eq!(reloaded_outbox.0, 200);
+        assert!(reloaded_template
+            .1
+            .contains("\"current_approved_revision_id\":\"TT-HTTP-REV-rev-0001\""));
+        assert!(reloaded_revisions
+            .1
+            .contains("\"revision_id\":\"TT-HTTP-REV-rev-0002\""));
+        assert!(reloaded_outbox
+            .1
+            .contains("\"entity_type\":\"test_template_revision\""));
+        second_server
+            .join()
+            .expect("server thread panicked")
+            .unwrap();
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
     fn repo_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -2729,6 +3003,141 @@ mod tests {
             .split_once("\r\n\r\n")
             .map_or_else(String::new, |(_, body)| body.to_owned());
         Ok((status, body))
+    }
+
+    fn create_template_body(
+        template_id: &str,
+        operation_id: &str,
+        definition_json: &str,
+    ) -> String {
+        format!(
+            r#"{{
+                "template_id": "{template_id}",
+                "title": "Inrush current capture",
+                "category_code": "emission_transient_time_domain",
+                "definition": {definition_json},
+                "actor": "method.author",
+                "reason": "controlled template operation",
+                "operation_id": "{operation_id}"
+            }}"#
+        )
+    }
+
+    fn template_definition(sample_rate_hz: u32, method: Option<(&str, &str)>) -> String {
+        let method_fields = method.map_or_else(String::new, |(code, revision)| {
+            format!(
+                r#""method_code": "{code}",
+                "method_revision": "{revision}","#
+            )
+        });
+        format!(
+            r#"{{
+                "definition_schema_version": "emc-locus.test-template-definition.v1",
+                "title": "Inrush current capture",
+                "description": "Time-domain inrush capture for EMC investigations.",
+                "measurement_axis": "time_series",
+                {method_fields}
+                "standard_references": ["IEC-61000-4-30"],
+                "variables": [
+                    {{
+                        "variable_id": "sample_rate_hz",
+                        "label": "Sample rate",
+                        "value_type": "number",
+                        "default_value": {sample_rate_hz}.0,
+                        "constraints": {{
+                            "required": true,
+                            "unit": "Hz",
+                            "minimum": 1000.0,
+                            "maximum": 1000000.0
+                        }},
+                        "description": "DAQ sample rate"
+                    }}
+                ],
+                "lock_policy": [
+                    {{
+                        "variable_id": "sample_rate_hz",
+                        "policy": "editable_until_campaign_freeze"
+                    }}
+                ],
+                "instrumentation_chain": [
+                    {{
+                        "slot_id": "current_probe",
+                        "label": "Current probe",
+                        "required_category": "current_probe",
+                        "required": true,
+                        "calibration_requirement": "required",
+                        "substitution_policy": "approved_equivalent"
+                    }},
+                    {{
+                        "slot_id": "daq",
+                        "label": "DAQ",
+                        "required_category": "daq_chassis",
+                        "required_capability": "time_series_capture",
+                        "required": true,
+                        "calibration_requirement": "if_used",
+                        "substitution_policy": "same_capability",
+                        "depends_on_slots": ["current_probe"]
+                    }}
+                ],
+                "entry_step_id": "arm",
+                "sequence": [
+                    {{
+                        "step_id": "arm",
+                        "order": 10,
+                        "kind": "configure_instrument",
+                        "label": "Arm acquisition",
+                        "instruction": "Arm acquisition and wait for trigger.",
+                        "required_slots": ["daq"],
+                        "branches": [
+                            {{
+                                "rule_id": "manual_abort",
+                                "condition": "operator_abort",
+                                "destination_step_id": "finish",
+                                "allow_cycle": false
+                            }}
+                        ]
+                    }},
+                    {{
+                        "step_id": "capture",
+                        "order": 20,
+                        "kind": "acquire",
+                        "label": "Capture transient",
+                        "instruction": "Capture the inrush event.",
+                        "required_slots": ["current_probe", "daq"]
+                    }},
+                    {{
+                        "step_id": "finish",
+                        "order": 30,
+                        "kind": "finish",
+                        "label": "Finish"
+                    }}
+                ],
+                "limits": [
+                    {{
+                        "limit_id": "peak_current",
+                        "kind": "scalar_threshold",
+                        "axis": "time_series",
+                        "unit": "A",
+                        "application_domain": "inrush",
+                        "source_reference": "method:TD-INRUSH:A",
+                        "threshold": 30.0,
+                        "attention_rule": "warn_above_80_percent",
+                        "variable_refs": ["sample_rate_hz"]
+                    }}
+                ],
+                "post_processing": [
+                    {{
+                        "operation_id": "peak",
+                        "order": 10,
+                        "operation_type": "peak",
+                        "inputs": ["raw.current"],
+                        "outputs": ["calculated.peak_current"],
+                        "parameters": {{"absolute": true}}
+                    }}
+                ],
+                "method_parameters": {{"alpha": {{"b": 2, "a": [3, 1]}}}}
+            }}"#
+        )
     }
 
     fn free_loopback_port() -> u16 {

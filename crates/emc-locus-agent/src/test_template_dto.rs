@@ -2,35 +2,58 @@ use serde::Serialize;
 use serde_json::Value;
 
 #[derive(Serialize)]
-pub(crate) struct TestTemplateDto {
+pub(crate) struct TestTemplateIdentityDto {
     pub(crate) template_id: String,
-    pub(crate) template_revision: String,
     pub(crate) title: String,
-    pub(crate) description: String,
     pub(crate) category_code: String,
-    pub(crate) measurement_axis: String,
-    pub(crate) method_code: Option<String>,
-    pub(crate) method_revision: Option<String>,
-    pub(crate) status: String,
-    pub(crate) variables: Value,
-    pub(crate) lock_policy: Value,
-    pub(crate) instrumentation_chain: Value,
-    pub(crate) sequence: Value,
-    pub(crate) limits: Value,
-    pub(crate) post_processing: Value,
+    pub(crate) current_approved_revision_id: Option<String>,
     pub(crate) created_by: String,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
 }
 
 #[derive(Serialize)]
+pub(crate) struct TestTemplateRevisionDto {
+    pub(crate) revision_id: String,
+    pub(crate) template_id: String,
+    pub(crate) revision_number: u32,
+    pub(crate) parent_revision_id: Option<String>,
+    pub(crate) status: String,
+    pub(crate) definition_schema_version: String,
+    pub(crate) definition: Value,
+    pub(crate) definition_checksum: String,
+    pub(crate) created_by: String,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+    pub(crate) submitted_at: Option<String>,
+    pub(crate) approved_at: Option<String>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct TestTemplateAggregateDto {
+    pub(crate) identity: TestTemplateIdentityDto,
+    pub(crate) current_revision: Option<TestTemplateRevisionDto>,
+}
+
+#[derive(Serialize)]
 pub(crate) struct TestTemplateEnvelopeDto {
-    pub(crate) test_template: TestTemplateDto,
+    pub(crate) test_template: TestTemplateAggregateDto,
 }
 
 #[derive(Serialize)]
 pub(crate) struct TestTemplateListDto {
-    pub(crate) test_templates: Vec<TestTemplateDto>,
+    pub(crate) test_templates: Vec<TestTemplateAggregateDto>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct TestTemplateRevisionEnvelopeDto {
+    pub(crate) revision: TestTemplateRevisionDto,
+}
+
+#[derive(Serialize)]
+pub(crate) struct TestTemplateRevisionListDto {
+    pub(crate) template_id: String,
+    pub(crate) revisions: Vec<TestTemplateRevisionDto>,
 }
 
 #[derive(Serialize)]
@@ -38,7 +61,8 @@ pub(crate) struct TestTemplateOperationResultDto {
     pub(crate) operation: String,
     pub(crate) operation_id: String,
     pub(crate) replayed: bool,
-    pub(crate) test_template: TestTemplateDto,
+    pub(crate) test_template: TestTemplateAggregateDto,
+    pub(crate) revision: TestTemplateRevisionDto,
 }
 
 #[derive(Serialize)]
@@ -49,15 +73,19 @@ pub(crate) struct TestTemplateAuditEventsDto {
 
 #[derive(Serialize)]
 pub(crate) struct TestTemplateAuditEventDto {
-    pub(crate) sequence: u64,
-    pub(crate) actor: String,
+    pub(crate) audit_id: u64,
+    pub(crate) template_id: String,
+    pub(crate) revision_id: Option<String>,
     pub(crate) action: String,
+    pub(crate) actor: String,
     pub(crate) reason: String,
+    pub(crate) old_revision_id: Option<String>,
+    pub(crate) new_revision_id: Option<String>,
+    pub(crate) old_definition_checksum: Option<String>,
+    pub(crate) new_definition_checksum: Option<String>,
     pub(crate) operation_id: String,
     pub(crate) correlation_id: String,
     pub(crate) device_id: String,
-    pub(crate) base_revision: String,
-    pub(crate) resulting_revision: String,
     pub(crate) payload_json: String,
     pub(crate) occurred_at: String,
 }

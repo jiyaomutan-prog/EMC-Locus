@@ -1738,6 +1738,66 @@ class TestDefinitionRepositoryTests(unittest.TestCase):
                 "Champ magnetique",
             )
 
+    def test_template_revision_migration_resets_0_8_4_template_rows(self) -> None:
+        migrations = Path("storage/sqlite/test_definitions")
+        connection = sqlite3.connect(":memory:")
+        try:
+            for name in [
+                "0001_test_definitions.sql",
+                "0002_test_categories.sql",
+                "0003_test_templates.sql",
+            ]:
+                connection.executescript((migrations / name).read_text(encoding="utf-8"))
+            connection.execute(
+                """
+                INSERT INTO test_templates (
+                    template_id, template_revision, title, description,
+                    category_code, measurement_axis, status, variables_json,
+                    lock_policy_json, instrumentation_chain_json, sequence_json,
+                    limits_json, post_processing_json, created_by, created_at,
+                    updated_at
+                )
+                VALUES (
+                    'TT-OLD', 'A', 'Old template', 'Old JSON shape',
+                    'emission_transient_time_domain', 'time_series', 'draft',
+                    '{}', '{}', '[]', '[]', '[]', '[]',
+                    'method.author', '2026-06-30T00:00:00Z',
+                    '2026-06-30T00:00:00Z'
+                )
+                """
+            )
+
+            connection.executescript(
+                (migrations / "0004_template_revision_aggregate.sql").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+            self.assertNotIn("test_templates", tables)
+            self.assertIn("test_template_identities", tables)
+            self.assertIn("test_template_revisions", tables)
+            self.assertIn("test_template_audit_events", tables)
+            self.assertEqual(
+                connection.execute(
+                    "SELECT MAX(version) FROM schema_migrations"
+                ).fetchone()[0],
+                4,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT value FROM repository_metadata WHERE key = 'test_template_0_9_migration_policy'"
+                ).fetchone()[0],
+                "reset_0_8_template_rows_no_dual_runtime",
+            )
+        finally:
+            connection.close()
+
     def test_records_method_revision_steps_and_approval(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = TestDefinitionRepository(
