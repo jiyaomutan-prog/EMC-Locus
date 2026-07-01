@@ -2,6 +2,7 @@ use crate::{
     render_json,
     test_template_dto::{
         TestTemplateAggregateDto, TestTemplateAuditEventDto, TestTemplateAuditEventsDto,
+        TestTemplateDefinitionValidationDto, TestTemplateDefinitionValidationIssueDto,
         TestTemplateEnvelopeDto, TestTemplateIdentityDto, TestTemplateListDto,
         TestTemplateOperationResultDto, TestTemplateRevisionDto, TestTemplateRevisionEnvelopeDto,
         TestTemplateRevisionListDto,
@@ -81,6 +82,20 @@ pub struct CreateTestTemplateRevisionInput {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CloneTestTemplateInput {
+    pub source_template_id: String,
+    pub source_revision_id: Option<String>,
+    pub new_template_id: String,
+    pub title: String,
+    pub category_code: Option<String>,
+    pub actor: String,
+    pub reason: String,
+    pub operation_id: String,
+    pub correlation_id: String,
+    pub device_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransitionTestTemplateRevisionInput {
     pub template_id: String,
     pub revision_id: String,
@@ -90,6 +105,22 @@ pub struct TransitionTestTemplateRevisionInput {
     pub operation_id: String,
     pub correlation_id: String,
     pub device_id: String,
+}
+
+pub fn validate_test_template_definition_json(definition_json: &str) -> Result<String, AgentError> {
+    match TestTemplateDefinition::from_json_str(definition_json) {
+        Ok(definition) => match definition.canonicalize() {
+            Ok(canonical) => Ok(render_json(&TestTemplateDefinitionValidationDto {
+                valid: true,
+                issues: Vec::new(),
+                definition_schema_version: Some(canonical.definition_schema_version),
+                definition_checksum: Some(canonical.definition_checksum),
+                canonical_json: Some(canonical.canonical_json),
+            })),
+            Err(error) => Ok(render_validation_error(error)),
+        },
+        Err(error) => Ok(render_validation_error(error)),
+    }
 }
 
 pub fn create_test_template(
@@ -549,6 +580,163 @@ pub fn create_test_template_revision(
     )
 }
 
+pub fn clone_test_template(
+    storage_root: &Path,
+    input: CloneTestTemplateInput,
+) -> Result<String, AgentError> {
+    validate_clone_input(&input)?;
+    let mut connection = open_test_template_connection_with_sync(storage_root)?;
+    let source_identity = load_test_template_identity(&connection, &input.source_template_id)?
+        .ok_or_else(|| {
+            AgentError::new(
+                "test_template_not_found",
+                "source test template does not exist",
+            )
+        })?;
+    let source_revision = match input.source_revision_id.as_deref() {
+        Some(source_revision_id) => {
+            load_required_revision(&connection, &input.source_template_id, source_revision_id)?
+        }
+        None => source_identity
+            .current_approved_revision_id
+            .as_deref()
+            .ok_or_else(|| {
+                AgentError::with_details(
+                    "test_template_revision_source_not_approved",
+                    "source template has no approved revision to clone",
+                    json!({ "template_id": input.source_template_id }),
+                )
+            })
+            .and_then(|revision_id| {
+                load_required_revision(&connection, &input.source_template_id, revision_id)
+            })?,
+    };
+    if source_revision.status != revision_status_text(&TemplateRevisionStatus::Approved) {
+        return Err(AgentError::with_details(
+            "test_template_revision_source_not_approved",
+            "template clone source must be an approved revision",
+            json!({
+                "template_id": input.source_template_id,
+                "source_revision_id": source_revision.revision_id,
+                "status": source_revision.status,
+            }),
+        ));
+    }
+    let category_code = input
+        .category_code
+        .as_deref()
+        .unwrap_or(&source_identity.category_code);
+    let definition = canonical_definition(&source_revision.definition_json)?;
+    let payload_json = clone_payload_json(&input, category_code, &source_revision, &definition);
+    let revision_id = revision_id_for(&input.new_template_id, 1);
+
+    if let Some(operation) = existing_test_template_operation(&connection, &input.operation_id)? {
+        ensure_test_template_operation_replay(
+            &operation,
+            &input.operation_id,
+            TestTemplateOperationFingerprintInput {
+                entity_type: "test_template_revision",
+                template_id: &input.new_template_id,
+                revision_id: Some(&revision_id),
+                action: "test_template_cloned",
+                actor: &input.actor,
+                device_id: &input.device_id,
+                correlation_id: &input.correlation_id,
+                old_revision_id: Some(&source_revision.revision_id),
+                new_revision_id: Some(&revision_id),
+                old_definition_checksum: Some(&source_revision.definition_checksum),
+                new_definition_checksum: Some(&definition.definition_checksum),
+                payload_json: &payload_json,
+            },
+        )?;
+        return operation_replay_result(&connection, &operation);
+    }
+    if load_test_template_identity(&connection, &input.new_template_id)?.is_some() {
+        return Err(AgentError::new(
+            "test_template_already_exists",
+            format!("test template already exists: {}", input.new_template_id),
+        ));
+    }
+    ensure_category_and_method(&connection, category_code, &definition)?;
+
+    let now = utc_timestamp()?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    insert_test_template_identity(
+        &transaction,
+        NewTestTemplateIdentityRecord {
+            template_id: &input.new_template_id,
+            title: input.title.trim(),
+            category_code,
+            created_by: &input.actor,
+            timestamp: &now,
+        },
+    )?;
+    insert_test_template_revision(
+        &transaction,
+        NewTestTemplateRevisionRecord {
+            revision_id: &revision_id,
+            template_id: &input.new_template_id,
+            revision_number: 1,
+            parent_revision_id: None,
+            status: revision_status_text(&TemplateRevisionStatus::Draft),
+            definition_schema_version: &definition.definition_schema_version,
+            definition_json: &definition.canonical_json,
+            definition_checksum: &definition.definition_checksum,
+            created_by: &input.actor,
+            timestamp: &now,
+        },
+    )?;
+    insert_test_template_audit_event(
+        &transaction,
+        TestTemplateAuditEventInput {
+            template_id: &input.new_template_id,
+            revision_id: Some(&revision_id),
+            action: "test_template_cloned",
+            actor: &input.actor,
+            reason: &input.reason,
+            operation_id: &input.operation_id,
+            correlation_id: &input.correlation_id,
+            device_id: &input.device_id,
+            old_revision_id: Some(&source_revision.revision_id),
+            new_revision_id: Some(&revision_id),
+            old_definition_checksum: Some(&source_revision.definition_checksum),
+            new_definition_checksum: Some(&definition.definition_checksum),
+            payload_json: &payload_json,
+            timestamp: &now,
+        },
+    )?;
+    insert_test_template_sync_operation(
+        &transaction,
+        TestTemplateSyncOperationInput {
+            operation_id: &input.operation_id,
+            entity_type: "test_template_revision",
+            entity_id: &revision_id,
+            operation_kind: "test_template_cloned",
+            base_revision: &source_revision.revision_id,
+            resulting_revision: &revision_id,
+            actor_id: &input.actor,
+            device_id: &input.device_id,
+            correlation_id: &input.correlation_id,
+            payload_json: &payload_json,
+            timestamp: &now,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+
+    operation_result_for_revision(
+        &connection,
+        "test_template_cloned",
+        &input.operation_id,
+        false,
+        &input.new_template_id,
+        &revision_id,
+    )
+}
+
 pub fn transition_test_template_revision(
     storage_root: &Path,
     input: TransitionTestTemplateRevisionInput,
@@ -812,6 +1000,21 @@ fn validate_create_revision_input(
     )
 }
 
+fn validate_clone_input(input: &CloneTestTemplateInput) -> Result<(), AgentError> {
+    validate_stable_id(&input.source_template_id, "source_template_id")?;
+    validate_optional_id(input.source_revision_id.as_deref(), "source_revision_id")?;
+    validate_stable_id(&input.new_template_id, "new_template_id")?;
+    validate_non_empty(&input.title, "title")?;
+    validate_optional_id(input.category_code.as_deref(), "category_code")?;
+    validate_operation_context(
+        &input.actor,
+        &input.reason,
+        &input.operation_id,
+        &input.correlation_id,
+        &input.device_id,
+    )
+}
+
 fn validate_transition_input(
     input: &TransitionTestTemplateRevisionInput,
 ) -> Result<(), AgentError> {
@@ -929,6 +1132,58 @@ fn validation_error(error: TestTemplateValidationError) -> AgentError {
         error.message,
         json!({ "validation_code": error.code }),
     )
+}
+
+fn render_validation_error(error: TestTemplateValidationError) -> String {
+    render_json(&TestTemplateDefinitionValidationDto {
+        valid: false,
+        issues: vec![TestTemplateDefinitionValidationIssueDto {
+            severity: "error".to_owned(),
+            code: error.code.to_owned(),
+            path: validation_path_for_code(error.code).to_owned(),
+            message: error.message,
+        }],
+        definition_schema_version: None,
+        definition_checksum: None,
+        canonical_json: None,
+    })
+}
+
+fn validation_path_for_code(code: &str) -> &'static str {
+    match code {
+        "default_value_type_mismatch"
+        | "default_below_minimum"
+        | "default_above_maximum"
+        | "enum_default_not_allowed" => "variables[].default_value",
+        "duplicate_variable_id"
+        | "empty_enum_values"
+        | "duplicate_enum_value"
+        | "invalid_numeric_bounds"
+        | "missing_variable_unit"
+        | "missing_variables" => "variables",
+        "unknown_lock_variable" | "duplicate_lock_policy" => "lock_policy",
+        "duplicate_slot_id"
+        | "missing_slot_requirement"
+        | "unknown_slot_reference"
+        | "self_slot_reference" => "instrumentation_chain",
+        "missing_sequence_steps"
+        | "unknown_entry_step"
+        | "duplicate_step_id"
+        | "duplicate_step_order"
+        | "unknown_step_slot_reference"
+        | "duplicate_branch_rule_id"
+        | "unknown_branch_destination"
+        | "undeclared_sequence_cycle"
+        | "unreachable_sequence_step" => "sequence",
+        "duplicate_limit_id" | "missing_scalar_threshold" | "unknown_limit_variable" => "limits",
+        "duplicate_post_processing_operation"
+        | "duplicate_post_processing_order"
+        | "missing_post_processing_inputs"
+        | "missing_post_processing_outputs"
+        | "duplicate_post_processing_output"
+        | "invalid_post_processing_dependency" => "post_processing",
+        _ => "$",
+    }
 }
 
 fn domain_error(error: DomainError) -> AgentError {
@@ -1172,6 +1427,25 @@ fn create_revision_payload_json(input: &CreateTestTemplateRevisionInput) -> Stri
     render_json(&json!({
         "template_id": input.template_id,
         "source_revision_id": input.source_revision_id,
+        "reason": input.reason.trim(),
+    }))
+}
+
+fn clone_payload_json(
+    input: &CloneTestTemplateInput,
+    category_code: &str,
+    source_revision: &StoredTestTemplateRevision,
+    definition: &CanonicalTestTemplateDefinition,
+) -> String {
+    render_json(&json!({
+        "source_template_id": input.source_template_id,
+        "source_revision_id": source_revision.revision_id,
+        "new_template_id": input.new_template_id,
+        "title": input.title.trim(),
+        "category_code": category_code,
+        "definition_schema_version": definition.definition_schema_version,
+        "definition_checksum": definition.definition_checksum,
+        "source_definition_checksum": source_revision.definition_checksum,
         "reason": input.reason.trim(),
     }))
 }

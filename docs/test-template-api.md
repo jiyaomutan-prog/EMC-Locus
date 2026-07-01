@@ -1,7 +1,8 @@
 # Test Template API
 
-The 0.9.1 test-template API keeps the 0.9.0 revisioned business aggregate and
-hardens its launchability and concurrency behavior in the Rust local agent.
+The 0.9.x test-template API keeps the 0.9.0 revisioned business aggregate and
+hardens its launchability, validation, cloning, and concurrency behavior in the
+Rust local agent.
 
 The API manages reusable test definitions only. It does not instantiate a
 campaign test, run instruments, acquire data, execute post-processing, or build
@@ -28,10 +29,13 @@ GET  /api/v1/test-templates
 GET  /api/v1/test-templates?category_code=emission_transient_time_domain
 GET  /api/v1/test-templates/{template_id}
 
+POST /api/v1/test-template-definitions/validate
+
 GET  /api/v1/test-templates/{template_id}/revisions
 GET  /api/v1/test-templates/{template_id}/revisions/{revision_id}
 PUT  /api/v1/test-templates/{template_id}/revisions/{revision_id}/definition
 
+POST /api/v1/test-templates/{template_id}/clone
 POST /api/v1/test-templates/{template_id}/revisions
 POST /api/v1/test-templates/{template_id}/revisions/{revision_id}/transitions/submit-for-review
 POST /api/v1/test-templates/{template_id}/revisions/{revision_id}/transitions/approve
@@ -131,6 +135,31 @@ stores the canonical JSON plus `definition_checksum`.
 When `definition.method_code` and `definition.method_revision` are present, the
 referenced method revision must already be approved.
 
+Numeric and integer variables normally require an engineering `unit`. When a
+variable is intentionally unitless, set `dimensionless=true` in its
+`constraints`; otherwise validation returns `missing_variable_unit`.
+
+## Validate A Definition
+
+Clients can validate a draft definition before creating or replacing a
+template:
+
+```text
+POST /api/v1/test-template-definitions/validate
+```
+
+```json
+{
+  "definition": {}
+}
+```
+
+A valid response returns `valid=true`, `definition_schema_version`,
+`definition_checksum`, and the canonical JSON that the agent would store. An
+invalid response returns `valid=false` with structured issues containing
+`severity`, `code`, `path`, and `message`. This route does not write storage and
+does not check category or approved-method existence.
+
 ## Replace A Draft Definition
 
 Only draft revisions are editable. Replacement requires optimistic concurrency:
@@ -226,6 +255,33 @@ second draft while another one exists returns HTTP `409` with
 Approving a newer revision updates `current_approved_revision_id` and moves any
 older approved revision for the same template to `superseded` in the same
 transaction, with separate audit and outbox evidence.
+
+## Clone An Approved Template
+
+To create a new template identity from an approved source revision:
+
+```text
+POST /api/v1/test-templates/TT-INRUSH-001/clone
+```
+
+```json
+{
+  "source_revision_id": "TT-INRUSH-001-rev-0001",
+  "new_template_id": "TT-INRUSH-VARIANT",
+  "title": "Inrush current capture variant",
+  "category_code": "emission_transient_time_domain",
+  "actor": "method.author",
+  "reason": "create controlled variant",
+  "operation_id": "op-clone-template"
+}
+```
+
+`source_revision_id` is optional; when omitted, the current approved revision is
+used. The source revision must be `approved`. The clone starts as revision
+`0001` in `draft` status, copies the approved canonical definition, records the
+source revision/checksum in audit evidence, and emits a `test_template_cloned`
+outbox operation. Replaying the same canonical clone operation returns
+`replayed=true`.
 
 ## Response Shape
 

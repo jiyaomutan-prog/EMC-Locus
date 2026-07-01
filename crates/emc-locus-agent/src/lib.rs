@@ -43,11 +43,12 @@ use std::{
     path::{Path, PathBuf},
 };
 pub use test_template_service::{
-    create_test_template, create_test_template_revision, get_test_template_definition,
-    get_test_template_revision, list_test_template_audit_events, list_test_template_definitions,
-    list_test_template_revisions, replace_test_template_revision_definition,
-    transition_test_template_revision, CreateTestTemplateInput, CreateTestTemplateRevisionInput,
-    ListTestTemplatesInput, ReplaceTestTemplateDefinitionInput,
+    clone_test_template, create_test_template, create_test_template_revision,
+    get_test_template_definition, get_test_template_revision, list_test_template_audit_events,
+    list_test_template_definitions, list_test_template_revisions,
+    replace_test_template_revision_definition, transition_test_template_revision,
+    validate_test_template_definition_json, CloneTestTemplateInput, CreateTestTemplateInput,
+    CreateTestTemplateRevisionInput, ListTestTemplatesInput, ReplaceTestTemplateDefinitionInput,
     TransitionTestTemplateRevisionInput,
 };
 

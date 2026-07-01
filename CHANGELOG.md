@@ -8,6 +8,23 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added optional local-agent serving for a built LAB CONSOLE under `/lab/`,
+  with root redirect, asset serving, SPA fallback, explicit missing-build
+  errors, and traversal-safe asset paths.
+- Added `POST /api/v1/test-template-definitions/validate` so clients can
+  validate and canonicalize typed template definitions before a draft write.
+- Added controlled cloning of an approved test-template revision into a new
+  draft template identity with audit/outbox evidence and idempotent replay.
+- Added `dimensionless=true` for numeric template variables that intentionally
+  have no engineering unit.
+
+### Fixed
+
+- Fixed test-template clone idempotent replay so the agent checks the existing
+  operation fingerprint before rejecting the already-created clone identity.
+
 ## [0.9.2] - 2026-07-01
 
 ### Added

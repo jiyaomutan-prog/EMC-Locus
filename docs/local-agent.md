@@ -123,9 +123,23 @@ path. The server binds to loopback by default:
 cargo run -q -p emc-locus-agent -- serve --storage-root data\agent --migrations-root storage\sqlite --bind 127.0.0.1:8765
 ```
 
+The server can also serve a prebuilt LAB CONSOLE bundle under `/lab/`:
+
+```text
+cargo run -q -p emc-locus-agent -- serve --storage-root data\agent --migrations-root storage\sqlite --bind 127.0.0.1:8765 --lab-console-dist apps\lab-console\dist
+```
+
+`GET /` redirects to `/lab/`. If `index.html` is missing, LAB CONSOLE requests
+return a structured `lab_console_build_missing` error while `/api/v1/...`
+routes remain available. This only serves static build output; it is not a
+backend for a complete LAB CONSOLE editor.
+
 The implemented routes are:
 
 ```text
+GET  /
+GET  /lab/
+GET  /lab/assets/{asset}
 GET  /api/v1/health
 GET  /api/v1/storage/status
 POST /api/v1/storage/initialize
@@ -144,7 +158,9 @@ GET  /api/v1/documents/{document_id}
 GET  /api/v1/documents/{document_id}/audit-events
 GET  /api/v1/test-templates
 POST /api/v1/test-templates
+POST /api/v1/test-template-definitions/validate
 GET  /api/v1/test-templates/{template_id}
+POST /api/v1/test-templates/{template_id}/clone
 GET  /api/v1/test-templates/{template_id}/revisions
 GET  /api/v1/test-templates/{template_id}/revisions/{revision_id}
 PUT  /api/v1/test-templates/{template_id}/revisions/{revision_id}/definition

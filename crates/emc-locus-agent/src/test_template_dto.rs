@@ -91,3 +91,23 @@ pub(crate) struct TestTemplateAuditEventDto {
     pub(crate) payload_json: String,
     pub(crate) occurred_at: String,
 }
+
+#[derive(Serialize)]
+pub(crate) struct TestTemplateDefinitionValidationDto {
+    pub(crate) valid: bool,
+    pub(crate) issues: Vec<TestTemplateDefinitionValidationIssueDto>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) definition_schema_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) definition_checksum: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) canonical_json: Option<String>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct TestTemplateDefinitionValidationIssueDto {
+    pub(crate) severity: String,
+    pub(crate) code: String,
+    pub(crate) path: String,
+    pub(crate) message: String,
+}

@@ -37,6 +37,8 @@ pub enum VariableDefaultValue {
 pub struct VariableConstraints {
     #[serde(default)]
     pub required: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub dimensionless: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unit: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -357,17 +359,21 @@ fn validate_variables(
         if matches!(
             variable.value_type,
             VariableValueType::Number | VariableValueType::Integer
-        ) && variable
-            .constraints
-            .unit
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .is_none()
+        ) && !variable.constraints.dimensionless
+            && variable
+                .constraints
+                .unit
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_none()
         {
             return Err(TestTemplateValidationError::new(
                 "missing_variable_unit",
-                format!("numeric variable requires a unit: {}", variable.variable_id),
+                format!(
+                    "numeric variable requires a unit or dimensionless=true: {}",
+                    variable.variable_id
+                ),
             ));
         }
         if let (Some(minimum), Some(maximum)) =
@@ -907,6 +913,10 @@ fn require_signal_reference(
     Ok(())
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -996,6 +1006,28 @@ mod tests {
         assert_eq!(error.code, "undeclared_sequence_cycle");
     }
 
+    #[test]
+    fn accepts_dimensionless_numeric_variable() {
+        let mut definition = fixture_definition();
+        definition.variables.push(VariableDefinition {
+            variable_id: "repeat_count".to_owned(),
+            label: "Repeat count".to_owned(),
+            value_type: VariableValueType::Integer,
+            default_value: Some(VariableDefaultValue::Integer(3)),
+            constraints: VariableConstraints {
+                required: true,
+                dimensionless: true,
+                unit: None,
+                minimum: Some(1.0),
+                maximum: Some(10.0),
+                enum_values: Vec::new(),
+            },
+            description: Some("Number of repetitions.".to_owned()),
+        });
+
+        definition.validate().unwrap();
+    }
+
     pub(crate) fn fixture_definition() -> TestTemplateDefinition {
         TestTemplateDefinition {
             definition_schema_version: TEST_TEMPLATE_DEFINITION_SCHEMA_VERSION.to_owned(),
@@ -1012,6 +1044,7 @@ mod tests {
                 default_value: Some(VariableDefaultValue::Number(100_000.0)),
                 constraints: VariableConstraints {
                     required: true,
+                    dimensionless: false,
                     unit: Some("Hz".to_owned()),
                     minimum: Some(1_000.0),
                     maximum: Some(1_000_000.0),

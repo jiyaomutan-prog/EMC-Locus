@@ -19,16 +19,21 @@ use crate::test_execution_service::{
     RunSimulatedEmcTestInput,
 };
 use crate::test_template_service::{
-    create_test_template, create_test_template_revision, get_test_template_definition,
-    get_test_template_revision, list_test_template_audit_events, list_test_template_definitions,
-    list_test_template_revisions, replace_test_template_revision_definition,
-    transition_test_template_revision, CreateTestTemplateInput, CreateTestTemplateRevisionInput,
-    ListTestTemplatesInput, ReplaceTestTemplateDefinitionInput,
+    clone_test_template, create_test_template, create_test_template_revision,
+    get_test_template_definition, get_test_template_revision, list_test_template_audit_events,
+    list_test_template_definitions, list_test_template_revisions,
+    replace_test_template_revision_definition, transition_test_template_revision,
+    validate_test_template_definition_json, CloneTestTemplateInput, CreateTestTemplateInput,
+    CreateTestTemplateRevisionInput, ListTestTemplatesInput, ReplaceTestTemplateDefinitionInput,
     TransitionTestTemplateRevisionInput,
 };
 use emc_locus_core::test_definitions::TemplateRevisionStatus;
 use serde_json::{json, Value};
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Component, Path, PathBuf},
+};
 use tiny_http::{Header, Response, Server, StatusCode};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,6 +41,7 @@ pub struct ApiServerConfig {
     pub bind: String,
     pub storage_root: PathBuf,
     pub migrations_root: PathBuf,
+    pub lab_console_dist: PathBuf,
     pub max_requests: Option<usize>,
 }
 
@@ -43,6 +49,8 @@ pub struct ApiServerConfig {
 pub struct ApiResponse {
     pub status: u16,
     pub body: String,
+    pub content_type: String,
+    pub location: Option<String>,
 }
 
 impl ApiServerConfig {
@@ -51,6 +59,7 @@ impl ApiServerConfig {
             bind: "127.0.0.1:8765".to_owned(),
             storage_root,
             migrations_root: PathBuf::from("storage/sqlite"),
+            lab_console_dist: PathBuf::from("apps/lab-console/dist"),
             max_requests: None,
         }
     }
@@ -68,6 +77,9 @@ where
     }
     if let Some(migrations_root) = optional_value(&mut flags, "--migrations-root") {
         config.migrations_root = PathBuf::from(migrations_root);
+    }
+    if let Some(lab_console_dist) = optional_value(&mut flags, "--lab-console-dist") {
+        config.lab_console_dist = PathBuf::from(lab_console_dist);
     }
     if let Some(max_requests) = optional_value(&mut flags, "--max-requests") {
         config.max_requests = Some(max_requests.parse::<usize>().map_err(|_| {
@@ -103,14 +115,18 @@ pub fn run_local_api_server(config: ApiServerConfig) -> Result<(), AgentError> {
             .read_to_string(&mut body)
             .map_err(|error| AgentError::new("api_read_failed", error.to_string()))?;
         let response = handle_api_request(&method, &url, &body, &config);
-        let content_type = Header::from_bytes("Content-Type", "application/json")
+        let content_type = Header::from_bytes("Content-Type", response.content_type.as_str())
             .expect("static content-type header is valid");
+        let mut http_response = Response::from_string(response.body)
+            .with_status_code(StatusCode(response.status))
+            .with_header(content_type);
+        if let Some(location) = response.location.as_deref() {
+            let location =
+                Header::from_bytes("Location", location).expect("static location header is valid");
+            http_response = http_response.with_header(location);
+        }
         request
-            .respond(
-                Response::from_string(response.body)
-                    .with_status_code(StatusCode(response.status))
-                    .with_header(content_type),
-            )
+            .respond(http_response)
             .map_err(|error| AgentError::new("api_response_failed", error.to_string()))?;
 
         if config
@@ -129,12 +145,178 @@ pub fn handle_api_request(
     body: &str,
     config: &ApiServerConfig,
 ) -> ApiResponse {
+    if let Some(response) = route_lab_console_request(method, url, config) {
+        return response;
+    }
     match route_api_request(method, url, body, config) {
-        Ok(body) => ApiResponse { status: 200, body },
-        Err(error) => ApiResponse {
-            status: status_for_error(error.code),
-            body: error.to_json(),
-        },
+        Ok(body) => json_response(200, body),
+        Err(error) => json_response(status_for_error(error.code), error.to_json()),
+    }
+}
+
+fn json_response(status: u16, body: String) -> ApiResponse {
+    ApiResponse {
+        status,
+        body,
+        content_type: "application/json".to_owned(),
+        location: None,
+    }
+}
+
+fn text_response(status: u16, content_type: &str, body: String) -> ApiResponse {
+    ApiResponse {
+        status,
+        body,
+        content_type: content_type.to_owned(),
+        location: None,
+    }
+}
+
+fn redirect_response(location: &str) -> ApiResponse {
+    ApiResponse {
+        status: 302,
+        body: String::new(),
+        content_type: "text/plain; charset=utf-8".to_owned(),
+        location: Some(location.to_owned()),
+    }
+}
+
+fn route_lab_console_request(
+    method: &str,
+    url: &str,
+    config: &ApiServerConfig,
+) -> Option<ApiResponse> {
+    let path = url.split_once('?').map_or(url, |(path, _)| path);
+    if method != "GET" {
+        return None;
+    }
+    if path == "/" {
+        return Some(redirect_response("/lab/"));
+    }
+    if path != "/lab" && !path.starts_with("/lab/") {
+        return None;
+    }
+    Some(match lab_console_response(path, &config.lab_console_dist) {
+        Ok(response) => response,
+        Err(error) => json_response(status_for_error(error.code), error.to_json()),
+    })
+}
+
+fn lab_console_response(path: &str, dist_root: &Path) -> Result<ApiResponse, AgentError> {
+    let index_path = dist_root.join("index.html");
+    if !index_path.is_file() {
+        return Err(AgentError::new(
+            "lab_console_build_missing",
+            "LAB CONSOLE production build is not available",
+        ));
+    }
+    if path == "/lab" {
+        return Ok(redirect_response("/lab/"));
+    }
+    if path == "/lab/" {
+        return serve_lab_file(dist_root, Path::new("index.html"));
+    }
+    if let Some(asset_path) = path.strip_prefix("/lab/assets/") {
+        let relative = decode_url_path(asset_path)?;
+        return serve_lab_file(dist_root, Path::new("assets").join(relative).as_path());
+    }
+    if path.starts_with("/lab/") {
+        return serve_lab_file(dist_root, Path::new("index.html"));
+    }
+    Err(AgentError::new(
+        "api_route_not_found",
+        format!("route not found: GET {path}"),
+    ))
+}
+
+fn serve_lab_file(dist_root: &Path, relative_path: &Path) -> Result<ApiResponse, AgentError> {
+    ensure_safe_relative_path(relative_path)?;
+    let canonical_root = fs::canonicalize(dist_root).map_err(|error| {
+        AgentError::new(
+            "lab_console_build_missing",
+            format!("LAB CONSOLE production build is not available: {error}"),
+        )
+    })?;
+    let candidate = canonical_root.join(relative_path);
+    let canonical_file = fs::canonicalize(&candidate).map_err(|_| {
+        AgentError::new(
+            "api_route_not_found",
+            format!("LAB CONSOLE asset not found: {}", relative_path.display()),
+        )
+    })?;
+    if !canonical_file.starts_with(&canonical_root) || !canonical_file.is_file() {
+        return Err(AgentError::new(
+            "invalid_lab_console_path",
+            "LAB CONSOLE path is outside the production build",
+        ));
+    }
+    let body = fs::read_to_string(&canonical_file).map_err(|error| {
+        AgentError::new(
+            "lab_console_asset_read_failed",
+            format!("cannot read {}: {error}", canonical_file.display()),
+        )
+    })?;
+    Ok(text_response(200, lab_content_type(&canonical_file), body))
+}
+
+fn ensure_safe_relative_path(path: &Path) -> Result<(), AgentError> {
+    if path.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        return Err(AgentError::new(
+            "invalid_lab_console_path",
+            "LAB CONSOLE path traversal is not allowed",
+        ));
+    }
+    Ok(())
+}
+
+fn decode_url_path(path: &str) -> Result<PathBuf, AgentError> {
+    let mut decoded = String::new();
+    let mut chars = path.as_bytes().iter().copied().peekable();
+    while let Some(byte) = chars.next() {
+        if byte == b'%' {
+            let high = chars.next().ok_or_else(invalid_url_escape)?;
+            let low = chars.next().ok_or_else(invalid_url_escape)?;
+            let high = hex_value(high).ok_or_else(invalid_url_escape)?;
+            let low = hex_value(low).ok_or_else(invalid_url_escape)?;
+            decoded.push(char::from((high << 4) | low));
+        } else {
+            decoded.push(char::from(byte));
+        }
+    }
+    let path = PathBuf::from(decoded);
+    ensure_safe_relative_path(&path)?;
+    Ok(path)
+}
+
+fn invalid_url_escape() -> AgentError {
+    AgentError::new(
+        "invalid_lab_console_path",
+        "LAB CONSOLE asset path contains an invalid URL escape",
+    )
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn lab_content_type(path: &Path) -> &'static str {
+    match path.extension().and_then(|value| value.to_str()) {
+        Some("html") => "text/html; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("json") => "application/json",
+        Some("svg") => "image/svg+xml",
+        _ => "text/plain; charset=utf-8",
     }
 }
 
@@ -223,6 +405,16 @@ fn route_api_request(
         let payload = parse_json_body(body)?;
         return create_test_template(&config.storage_root, create_test_template_input(&payload)?);
     }
+    if parts.as_slice() == ["api", "v1", "test-template-definitions", "validate"]
+        && method == "POST"
+    {
+        let payload = parse_json_body(body)?;
+        return validate_test_template_definition_json(&required_json_or_string(
+            &payload,
+            "definition",
+            "definition_json",
+        )?);
+    }
     if parts.as_slice() == ["api", "v1", "test-executions", "simulated-emc"] && method == "POST" {
         let payload = parse_json_body(body)?;
         return run_simulated_emc_test(&config.storage_root, simulated_emc_input(&payload)?);
@@ -285,6 +477,13 @@ fn route_api_request(
         }
         ["api", "v1", "test-templates", template_id] if method == "GET" => {
             get_test_template_definition(&config.storage_root, template_id)
+        }
+        ["api", "v1", "test-templates", template_id, "clone"] if method == "POST" => {
+            let payload = parse_json_body(body)?;
+            clone_test_template(
+                &config.storage_root,
+                clone_test_template_input(template_id, &payload)?,
+            )
         }
         ["api", "v1", "test-templates", template_id, "revisions"] if method == "GET" => {
             list_test_template_revisions(&config.storage_root, template_id)
@@ -711,6 +910,27 @@ fn create_test_template_revision_input(
     })
 }
 
+fn clone_test_template_input(
+    source_template_id: &str,
+    payload: &Value,
+) -> Result<CloneTestTemplateInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(CloneTestTemplateInput {
+        source_template_id: source_template_id.to_owned(),
+        source_revision_id: optional_string(payload, "source_revision_id"),
+        new_template_id: required_string(payload, "new_template_id")?,
+        title: required_string(payload, "title")?,
+        category_code: optional_string(payload, "category_code"),
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
 fn test_template_revision_transition_input(
     template_id: &str,
     revision_id: &str,
@@ -879,11 +1099,12 @@ fn status_for_error(code: &str) -> u16 {
         | "operation_replay_mismatch"
         | "metrology_instrument_already_exists"
         | "metrology_calibration_already_exists" => 409,
-        "storage_not_initialized" => 503,
+        "storage_not_initialized" | "lab_console_build_missing" => 503,
         "invalid_json_body"
         | "missing_json_field"
         | "missing_query_field"
         | "invalid_json_field"
+        | "invalid_lab_console_path"
         | "invalid_attached_document"
         | "invalid_metrology_date"
         | "missing_argument"
@@ -959,12 +1180,112 @@ mod tests {
     };
 
     #[test]
+    fn local_api_serves_lab_console_build_and_keeps_api_accessible() {
+        let storage_root = temporary_storage_root("agent-api-lab-static");
+        let lab_dist = temporary_storage_root("agent-api-lab-dist");
+        create_lab_dist_fixture(&lab_dist);
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: lab_dist.clone(),
+            max_requests: None,
+        };
+
+        let root = handle_api_request("GET", "/", "", &config);
+        let lab = handle_api_request("GET", "/lab/", "", &config);
+        let asset = handle_api_request("GET", "/lab/assets/app.js", "", &config);
+        let fallback = handle_api_request("GET", "/lab/templates/TT-DEEP", "", &config);
+        let traversal = handle_api_request("GET", "/lab/assets/..%2Fsecret.txt", "", &config);
+        let health = handle_api_request("GET", "/api/v1/health", "", &config);
+
+        assert_eq!(root.status, 302);
+        assert_eq!(root.location.as_deref(), Some("/lab/"));
+        assert_eq!(lab.status, 200);
+        assert_eq!(lab.content_type, "text/html; charset=utf-8");
+        assert!(lab.body.contains("LAB CONSOLE"));
+        assert_eq!(asset.status, 200);
+        assert_eq!(asset.content_type, "text/javascript; charset=utf-8");
+        assert!(asset.body.contains("lab console asset"));
+        assert_eq!(fallback.status, 200);
+        assert!(fallback.body.contains("LAB CONSOLE"));
+        assert_eq!(traversal.status, 400);
+        assert!(traversal.body.contains("invalid_lab_console_path"));
+        assert_eq!(health.status, 200);
+        assert!(health.body.contains("\"agent\":\"emc-locus-agent\""));
+
+        remove_temporary_storage_root(&storage_root);
+        remove_temporary_storage_root(&lab_dist);
+    }
+
+    #[test]
+    fn local_api_reports_missing_lab_console_build_explicitly() {
+        let storage_root = temporary_storage_root("agent-api-lab-missing");
+        let missing_dist = temporary_storage_root("agent-api-lab-missing-dist");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: missing_dist.clone(),
+            max_requests: None,
+        };
+
+        let response = handle_api_request("GET", "/lab/", "", &config);
+
+        assert_eq!(response.status, 503);
+        assert!(response.body.contains("lab_console_build_missing"));
+        assert!(response
+            .body
+            .contains("LAB CONSOLE production build is not available"));
+
+        remove_temporary_storage_root(&storage_root);
+        remove_temporary_storage_root(&missing_dist);
+    }
+
+    #[test]
+    fn local_api_validates_test_template_definitions_structurally() {
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: PathBuf::from("unused"),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: None,
+        };
+        let valid = handle_api_request(
+            "POST",
+            "/api/v1/test-template-definitions/validate",
+            &format!(
+                r#"{{"definition": {}}}"#,
+                template_definition(100_000, None)
+            ),
+            &config,
+        );
+        let invalid_definition = template_definition_without_variable_unit();
+        let invalid = handle_api_request(
+            "POST",
+            "/api/v1/test-template-definitions/validate",
+            &format!(r#"{{"definition": {invalid_definition}}}"#),
+            &config,
+        );
+
+        assert_eq!(valid.status, 200);
+        assert!(valid.body.contains("\"valid\":true"));
+        assert!(valid.body.contains("\"definition_checksum\":\"sha256:"));
+        assert_eq!(invalid.status, 200);
+        assert!(invalid.body.contains("\"valid\":false"));
+        assert!(invalid.body.contains("\"severity\":\"error\""));
+        assert!(invalid.body.contains("\"code\":\"missing_variable_unit\""));
+        assert!(invalid.body.contains("\"path\":\"variables\""));
+    }
+
+    #[test]
     fn local_api_runs_project_vertical_slice_through_routes() {
         let storage_root = temporary_storage_root("agent-api-slice");
         let config = ApiServerConfig {
             bind: "127.0.0.1:0".to_owned(),
             storage_root: storage_root.clone(),
             migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: None,
         };
         let initialized = handle_api_request("POST", "/api/v1/storage/initialize", "", &config);
@@ -1067,6 +1388,7 @@ mod tests {
             bind: "127.0.0.1:0".to_owned(),
             storage_root: storage_root.clone(),
             migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: None,
         };
 
@@ -1093,6 +1415,7 @@ mod tests {
             bind: "127.0.0.1:0".to_owned(),
             storage_root: storage_root.clone(),
             migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: None,
         };
 
@@ -1227,6 +1550,7 @@ mod tests {
             bind: "127.0.0.1:0".to_owned(),
             storage_root: storage_root.clone(),
             migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: None,
         };
 
@@ -1597,12 +1921,134 @@ mod tests {
     }
 
     #[test]
+    fn local_api_clones_approved_test_template_with_audit_and_outbox() {
+        let storage_root = temporary_storage_root("agent-api-test-template-clone");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: None,
+        };
+
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+        let created = handle_api_request(
+            "POST",
+            "/api/v1/test-templates",
+            &create_template_body(
+                "TT-CLONE-SOURCE",
+                "op-clone-source-create",
+                &template_definition(100_000, None),
+            ),
+            &config,
+        );
+        assert_eq!(created.status, 200);
+        assert_eq!(
+            handle_api_request(
+                "POST",
+                "/api/v1/test-templates/TT-CLONE-SOURCE/revisions/TT-CLONE-SOURCE-rev-0001/transitions/submit-for-review",
+                r#"{
+                    "actor": "method.author",
+                    "reason": "source ready",
+                    "operation_id": "op-clone-source-submit"
+                }"#,
+                &config,
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            handle_api_request(
+                "POST",
+                "/api/v1/test-templates/TT-CLONE-SOURCE/revisions/TT-CLONE-SOURCE-rev-0001/transitions/approve",
+                r#"{
+                    "actor": "quality.reviewer",
+                    "reason": "source accepted",
+                    "operation_id": "op-clone-source-approve"
+                }"#,
+                &config,
+            )
+            .status,
+            200
+        );
+
+        let cloned = handle_api_request(
+            "POST",
+            "/api/v1/test-templates/TT-CLONE-SOURCE/clone",
+            r#"{
+                "source_revision_id": "TT-CLONE-SOURCE-rev-0001",
+                "new_template_id": "TT-CLONE-COPY",
+                "title": "Copied inrush template",
+                "actor": "method.author",
+                "reason": "create variant from approved source",
+                "operation_id": "op-template-clone-copy"
+            }"#,
+            &config,
+        );
+        assert_eq!(cloned.status, 200);
+        assert!(cloned
+            .body
+            .contains("\"operation\":\"test_template_cloned\""));
+        assert!(cloned.body.contains("\"template_id\":\"TT-CLONE-COPY\""));
+        assert!(cloned.body.contains("\"status\":\"draft\""));
+
+        let source_revisions = handle_api_request(
+            "GET",
+            "/api/v1/test-templates/TT-CLONE-SOURCE/revisions",
+            "",
+            &config,
+        );
+        let clone_audit = handle_api_request(
+            "GET",
+            "/api/v1/test-templates/TT-CLONE-COPY/audit-events",
+            "",
+            &config,
+        );
+        let outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
+
+        assert_eq!(source_revisions.status, 200);
+        assert!(source_revisions.body.contains("\"status\":\"approved\""));
+        assert_eq!(clone_audit.status, 200);
+        assert!(clone_audit
+            .body
+            .contains("\"action\":\"test_template_cloned\""));
+        assert!(clone_audit
+            .body
+            .contains("\"old_revision_id\":\"TT-CLONE-SOURCE-rev-0001\""));
+        assert!(outbox
+            .body
+            .contains("\"operation_kind\":\"test_template_cloned\""));
+
+        let replay = handle_api_request(
+            "POST",
+            "/api/v1/test-templates/TT-CLONE-SOURCE/clone",
+            r#"{
+                "source_revision_id": "TT-CLONE-SOURCE-rev-0001",
+                "new_template_id": "TT-CLONE-COPY",
+                "title": "Copied inrush template",
+                "actor": "method.author",
+                "reason": "create variant from approved source",
+                "operation_id": "op-template-clone-copy"
+            }"#,
+            &config,
+        );
+        assert_eq!(replay.status, 200);
+        assert!(replay.body.contains("\"replayed\":true"));
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
     fn local_api_requires_approved_method_revision_for_test_template() {
         let storage_root = temporary_storage_root("agent-api-test-template-method-status");
         let config = ApiServerConfig {
             bind: "127.0.0.1:0".to_owned(),
             storage_root: storage_root.clone(),
             migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: None,
         };
 
@@ -1679,6 +2125,7 @@ mod tests {
             bind: "127.0.0.1:0".to_owned(),
             storage_root: storage_root.clone(),
             migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: None,
         };
 
@@ -1844,6 +2291,7 @@ mod tests {
             bind: "127.0.0.1:0".to_owned(),
             storage_root: PathBuf::from("unused"),
             migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: None,
         };
 
@@ -1860,6 +2308,7 @@ mod tests {
             bind: "127.0.0.1:0".to_owned(),
             storage_root: storage_root.clone(),
             migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: None,
         };
 
@@ -1920,6 +2369,7 @@ mod tests {
             bind: "127.0.0.1:0".to_owned(),
             storage_root: storage_root.clone(),
             migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: None,
         };
 
@@ -2095,6 +2545,7 @@ mod tests {
             bind: "127.0.0.1:0".to_owned(),
             storage_root: storage_root.clone(),
             migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: None,
         };
         assert_eq!(
@@ -2150,6 +2601,7 @@ mod tests {
             bind: "127.0.0.1:0".to_owned(),
             storage_root: storage_root.clone(),
             migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: None,
         };
         assert_eq!(
@@ -2213,6 +2665,7 @@ mod tests {
             bind: first_address.clone(),
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: Some(17),
         });
 
@@ -2308,6 +2761,7 @@ mod tests {
             bind: second_address.clone(),
             storage_root: storage_root.clone(),
             migrations_root,
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: Some(2),
         });
         assert_eq!(wait_for_http(&second_address, "/api/v1/health").0, 200);
@@ -2332,6 +2786,7 @@ mod tests {
             bind: first_address.clone(),
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: Some(15),
         });
 
@@ -2561,6 +3016,7 @@ mod tests {
             bind: second_address.clone(),
             storage_root: storage_root.clone(),
             migrations_root,
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: Some(5),
         });
         assert_eq!(wait_for_http(&second_address, "/api/v1/health").0, 200);
@@ -2613,6 +3069,7 @@ mod tests {
             bind: first_address.clone(),
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: Some(13),
         });
 
@@ -2822,6 +3279,7 @@ mod tests {
             bind: second_address.clone(),
             storage_root: storage_root.clone(),
             migrations_root,
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: Some(3),
         });
         assert_eq!(wait_for_http(&second_address, "/api/v1/health").0, 200);
@@ -2856,6 +3314,7 @@ mod tests {
             bind: first_address.clone(),
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: Some(12),
         });
 
@@ -3023,6 +3482,7 @@ mod tests {
             bind: second_address.clone(),
             storage_root: storage_root.clone(),
             migrations_root,
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
             max_requests: Some(4),
         });
         assert_eq!(wait_for_http(&second_address, "/api/v1/health").0, 200);
@@ -3270,6 +3730,31 @@ mod tests {
                 "method_parameters": {{"alpha": {{"b": 2, "a": [3, 1]}}}}
             }}"#
         )
+    }
+
+    fn template_definition_without_variable_unit() -> String {
+        let mut definition: Value =
+            serde_json::from_str(&template_definition(100_000, None)).unwrap();
+        definition["variables"][0]["constraints"]
+            .as_object_mut()
+            .unwrap()
+            .remove("unit");
+        render_json(&definition)
+    }
+
+    fn create_lab_dist_fixture(dist: &Path) {
+        fs::create_dir_all(dist.join("assets")).unwrap();
+        fs::write(
+            dist.join("index.html"),
+            "<!doctype html><html><body><div id=\"root\">LAB CONSOLE</div><script type=\"module\" src=\"/lab/assets/app.js\"></script></body></html>",
+        )
+        .unwrap();
+        fs::write(
+            dist.join("assets").join("app.js"),
+            "console.log('lab console asset');",
+        )
+        .unwrap();
+        fs::write(dist.join("assets").join("style.css"), "body{margin:0;}").unwrap();
     }
 
     fn free_loopback_port() -> u16 {

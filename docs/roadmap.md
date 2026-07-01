@@ -88,6 +88,10 @@ Deliverables:
   pointers for current approved/latest/active draft revisions, approval-time
   supersession of older approved revisions, strict GUI bootstrap JSON, and
   Windows launchers for the prototype and Qt console.
+- The local agent now exposes a narrow template-authoring support surface for
+  future LAB CONSOLE work: structural definition validation, approved-template
+  cloning into a new draft identity, and optional static serving of a built LAB
+  CONSOLE bundle under `/lab/`.
 
 ## Phase 3: Measurement Runtime
 
