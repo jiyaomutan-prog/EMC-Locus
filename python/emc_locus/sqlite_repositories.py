@@ -38,6 +38,13 @@ INSTRUMENT_SERVICEABILITY_STATUSES = {
     "out_of_service",
     "retired",
 }
+SERVICE_SCHEDULE_STATUSES = {
+    "planned",
+    "confirmed",
+    "in_progress",
+    "completed",
+    "cancelled",
+}
 SYNC_CHECKPOINT_DIRECTIONS = {"push", "pull", "bidirectional"}
 _PACKAGE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SIGNAL_REFERENCE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -88,6 +95,11 @@ def validate_service_schedule_block(
         if day.weekday() >= 5:
             raise ValueError("service schedule items must stay within business days")
         day += timedelta(days=1)
+
+
+def validate_service_schedule_status(status: str) -> None:
+    if status not in SERVICE_SCHEDULE_STATUSES:
+        raise ValueError(f"unknown service schedule status: {status}")
 
 
 def _validate_signal_reference(value: str, *, field_name: str) -> None:
@@ -1064,6 +1076,7 @@ class ProjectRepository(SQLiteDomainRepository):
         notes: str = "",
     ) -> int:
         validate_service_schedule_block(planned_start_at, planned_end_at)
+        validate_service_schedule_status(status)
         now = utc_timestamp()
         with closing(self.connect()) as connection:
             with connection:
@@ -1140,6 +1153,7 @@ class ProjectRepository(SQLiteDomainRepository):
         item_code: str,
         status: str,
     ) -> bool:
+        validate_service_schedule_status(status)
         with closing(self.connect()) as connection:
             with connection:
                 cursor = connection.execute(

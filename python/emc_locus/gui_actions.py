@@ -17,11 +17,13 @@ from .sqlite_repositories import (
     MeasurementDataRepository,
     MetrologyRepository,
     ProjectRepository,
+    SERVICE_SCHEDULE_STATUSES,
     TestDefinitionRepository,
     UpdateCatalogRepository,
     require_non_empty,
     serviceability_from_legacy_availability,
     validate_service_schedule_block,
+    validate_service_schedule_status,
 )
 
 
@@ -67,15 +69,6 @@ INSTRUMENT_DOCUMENT_KINDS = {
     "photo",
     "other",
 }
-SERVICE_SCHEDULE_STATUSES = {
-    "planned",
-    "confirmed",
-    "in_progress",
-    "completed",
-    "cancelled",
-}
-
-
 def create_project_record(
     *,
     projects_db: Path | str | None,
@@ -706,8 +699,7 @@ def schedule_service_item(
     location = require_non_empty(location, "location")
     equipment_under_test = require_non_empty(equipment_under_test, "equipment_under_test")
     status = require_non_empty(status, "status")
-    if status not in SERVICE_SCHEDULE_STATUSES:
-        raise ValueError(f"unknown service schedule status: {status}")
+    validate_service_schedule_status(status)
 
     repository = ProjectRepository(Path(projects_db), Path(migrations_root))
     repository.initialize()

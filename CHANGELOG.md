@@ -13,6 +13,8 @@ change should remain traceable through Git history, session logs, and this file.
 - Tightened local service-planning timestamp validation so schedule rows must
   use canonical `YYYY-MM-DDTHH:MM` local date-times instead of Python-accepted
   ISO variants such as week-date or compact forms.
+- Moved service-schedule status validation into the project repository so
+  direct Python callers cannot bypass the allowed planning status vocabulary.
 
 ## [0.10.0] - 2026-07-01
 
