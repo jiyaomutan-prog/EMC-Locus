@@ -30,6 +30,9 @@ project repository enforces that rule, the allowed status vocabulary, and
 required planning context fields even when callers bypass the GUI/CLI action
 layer. Optional category and method references are trimmed when present; blank
 optional references are stored as absent values rather than empty strings.
+Repository inserts also check that the referenced project exists before the
+schedule row is written, so direct Python callers get the same controlled
+planning error as the GUI/CLI action path.
 
 Example local action:
 

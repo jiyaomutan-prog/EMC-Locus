@@ -266,6 +266,9 @@ Deliverables:
 - project repository service-schedule inserts now normalize optional category
   and method references so blank planning references are stored as absent
   values rather than empty traceability fields;
+- project repository service-schedule inserts now explicitly reject unknown
+  project references with a controlled planning error before SQLite write
+  attempts;
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

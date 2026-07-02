@@ -21,6 +21,9 @@ change should remain traceable through Git history, session logs, and this file.
 - Normalized optional service-schedule category and method references in the
   Python action/repository path so blank values persist as absent references
   instead of empty traceability fields.
+- Added an explicit project-existence guard to repository service-schedule
+  inserts so direct Python callers receive a controlled planning error before
+  any SQLite foreign-key failure.
 
 ## [0.10.0] - 2026-07-01
 

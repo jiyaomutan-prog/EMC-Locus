@@ -1091,6 +1091,12 @@ class ProjectRepository(SQLiteDomainRepository):
         now = utc_timestamp()
         with closing(self.connect()) as connection:
             with connection:
+                project = connection.execute(
+                    "SELECT 1 FROM projects WHERE code = ?",
+                    (project_code,),
+                ).fetchone()
+                if project is None:
+                    raise ValueError("project does not exist")
                 cursor = connection.execute(
                     """
                     INSERT INTO service_schedule_items (

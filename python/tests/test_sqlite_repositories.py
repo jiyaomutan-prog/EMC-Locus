@@ -807,6 +807,28 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
 
             self.assertEqual(projects.list_service_schedule_items(), [])
 
+    def test_repository_rejects_missing_project_service_schedule_items(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+
+            with self.assertRaisesRegex(ValueError, "project does not exist"):
+                projects.add_service_schedule_item(
+                    item_code="PLAN-REPO-MISSING-PROJECT",
+                    project_code="CEM-REPO-MISSING",
+                    title="Missing project bypass attempt",
+                    planned_start_at="2026-07-01T09:00",
+                    planned_end_at="2026-07-01T12:00",
+                    assigned_operator="operator.one",
+                    location="Lab A",
+                    equipment_under_test="EUT rail",
+                )
+
+            self.assertEqual(projects.list_service_schedule_items(), [])
+
     def test_repository_rejects_unknown_service_schedule_status_on_insert(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
