@@ -807,6 +807,34 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
 
             self.assertEqual(projects.list_service_schedule_items(), [])
 
+    def test_repository_rejects_non_positive_service_schedule_duration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-DURATION",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            with self.assertRaisesRegex(ValueError, "after planned_start_at"):
+                projects.add_service_schedule_item(
+                    item_code="PLAN-REPO-ZERO-DURATION",
+                    project_code="CEM-REPO-DURATION",
+                    title="Zero duration bypass attempt",
+                    planned_start_at="2026-07-01T09:00",
+                    planned_end_at="2026-07-01T09:00",
+                    assigned_operator="operator.one",
+                    location="Lab A",
+                    equipment_under_test="EUT rail",
+                )
+
+            self.assertEqual(projects.list_service_schedule_items(), [])
+
     def test_repository_rejects_missing_project_service_schedule_items(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(

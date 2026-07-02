@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Added regression coverage and documentation for service-schedule positive
+  duration validation so repository callers cannot rely on zero-length planning
+  blocks being accepted.
 - Validated and normalized service-schedule read filters in the Python project
   repository so blank project filters and unknown status filters no longer
   fail as silent empty schedule lists.

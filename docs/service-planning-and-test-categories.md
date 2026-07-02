@@ -25,11 +25,12 @@ Allowed status values are `planned`, `confirmed`, `in_progress`, `completed`,
 and `cancelled`.
 
 Schedule rows must use canonical `YYYY-MM-DDTHH:MM` local date-times without
-timezone offsets. A single row must remain inside one business day, and the
-project repository enforces that rule, the allowed status vocabulary, and
-required planning context fields even when callers bypass the GUI/CLI action
-layer. Optional category and method references are trimmed when present; blank
-optional references are stored as absent values rather than empty strings.
+timezone offsets. A single row must have a planned end after its planned start
+and remain inside one business day, and the project repository enforces that
+rule, the allowed status vocabulary, and required planning context fields even
+when callers bypass the GUI/CLI action layer. Optional category and method
+references are trimmed when present; blank optional references are stored as
+absent values rather than empty strings.
 Repository inserts also check that the referenced project exists before the
 schedule row is written, so direct Python callers get the same controlled
 planning error as the GUI/CLI action path. Repository status updates also

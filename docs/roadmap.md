@@ -256,8 +256,8 @@ Deliverables:
 - local service-planning actions now also reject multi-day business-day blocks,
   keeping each scheduled execution item as a single intra-day lab block;
 - project repository service-schedule inserts now enforce the same one
-  intra-day business-block validation, so lower-level Python callers cannot
-  bypass the planning safeguard;
+  intra-day, positive-duration business-block validation, so lower-level Python
+  callers cannot bypass the planning safeguard;
 - project repository service-schedule inserts and status updates now also
   enforce the allowed planning status vocabulary before SQLite writes;
 - project repository service-schedule status updates now reject blank planning
