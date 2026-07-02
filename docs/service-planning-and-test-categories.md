@@ -32,7 +32,9 @@ layer. Optional category and method references are trimmed when present; blank
 optional references are stored as absent values rather than empty strings.
 Repository inserts also check that the referenced project exists before the
 schedule row is written, so direct Python callers get the same controlled
-planning error as the GUI/CLI action path.
+planning error as the GUI/CLI action path. Repository status updates also
+reject blank planning item codes before attempting the write, avoiding silent
+no-op updates for malformed operator input.
 
 Example local action:
 

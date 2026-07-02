@@ -1170,6 +1170,8 @@ class ProjectRepository(SQLiteDomainRepository):
         item_code: str,
         status: str,
     ) -> bool:
+        item_code = require_non_empty(item_code, "item_code")
+        status = require_non_empty(status, "status")
         validate_service_schedule_status(status)
         with closing(self.connect()) as connection:
             with connection:

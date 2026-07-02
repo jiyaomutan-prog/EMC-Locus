@@ -260,6 +260,8 @@ Deliverables:
   bypass the planning safeguard;
 - project repository service-schedule inserts and status updates now also
   enforce the allowed planning status vocabulary before SQLite writes;
+- project repository service-schedule status updates now reject blank planning
+  item codes before they can become silent no-op updates;
 - project repository service-schedule inserts now also enforce required
   planning context fields before SQLite writes, including operator, location,
   title, and equipment under test;

@@ -24,6 +24,8 @@ change should remain traceable through Git history, session logs, and this file.
 - Added an explicit project-existence guard to repository service-schedule
   inserts so direct Python callers receive a controlled planning error before
   any SQLite foreign-key failure.
+- Rejected blank service-schedule item codes on repository status updates so
+  direct Python callers cannot turn an operator mistake into a silent no-op.
 
 ## [0.10.0] - 2026-07-01
 

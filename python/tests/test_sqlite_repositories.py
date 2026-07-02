@@ -893,6 +893,20 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             )
             self.assertEqual(schedule[0]["status"], "planned")
 
+    def test_repository_rejects_empty_service_schedule_item_code_on_update(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+
+            with self.assertRaisesRegex(ValueError, "item_code must not be empty"):
+                projects.update_service_schedule_status(
+                    item_code="  ",
+                    status="confirmed",
+                )
+
     def test_repository_rejects_empty_service_schedule_operator(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
