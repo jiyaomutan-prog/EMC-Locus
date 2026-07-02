@@ -15,6 +15,9 @@ change should remain traceable through Git history, session logs, and this file.
   ISO variants such as week-date or compact forms.
 - Moved service-schedule status validation into the project repository so
   direct Python callers cannot bypass the allowed planning status vocabulary.
+- Moved required service-schedule field validation into the project repository
+  so direct Python callers cannot persist blank operator, location, title, or
+  equipment context.
 
 ## [0.10.0] - 2026-07-01
 

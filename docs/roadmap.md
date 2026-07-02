@@ -260,6 +260,9 @@ Deliverables:
   bypass the planning safeguard;
 - project repository service-schedule inserts and status updates now also
   enforce the allowed planning status vocabulary before SQLite writes;
+- project repository service-schedule inserts now also enforce required
+  planning context fields before SQLite writes, including operator, location,
+  title, and equipment under test;
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

@@ -1075,6 +1075,15 @@ class ProjectRepository(SQLiteDomainRepository):
         status: str = "planned",
         notes: str = "",
     ) -> int:
+        item_code = require_non_empty(item_code, "item_code")
+        project_code = require_non_empty(project_code, "project_code")
+        title = require_non_empty(title, "title")
+        planned_start_at = require_non_empty(planned_start_at, "planned_start_at")
+        planned_end_at = require_non_empty(planned_end_at, "planned_end_at")
+        assigned_operator = require_non_empty(assigned_operator, "assigned_operator")
+        location = require_non_empty(location, "location")
+        equipment_under_test = require_non_empty(equipment_under_test, "equipment_under_test")
+        status = require_non_empty(status, "status")
         validate_service_schedule_block(planned_start_at, planned_end_at)
         validate_service_schedule_status(status)
         now = utc_timestamp()
