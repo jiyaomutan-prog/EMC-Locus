@@ -34,7 +34,9 @@ Repository inserts also check that the referenced project exists before the
 schedule row is written, so direct Python callers get the same controlled
 planning error as the GUI/CLI action path. Repository status updates also
 reject blank planning item codes before attempting the write, avoiding silent
-no-op updates for malformed operator input.
+no-op updates for malformed operator input. Repository list filters trim
+project and status values when present, reject blank project filters, and reject
+unknown status filters before returning planning rows.
 
 Example local action:
 

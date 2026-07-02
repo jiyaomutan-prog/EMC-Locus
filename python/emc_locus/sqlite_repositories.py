@@ -1145,9 +1145,12 @@ class ProjectRepository(SQLiteDomainRepository):
         filters: list[str] = []
         parameters: list[str] = []
         if project_code is not None:
+            project_code = require_non_empty(project_code, "project_code")
             filters.append("project_code = ?")
             parameters.append(project_code)
         if status is not None:
+            status = require_non_empty(status, "status")
+            validate_service_schedule_status(status)
             filters.append("status = ?")
             parameters.append(status)
 

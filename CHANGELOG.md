@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Validated and normalized service-schedule read filters in the Python project
+  repository so blank project filters and unknown status filters no longer
+  fail as silent empty schedule lists.
 - Tightened local service-planning timestamp validation so schedule rows must
   use canonical `YYYY-MM-DDTHH:MM` local date-times instead of Python-accepted
   ISO variants such as week-date or compact forms.

@@ -262,6 +262,9 @@ Deliverables:
   enforce the allowed planning status vocabulary before SQLite writes;
 - project repository service-schedule status updates now reject blank planning
   item codes before they can become silent no-op updates;
+- project repository service-schedule list filters now normalize readable
+  project/status filters and reject malformed filters instead of returning
+  misleading empty schedule lists;
 - project repository service-schedule inserts now also enforce required
   planning context fields before SQLite writes, including operator, location,
   title, and equipment under test;

@@ -968,6 +968,53 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             self.assertEqual(schedule[0]["test_category_code"], "emission_conducted")
             self.assertIsNone(schedule[0]["test_method_code"])
 
+    def test_repository_normalizes_service_schedule_list_filters(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-LIST-FILTERS",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-LIST-FILTERS",
+                project_code="CEM-REPO-LIST-FILTERS",
+                title="List filter guard",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+                status="confirmed",
+            )
+
+            schedule = projects.list_service_schedule_items(
+                project_code=" CEM-REPO-LIST-FILTERS ",
+                status=" confirmed ",
+            )
+
+            self.assertEqual(len(schedule), 1)
+            self.assertEqual(schedule[0]["item_code"], "PLAN-REPO-LIST-FILTERS")
+
+    def test_repository_rejects_malformed_service_schedule_list_filters(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+
+            with self.assertRaisesRegex(ValueError, "project_code must not be empty"):
+                projects.list_service_schedule_items(project_code="  ")
+
+            with self.assertRaisesRegex(ValueError, "unknown service schedule status"):
+                projects.list_service_schedule_items(status="waiting_for_parts")
+
 
 class GuiBootstrapTests(unittest.TestCase):
     def test_builds_bootstrap_from_local_repositories(self) -> None:
