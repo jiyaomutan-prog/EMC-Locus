@@ -935,6 +935,34 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
                     status="confirmed",
                 )
 
+    def test_repository_rejects_empty_service_schedule_item_code_on_insert(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-EMPTY-ITEM",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            with self.assertRaisesRegex(ValueError, "item_code must not be empty"):
+                projects.add_service_schedule_item(
+                    item_code="  ",
+                    project_code="CEM-REPO-EMPTY-ITEM",
+                    title="Empty item code bypass attempt",
+                    planned_start_at="2026-07-01T09:00",
+                    planned_end_at="2026-07-01T12:00",
+                    assigned_operator="operator.one",
+                    location="Lab A",
+                    equipment_under_test="EUT rail",
+                )
+
+            self.assertEqual(projects.list_service_schedule_items(), [])
+
     def test_repository_rejects_empty_service_schedule_operator(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(

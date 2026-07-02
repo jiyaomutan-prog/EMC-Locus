@@ -33,13 +33,14 @@ references are trimmed when present; blank optional references are stored as
 absent values rather than empty strings.
 Notes are optional operator context; missing notes are normalized to an empty
 non-null text value before the planning row is written.
-Repository inserts also check that the referenced project exists before the
-schedule row is written, so direct Python callers get the same controlled
-planning error as the GUI/CLI action path. Repository status updates also
-reject blank planning item codes before attempting the write, avoiding silent
-no-op updates for malformed operator input. Repository list filters trim
-project and status values when present, reject blank project filters, and reject
-unknown status filters before returning planning rows.
+Repository inserts also reject blank planning item codes and check that the
+referenced project exists before the schedule row is written, so direct Python
+callers get the same controlled planning errors as the GUI/CLI action path.
+Repository status updates also reject blank planning item codes before
+attempting the write, avoiding silent no-op updates for malformed operator
+input. Repository list filters trim project and status values when present,
+reject blank project filters, and reject unknown status filters before
+returning planning rows.
 
 Example local action:
 
