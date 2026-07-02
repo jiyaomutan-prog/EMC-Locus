@@ -271,6 +271,9 @@ Deliverables:
 - project repository service-schedule inserts now normalize optional category
   and method references so blank planning references are stored as absent
   values rather than empty traceability fields;
+- project repository service-schedule inserts now normalize optional notes so
+  missing notes persist as an empty non-null planning note instead of surfacing
+  a raw SQLite constraint error;
 - project repository service-schedule inserts now explicitly reject unknown
   project references with a controlled planning error before SQLite write
   attempts;

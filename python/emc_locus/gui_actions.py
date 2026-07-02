@@ -20,6 +20,7 @@ from .sqlite_repositories import (
     SERVICE_SCHEDULE_STATUSES,
     TestDefinitionRepository,
     UpdateCatalogRepository,
+    optional_text_or_empty,
     optional_text_or_none,
     require_non_empty,
     serviceability_from_legacy_availability,
@@ -680,7 +681,7 @@ def schedule_service_item(
     test_category_code: str | None = None,
     test_method_code: str | None = None,
     status: str = "planned",
-    notes: str = "",
+    notes: str | None = "",
     migrations_root: Path | str = Path("storage/sqlite"),
     bootstrap_output: Path | str | None = None,
     metrology_db: Path | str | None = None,
@@ -702,6 +703,7 @@ def schedule_service_item(
     test_category_code = optional_text_or_none(test_category_code)
     test_method_code = optional_text_or_none(test_method_code)
     status = require_non_empty(status, "status")
+    notes = optional_text_or_empty(notes)
     validate_service_schedule_status(status)
 
     repository = ProjectRepository(Path(projects_db), Path(migrations_root))

@@ -1073,7 +1073,7 @@ class ProjectRepository(SQLiteDomainRepository):
         test_category_code: str | None = None,
         test_method_code: str | None = None,
         status: str = "planned",
-        notes: str = "",
+        notes: str | None = "",
     ) -> int:
         item_code = require_non_empty(item_code, "item_code")
         project_code = require_non_empty(project_code, "project_code")
@@ -1086,6 +1086,7 @@ class ProjectRepository(SQLiteDomainRepository):
         test_category_code = optional_text_or_none(test_category_code)
         test_method_code = optional_text_or_none(test_method_code)
         status = require_non_empty(status, "status")
+        notes = optional_text_or_empty(notes)
         validate_service_schedule_block(planned_start_at, planned_end_at)
         validate_service_schedule_status(status)
         now = utc_timestamp()
@@ -3470,6 +3471,12 @@ def optional_text_or_none(value: str | None) -> str | None:
         return None
     trimmed = value.strip()
     return trimmed or None
+
+
+def optional_text_or_empty(value: str | None) -> str:
+    if value is None:
+        return ""
+    return value.strip()
 
 
 def normalized_json_text(value: str, field_name: str) -> str:

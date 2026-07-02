@@ -10,6 +10,8 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Normalized optional service-schedule notes in the Python action/repository
+  path so callers cannot leak `NULL` into the non-null planning notes column.
 - Added regression coverage and documentation for service-schedule positive
   duration validation so repository callers cannot rely on zero-length planning
   blocks being accepted.
