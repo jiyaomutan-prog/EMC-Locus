@@ -20,6 +20,7 @@ from .sqlite_repositories import (
     SERVICE_SCHEDULE_STATUSES,
     TestDefinitionRepository,
     UpdateCatalogRepository,
+    optional_text_or_none,
     require_non_empty,
     serviceability_from_legacy_availability,
     validate_service_schedule_block,
@@ -698,6 +699,8 @@ def schedule_service_item(
     assigned_operator = require_non_empty(assigned_operator, "assigned_operator")
     location = require_non_empty(location, "location")
     equipment_under_test = require_non_empty(equipment_under_test, "equipment_under_test")
+    test_category_code = optional_text_or_none(test_category_code)
+    test_method_code = optional_text_or_none(test_method_code)
     status = require_non_empty(status, "status")
     validate_service_schedule_status(status)
 

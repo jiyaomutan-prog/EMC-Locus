@@ -18,6 +18,9 @@ change should remain traceable through Git history, session logs, and this file.
 - Moved required service-schedule field validation into the project repository
   so direct Python callers cannot persist blank operator, location, title, or
   equipment context.
+- Normalized optional service-schedule category and method references in the
+  Python action/repository path so blank values persist as absent references
+  instead of empty traceability fields.
 
 ## [0.10.0] - 2026-07-01
 

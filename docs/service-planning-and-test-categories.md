@@ -28,7 +28,8 @@ Schedule rows must use canonical `YYYY-MM-DDTHH:MM` local date-times without
 timezone offsets. A single row must remain inside one business day, and the
 project repository enforces that rule, the allowed status vocabulary, and
 required planning context fields even when callers bypass the GUI/CLI action
-layer.
+layer. Optional category and method references are trimmed when present; blank
+optional references are stored as absent values rather than empty strings.
 
 Example local action:
 

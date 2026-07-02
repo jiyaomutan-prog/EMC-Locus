@@ -899,6 +899,39 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
 
             self.assertEqual(projects.list_service_schedule_items(), [])
 
+    def test_repository_normalizes_optional_service_schedule_references(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-OPTIONAL-REFS",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-OPTIONAL-REFS",
+                project_code="CEM-REPO-OPTIONAL-REFS",
+                title="Optional reference guard",
+                test_category_code=" emission_conducted ",
+                test_method_code="  ",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+            )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-OPTIONAL-REFS",
+            )
+            self.assertEqual(schedule[0]["test_category_code"], "emission_conducted")
+            self.assertIsNone(schedule[0]["test_method_code"])
+
 
 class GuiBootstrapTests(unittest.TestCase):
     def test_builds_bootstrap_from_local_repositories(self) -> None:

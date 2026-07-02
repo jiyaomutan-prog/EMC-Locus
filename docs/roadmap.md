@@ -263,6 +263,9 @@ Deliverables:
 - project repository service-schedule inserts now also enforce required
   planning context fields before SQLite writes, including operator, location,
   title, and equipment under test;
+- project repository service-schedule inserts now normalize optional category
+  and method references so blank planning references are stored as absent
+  values rather than empty traceability fields;
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

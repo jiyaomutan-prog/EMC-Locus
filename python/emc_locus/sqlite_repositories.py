@@ -1083,6 +1083,8 @@ class ProjectRepository(SQLiteDomainRepository):
         assigned_operator = require_non_empty(assigned_operator, "assigned_operator")
         location = require_non_empty(location, "location")
         equipment_under_test = require_non_empty(equipment_under_test, "equipment_under_test")
+        test_category_code = optional_text_or_none(test_category_code)
+        test_method_code = optional_text_or_none(test_method_code)
         status = require_non_empty(status, "status")
         validate_service_schedule_block(planned_start_at, planned_end_at)
         validate_service_schedule_status(status)
@@ -3450,6 +3452,13 @@ def optional_non_empty(value: str | None, field_name: str) -> str | None:
     if value is None:
         return None
     return require_non_empty(value, field_name)
+
+
+def optional_text_or_none(value: str | None) -> str | None:
+    if value is None:
+        return None
+    trimmed = value.strip()
+    return trimmed or None
 
 
 def normalized_json_text(value: str, field_name: str) -> str:
