@@ -1189,6 +1189,19 @@ class ProjectRepository(SQLiteDomainRepository):
         validate_service_schedule_status(status)
         with closing(self.connect()) as connection:
             with connection:
+                item = connection.execute(
+                    """
+                    SELECT service_schedule_items.project_code, projects.stage AS project_stage
+                    FROM service_schedule_items
+                    LEFT JOIN projects ON projects.code = service_schedule_items.project_code
+                    WHERE service_schedule_items.item_code = ?
+                    """,
+                    (item_code,),
+                ).fetchone()
+                if item is None:
+                    raise ValueError("service schedule item does not exist")
+                if item["project_stage"] is None:
+                    raise ValueError("service schedule project does not exist")
                 cursor = connection.execute(
                     """
                     UPDATE service_schedule_items

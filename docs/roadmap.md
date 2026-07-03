@@ -303,6 +303,9 @@ Deliverables:
 - project repository service-schedule inserts now reject projects that have
   not entered `test_planning`, preserving the contract-review gate even for
   direct Python callers;
+- project repository service-schedule status updates now reject planning rows
+  whose project reference no longer resolves, preserving campaign context even
+  for imported or corrupted local data;
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

@@ -1053,6 +1053,59 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
                     status="confirmed",
                 )
 
+    def test_repository_rejects_orphan_service_schedule_item_on_update(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            with closing(sqlite3.connect(projects.database_path)) as connection:
+                connection.execute("PRAGMA foreign_keys = OFF")
+                connection.execute(
+                    """
+                    INSERT INTO service_schedule_items (
+                        item_code,
+                        project_code,
+                        title,
+                        planned_start_at,
+                        planned_end_at,
+                        assigned_operator,
+                        location,
+                        equipment_under_test,
+                        status,
+                        notes,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "PLAN-REPO-ORPHAN-UPDATE",
+                        "CEM-REPO-MISSING-PROJECT",
+                        "Orphan status update guard",
+                        "2026-07-01T09:00",
+                        "2026-07-01T12:00",
+                        "operator.one",
+                        "Lab A",
+                        "EUT rail",
+                        "planned",
+                        "",
+                        "2026-07-01T08:00:00Z",
+                        "2026-07-01T08:00:00Z",
+                    ),
+                )
+                connection.commit()
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "service schedule project does not exist",
+            ):
+                projects.update_service_schedule_status(
+                    item_code="PLAN-REPO-ORPHAN-UPDATE",
+                    status="confirmed",
+                )
+
     def test_repository_rejects_empty_service_schedule_item_code_on_insert(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(

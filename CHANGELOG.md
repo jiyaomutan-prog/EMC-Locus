@@ -8,6 +8,12 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Rejected service-schedule status updates whose planning row points at a
+  missing project, preventing imported or corrupted orphan rows from being
+  mutated without controlled campaign context.
+
 ## [0.11.0] - 2026-07-03
 
 ### Added

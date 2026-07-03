@@ -51,10 +51,11 @@ Repository inserts also require the referenced project to already be in
 blocks before the contract-review gate has advanced the campaign.
 Repository status updates also reject blank planning item codes before
 attempting the write, avoiding silent no-op updates for malformed operator
-input. Status updates also reject unknown planning item codes instead of
-returning a silent no-op result. Repository list filters trim project and status
-values when present, reject blank project filters, and reject unknown status
-filters before returning planning rows.
+input. Status updates also reject unknown planning item codes and orphan rows
+whose project reference no longer resolves instead of mutating schedule state
+without a controlled campaign context. Repository list filters trim project and
+status values when present, reject blank project filters, and reject unknown
+status filters before returning planning rows.
 
 Example local action:
 
