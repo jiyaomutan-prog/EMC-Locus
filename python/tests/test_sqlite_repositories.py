@@ -751,6 +751,34 @@ class MetrologyRepositoryTests(unittest.TestCase):
 
 
 class ProjectRepositoryScheduleTests(unittest.TestCase):
+    def test_repository_rejects_weekend_service_schedule_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-WEEKEND",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            with self.assertRaisesRegex(ValueError, "business days"):
+                projects.add_service_schedule_item(
+                    item_code="PLAN-REPO-WEEKEND",
+                    project_code="CEM-REPO-WEEKEND",
+                    title="Weekend repository bypass attempt",
+                    planned_start_at="2026-07-04T09:00",
+                    planned_end_at="2026-07-04T12:00",
+                    assigned_operator="operator.one",
+                    location="Lab A",
+                    equipment_under_test="EUT rail",
+                )
+
+            self.assertEqual(projects.list_service_schedule_items(), [])
+
     def test_repository_rejects_multi_day_service_schedule_blocks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(

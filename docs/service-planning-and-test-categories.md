@@ -43,6 +43,9 @@ Duplicate planning item codes are rejected through the repository path before
 SQLite uniqueness constraints are reached.
 Missing required planning text is handled through the same validation path
 instead of surfacing raw Python attribute errors.
+Repository regression coverage also proves weekend-only planning blocks are
+rejected before a row can be persisted, independently from the GUI/CLI action
+path.
 Repository status updates also reject blank planning item codes before
 attempting the write, avoiding silent no-op updates for malformed operator
 input. Status updates also reject unknown planning item codes instead of

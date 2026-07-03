@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Added direct repository regression coverage for weekend-only
+  service-schedule blocks, documenting the lower-level business-day guard
+  independently from the GUI/CLI action path.
 - Rejected unknown service-planning category and method references in the
   Python action path when a test-definition repository is provided, preventing
   operator-entered schedule rows from pointing at absent taxonomy records.

@@ -290,6 +290,9 @@ Deliverables:
 - local service-planning actions now reject unknown category and method
   references when a test-definition repository is available, preventing
   operator planning rows from pointing at absent taxonomy records;
+- project repository service-schedule insert coverage now directly proves
+  weekend-only planning blocks are rejected by the lower-level business-day
+  guard, independently from the GUI/CLI action path;
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;
