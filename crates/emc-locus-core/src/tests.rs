@@ -683,6 +683,7 @@ fn repository_policy_keeps_core_references_available_offline() {
     let domains = baseline_repository_domains();
 
     assert!(domains.contains(&RepositoryDomain::Metrology));
+    assert!(domains.contains(&RepositoryDomain::Equipment));
     assert!(domains.contains(&RepositoryDomain::TestDefinitions));
     assert!(domains.contains(&RepositoryDomain::InstrumentDrivers));
     assert!(domains.contains(&RepositoryDomain::ProjectRecords));
@@ -763,7 +764,7 @@ fn field_repository_package_validation_rejects_missing_snapshots() {
 
     assert_eq!(
         error,
-        DomainError::MissingRepositorySnapshot("test_definitions".to_owned())
+        DomainError::MissingRepositorySnapshot("equipment".to_owned())
     );
 }
 

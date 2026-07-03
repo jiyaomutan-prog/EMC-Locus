@@ -626,7 +626,11 @@ pub fn clone_test_template(
         .category_code
         .as_deref()
         .unwrap_or(&source_identity.category_code);
-    let definition = canonical_definition(&source_revision.definition_json)?;
+    let mut cloned_definition =
+        TestTemplateDefinition::from_json_str(&source_revision.definition_json)
+            .map_err(validation_error)?;
+    cloned_definition.title = input.title.trim().to_owned();
+    let definition = cloned_definition.canonicalize().map_err(validation_error)?;
     let payload_json = clone_payload_json(&input, category_code, &source_revision, &definition);
     let revision_id = revision_id_for(&input.new_template_id, 1);
 

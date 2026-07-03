@@ -177,6 +177,462 @@ class LocalAgentClient:
             f"/api/v1/test-templates/{quote(template_id)}/audit-events",
         )
 
+    def list_equipment_models(
+        self,
+        *,
+        manufacturer: str | None = None,
+        equipment_class: str | None = None,
+        category_code: str | None = None,
+        status: str | None = None,
+        search: str | None = None,
+    ) -> dict[str, Any]:
+        query = {
+            key: value
+            for key, value in {
+                "manufacturer": manufacturer,
+                "equipment_class": equipment_class,
+                "category_code": category_code,
+                "status": status,
+                "search": search,
+            }.items()
+            if value
+        }
+        suffix = f"?{urlencode(query)}" if query else ""
+        return self.request_json("GET", f"/api/v1/equipment-models{suffix}")
+
+    def get_equipment_model(self, equipment_model_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/equipment-models/{quote(equipment_model_id)}",
+        )
+
+    def list_equipment_model_revisions(self, equipment_model_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/equipment-models/{quote(equipment_model_id)}/revisions",
+        )
+
+    def get_equipment_model_revision(
+        self,
+        equipment_model_id: str,
+        revision_id: str,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/equipment-models/{quote(equipment_model_id)}/revisions/{quote(revision_id)}",
+        )
+
+    def equipment_model_audit_events(self, equipment_model_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/equipment-models/{quote(equipment_model_id)}/audit-events",
+        )
+
+    def validate_equipment_model_definition(self, definition: dict[str, Any]) -> dict[str, Any]:
+        return self.request_json(
+            "POST",
+            "/api/v1/equipment-model-definitions/validate",
+            {"definition": definition},
+        )
+
+    def create_equipment_model(
+        self,
+        *,
+        equipment_model_id: str,
+        definition: dict[str, Any],
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id("equipment-model-create", equipment_model_id)
+        payload = {
+            "equipment_model_id": equipment_model_id,
+            "definition": definition,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json("POST", "/api/v1/equipment-models", payload)
+
+    def clone_equipment_model(
+        self,
+        *,
+        source_equipment_model_id: str,
+        new_equipment_model_id: str,
+        actor: str,
+        reason: str,
+        source_revision_id: str | None = None,
+        manufacturer: str | None = None,
+        model_name: str | None = None,
+        variant: str | None = None,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "equipment-model-clone",
+            source_equipment_model_id,
+            new_equipment_model_id,
+        )
+        payload = {
+            "new_equipment_model_id": new_equipment_model_id,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "source_revision_id", source_revision_id)
+        _put_optional(payload, "manufacturer", manufacturer)
+        _put_optional(payload, "model_name", model_name)
+        _put_optional(payload, "variant", variant)
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/equipment-models/{quote(source_equipment_model_id)}/clone",
+            payload,
+        )
+
+    def replace_equipment_model_revision_definition(
+        self,
+        *,
+        equipment_model_id: str,
+        revision_id: str,
+        expected_definition_checksum: str,
+        definition: dict[str, Any],
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "equipment-model-definition-replace",
+            equipment_model_id,
+            revision_id,
+        )
+        payload = {
+            "expected_definition_checksum": expected_definition_checksum,
+            "definition": definition,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "PUT",
+            f"/api/v1/equipment-models/{quote(equipment_model_id)}/revisions/{quote(revision_id)}/definition",
+            payload,
+        )
+
+    def create_equipment_model_revision(
+        self,
+        *,
+        equipment_model_id: str,
+        source_revision_id: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "equipment-model-revision-create",
+            equipment_model_id,
+            source_revision_id,
+        )
+        payload = {
+            "source_revision_id": source_revision_id,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/equipment-models/{quote(equipment_model_id)}/revisions",
+            payload,
+        )
+
+    def submit_equipment_model_revision_for_review(
+        self,
+        *,
+        equipment_model_id: str,
+        revision_id: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "equipment-model-revision-submit",
+            equipment_model_id,
+            revision_id,
+        )
+        payload = {
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/equipment-models/{quote(equipment_model_id)}/revisions/{quote(revision_id)}/transitions/submit-for-review",
+            payload,
+        )
+
+    def approve_equipment_model_revision(
+        self,
+        *,
+        equipment_model_id: str,
+        revision_id: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "equipment-model-revision-approve",
+            equipment_model_id,
+            revision_id,
+        )
+        payload = {
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/equipment-models/{quote(equipment_model_id)}/revisions/{quote(revision_id)}/transitions/approve",
+            payload,
+        )
+
+    def list_driver_profiles(
+        self,
+        *,
+        equipment_model_id: str | None = None,
+        status: str | None = None,
+        search: str | None = None,
+    ) -> dict[str, Any]:
+        query = {
+            key: value
+            for key, value in {
+                "equipment_model_id": equipment_model_id,
+                "status": status,
+                "search": search,
+            }.items()
+            if value
+        }
+        suffix = f"?{urlencode(query)}" if query else ""
+        return self.request_json("GET", f"/api/v1/driver-profiles{suffix}")
+
+    def get_driver_profile(self, driver_profile_id: str) -> dict[str, Any]:
+        return self.request_json("GET", f"/api/v1/driver-profiles/{quote(driver_profile_id)}")
+
+    def list_driver_profile_revisions(self, driver_profile_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/driver-profiles/{quote(driver_profile_id)}/revisions",
+        )
+
+    def get_driver_profile_revision(
+        self,
+        driver_profile_id: str,
+        revision_id: str,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/driver-profiles/{quote(driver_profile_id)}/revisions/{quote(revision_id)}",
+        )
+
+    def driver_profile_audit_events(self, driver_profile_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/driver-profiles/{quote(driver_profile_id)}/audit-events",
+        )
+
+    def validate_driver_profile_definition(self, definition: dict[str, Any]) -> dict[str, Any]:
+        return self.request_json(
+            "POST",
+            "/api/v1/driver-profile-definitions/validate",
+            {"definition": definition},
+        )
+
+    def create_driver_profile(
+        self,
+        *,
+        driver_profile_id: str,
+        label: str,
+        definition: dict[str, Any],
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id("driver-profile-create", driver_profile_id)
+        payload = {
+            "driver_profile_id": driver_profile_id,
+            "label": label,
+            "definition": definition,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json("POST", "/api/v1/driver-profiles", payload)
+
+    def replace_driver_profile_revision_definition(
+        self,
+        *,
+        driver_profile_id: str,
+        revision_id: str,
+        expected_definition_checksum: str,
+        definition: dict[str, Any],
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "driver-profile-definition-replace",
+            driver_profile_id,
+            revision_id,
+        )
+        payload = {
+            "expected_definition_checksum": expected_definition_checksum,
+            "definition": definition,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "PUT",
+            f"/api/v1/driver-profiles/{quote(driver_profile_id)}/revisions/{quote(revision_id)}/definition",
+            payload,
+        )
+
+    def create_driver_profile_revision(
+        self,
+        *,
+        driver_profile_id: str,
+        source_revision_id: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "driver-profile-revision-create",
+            driver_profile_id,
+            source_revision_id,
+        )
+        payload = {
+            "source_revision_id": source_revision_id,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/driver-profiles/{quote(driver_profile_id)}/revisions",
+            payload,
+        )
+
+    def submit_driver_profile_revision_for_review(
+        self,
+        *,
+        driver_profile_id: str,
+        revision_id: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "driver-profile-revision-submit",
+            driver_profile_id,
+            revision_id,
+        )
+        payload = {
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/driver-profiles/{quote(driver_profile_id)}/revisions/{quote(revision_id)}/transitions/submit-for-review",
+            payload,
+        )
+
+    def approve_driver_profile_revision(
+        self,
+        *,
+        driver_profile_id: str,
+        revision_id: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "driver-profile-revision-approve",
+            driver_profile_id,
+            revision_id,
+        )
+        payload = {
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/driver-profiles/{quote(driver_profile_id)}/revisions/{quote(revision_id)}/transitions/approve",
+            payload,
+        )
+
+    def simulate_driver_profile(
+        self,
+        *,
+        driver_profile_id: str,
+        action_id: str,
+        scenario: dict[str, Any],
+        revision_id: str | None = None,
+    ) -> dict[str, Any]:
+        payload = {
+            "driver_profile_id": driver_profile_id,
+            "action_id": action_id,
+            "scenario": scenario,
+        }
+        _put_optional(payload, "revision_id", revision_id)
+        return self.request_json("POST", "/api/v1/driver-profile-simulations", payload)
+
+    def communication_provider_status(self) -> dict[str, Any]:
+        return self.request_json("GET", "/api/v1/equipment/communication-providers")
+
     def create_project(
         self,
         *,

@@ -1,6 +1,9 @@
 mod document_dto;
 mod document_repository;
 mod document_service;
+mod equipment_dto;
+mod equipment_repository;
+mod equipment_service;
 mod local_api;
 mod metrology_agent;
 mod metrology_dto;
@@ -23,6 +26,22 @@ pub use document_service::{
     ListAttachedDocumentsInput, RegisterAttachedDocumentInput,
 };
 use emc_locus_core::{baseline_repository_domains, RepositoryDomain};
+pub use equipment_service::{
+    clone_equipment_model, communication_provider_status, create_driver_profile,
+    create_driver_profile_revision, create_equipment_model, create_equipment_model_revision,
+    get_driver_profile, get_driver_profile_revision, get_equipment_model,
+    get_equipment_model_revision, list_driver_profile_revisions, list_driver_profiles,
+    list_equipment_audit_events_for_driver, list_equipment_audit_events_for_model,
+    list_equipment_model_revisions, list_equipment_models,
+    replace_driver_profile_revision_definition, replace_equipment_model_revision_definition,
+    simulate_driver_profile, transition_driver_profile_revision,
+    transition_equipment_model_revision, validate_driver_profile_definition_json,
+    validate_equipment_model_definition_json, CloneEquipmentModelInput, CreateDriverProfileInput,
+    CreateDriverProfileRevisionInput, CreateEquipmentModelInput, CreateEquipmentModelRevisionInput,
+    ListDriverProfilesInput, ListEquipmentModelsInput, ReplaceDriverProfileDefinitionInput,
+    ReplaceEquipmentModelDefinitionInput, SimulateDriverProfileInput,
+    TransitionDriverProfileRevisionInput, TransitionEquipmentModelRevisionInput,
+};
 pub use local_api::{run_local_api_server, ApiServerConfig};
 pub use metrology_agent::{run_metrology_command, MetrologyAction};
 pub use metrology_service::{
@@ -489,7 +508,7 @@ struct StorageDomainSpec {
     migration_folder: &'static str,
 }
 
-fn project_slice_domains() -> [StorageDomainSpec; 4] {
+fn project_slice_domains() -> [StorageDomainSpec; 5] {
     [
         StorageDomainSpec {
             domain: "projects",
@@ -505,6 +524,11 @@ fn project_slice_domains() -> [StorageDomainSpec; 4] {
             domain: "metrology",
             database_file: "metrology.sqlite",
             migration_folder: "metrology",
+        },
+        StorageDomainSpec {
+            domain: "equipment",
+            database_file: "equipment.sqlite",
+            migration_folder: "equipment",
         },
         StorageDomainSpec {
             domain: "test_definitions",
@@ -816,10 +840,11 @@ mod tests {
         let second_report =
             run_storage_action(StorageAction::Init, storage_root.clone(), migrations_root).unwrap();
 
-        assert_eq!(report.domains.len(), 4);
+        assert_eq!(report.domains.len(), 5);
         assert!(storage_root.join("projects.sqlite").exists());
         assert!(storage_root.join("sync.sqlite").exists());
         assert!(storage_root.join("metrology.sqlite").exists());
+        assert!(storage_root.join("equipment.sqlite").exists());
         assert!(storage_root.join("test_definitions.sqlite").exists());
         assert!(report
             .domains
@@ -842,10 +867,28 @@ mod tests {
             second_report
                 .domains
                 .iter()
+                .find(|domain| domain.domain == "sync")
+                .unwrap()
+                .schema_version,
+            Some(4)
+        );
+        assert_eq!(
+            second_report
+                .domains
+                .iter()
                 .find(|domain| domain.domain == "metrology")
                 .unwrap()
                 .schema_version,
             Some(7)
+        );
+        assert_eq!(
+            second_report
+                .domains
+                .iter()
+                .find(|domain| domain.domain == "equipment")
+                .unwrap()
+                .schema_version,
+            Some(1)
         );
         assert_eq!(
             second_report

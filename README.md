@@ -83,16 +83,29 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.10.0`.
+Current software version: `0.11.0`.
 
-Version `0.10.0` delivers LAB CONSOLE Template Studio v1. The web surface is now
-a real React/TypeScript/Vite application served by the Rust local agent under
+Version `0.11.0` delivers the first Equipment Definition Catalog and Driver
+Script Studio slice. LAB CONSOLE now has an Equipment space with a functional
+model catalog and driver/actions workspace backed by a separate
+`equipment.sqlite` domain, typed model and driver definitions in Rust core,
+revisioned drafts, approval, CAS saves, audit/outbox evidence, provider status,
+structured driver scripts, and deterministic driver simulation. The release
+models VISA, CAN, USBTMC, HID, serial, TCP, UDP, manual, and simulation
+interfaces honestly: unavailable hardware providers remain reported as not
+installed. It is still not a physical fleet redesign, campaign execution
+engine, certified hardware driver package, acquisition system, reporting tool,
+authentication/RBAC domain, or full sensor/DAQ scaling model.
+
+Recommended next vertical: `0.12.0 - Sensors, DAQ Channels, Scaling And
+Engineering Curves`.
+
+Version `0.10.0` delivered LAB CONSOLE Template Studio v1. The web surface is a
+real React/TypeScript/Vite application served by the Rust local agent under
 `/lab/`, with a template library, create/clone flows, structured section
 editors, server validation, checksum-based draft saving, submit/approve/derive
 workflow, revision history, audit view, system status, demo API seed, launcher
-support, unit tests, and Playwright E2E coverage. It is still not a campaign
-instantiation engine, instrument runtime, acquisition system, reporting tool,
-authentication/RBAC domain, or signal-processing engine.
+support, unit tests, and Playwright E2E coverage.
 
 Version `0.9.1` is a repair and launchability release. The static LAB CONSOLE
 bootstrap remains browser-loadable JavaScript while exposing strict JSON for

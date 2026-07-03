@@ -23,6 +23,7 @@ impl ConnectivityMode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RepositoryDomain {
     Metrology,
+    Equipment,
     TestDefinitions,
     InstrumentDrivers,
     ProjectRecords,
@@ -35,6 +36,7 @@ impl RepositoryDomain {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Metrology => "metrology",
+            Self::Equipment => "equipment",
             Self::TestDefinitions => "test_definitions",
             Self::InstrumentDrivers => "instrument_drivers",
             Self::ProjectRecords => "project_records",
@@ -50,6 +52,7 @@ pub fn baseline_repository_domains() -> Vec<RepositoryDomain> {
 
     vec![
         Metrology,
+        Equipment,
         TestDefinitions,
         InstrumentDrivers,
         ProjectRecords,
@@ -80,6 +83,7 @@ impl RepositoryPolicy {
             || matches!(
                 domain,
                 RepositoryDomain::Metrology
+                    | RepositoryDomain::Equipment
                     | RepositoryDomain::TestDefinitions
                     | RepositoryDomain::InstrumentDrivers
                     | RepositoryDomain::ProjectRecords
@@ -91,6 +95,7 @@ impl RepositoryPolicy {
                 SyncDirection::Bidirectional
             }
             RepositoryDomain::Metrology
+            | RepositoryDomain::Equipment
             | RepositoryDomain::TestDefinitions
             | RepositoryDomain::InstrumentDrivers
             | RepositoryDomain::ReportTemplates

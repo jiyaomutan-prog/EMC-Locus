@@ -12,11 +12,15 @@ produce reports.
 
 ## Vocabulary
 
-- Template identity: stable `template_id`, title, category, creation metadata,
-  and the pointer to the current approved revision.
+- Template identity: stable `template_id`, business-facing library title,
+  category, creation metadata, and the pointer to the current approved revision.
 - Template revision: immutable or draft content revision with deterministic
   `revision_number`, explicit `revision_id`, optional parent revision, status,
   canonical definition JSON, and SHA-256 checksum.
+- Definition title: `definition.title` is the technical title of the revisioned
+  definition. In LAB CONSOLE it is shown separately from the library title.
+  Clone operations align the new technical title with the new business title by
+  default.
 - Revision status: `draft`, `under_review`, `approved`, `suspended`,
   `superseded`, or `retired`. Only `draft` definitions are editable.
 - Audit sequence: local append-only event order in `test_template_audit_events`.

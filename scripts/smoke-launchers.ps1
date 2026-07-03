@@ -13,6 +13,7 @@ $StartLab = Join-Path $PSScriptRoot "start-lab.ps1"
 $StopAgent = Join-Path $PSScriptRoot "stop-agent.ps1"
 $StartQtDemo = Join-Path $PSScriptRoot "start-qt-demo.ps1"
 $SeedLabDemo = Join-Path $PSScriptRoot "seed-lab-demo.ps1"
+$SeedEquipmentDemo = Join-Path $PSScriptRoot "seed-equipment-demo.ps1"
 
 function Invoke-Step {
     param(
@@ -130,6 +131,30 @@ try {
             foreach ($expected in @("DEMO-APPROVED-001", "DEMO-DRAFT-001", "DEMO-RICH-001")) {
                 if ($ids -notcontains $expected) {
                     throw "Seeded template missing from API library: $expected"
+                }
+            }
+        } finally {
+            & $StopAgent
+        }
+    }
+
+    Invoke-Step "Equipment seed uses public API and catalog data becomes visible through API" {
+        & $StartLab -Port $labPort -NoBrowser -Reset -CargoCommand $CargoCommand -PythonCommand $PythonCommand
+        try {
+            $agentUrl = "http://127.0.0.1:$labPort"
+            & $SeedEquipmentDemo -AgentUrl $agentUrl
+            $models = Invoke-RestMethod -Uri "$agentUrl/api/v1/equipment-models" -TimeoutSec 10
+            $modelIds = @($models.equipment_models | ForEach-Object { $_.identity.equipment_model_id })
+            foreach ($expected in @("EQM-DEMO-NRP6AN-FWD", "EQM-DEMO-SERIAL-AMP", "EQM-DEMO-CAN-POWER", "EQM-DEMO-MANUAL-ANTENNA")) {
+                if ($modelIds -notcontains $expected) {
+                    throw "Seeded equipment model missing from API library: $expected"
+                }
+            }
+            $drivers = Invoke-RestMethod -Uri "$agentUrl/api/v1/driver-profiles" -TimeoutSec 10
+            $driverIds = @($drivers.driver_profiles | ForEach-Object { $_.identity.driver_profile_id })
+            foreach ($expected in @("DRV-DEMO-NRP6AN-SCPI", "DRV-DEMO-SERIAL-AMP", "DRV-DEMO-CAN-POWER")) {
+                if ($driverIds -notcontains $expected) {
+                    throw "Seeded driver profile missing from API library: $expected"
                 }
             }
         } finally {

@@ -93,6 +93,13 @@ Deliverables:
   routes, with template library, create/clone, structured draft editing,
   validation, checksum save, submit, approve, derive, history, audit, demo seed,
   launchers, CI, unit tests, and Playwright E2E coverage.
+- `0.11.0` delivers the Equipment Definition Catalog and Driver Script Studio
+  vertical: separate `equipment.sqlite`, typed Rust core aggregates for
+  equipment models and driver profiles, physical ports, communication
+  interfaces, measurement capabilities, structured driver actions/scripts,
+  deterministic simulation, provider status, LAB CONSOLE Equipment workspace,
+  API seed, audit/outbox, and Python client coverage. It is not a physical
+  fleet redesign or a certified real hardware runtime.
 
 ## Phase 3: Measurement Runtime
 
@@ -304,11 +311,12 @@ Deliverables:
 
 ## Near-Term Next Session
 
-Recommended next vertical: `0.11.0 - Campaign Test Instantiation And Immutable
-Execution Package Snapshot`. It should link an approved template revision to a
-planned campaign test and freeze an immutable copy of the definition, resolved
-variables, required instruments, and applicable rules. It should not become a
-real acquisition runtime, FFT engine, report generator, or RBAC implementation.
+Recommended next vertical: `0.12.0 - Sensors, DAQ Channels, Scaling And
+Engineering Curves`. It should cover sensors, transducers, DAQ channels,
+two-point scaling, function-based scaling, transfer curves, antenna factors,
+cable losses, gains, uncertainties, frequency-dependent corrections, and
+interactive calibration. It should not become a full acquisition runtime, FFT
+engine, report generator, or RBAC implementation.
 
 The parallel runtime stream should continue guarded serial or VISA IO behind the
 adapter skeletons.

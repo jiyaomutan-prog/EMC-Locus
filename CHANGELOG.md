@@ -8,7 +8,53 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-03
+
+### Added
+
+- Added the revisioned Equipment Definition Catalog with a separate
+  `equipment.sqlite` domain, `test_template`-style audit/outbox evidence, model
+  identities, model revisions, driver profile identities, driver revisions,
+  indexed statuses, and single-active-draft guards.
+- Added typed Rust core definitions for equipment models, engineering
+  specifications, physical signal ports, communication interfaces, measurement
+  capabilities, driver actions, structured driver scripts, script steps, CAN
+  frames, safety classes, canonical JSON, checksums, static validation, and
+  deterministic driver simulation.
+- Added local-agent API routes under `/api/v1/equipment-models`,
+  `/api/v1/driver-profiles`, `/api/v1/equipment/communication-providers`, and
+  driver simulation/validation endpoints with CAS, idempotence, explicit
+  conflicts, audit, and sync outbox.
+- Added Python `LocalAgentClient` coverage for the new equipment and driver API.
+- Added LAB CONSOLE Equipment navigation with functional Model Catalog and
+  Drivers and Actions workspaces, structured model/driver editors, validation,
+  revision history, audit, provider status, simulation trace display, and
+  unavailable-provider visibility.
+- Added idempotent equipment demo seed scripts and a dedicated
+  `start-equipment-demo` launcher for SCPI power meter, serial amplifier, CAN
+  power unit, and manual antenna definitions.
+
+### Changed
+
+- Split the new Equipment frontend into dedicated feature/model modules and
+  hardened Template Studio wording so `identity.title` is the business-facing
+  library title while `definition.title` is the technical revision title.
+- Cloning a test template now aligns the cloned technical definition title with
+  the new business title by default.
+- `storage init/status/verify` now includes the `equipment` repository domain.
+- Launcher smoke coverage now verifies the equipment seed through public API
+  routes without requiring VISA, vendor CAN, USB instruments, or physical serial
+  ports.
+- Bumped synchronized Rust, Python, and frontend versions to `0.11.0`.
+
 ### Fixed
+
+- Allowed textual, boolean, and binary driver/action values to use the
+  explicit `dimensionless` unit, so structured driver outputs such as SCPI
+  error text validate cleanly.
+- Exposed Template Studio operation errors for validation, creation, cloning,
+  submission, approval, and revision derivation instead of leaving failures
+  hidden in async flows.
 
 - Rejected repository service-schedule inserts for projects that have not
   entered `test_planning`, so direct Python callers cannot plan execution

@@ -72,8 +72,10 @@ A reusable executable test definition.
 Contains:
 
 - stable template identity, independent from content revision numbers;
+- identity title used as the business-facing library name;
 - revision history with deterministic revision numbers and explicit parent
   revision links;
+- definition title used as the technical title of a specific revision;
 - revision status, where draft content is editable and submitted/approved
   content is immutable;
 - canonical definition JSON and SHA-256 definition checksum;

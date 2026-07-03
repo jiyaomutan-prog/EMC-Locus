@@ -2981,7 +2981,7 @@ class SyncRepositoryTests(unittest.TestCase):
                     """
                 ).fetchone()
 
-            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3])
+            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4])
             self.assertIsNotNone(operation_table)
             self.assertIsNotNone(snapshot_table)
             self.assertIsNotNone(checkpoint_table)

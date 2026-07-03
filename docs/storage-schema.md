@@ -17,7 +17,51 @@ domain repository.
 
 The original sketch below remains as a readable overview. The executable
 migrations separate these tables into metrology, projects, test definitions,
-measurement data, update catalog, and synchronization coordination domains.
+equipment, measurement data, update catalog, and synchronization coordination
+domains.
+
+### equipment_model_identities
+
+```sql
+CREATE TABLE equipment_model_identities (
+    equipment_model_id TEXT PRIMARY KEY,
+    manufacturer TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    variant TEXT,
+    equipment_class TEXT NOT NULL,
+    category_code TEXT NOT NULL,
+    current_approved_revision_id TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+```
+
+### equipment_model_revisions
+
+```sql
+CREATE TABLE equipment_model_revisions (
+    revision_id TEXT PRIMARY KEY,
+    equipment_model_id TEXT NOT NULL,
+    revision_number INTEGER NOT NULL,
+    parent_revision_id TEXT,
+    status TEXT NOT NULL,
+    definition_schema_version TEXT NOT NULL,
+    definition_json TEXT NOT NULL,
+    definition_checksum TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    submitted_at TEXT,
+    approved_at TEXT
+);
+```
+
+Driver profile identities and revisions follow the same split, with driver
+revisions referencing the supported approved equipment model revision and
+checksum. Equipment audit events reference aggregate kind, entity id, revision
+id, action, actor, reason, old/new revision, old/new checksum, operation id,
+device id and correlation id.
 
 ### projects
 

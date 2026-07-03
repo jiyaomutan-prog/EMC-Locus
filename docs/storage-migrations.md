@@ -10,6 +10,7 @@ storage/sqlite/
   metrology/
   projects/
   test_definitions/
+  equipment/
   measurement_data/
   update_catalog/
   sync/
@@ -74,6 +75,18 @@ dual-write compatibility path after migration. Version 5 adds a partial unique
 index on `test_template_revisions(template_id) WHERE status = 'draft'` so the
 database enforces one active draft per template identity.
 
+### Equipment
+
+Owns revisioned equipment model definitions and driver profiles. This domain is
+separate from metrology: it describes what a model and driver are, not which
+physical asset is calibrated or assigned to a station. Version 1 creates
+equipment class and unit registries, `equipment_model_identities`,
+`equipment_model_revisions`, `driver_profile_identities`,
+`driver_profile_revisions`, `equipment_audit_events`, and single-active-draft
+indexes. Complex definitions are stored as canonical JSON with SHA-256
+checksums, while identities, statuses, model links, revision ids and approved
+pointers remain indexed columns.
+
 ### Measurement Data
 
 Owns immutable raw and processed dataset records, signal channel metadata,
@@ -93,6 +106,9 @@ actor, device, correlation, base revision, resulting revision, normalized JSON
 payload, SHA-256 payload checksum, and pending/applied/failed statuses. Version
 3 adds entity snapshots and sync checkpoints so stations can keep local replay
 baselines and peer/domain/direction cursors before central merge is introduced.
+Version 4 extends the sync domain vocabulary with `equipment` so model/driver
+catalog operations can enter the same local outbox as project, metrology and
+template operations.
 
 The Rust core now mirrors these storage concepts with update bundles, semantic
 software versions, package signatures, compatibility-range validation,
@@ -122,8 +138,8 @@ The helper checks migration filenames, detects duplicate versions per domain,
 and executes each domain's SQL in a fresh in-memory SQLite database.
 Repository initialization also applies missing domain migrations to an existing
 database that already has a `schema_migrations` table. The Rust local agent now
-initializes `projects.sqlite`, `sync.sqlite`, `metrology.sqlite`, and
-`test_definitions.sqlite`.
+initializes `projects.sqlite`, `sync.sqlite`, `metrology.sqlite`,
+`test_definitions.sqlite`, and `equipment.sqlite`.
 
 ## Early Python Adapters
 

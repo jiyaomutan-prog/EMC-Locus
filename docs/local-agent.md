@@ -31,6 +31,7 @@ prepare the metrology and test-definition agent databases. They manage:
 - `sync.sqlite`;
 - `metrology.sqlite`;
 - `test_definitions.sqlite`.
+- `equipment.sqlite`.
 
 Use an explicit storage root and migration root:
 
@@ -41,7 +42,7 @@ cargo run -q -p emc-locus-agent -- storage verify --storage-root data\agent --mi
 ```
 
 `storage init` creates the storage directory if needed and applies missing
-project, sync, metrology, and test-definition migrations. `storage status`
+project, sync, metrology, test-definition, and equipment migrations. `storage status`
 reports whether the databases are missing, current, invalid, or need migration.
 `storage verify` fails when a database is not current or fails SQLite integrity
 checks.
@@ -139,6 +140,8 @@ The normal release launcher is:
 ```powershell
 .\scripts\start-lab.ps1
 .\scripts\start-lab.ps1 -SeedDemo
+.\scripts\start-lab.ps1 -SeedEquipmentDemo
+.\scripts\start-equipment-demo.ps1
 .\scripts\start-full-demo.ps1
 ```
 
@@ -180,6 +183,31 @@ POST /api/v1/test-templates/{template_id}/revisions
 POST /api/v1/test-templates/{template_id}/revisions/{revision_id}/transitions/submit-for-review
 POST /api/v1/test-templates/{template_id}/revisions/{revision_id}/transitions/approve
 GET  /api/v1/test-templates/{template_id}/audit-events
+GET  /api/v1/equipment-models
+POST /api/v1/equipment-models
+POST /api/v1/equipment-model-definitions/validate
+GET  /api/v1/equipment-models/{equipment_model_id}
+POST /api/v1/equipment-models/{equipment_model_id}/clone
+GET  /api/v1/equipment-models/{equipment_model_id}/revisions
+GET  /api/v1/equipment-models/{equipment_model_id}/revisions/{revision_id}
+PUT  /api/v1/equipment-models/{equipment_model_id}/revisions/{revision_id}/definition
+POST /api/v1/equipment-models/{equipment_model_id}/revisions
+POST /api/v1/equipment-models/{equipment_model_id}/revisions/{revision_id}/transitions/submit-for-review
+POST /api/v1/equipment-models/{equipment_model_id}/revisions/{revision_id}/transitions/approve
+GET  /api/v1/equipment-models/{equipment_model_id}/audit-events
+GET  /api/v1/driver-profiles
+POST /api/v1/driver-profiles
+POST /api/v1/driver-profile-definitions/validate
+GET  /api/v1/driver-profiles/{driver_profile_id}
+GET  /api/v1/driver-profiles/{driver_profile_id}/revisions
+GET  /api/v1/driver-profiles/{driver_profile_id}/revisions/{revision_id}
+PUT  /api/v1/driver-profiles/{driver_profile_id}/revisions/{revision_id}/definition
+POST /api/v1/driver-profiles/{driver_profile_id}/revisions
+POST /api/v1/driver-profiles/{driver_profile_id}/revisions/{revision_id}/transitions/submit-for-review
+POST /api/v1/driver-profiles/{driver_profile_id}/revisions/{revision_id}/transitions/approve
+GET  /api/v1/driver-profiles/{driver_profile_id}/audit-events
+POST /api/v1/driver-profile-simulations
+GET  /api/v1/equipment/communication-providers
 POST /api/v1/test-executions/simulated-emc
 GET  /api/v1/test-executions/{attempt_id}
 GET  /api/v1/metrology/instruments
@@ -198,9 +226,9 @@ used by Qt to display connected, unavailable, storage-not-initialized,
 migration-required, and integrity-error states without opening SQLite directly.
 
 The API is intentionally local and narrow. It backs LAB CONSOLE Template Studio
-v1 for test-template authoring, but it does not expose central synchronization,
-PostgreSQL, object storage, instrument control, acquisition runtime features,
-campaign instantiation, or reporting.
+and the 0.11.0 Equipment Model/Driver Script Studio workflows, but it does not
+expose central synchronization, PostgreSQL, object storage, certified hardware
+drivers, acquisition runtime features, campaign instantiation, or reporting.
 
 For metrology, `POST /api/v1/metrology/instruments` accepts the same fields as
 the `metrology register-instrument` command, with `capabilities` accepted as a

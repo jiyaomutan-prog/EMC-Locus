@@ -15,6 +15,9 @@ The Rust core owns business invariants:
 - project and campaign lifecycle states;
 - traceability requirements;
 - metrology records and calibration validity;
+- equipment model definitions, measurement capabilities, communication
+  interfaces, driver profiles, structured driver scripts, safety classes, and
+  deterministic driver simulation;
 - audit-event creation rules;
 - immutable dataset references;
 - report approval gates.
@@ -30,6 +33,8 @@ The storage layer should preserve:
 - immutable raw measurement data;
 - versioned metadata;
 - instrument identity and calibration records;
+- revisioned equipment model and driver definitions separate from physical
+  assets and metrology records;
 - user actions and system actions;
 - report package history.
 - attached document metadata with storage reference, checksum, revision,
@@ -53,9 +58,11 @@ images, scripts, and other files.
 
 ### 3. Instrument Runtime
 
-Instrument control should be built around explicit commands and observations:
+Instrument control should be built around approved equipment/driver
+definitions, explicit commands, and observations:
 
-- simulated driver first;
+- typed equipment model catalog and driver profile revisions first;
+- deterministic driver simulation first;
 - transport adapter boundary first, then concrete VISA, serial, TCP/IP, or
   vendor SDK implementations;
 - command logs linked to measurement runs;

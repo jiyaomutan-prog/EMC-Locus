@@ -3,6 +3,7 @@ param(
     [switch]$NoBrowser,
     [switch]$Reset,
     [switch]$SeedDemo,
+    [switch]$SeedEquipmentDemo,
     [switch]$Rebuild,
     [string]$PythonCommand = "py",
     [string]$CargoCommand = "cargo"
@@ -44,6 +45,9 @@ Wait-HttpReady -Url $LabUrl -TimeoutSeconds 60 | Out-Null
 
 if ($SeedDemo) {
     & (Join-Path $PSScriptRoot "seed-lab-demo.ps1") -AgentUrl $AgentUrl
+}
+if ($SeedEquipmentDemo) {
+    & (Join-Path $PSScriptRoot "seed-equipment-demo.ps1") -AgentUrl $AgentUrl
 }
 
 Write-Host "LAB CONSOLE ready: $LabUrl"

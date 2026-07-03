@@ -112,6 +112,148 @@ def _template_definition(sample_rate_hz: float = 100_000.0) -> dict[str, object]
     }
 
 
+def _equipment_model_definition() -> dict[str, object]:
+    return {
+        "definition_schema_version": "emc-locus.equipment-model-definition.v1",
+        "manufacturer": "Demo",
+        "model_name": "Python Power Meter",
+        "variant": "FWD",
+        "equipment_class": "controllable_instrument",
+        "category_code": "power_meter",
+        "specifications": [
+            {
+                "specification_id": "frequency_range",
+                "label": "Frequency range",
+                "quantity": "frequency",
+                "unit": "MHz",
+                "minimum": 9.0,
+                "maximum": 1000.0,
+            }
+        ],
+        "signal_ports": [
+            {
+                "port_id": "rf_input",
+                "label": "RF input",
+                "direction": "input",
+                "signal_domain": "rf",
+                "connector_type": "N",
+                "quantity": "power",
+                "unit": "dBm",
+                "impedance": 50.0,
+            }
+        ],
+        "communication_interfaces": [
+            {
+                "interface_id": "tcp",
+                "label": "SCPI TCP",
+                "transport_kind": "ethernet_tcp",
+                "access_provider_kind": "native_tcp",
+                "protocol_kind": "scpi",
+                "required": True,
+                "default_interface": True,
+                "default_configuration": {
+                    "host": "127.0.0.1",
+                    "port": 5025,
+                    "write_terminator": "\n",
+                    "read_terminator": "\n",
+                    "timeout_ms": 1000,
+                },
+                "identification_strategy": {
+                    "kind": "scpi_idn",
+                    "query": "*IDN?",
+                    "response_regex": "^Demo,Python Power Meter,",
+                },
+            }
+        ],
+        "capabilities": [
+            {
+                "capability_id": "measure_power",
+                "label": "Measure power",
+                "description": "Read RF power.",
+                "capability_kind": "measure_power",
+                "inputs": [],
+                "outputs": [
+                    {
+                        "name": "power_dbm",
+                        "value_type": "number",
+                        "quantity": "power",
+                        "unit": "dBm",
+                        "required": True,
+                    }
+                ],
+                "required_signal_ports": ["rf_input"],
+                "safety_class": "read_only",
+            }
+        ],
+        "metadata": {},
+    }
+
+
+def _driver_profile_definition() -> dict[str, object]:
+    return {
+        "definition_schema_version": "emc-locus.driver-profile-definition.v1",
+        "equipment_model_id": "EQM-PY-POWER",
+        "supported_model_revision_id": "EQM-PY-POWER-rev-0001",
+        "supported_model_definition_checksum": "sha256:" + "a" * 64,
+        "supported_firmware_ranges": ["*"],
+        "communication_profiles": ["tcp"],
+        "actions": [
+            {
+                "action_id": "measure_power",
+                "label": "Measure power",
+                "description": "Query power value.",
+                "implements_capability_id": "measure_power",
+                "inputs": [],
+                "outputs": [
+                    {
+                        "name": "power_dbm",
+                        "value_type": "number",
+                        "quantity": "power",
+                        "unit": "dBm",
+                        "required": True,
+                    }
+                ],
+                "safety_class": "read_only",
+                "default_timeout_ms": 1000,
+                "script": {
+                    "steps": [
+                        {
+                            "step_id": "query_power",
+                            "step_type": "io_query",
+                            "interface_id": "tcp",
+                            "payload_format": "text",
+                            "payload": "MEAS:POW?",
+                            "response_binding": "${result.power_dbm}",
+                        },
+                        {
+                            "step_id": "return",
+                            "step_type": "return",
+                            "return_values": ["${result.power_dbm}"],
+                        },
+                    ]
+                },
+            }
+        ],
+        "metadata": {},
+    }
+
+
+def _driver_simulation_scenario() -> dict[str, object]:
+    return {
+        "scenario_id": "PY-SIM-POWER",
+        "driver_revision_id": "DRV-PY-POWER-rev-0001",
+        "action_id": "measure_power",
+        "input_values": {},
+        "simulated_responses": [
+            {
+                "step_id": "query_power",
+                "response": "-12.5",
+            }
+        ],
+        "expected_outputs": {"power_dbm": -12.5},
+    }
+
+
 class LocalAgentClientTests(unittest.TestCase):
     def test_posts_project_creation_payload(self) -> None:
         captured: dict[str, object] = {}
@@ -362,6 +504,252 @@ class LocalAgentClientTests(unittest.TestCase):
                 ("GET", "http://127.0.0.1:8765/api/v1/sync/outbox"),
             ],
         )
+
+    def test_reads_equipment_catalog_routes(self) -> None:
+        captured: list[tuple[str, str]] = []
+        payloads = {
+            "http://127.0.0.1:8765/api/v1/equipment-models?manufacturer=Demo&equipment_class=controllable_instrument&category_code=power_meter&status=approved&search=power": {
+                "equipment_models": []
+            },
+            "http://127.0.0.1:8765/api/v1/equipment-models/EQM-PY-POWER": {
+                "equipment_model": {"identity": {"equipment_model_id": "EQM-PY-POWER"}}
+            },
+            "http://127.0.0.1:8765/api/v1/equipment-models/EQM-PY-POWER/revisions": {
+                "revisions": []
+            },
+            "http://127.0.0.1:8765/api/v1/equipment-models/EQM-PY-POWER/revisions/EQM-PY-POWER-rev-0001": {
+                "revision": {"revision_id": "EQM-PY-POWER-rev-0001"}
+            },
+            "http://127.0.0.1:8765/api/v1/equipment-models/EQM-PY-POWER/audit-events": {
+                "audit_events": []
+            },
+            "http://127.0.0.1:8765/api/v1/driver-profiles?equipment_model_id=EQM-PY-POWER&status=approved&search=power": {
+                "driver_profiles": []
+            },
+            "http://127.0.0.1:8765/api/v1/driver-profiles/DRV-PY-POWER": {
+                "driver_profile": {"identity": {"driver_profile_id": "DRV-PY-POWER"}}
+            },
+            "http://127.0.0.1:8765/api/v1/driver-profiles/DRV-PY-POWER/revisions": {
+                "revisions": []
+            },
+            "http://127.0.0.1:8765/api/v1/driver-profiles/DRV-PY-POWER/revisions/DRV-PY-POWER-rev-0001": {
+                "revision": {"revision_id": "DRV-PY-POWER-rev-0001"}
+            },
+            "http://127.0.0.1:8765/api/v1/driver-profiles/DRV-PY-POWER/audit-events": {
+                "audit_events": []
+            },
+            "http://127.0.0.1:8765/api/v1/equipment/communication-providers": {
+                "providers": [{"provider": "simulation", "available": True}]
+            },
+        }
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            captured.append((request.get_method(), request.full_url))
+            return _FakeResponse(payloads[request.full_url])
+
+        client = LocalAgentClient("http://127.0.0.1:8765")
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            self.assertEqual(
+                client.list_equipment_models(
+                    manufacturer="Demo",
+                    equipment_class="controllable_instrument",
+                    category_code="power_meter",
+                    status="approved",
+                    search="power",
+                )["equipment_models"],
+                [],
+            )
+            self.assertEqual(
+                client.get_equipment_model("EQM-PY-POWER")["equipment_model"]["identity"]["equipment_model_id"],
+                "EQM-PY-POWER",
+            )
+            self.assertEqual(client.list_equipment_model_revisions("EQM-PY-POWER")["revisions"], [])
+            self.assertEqual(
+                client.get_equipment_model_revision(
+                    "EQM-PY-POWER",
+                    "EQM-PY-POWER-rev-0001",
+                )["revision"]["revision_id"],
+                "EQM-PY-POWER-rev-0001",
+            )
+            self.assertEqual(client.equipment_model_audit_events("EQM-PY-POWER")["audit_events"], [])
+            self.assertEqual(
+                client.list_driver_profiles(
+                    equipment_model_id="EQM-PY-POWER",
+                    status="approved",
+                    search="power",
+                )["driver_profiles"],
+                [],
+            )
+            self.assertEqual(
+                client.get_driver_profile("DRV-PY-POWER")["driver_profile"]["identity"]["driver_profile_id"],
+                "DRV-PY-POWER",
+            )
+            self.assertEqual(client.list_driver_profile_revisions("DRV-PY-POWER")["revisions"], [])
+            self.assertEqual(
+                client.get_driver_profile_revision(
+                    "DRV-PY-POWER",
+                    "DRV-PY-POWER-rev-0001",
+                )["revision"]["revision_id"],
+                "DRV-PY-POWER-rev-0001",
+            )
+            self.assertEqual(client.driver_profile_audit_events("DRV-PY-POWER")["audit_events"], [])
+            self.assertTrue(client.communication_provider_status()["providers"][0]["available"])
+
+        self.assertEqual(len(captured), 11)
+
+    def test_posts_equipment_model_revision_payloads(self) -> None:
+        captured: list[tuple[str, str, dict[str, object]]] = []
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            body = json.loads(request.data.decode("utf-8"))
+            captured.append((request.get_method(), request.full_url, body))
+            if request.full_url.endswith("/validate"):
+                return _FakeResponse({"valid": True, "issues": [], "definition_checksum": "sha256:" + "a" * 64})
+            return _FakeResponse(
+                {
+                    "operation_id": body.get("operation_id", "op"),
+                    "replayed": False,
+                    "revision": {
+                        "revision_id": "EQM-PY-POWER-rev-0001",
+                        "status": "draft",
+                    },
+                }
+            )
+
+        client = LocalAgentClient("http://127.0.0.1:8765")
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            self.assertTrue(client.validate_equipment_model_definition(_equipment_model_definition())["valid"])
+            client.create_equipment_model(
+                equipment_model_id="EQM-PY-POWER",
+                definition=_equipment_model_definition(),
+                actor="catalog.author",
+                reason="create model",
+                operation_id="op-model-create",
+            )
+            client.replace_equipment_model_revision_definition(
+                equipment_model_id="EQM-PY-POWER",
+                revision_id="EQM-PY-POWER-rev-0001",
+                expected_definition_checksum="sha256:" + "a" * 64,
+                definition=_equipment_model_definition(),
+                actor="catalog.author",
+                reason="save draft",
+                operation_id="op-model-save",
+            )
+            client.create_equipment_model_revision(
+                equipment_model_id="EQM-PY-POWER",
+                source_revision_id="EQM-PY-POWER-rev-0001",
+                actor="catalog.author",
+                reason="derive next draft",
+                operation_id="op-model-derive",
+            )
+            client.clone_equipment_model(
+                source_equipment_model_id="EQM-PY-POWER",
+                new_equipment_model_id="EQM-PY-POWER-CLONE",
+                model_name="Python Power Meter Clone",
+                actor="catalog.author",
+                reason="clone model",
+                operation_id="op-model-clone",
+            )
+            client.submit_equipment_model_revision_for_review(
+                equipment_model_id="EQM-PY-POWER",
+                revision_id="EQM-PY-POWER-rev-0001",
+                actor="catalog.author",
+                reason="ready",
+                operation_id="op-model-submit",
+            )
+            client.approve_equipment_model_revision(
+                equipment_model_id="EQM-PY-POWER",
+                revision_id="EQM-PY-POWER-rev-0001",
+                actor="catalog.reviewer",
+                reason="accepted",
+                operation_id="op-model-approve",
+            )
+
+        self.assertEqual(captured[0][1], "http://127.0.0.1:8765/api/v1/equipment-model-definitions/validate")
+        self.assertEqual(captured[1][2]["equipment_model_id"], "EQM-PY-POWER")
+        self.assertEqual(captured[2][2]["expected_definition_checksum"], "sha256:" + "a" * 64)
+        self.assertEqual(captured[3][2]["source_revision_id"], "EQM-PY-POWER-rev-0001")
+        self.assertEqual(captured[4][2]["new_equipment_model_id"], "EQM-PY-POWER-CLONE")
+        self.assertEqual(captured[5][2]["operation_id"], "op-model-submit")
+        self.assertEqual(captured[6][2]["operation_id"], "op-model-approve")
+
+    def test_posts_driver_profile_revision_and_simulation_payloads(self) -> None:
+        captured: list[tuple[str, str, dict[str, object]]] = []
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            body = json.loads(request.data.decode("utf-8"))
+            captured.append((request.get_method(), request.full_url, body))
+            if request.full_url.endswith("/validate"):
+                return _FakeResponse({"valid": True, "issues": [], "definition_checksum": "sha256:" + "b" * 64})
+            if request.full_url.endswith("/driver-profile-simulations"):
+                return _FakeResponse({"simulation": {"status": "passed", "trace": []}})
+            return _FakeResponse(
+                {
+                    "operation_id": body.get("operation_id", "op"),
+                    "replayed": False,
+                    "revision": {
+                        "revision_id": "DRV-PY-POWER-rev-0001",
+                        "status": "draft",
+                    },
+                }
+            )
+
+        client = LocalAgentClient("http://127.0.0.1:8765")
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            self.assertTrue(client.validate_driver_profile_definition(_driver_profile_definition())["valid"])
+            client.create_driver_profile(
+                driver_profile_id="DRV-PY-POWER",
+                label="Python power meter SCPI",
+                definition=_driver_profile_definition(),
+                actor="driver.author",
+                reason="create driver",
+                operation_id="op-driver-create",
+            )
+            client.replace_driver_profile_revision_definition(
+                driver_profile_id="DRV-PY-POWER",
+                revision_id="DRV-PY-POWER-rev-0001",
+                expected_definition_checksum="sha256:" + "b" * 64,
+                definition=_driver_profile_definition(),
+                actor="driver.author",
+                reason="save draft",
+                operation_id="op-driver-save",
+            )
+            client.create_driver_profile_revision(
+                driver_profile_id="DRV-PY-POWER",
+                source_revision_id="DRV-PY-POWER-rev-0001",
+                actor="driver.author",
+                reason="derive next draft",
+                operation_id="op-driver-derive",
+            )
+            client.submit_driver_profile_revision_for_review(
+                driver_profile_id="DRV-PY-POWER",
+                revision_id="DRV-PY-POWER-rev-0001",
+                actor="driver.author",
+                reason="ready",
+                operation_id="op-driver-submit",
+            )
+            client.approve_driver_profile_revision(
+                driver_profile_id="DRV-PY-POWER",
+                revision_id="DRV-PY-POWER-rev-0001",
+                actor="driver.reviewer",
+                reason="accepted",
+                operation_id="op-driver-approve",
+            )
+            simulation = client.simulate_driver_profile(
+                driver_profile_id="DRV-PY-POWER",
+                revision_id="DRV-PY-POWER-rev-0001",
+                action_id="measure_power",
+                scenario=_driver_simulation_scenario(),
+            )
+
+        self.assertEqual(captured[0][1], "http://127.0.0.1:8765/api/v1/driver-profile-definitions/validate")
+        self.assertEqual(captured[1][2]["driver_profile_id"], "DRV-PY-POWER")
+        self.assertEqual(captured[2][2]["expected_definition_checksum"], "sha256:" + "b" * 64)
+        self.assertEqual(captured[3][2]["source_revision_id"], "DRV-PY-POWER-rev-0001")
+        self.assertEqual(captured[4][2]["operation_id"], "op-driver-submit")
+        self.assertEqual(captured[5][2]["operation_id"], "op-driver-approve")
+        self.assertEqual(captured[6][2]["scenario"]["scenario_id"], "PY-SIM-POWER")
+        self.assertEqual(simulation["simulation"]["status"], "passed")
 
     def test_posts_attached_document_payload(self) -> None:
         captured: dict[str, object] = {}

@@ -13,6 +13,20 @@ import type {
   TestTemplateRevision,
   ValidationResult
 } from "./types";
+import type {
+  CommunicationProviderStatus,
+  DriverProfileAggregate,
+  DriverProfileDefinition,
+  DriverProfileRevision,
+  DriverSimulationResult,
+  DriverSimulationScenario,
+  EquipmentAuditEvent,
+  EquipmentModelAggregate,
+  EquipmentModelDefinition,
+  EquipmentModelRevision,
+  EquipmentOperationResult,
+  EquipmentValidationResult
+} from "./models/equipment";
 
 export class ApiError extends Error {
   readonly code: string;
@@ -66,6 +80,16 @@ export interface TemplateOperationResult {
   test_template: TestTemplateAggregate;
   revision: TestTemplateRevision;
 }
+
+export type EquipmentModelOperationResult = EquipmentOperationResult<
+  EquipmentModelAggregate,
+  EquipmentModelRevision
+>;
+
+export type DriverProfileOperationResult = EquipmentOperationResult<
+  DriverProfileAggregate,
+  DriverProfileRevision
+>;
 
 function normalizeDefinition(definition: TestTemplateDefinition): TestTemplateDefinition {
   return {
@@ -245,6 +269,193 @@ export const api = {
         operation_id: operationId("template-derive", `${templateId}-${sourceRevisionId}`)
       }
     ).then(normalizeOperationResult)
+};
+
+export const equipmentApi = {
+  listModels: () =>
+    request<{ equipment_models: EquipmentModelAggregate[] }>("/api/v1/equipment-models"),
+  getModel: (modelId: string) =>
+    request<{ equipment_model: EquipmentModelAggregate }>(
+      `/api/v1/equipment-models/${encodeURIComponent(modelId)}`
+    ),
+  listModelRevisions: (modelId: string) =>
+    request<{ equipment_model_id: string; revisions: EquipmentModelRevision[] }>(
+      `/api/v1/equipment-models/${encodeURIComponent(modelId)}/revisions`
+    ),
+  listModelAudit: (modelId: string) =>
+    request<{ aggregate_kind: string; entity_id: string; audit_events: EquipmentAuditEvent[] }>(
+      `/api/v1/equipment-models/${encodeURIComponent(modelId)}/audit-events`
+    ),
+  validateModelDefinition: (definition: EquipmentModelDefinition) =>
+    post<EquipmentValidationResult>("/api/v1/equipment-model-definitions/validate", { definition }),
+  createModel: (
+    input: {
+      equipment_model_id: string;
+      definition: EquipmentModelDefinition;
+    } & OperationContext
+  ) =>
+    post<EquipmentModelOperationResult>("/api/v1/equipment-models", {
+      ...input,
+      operation_id: operationId("equipment-model-create", input.equipment_model_id)
+    }),
+  cloneModel: (
+    sourceModelId: string,
+    input: {
+      new_equipment_model_id: string;
+      source_revision_id?: string;
+      manufacturer?: string;
+      model_name?: string;
+      variant?: string;
+    } & OperationContext
+  ) =>
+    post<EquipmentModelOperationResult>(
+      `/api/v1/equipment-models/${encodeURIComponent(sourceModelId)}/clone`,
+      {
+        ...input,
+        operation_id: operationId("equipment-model-clone", input.new_equipment_model_id)
+      }
+    ),
+  saveModelDraft: (
+    modelId: string,
+    revisionId: string,
+    expectedChecksum: string,
+    definition: EquipmentModelDefinition,
+    context: OperationContext
+  ) =>
+    put<EquipmentModelOperationResult>(
+      `/api/v1/equipment-models/${encodeURIComponent(modelId)}/revisions/${encodeURIComponent(
+        revisionId
+      )}/definition`,
+      {
+        expected_definition_checksum: expectedChecksum,
+        definition,
+        actor: context.actor,
+        reason: context.reason,
+        operation_id: operationId("equipment-model-save", `${modelId}-${revisionId}`)
+      }
+    ),
+  submitModel: (modelId: string, revisionId: string, context: OperationContext) =>
+    post<EquipmentModelOperationResult>(
+      `/api/v1/equipment-models/${encodeURIComponent(modelId)}/revisions/${encodeURIComponent(
+        revisionId
+      )}/transitions/submit-for-review`,
+      {
+        actor: context.actor,
+        reason: context.reason,
+        operation_id: operationId("equipment-model-submit", `${modelId}-${revisionId}`)
+      }
+    ),
+  approveModel: (modelId: string, revisionId: string, context: OperationContext) =>
+    post<EquipmentModelOperationResult>(
+      `/api/v1/equipment-models/${encodeURIComponent(modelId)}/revisions/${encodeURIComponent(
+        revisionId
+      )}/transitions/approve`,
+      {
+        actor: context.actor,
+        reason: context.reason,
+        operation_id: operationId("equipment-model-approve", `${modelId}-${revisionId}`)
+      }
+    ),
+  deriveModelRevision: (modelId: string, sourceRevisionId: string, context: OperationContext) =>
+    post<EquipmentModelOperationResult>(
+      `/api/v1/equipment-models/${encodeURIComponent(modelId)}/revisions`,
+      {
+        source_revision_id: sourceRevisionId,
+        actor: context.actor,
+        reason: context.reason,
+        operation_id: operationId("equipment-model-derive", `${modelId}-${sourceRevisionId}`)
+      }
+    ),
+  listDrivers: () =>
+    request<{ driver_profiles: DriverProfileAggregate[] }>("/api/v1/driver-profiles"),
+  listDriverRevisions: (driverId: string) =>
+    request<{ driver_profile_id: string; revisions: DriverProfileRevision[] }>(
+      `/api/v1/driver-profiles/${encodeURIComponent(driverId)}/revisions`
+    ),
+  listDriverAudit: (driverId: string) =>
+    request<{ aggregate_kind: string; entity_id: string; audit_events: EquipmentAuditEvent[] }>(
+      `/api/v1/driver-profiles/${encodeURIComponent(driverId)}/audit-events`
+    ),
+  validateDriverDefinition: (definition: DriverProfileDefinition) =>
+    post<EquipmentValidationResult>("/api/v1/driver-profile-definitions/validate", { definition }),
+  createDriver: (
+    input: {
+      driver_profile_id: string;
+      label: string;
+      definition: DriverProfileDefinition;
+    } & OperationContext
+  ) =>
+    post<DriverProfileOperationResult>("/api/v1/driver-profiles", {
+      ...input,
+      operation_id: operationId("driver-profile-create", input.driver_profile_id)
+    }),
+  saveDriverDraft: (
+    driverId: string,
+    revisionId: string,
+    expectedChecksum: string,
+    definition: DriverProfileDefinition,
+    context: OperationContext
+  ) =>
+    put<DriverProfileOperationResult>(
+      `/api/v1/driver-profiles/${encodeURIComponent(driverId)}/revisions/${encodeURIComponent(
+        revisionId
+      )}/definition`,
+      {
+        expected_definition_checksum: expectedChecksum,
+        definition,
+        actor: context.actor,
+        reason: context.reason,
+        operation_id: operationId("driver-profile-save", `${driverId}-${revisionId}`)
+      }
+    ),
+  submitDriver: (driverId: string, revisionId: string, context: OperationContext) =>
+    post<DriverProfileOperationResult>(
+      `/api/v1/driver-profiles/${encodeURIComponent(driverId)}/revisions/${encodeURIComponent(
+        revisionId
+      )}/transitions/submit-for-review`,
+      {
+        actor: context.actor,
+        reason: context.reason,
+        operation_id: operationId("driver-profile-submit", `${driverId}-${revisionId}`)
+      }
+    ),
+  approveDriver: (driverId: string, revisionId: string, context: OperationContext) =>
+    post<DriverProfileOperationResult>(
+      `/api/v1/driver-profiles/${encodeURIComponent(driverId)}/revisions/${encodeURIComponent(
+        revisionId
+      )}/transitions/approve`,
+      {
+        actor: context.actor,
+        reason: context.reason,
+        operation_id: operationId("driver-profile-approve", `${driverId}-${revisionId}`)
+      }
+    ),
+  deriveDriverRevision: (driverId: string, sourceRevisionId: string, context: OperationContext) =>
+    post<DriverProfileOperationResult>(
+      `/api/v1/driver-profiles/${encodeURIComponent(driverId)}/revisions`,
+      {
+        source_revision_id: sourceRevisionId,
+        actor: context.actor,
+        reason: context.reason,
+        operation_id: operationId("driver-profile-derive", `${driverId}-${sourceRevisionId}`)
+      }
+    ),
+  simulateDriver: (
+    driver_profile_id: string,
+    action_id: string,
+    scenario: DriverSimulationScenario,
+    revision_id?: string
+  ) =>
+    post<{ simulation: DriverSimulationResult }>("/api/v1/driver-profile-simulations", {
+      driver_profile_id,
+      revision_id,
+      action_id,
+      scenario
+    }),
+  providers: () =>
+    request<{ providers: CommunicationProviderStatus[] }>(
+      "/api/v1/equipment/communication-providers"
+    )
 };
 
 export function operationId(prefix: string, key: string): string {

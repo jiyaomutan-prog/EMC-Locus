@@ -1,6 +1,7 @@
 param(
     [string]$AgentUrl = "http://127.0.0.1:8765",
-    [switch]$Recreate
+    [switch]$Recreate,
+    [switch]$IncludeEquipment
 )
 
 $ErrorActionPreference = "Stop"
@@ -296,3 +297,7 @@ Ensure-ApprovedTemplate `
     -Definition (New-DemoDefinition -Title "Demo rich time-domain EMC method" -Rich) | Out-Null
 
 Write-Host "LAB demo seed complete via API at $AgentUrl"
+
+if ($IncludeEquipment) {
+    & (Join-Path $PSScriptRoot "seed-equipment-demo.ps1") -AgentUrl $AgentUrl
+}

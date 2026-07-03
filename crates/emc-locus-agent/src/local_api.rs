@@ -7,6 +7,22 @@ use crate::document_service::{
     get_document, list_document_audit_events, list_documents, register_attached_document,
     ListAttachedDocumentsInput, RegisterAttachedDocumentInput,
 };
+use crate::equipment_service::{
+    clone_equipment_model, communication_provider_status, create_driver_profile,
+    create_driver_profile_revision, create_equipment_model, create_equipment_model_revision,
+    get_driver_profile, get_driver_profile_revision, get_equipment_model,
+    get_equipment_model_revision, list_driver_profile_revisions, list_driver_profiles,
+    list_equipment_audit_events_for_driver, list_equipment_audit_events_for_model,
+    list_equipment_model_revisions, list_equipment_models,
+    replace_driver_profile_revision_definition, replace_equipment_model_revision_definition,
+    simulate_driver_profile, transition_driver_profile_revision,
+    transition_equipment_model_revision, validate_driver_profile_definition_json,
+    validate_equipment_model_definition_json, CloneEquipmentModelInput, CreateDriverProfileInput,
+    CreateDriverProfileRevisionInput, CreateEquipmentModelInput, CreateEquipmentModelRevisionInput,
+    ListDriverProfilesInput, ListEquipmentModelsInput, ReplaceDriverProfileDefinitionInput,
+    ReplaceEquipmentModelDefinitionInput, SimulateDriverProfileInput,
+    TransitionDriverProfileRevisionInput, TransitionEquipmentModelRevisionInput,
+};
 use crate::metrology_service::{
     AssessReadinessInput, MetrologyOperationContext, RecordCalibrationInput,
     RegisterInstrumentInput, SetServiceabilityInput,
@@ -27,7 +43,9 @@ use crate::test_template_service::{
     CreateTestTemplateRevisionInput, ListTestTemplatesInput, ReplaceTestTemplateDefinitionInput,
     TransitionTestTemplateRevisionInput,
 };
-use emc_locus_core::test_definitions::TemplateRevisionStatus;
+use emc_locus_core::{
+    equipment::EquipmentRevisionStatus, test_definitions::TemplateRevisionStatus,
+};
 use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
@@ -395,6 +413,50 @@ fn route_api_request(
             register_document_input(&payload)?,
         );
     }
+    if parts.as_slice() == ["api", "v1", "equipment-models"] && method == "GET" {
+        return list_equipment_models(&config.storage_root, list_equipment_models_input(query));
+    }
+    if parts.as_slice() == ["api", "v1", "equipment-models"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return create_equipment_model(
+            &config.storage_root,
+            create_equipment_model_input(&payload)?,
+        );
+    }
+    if parts.as_slice() == ["api", "v1", "equipment-model-definitions", "validate"]
+        && method == "POST"
+    {
+        let payload = parse_json_body(body)?;
+        return validate_equipment_model_definition_json(&required_json_or_string(
+            &payload,
+            "definition",
+            "definition_json",
+        )?);
+    }
+    if parts.as_slice() == ["api", "v1", "driver-profiles"] && method == "GET" {
+        return list_driver_profiles(&config.storage_root, list_driver_profiles_input(query));
+    }
+    if parts.as_slice() == ["api", "v1", "driver-profiles"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return create_driver_profile(&config.storage_root, create_driver_profile_input(&payload)?);
+    }
+    if parts.as_slice() == ["api", "v1", "driver-profile-definitions", "validate"]
+        && method == "POST"
+    {
+        let payload = parse_json_body(body)?;
+        return validate_driver_profile_definition_json(
+            &config.storage_root,
+            &required_json_or_string(&payload, "definition", "definition_json")?,
+        );
+    }
+    if parts.as_slice() == ["api", "v1", "driver-profile-simulations"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return simulate_driver_profile(&config.storage_root, driver_simulation_input(&payload)?);
+    }
+    if parts.as_slice() == ["api", "v1", "equipment", "communication-providers"] && method == "GET"
+    {
+        return communication_provider_status();
+    }
     if parts.as_slice() == ["api", "v1", "test-templates"] && method == "GET" {
         return list_test_template_definitions(
             &config.storage_root,
@@ -474,6 +536,135 @@ fn route_api_request(
         }
         ["api", "v1", "documents", document_id, "audit-events"] if method == "GET" => {
             list_document_audit_events(&config.storage_root, document_id)
+        }
+        ["api", "v1", "equipment-models", equipment_model_id] if method == "GET" => {
+            get_equipment_model(&config.storage_root, equipment_model_id)
+        }
+        ["api", "v1", "equipment-models", equipment_model_id, "clone"] if method == "POST" => {
+            let payload = parse_json_body(body)?;
+            clone_equipment_model(
+                &config.storage_root,
+                clone_equipment_model_input(equipment_model_id, &payload)?,
+            )
+        }
+        ["api", "v1", "equipment-models", equipment_model_id, "revisions"] if method == "GET" => {
+            list_equipment_model_revisions(&config.storage_root, equipment_model_id)
+        }
+        ["api", "v1", "equipment-models", equipment_model_id, "revisions"] if method == "POST" => {
+            let payload = parse_json_body(body)?;
+            create_equipment_model_revision(
+                &config.storage_root,
+                create_equipment_model_revision_input(equipment_model_id, &payload)?,
+            )
+        }
+        ["api", "v1", "equipment-models", equipment_model_id, "revisions", revision_id]
+            if method == "GET" =>
+        {
+            get_equipment_model_revision(&config.storage_root, equipment_model_id, revision_id)
+        }
+        ["api", "v1", "equipment-models", equipment_model_id, "revisions", revision_id, "definition"]
+            if method == "PUT" =>
+        {
+            let payload = parse_json_body(body)?;
+            replace_equipment_model_revision_definition(
+                &config.storage_root,
+                replace_equipment_model_definition_input(
+                    equipment_model_id,
+                    revision_id,
+                    &payload,
+                )?,
+            )
+        }
+        ["api", "v1", "equipment-models", equipment_model_id, "revisions", revision_id, "transitions", "submit-for-review"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            transition_equipment_model_revision(
+                &config.storage_root,
+                equipment_model_revision_transition_input(
+                    equipment_model_id,
+                    revision_id,
+                    EquipmentRevisionStatus::UnderReview,
+                    &payload,
+                )?,
+            )
+        }
+        ["api", "v1", "equipment-models", equipment_model_id, "revisions", revision_id, "transitions", "approve"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            transition_equipment_model_revision(
+                &config.storage_root,
+                equipment_model_revision_transition_input(
+                    equipment_model_id,
+                    revision_id,
+                    EquipmentRevisionStatus::Approved,
+                    &payload,
+                )?,
+            )
+        }
+        ["api", "v1", "equipment-models", equipment_model_id, "audit-events"]
+            if method == "GET" =>
+        {
+            list_equipment_audit_events_for_model(&config.storage_root, equipment_model_id)
+        }
+        ["api", "v1", "driver-profiles", driver_profile_id] if method == "GET" => {
+            get_driver_profile(&config.storage_root, driver_profile_id)
+        }
+        ["api", "v1", "driver-profiles", driver_profile_id, "revisions"] if method == "GET" => {
+            list_driver_profile_revisions(&config.storage_root, driver_profile_id)
+        }
+        ["api", "v1", "driver-profiles", driver_profile_id, "revisions"] if method == "POST" => {
+            let payload = parse_json_body(body)?;
+            create_driver_profile_revision(
+                &config.storage_root,
+                create_driver_profile_revision_input(driver_profile_id, &payload)?,
+            )
+        }
+        ["api", "v1", "driver-profiles", driver_profile_id, "revisions", revision_id]
+            if method == "GET" =>
+        {
+            get_driver_profile_revision(&config.storage_root, driver_profile_id, revision_id)
+        }
+        ["api", "v1", "driver-profiles", driver_profile_id, "revisions", revision_id, "definition"]
+            if method == "PUT" =>
+        {
+            let payload = parse_json_body(body)?;
+            replace_driver_profile_revision_definition(
+                &config.storage_root,
+                replace_driver_profile_definition_input(driver_profile_id, revision_id, &payload)?,
+            )
+        }
+        ["api", "v1", "driver-profiles", driver_profile_id, "revisions", revision_id, "transitions", "submit-for-review"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            transition_driver_profile_revision(
+                &config.storage_root,
+                driver_profile_revision_transition_input(
+                    driver_profile_id,
+                    revision_id,
+                    EquipmentRevisionStatus::UnderReview,
+                    &payload,
+                )?,
+            )
+        }
+        ["api", "v1", "driver-profiles", driver_profile_id, "revisions", revision_id, "transitions", "approve"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            transition_driver_profile_revision(
+                &config.storage_root,
+                driver_profile_revision_transition_input(
+                    driver_profile_id,
+                    revision_id,
+                    EquipmentRevisionStatus::Approved,
+                    &payload,
+                )?,
+            )
+        }
+        ["api", "v1", "driver-profiles", driver_profile_id, "audit-events"] if method == "GET" => {
+            list_equipment_audit_events_for_driver(&config.storage_root, driver_profile_id)
         }
         ["api", "v1", "test-templates", template_id] if method == "GET" => {
             get_test_template_definition(&config.storage_root, template_id)
@@ -848,6 +1039,206 @@ fn list_documents_input(query: &str) -> ListAttachedDocumentsInput {
     }
 }
 
+fn create_equipment_model_input(payload: &Value) -> Result<CreateEquipmentModelInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(CreateEquipmentModelInput {
+        equipment_model_id: required_string(payload, "equipment_model_id")?,
+        definition_json: required_json_or_string(payload, "definition", "definition_json")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn list_equipment_models_input(query: &str) -> ListEquipmentModelsInput {
+    ListEquipmentModelsInput {
+        manufacturer: optional_query_value(query, "manufacturer"),
+        equipment_class: optional_query_value(query, "equipment_class"),
+        category_code: optional_query_value(query, "category_code"),
+        status: optional_query_value(query, "status"),
+        search: optional_query_value(query, "search"),
+    }
+}
+
+fn replace_equipment_model_definition_input(
+    equipment_model_id: &str,
+    revision_id: &str,
+    payload: &Value,
+) -> Result<ReplaceEquipmentModelDefinitionInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(ReplaceEquipmentModelDefinitionInput {
+        equipment_model_id: equipment_model_id.to_owned(),
+        revision_id: revision_id.to_owned(),
+        expected_definition_checksum: required_string(payload, "expected_definition_checksum")?,
+        definition_json: required_json_or_string(payload, "definition", "definition_json")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn create_equipment_model_revision_input(
+    equipment_model_id: &str,
+    payload: &Value,
+) -> Result<CreateEquipmentModelRevisionInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(CreateEquipmentModelRevisionInput {
+        equipment_model_id: equipment_model_id.to_owned(),
+        source_revision_id: required_string(payload, "source_revision_id")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn clone_equipment_model_input(
+    source_equipment_model_id: &str,
+    payload: &Value,
+) -> Result<CloneEquipmentModelInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(CloneEquipmentModelInput {
+        source_equipment_model_id: source_equipment_model_id.to_owned(),
+        source_revision_id: optional_string(payload, "source_revision_id"),
+        new_equipment_model_id: required_string(payload, "new_equipment_model_id")?,
+        manufacturer: optional_string(payload, "manufacturer"),
+        model_name: optional_string(payload, "model_name"),
+        variant: optional_string(payload, "variant"),
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn equipment_model_revision_transition_input(
+    equipment_model_id: &str,
+    revision_id: &str,
+    target_status: EquipmentRevisionStatus,
+    payload: &Value,
+) -> Result<TransitionEquipmentModelRevisionInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(TransitionEquipmentModelRevisionInput {
+        equipment_model_id: equipment_model_id.to_owned(),
+        revision_id: revision_id.to_owned(),
+        target_status,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn create_driver_profile_input(payload: &Value) -> Result<CreateDriverProfileInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(CreateDriverProfileInput {
+        driver_profile_id: required_string(payload, "driver_profile_id")?,
+        label: required_string(payload, "label")?,
+        definition_json: required_json_or_string(payload, "definition", "definition_json")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn list_driver_profiles_input(query: &str) -> ListDriverProfilesInput {
+    ListDriverProfilesInput {
+        equipment_model_id: optional_query_value(query, "equipment_model_id"),
+        status: optional_query_value(query, "status"),
+        search: optional_query_value(query, "search"),
+    }
+}
+
+fn replace_driver_profile_definition_input(
+    driver_profile_id: &str,
+    revision_id: &str,
+    payload: &Value,
+) -> Result<ReplaceDriverProfileDefinitionInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(ReplaceDriverProfileDefinitionInput {
+        driver_profile_id: driver_profile_id.to_owned(),
+        revision_id: revision_id.to_owned(),
+        expected_definition_checksum: required_string(payload, "expected_definition_checksum")?,
+        definition_json: required_json_or_string(payload, "definition", "definition_json")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn create_driver_profile_revision_input(
+    driver_profile_id: &str,
+    payload: &Value,
+) -> Result<CreateDriverProfileRevisionInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(CreateDriverProfileRevisionInput {
+        driver_profile_id: driver_profile_id.to_owned(),
+        source_revision_id: required_string(payload, "source_revision_id")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn driver_profile_revision_transition_input(
+    driver_profile_id: &str,
+    revision_id: &str,
+    target_status: EquipmentRevisionStatus,
+    payload: &Value,
+) -> Result<TransitionDriverProfileRevisionInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(TransitionDriverProfileRevisionInput {
+        driver_profile_id: driver_profile_id.to_owned(),
+        revision_id: revision_id.to_owned(),
+        target_status,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn driver_simulation_input(payload: &Value) -> Result<SimulateDriverProfileInput, AgentError> {
+    Ok(SimulateDriverProfileInput {
+        driver_profile_id: required_string(payload, "driver_profile_id")?,
+        revision_id: optional_string(payload, "revision_id"),
+        action_id: required_string(payload, "action_id")?,
+        scenario_json: required_json_or_string(payload, "scenario", "scenario_json")?,
+    })
+}
+
 fn create_test_template_input(payload: &Value) -> Result<CreateTestTemplateInput, AgentError> {
     let operation_id = required_string(payload, "operation_id")?;
     Ok(CreateTestTemplateInput {
@@ -1081,6 +1472,11 @@ fn status_for_error(code: &str) -> u16 {
         | "test_template_revision_not_found"
         | "test_template_category_not_found"
         | "test_template_method_revision_not_found"
+        | "equipment_model_not_found"
+        | "equipment_model_revision_not_found"
+        | "equipment_model_class_not_found"
+        | "driver_profile_not_found"
+        | "driver_profile_revision_not_found"
         | "metrology_instrument_not_found" => 404,
         "contract_review_incomplete"
         | "invalid_project_transition"
@@ -1095,6 +1491,18 @@ fn status_for_error(code: &str) -> u16 {
         | "test_template_revision_source_not_approved"
         | "test_template_revision_transition_conflict"
         | "test_template_revision_transition_not_allowed"
+        | "equipment_model_already_exists"
+        | "driver_profile_already_exists"
+        | "equipment_definition_checksum_mismatch"
+        | "equipment_active_draft_exists"
+        | "equipment_revision_immutable"
+        | "equipment_revision_source_not_approved"
+        | "equipment_revision_transition_conflict"
+        | "equipment_revision_transition_not_allowed"
+        | "driver_model_revision_not_approved"
+        | "driver_model_definition_checksum_mismatch"
+        | "driver_simulation_revision_mismatch"
+        | "driver_simulation_action_mismatch"
         | "attached_document_already_exists"
         | "operation_replay_mismatch"
         | "metrology_instrument_already_exists"
@@ -1117,6 +1525,11 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_test_template"
         | "invalid_test_template_definition"
         | "invalid_test_template_revision_status"
+        | "invalid_equipment_identifier"
+        | "invalid_equipment_model_definition"
+        | "invalid_driver_profile_definition"
+        | "invalid_driver_simulation"
+        | "invalid_driver_simulation_scenario"
         | "invalid_metrology_calibration"
         | "invalid_metrology_instrument"
         | "invalid_metrology_readiness"
@@ -1276,6 +1689,295 @@ mod tests {
         assert!(invalid.body.contains("\"severity\":\"error\""));
         assert!(invalid.body.contains("\"code\":\"missing_variable_unit\""));
         assert!(invalid.body.contains("\"path\":\"variables\""));
+    }
+
+    #[test]
+    fn local_api_runs_equipment_model_driver_and_simulation_workflow() {
+        let storage_root = temporary_storage_root("agent-api-equipment-workflow");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: None,
+        };
+        let initialized = handle_api_request("POST", "/api/v1/storage/initialize", "", &config);
+        assert_eq!(initialized.status, 200, "{}", initialized.body);
+
+        let model_definition = equipment_model_definition("R&S", "NRP6AN", Some("FWD"));
+        let create_model = handle_api_request(
+            "POST",
+            "/api/v1/equipment-models",
+            &json!({
+                "equipment_model_id": "EQM-NRP6AN-FWD",
+                "definition": model_definition,
+                "actor": "equipment.author",
+                "reason": "create power meter model",
+                "operation_id": "op-eqm-create"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(create_model.status, 200, "{}", create_model.body);
+        assert!(create_model
+            .body
+            .contains("\"operation\":\"equipment_model_created\""));
+        let model_revision_id = "EQM-NRP6AN-FWD-rev-0001";
+
+        let submit_model = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/equipment-models/EQM-NRP6AN-FWD/revisions/{model_revision_id}/transitions/submit-for-review"
+            ),
+            &transition_body("equipment.author", "submit model", "op-eqm-submit"),
+            &config,
+        );
+        assert_eq!(submit_model.status, 200, "{}", submit_model.body);
+        let approve_model = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/equipment-models/EQM-NRP6AN-FWD/revisions/{model_revision_id}/transitions/approve"
+            ),
+            &transition_body("quality.approver", "approve model", "op-eqm-approve"),
+            &config,
+        );
+        assert_eq!(approve_model.status, 200, "{}", approve_model.body);
+
+        let model_detail = handle_api_request(
+            "GET",
+            "/api/v1/equipment-models/EQM-NRP6AN-FWD",
+            "",
+            &config,
+        );
+        assert_eq!(model_detail.status, 200, "{}", model_detail.body);
+        let model_json: Value = serde_json::from_str(&model_detail.body).unwrap();
+        let model_checksum = model_json["equipment_model"]["current_approved_revision"]
+            ["definition_checksum"]
+            .as_str()
+            .unwrap();
+
+        let driver_definition = driver_profile_definition(model_revision_id, model_checksum);
+        let validate_driver = handle_api_request(
+            "POST",
+            "/api/v1/driver-profile-definitions/validate",
+            &json!({ "definition": driver_definition.clone() }).to_string(),
+            &config,
+        );
+        assert_eq!(validate_driver.status, 200, "{}", validate_driver.body);
+        assert!(validate_driver.body.contains("\"valid\":true"));
+
+        let create_driver = handle_api_request(
+            "POST",
+            "/api/v1/driver-profiles",
+            &json!({
+                "driver_profile_id": "DRV-NRP6AN-SCPI",
+                "label": "NRP6AN SCPI simulation driver",
+                "definition": driver_definition,
+                "actor": "driver.author",
+                "reason": "create SCPI power meter driver",
+                "operation_id": "op-driver-create"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(create_driver.status, 200, "{}", create_driver.body);
+        let driver_revision_id = "DRV-NRP6AN-SCPI-rev-0001";
+
+        let submit_driver = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/driver-profiles/DRV-NRP6AN-SCPI/revisions/{driver_revision_id}/transitions/submit-for-review"
+            ),
+            &transition_body("driver.author", "submit driver", "op-driver-submit"),
+            &config,
+        );
+        assert_eq!(submit_driver.status, 200, "{}", submit_driver.body);
+        let approve_driver = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/driver-profiles/DRV-NRP6AN-SCPI/revisions/{driver_revision_id}/transitions/approve"
+            ),
+            &transition_body("quality.approver", "approve driver", "op-driver-approve"),
+            &config,
+        );
+        assert_eq!(approve_driver.status, 200, "{}", approve_driver.body);
+
+        let simulation = handle_api_request(
+            "POST",
+            "/api/v1/driver-profile-simulations",
+            &json!({
+                "driver_profile_id": "DRV-NRP6AN-SCPI",
+                "revision_id": driver_revision_id,
+                "action_id": "measure_powers",
+                "scenario": {
+                    "scenario_id": "scenario-power-ok",
+                    "driver_revision_id": driver_revision_id,
+                    "action_id": "measure_powers",
+                    "input_values": {},
+                    "expected_transport_operations": ["query"],
+                    "simulated_responses": ["-12.5"],
+                    "expected_outputs": {"result.power_dbm": -12.5},
+                    "expected_messages": [],
+                    "expected_final_state": {}
+                }
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(simulation.status, 200, "{}", simulation.body);
+        assert!(simulation.body.contains("\"operation\":\"query\""));
+        assert!(simulation.body.contains("power_dbm"));
+
+        let providers = handle_api_request(
+            "GET",
+            "/api/v1/equipment/communication-providers",
+            "",
+            &config,
+        );
+        assert_eq!(providers.status, 200, "{}", providers.body);
+        assert!(providers.body.contains("\"provider\":\"visa\""));
+        assert!(providers.body.contains("No VISA implementation installed"));
+
+        let audit = handle_api_request(
+            "GET",
+            "/api/v1/equipment-models/EQM-NRP6AN-FWD/audit-events",
+            "",
+            &config,
+        );
+        assert_eq!(audit.status, 200, "{}", audit.body);
+        assert!(audit
+            .body
+            .contains("\"action\":\"equipment_model_approved\""));
+
+        let outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
+        assert_eq!(outbox.status, 200, "{}", outbox.body);
+        assert!(outbox.body.contains("\"domain\":\"equipment\""));
+        assert!(outbox
+            .body
+            .contains("\"operation_kind\":\"driver_profile_approved\""));
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn local_api_guards_equipment_validation_cas_and_immutability() {
+        let storage_root = temporary_storage_root("agent-api-equipment-cas");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: None,
+        };
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+
+        let mut invalid_definition = equipment_model_definition("Demo", "Bad", None);
+        invalid_definition["signal_ports"][0]["unit"] = json!("Hz");
+        let duplicated_port = invalid_definition["signal_ports"][0].clone();
+        invalid_definition["signal_ports"]
+            .as_array_mut()
+            .unwrap()
+            .push(duplicated_port);
+        let validation = handle_api_request(
+            "POST",
+            "/api/v1/equipment-model-definitions/validate",
+            &json!({ "definition": invalid_definition }).to_string(),
+            &config,
+        );
+        assert_eq!(validation.status, 200, "{}", validation.body);
+        assert!(validation.body.contains("\"valid\":false"));
+        assert!(validation.body.contains("quantity_unit_mismatch"));
+        assert!(validation.body.contains("duplicate_signal_port_id"));
+
+        let definition = equipment_model_definition("Demo", "Amplifier", None);
+        let created = handle_api_request(
+            "POST",
+            "/api/v1/equipment-models",
+            &json!({
+                "equipment_model_id": "EQM-DEMO-AMP",
+                "definition": definition,
+                "actor": "equipment.author",
+                "reason": "create model",
+                "operation_id": "op-amp-create"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        let created_json: Value = serde_json::from_str(&created.body).unwrap();
+        let initial_checksum = created_json["revision"]["definition_checksum"]
+            .as_str()
+            .unwrap();
+
+        let mut edited_definition = equipment_model_definition("Demo", "Amplifier Mk2", None);
+        edited_definition["metadata"]["edited"] = json!(true);
+        let edited = handle_api_request(
+            "PUT",
+            "/api/v1/equipment-models/EQM-DEMO-AMP/revisions/EQM-DEMO-AMP-rev-0001/definition",
+            &json!({
+                "expected_definition_checksum": initial_checksum,
+                "definition": edited_definition,
+                "actor": "equipment.author",
+                "reason": "edit draft",
+                "operation_id": "op-amp-edit"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(edited.status, 200, "{}", edited.body);
+        let edited_json: Value = serde_json::from_str(&edited.body).unwrap();
+        let updated_checksum = edited_json["revision"]["definition_checksum"]
+            .as_str()
+            .unwrap();
+
+        let stale = handle_api_request(
+            "PUT",
+            "/api/v1/equipment-models/EQM-DEMO-AMP/revisions/EQM-DEMO-AMP-rev-0001/definition",
+            &json!({
+                "expected_definition_checksum": initial_checksum,
+                "definition": equipment_model_definition("Demo", "Amplifier Mk3", None),
+                "actor": "equipment.author",
+                "reason": "stale edit",
+                "operation_id": "op-amp-stale"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(stale.status, 409, "{}", stale.body);
+        assert!(stale
+            .body
+            .contains("equipment_definition_checksum_mismatch"));
+
+        assert_eq!(
+            handle_api_request(
+                "POST",
+                "/api/v1/equipment-models/EQM-DEMO-AMP/revisions/EQM-DEMO-AMP-rev-0001/transitions/submit-for-review",
+                &transition_body("equipment.author", "submit", "op-amp-submit"),
+                &config
+            )
+            .status,
+            200
+        );
+        let immutable = handle_api_request(
+            "PUT",
+            "/api/v1/equipment-models/EQM-DEMO-AMP/revisions/EQM-DEMO-AMP-rev-0001/definition",
+            &json!({
+                "expected_definition_checksum": updated_checksum,
+                "definition": equipment_model_definition("Demo", "Amplifier Mk4", None),
+                "actor": "equipment.author",
+                "reason": "edit submitted",
+                "operation_id": "op-amp-immutable"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(immutable.status, 409, "{}", immutable.body);
+        assert!(immutable.body.contains("equipment_revision_immutable"));
+
+        remove_temporary_storage_root(&storage_root);
     }
 
     #[test]
@@ -1994,6 +2696,11 @@ mod tests {
             .contains("\"operation\":\"test_template_cloned\""));
         assert!(cloned.body.contains("\"template_id\":\"TT-CLONE-COPY\""));
         assert!(cloned.body.contains("\"status\":\"draft\""));
+        let cloned_json: Value = serde_json::from_str(&cloned.body).unwrap();
+        assert_eq!(
+            cloned_json["revision"]["definition"]["title"],
+            "Copied inrush template"
+        );
 
         let source_revisions = handle_api_request(
             "GET",
@@ -3595,6 +4302,165 @@ mod tests {
             .split_once("\r\n\r\n")
             .map_or_else(String::new, |(_, body)| body.to_owned());
         Ok((status, body))
+    }
+
+    fn transition_body(actor: &str, reason: &str, operation_id: &str) -> String {
+        json!({
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id
+        })
+        .to_string()
+    }
+
+    fn equipment_model_definition(
+        manufacturer: &str,
+        model_name: &str,
+        variant: Option<&str>,
+    ) -> Value {
+        json!({
+            "definition_schema_version": "emc-locus.equipment-model-definition.v1",
+            "manufacturer": manufacturer,
+            "model_name": model_name,
+            "variant": variant,
+            "equipment_class": "controllable_instrument",
+            "category_code": "power_meter",
+            "specifications": [
+                {
+                    "specification_id": "frequency_range",
+                    "label": "Frequency range",
+                    "quantity": "frequency",
+                    "unit": "Hz",
+                    "minimum": 9000.0,
+                    "maximum": 1000000000.0
+                },
+                {
+                    "specification_id": "power_range",
+                    "label": "Power range",
+                    "quantity": "power",
+                    "unit": "dBm",
+                    "minimum": -70.0,
+                    "maximum": 30.0
+                }
+            ],
+            "signal_ports": [
+                {
+                    "port_id": "rf_input",
+                    "label": "RF Input",
+                    "direction": "input",
+                    "signal_domain": "rf",
+                    "connector_type": "N",
+                    "quantity": "power",
+                    "unit": "dBm",
+                    "impedance": 50.0,
+                    "frequency_min": 9000.0,
+                    "frequency_max": 1000000000.0,
+                    "power_max": 30.0
+                }
+            ],
+            "communication_interfaces": [
+                {
+                    "interface_id": "tcp",
+                    "label": "SCPI TCP",
+                    "transport_kind": "ethernet_tcp",
+                    "access_provider_kind": "native_tcp",
+                    "protocol_kind": "scpi",
+                    "required": true,
+                    "default_interface": true,
+                    "configuration_schema": {
+                        "host": {"type": "text"},
+                        "port": {"type": "integer"}
+                    },
+                    "default_configuration": {
+                        "host": "127.0.0.1",
+                        "port": 5025
+                    },
+                    "framing": "lf",
+                    "identification_strategy": {
+                        "strategy_id": "idn",
+                        "strategy_type": "scpi_idn",
+                        "query": "*IDN?",
+                        "response_regex": "^R&S,NRP6AN,"
+                    }
+                }
+            ],
+            "capabilities": [
+                {
+                    "capability_id": "measure_power",
+                    "label": "Measure power",
+                    "description": "Measure RF power on the selected input.",
+                    "capability_kind": "measure_power",
+                    "inputs": [],
+                    "outputs": [
+                        {
+                            "name": "power_dbm",
+                            "value_type": "number",
+                            "quantity": "power",
+                            "unit": "dBm",
+                            "required": true
+                        }
+                    ],
+                    "required_signal_ports": ["rf_input"],
+                    "safety_class": "read_only"
+                }
+            ],
+            "metadata": {
+                "demo": true
+            }
+        })
+    }
+
+    fn driver_profile_definition(model_revision_id: &str, model_checksum: &str) -> Value {
+        json!({
+            "definition_schema_version": "emc-locus.driver-profile-definition.v1",
+            "equipment_model_id": "EQM-NRP6AN-FWD",
+            "supported_model_revision_id": model_revision_id,
+            "supported_model_definition_checksum": model_checksum,
+            "supported_firmware_ranges": ["*"],
+            "communication_profiles": ["tcp"],
+            "actions": [
+                {
+                    "action_id": "measure_powers",
+                    "label": "Measure powers",
+                    "description": "Query the simulated SCPI power reading.",
+                    "implements_capability_id": "measure_power",
+                    "inputs": [],
+                    "outputs": [
+                        {
+                            "name": "power_dbm",
+                            "value_type": "number",
+                            "quantity": "power",
+                            "unit": "dBm",
+                            "required": true
+                        }
+                    ],
+                    "safety_class": "read_only",
+                    "default_timeout_ms": 1000,
+                    "script": {
+                        "steps": [
+                            {
+                                "step_id": "query-power",
+                                "step_type": "io_query",
+                                "interface_id": "tcp",
+                                "payload_format": "text",
+                                "payload": "MEAS:POW?",
+                                "response_binding": "${result.power_dbm}",
+                                "timeout_ms": 1000
+                            },
+                            {
+                                "step_id": "return",
+                                "step_type": "return"
+                            }
+                        ]
+                    },
+                    "safe_to_retry": true,
+                    "idempotent": true
+                }
+            ],
+            "metadata": {
+                "demo": true
+            }
+        })
     }
 
     fn create_template_body(

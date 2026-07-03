@@ -13,8 +13,9 @@ QT_BOOTSTRAP = ROOT / "apps" / "qt-console" / "demo" / "bootstrap.json"
 class LabConsoleStaticBuildTests(unittest.TestCase):
     def test_lab_console_package_declares_release_build_scripts(self) -> None:
         package = json.loads((LAB_CONSOLE / "package.json").read_text(encoding="utf-8"))
+        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
-        self.assertEqual(package["version"], "0.10.0")
+        self.assertEqual(package["version"], version)
         self.assertEqual(package["scripts"]["build"], "tsc --noEmit && vite build")
         self.assertIn("test", package["scripts"])
         self.assertIn("typecheck", package["scripts"])

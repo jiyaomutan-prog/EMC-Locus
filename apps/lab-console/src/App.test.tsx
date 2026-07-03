@@ -147,7 +147,7 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Brouillon" }));
-    await user.click(screen.getByLabelText("Titre definition"));
+    await user.click(screen.getByLabelText("Titre technique de revision"));
     await user.keyboard(" updated");
     fetchMock.mockImplementationOnce(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
@@ -183,7 +183,7 @@ describe("LAB CONSOLE", () => {
 
     await user.click(await screen.findByRole("button", { name: /Creer/ }));
     await user.type(screen.getByLabelText("Identifiant"), "TT-NEW-001");
-    await user.type(screen.getByLabelText("Titre"), "New template");
+    await user.type(screen.getByLabelText("Titre bibliotheque"), "New template");
     await user.click(screen.getByRole("button", { name: "Creer le brouillon" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/test-templates", expect.objectContaining({ method: "POST" })));
 
@@ -191,11 +191,193 @@ describe("LAB CONSOLE", () => {
     await user.click(screen.getByRole("button", { name: /Cloner/ }));
     await user.selectOptions(screen.getByLabelText("Source approuvee"), "TT-LAB-001|TT-LAB-001-rev-0001");
     await user.type(screen.getByLabelText("Nouvel identifiant"), "TT-CLONE-001");
-    await user.type(screen.getByLabelText("Nouveau titre"), "Clone template");
+    await user.type(screen.getByLabelText("Nouveau titre bibliotheque"), "Clone template");
     await user.click(screen.getByRole("button", { name: "Cloner vers un nouveau template" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/clone"), expect.objectContaining({ method: "POST" })));
   });
+
+  test("opens Equipment space and displays model catalog provider status", async () => {
+    mockBaseApi([templateFixture()]);
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/v1/health") return jsonResponse(healthFixture);
+      if (path === "/api/v1/storage/status") return jsonResponse(storageFixture);
+      if (path === "/api/v1/test-templates") return jsonResponse({ test_templates: [templateFixture()] });
+      if (path === "/api/v1/equipment-models") {
+        return jsonResponse({ equipment_models: [equipmentModelFixture()] });
+      }
+      if (path === "/api/v1/driver-profiles") return jsonResponse({ driver_profiles: [driverProfileFixture()] });
+      if (path === "/api/v1/equipment/communication-providers") {
+        return jsonResponse({
+          providers: [
+            { provider: "simulation", available: true },
+            { provider: "visa", available: false, reason: "No VISA implementation installed" }
+          ]
+        });
+      }
+      if (path === "/api/v1/equipment-models/EQM-NRP6AN-FWD") {
+        return jsonResponse({ equipment_model: equipmentModelFixture() });
+      }
+      if (path === "/api/v1/equipment-models/EQM-NRP6AN-FWD/revisions") {
+        return jsonResponse({
+          equipment_model_id: "EQM-NRP6AN-FWD",
+          revisions: [equipmentModelFixture().latest_revision]
+        });
+      }
+      if (path === "/api/v1/equipment-models/EQM-NRP6AN-FWD/audit-events") {
+        return jsonResponse({ aggregate_kind: "equipment_model", entity_id: "EQM-NRP6AN-FWD", audit_events: [] });
+      }
+      if (path === "/api/v1/driver-profiles/DRV-NRP6AN-SCPI/revisions") {
+        return jsonResponse({
+          driver_profile_id: "DRV-NRP6AN-SCPI",
+          revisions: [driverProfileFixture().latest_revision]
+        });
+      }
+      if (path === "/api/v1/driver-profiles/DRV-NRP6AN-SCPI/audit-events") {
+        return jsonResponse({ aggregate_kind: "driver_profile", entity_id: "DRV-NRP6AN-SCPI", audit_events: [] });
+      }
+      return mockBaseApiResponse(path);
+    });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Equipment" }));
+    expect(await screen.findByRole("heading", { name: "Model Catalog" })).toBeInTheDocument();
+    const modelButton = await screen.findByRole("button", { name: /R&S\s+NRP6AN/ });
+    await user.click(modelButton);
+    expect(await screen.findByText("Equipment Model Definition")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Drivers and Actions" }));
+    await user.click(await screen.findByRole("button", { name: /NRP6AN SCPI/ }));
+    expect(await screen.findByText(/No VISA implementation installed/)).toBeInTheDocument();
+  });
 });
+
+function equipmentModelFixture() {
+  const revision = {
+    revision_id: "EQM-NRP6AN-FWD-rev-0001",
+    equipment_model_id: "EQM-NRP6AN-FWD",
+    revision_number: 1,
+    parent_revision_id: null,
+    status: "approved",
+    definition_schema_version: "emc-locus.equipment-model-definition.v1",
+    definition_checksum: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    created_by: "equipment.author",
+    created_at: "2026-07-03T00:00:00Z",
+    updated_at: "2026-07-03T00:00:00Z",
+    submitted_at: "2026-07-03T00:00:00Z",
+    approved_at: "2026-07-03T00:00:00Z",
+    capability_count: 1,
+    interface_count: 1,
+    signal_port_count: 1,
+    definition: {
+      definition_schema_version: "emc-locus.equipment-model-definition.v1",
+      manufacturer: "R&S",
+      model_name: "NRP6AN",
+      variant: "FWD",
+      equipment_class: "controllable_instrument",
+      category_code: "power_meter",
+      specifications: [],
+      signal_ports: [],
+      communication_interfaces: [
+        {
+          interface_id: "tcp",
+          label: "SCPI TCP",
+          transport_kind: "ethernet_tcp",
+          access_provider_kind: "native_tcp",
+          protocol_kind: "scpi",
+          required: true,
+          default_interface: true
+        }
+      ],
+      capabilities: [
+        {
+          capability_id: "measure_power",
+          label: "Measure power",
+          description: "Measure RF power.",
+          capability_kind: "measure_power",
+          inputs: [],
+          outputs: [],
+          safety_class: "read_only"
+        }
+      ],
+      metadata: {}
+    }
+  };
+  return {
+    identity: {
+      equipment_model_id: "EQM-NRP6AN-FWD",
+      manufacturer: "R&S",
+      model_name: "NRP6AN",
+      variant: "FWD",
+      equipment_class: "controllable_instrument",
+      category_code: "power_meter",
+      current_approved_revision_id: revision.revision_id,
+      created_by: "equipment.author",
+      created_at: "2026-07-03T00:00:00Z",
+      updated_at: "2026-07-03T00:00:00Z"
+    },
+    current_approved_revision: revision,
+    latest_revision: revision,
+    active_draft_revision: null
+  };
+}
+
+function driverProfileFixture() {
+  const revision = {
+    revision_id: "DRV-NRP6AN-SCPI-rev-0001",
+    driver_profile_id: "DRV-NRP6AN-SCPI",
+    equipment_model_id: "EQM-NRP6AN-FWD",
+    supported_model_revision_id: "EQM-NRP6AN-FWD-rev-0001",
+    revision_number: 1,
+    parent_revision_id: null,
+    status: "approved",
+    definition_schema_version: "emc-locus.driver-profile-definition.v1",
+    definition_checksum: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    created_by: "driver.author",
+    created_at: "2026-07-03T00:00:00Z",
+    updated_at: "2026-07-03T00:00:00Z",
+    submitted_at: "2026-07-03T00:00:00Z",
+    approved_at: "2026-07-03T00:00:00Z",
+    action_count: 1,
+    definition: {
+      definition_schema_version: "emc-locus.driver-profile-definition.v1",
+      equipment_model_id: "EQM-NRP6AN-FWD",
+      supported_model_revision_id: "EQM-NRP6AN-FWD-rev-0001",
+      supported_model_definition_checksum: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      supported_firmware_ranges: ["*"],
+      communication_profiles: ["tcp"],
+      actions: [
+        {
+          action_id: "measure_power",
+          label: "Measure power",
+          description: "Query power.",
+          implements_capability_id: "measure_power",
+          inputs: [],
+          outputs: [],
+          safety_class: "read_only",
+          default_timeout_ms: 1000,
+          script: { steps: [{ step_id: "query", step_type: "io_query", interface_id: "tcp", payload: "MEAS:POW?", response_binding: "${result.power_dbm}" }] }
+        }
+      ],
+      metadata: {}
+    }
+  };
+  return {
+    identity: {
+      driver_profile_id: "DRV-NRP6AN-SCPI",
+      equipment_model_id: "EQM-NRP6AN-FWD",
+      label: "NRP6AN SCPI",
+      current_approved_revision_id: revision.revision_id,
+      created_by: "driver.author",
+      created_at: "2026-07-03T00:00:00Z",
+      updated_at: "2026-07-03T00:00:00Z"
+    },
+    current_approved_revision: revision,
+    latest_revision: revision,
+    active_draft_revision: null
+  };
+}
 
 function mockBaseApiResponse(path: string, init?: RequestInit) {
   if (path === "/api/v1/health") return jsonResponse(healthFixture);

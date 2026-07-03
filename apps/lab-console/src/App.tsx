@@ -15,6 +15,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, api, type OperationContext } from "./api";
 import { defaultTemplateDefinition } from "./defaultDefinition";
+import { EquipmentWorkspace } from "./features/equipment/EquipmentWorkspace";
 import { APP_VERSION } from "./version";
 import type {
   AuditEvent,
@@ -33,7 +34,7 @@ import type {
   VariableLockPolicy
 } from "./types";
 
-type ActiveView = "library" | "studio" | "system";
+type ActiveView = "library" | "studio" | "equipment" | "system";
 type StudioSection =
   | "general"
   | "variables"
@@ -55,6 +56,7 @@ const sidebarItems = [
   "Templates et methodes",
   "Documents",
   "Personnel et competences",
+  "Equipment",
   "Metrologie",
   "Planification",
   "Rapports",
@@ -157,6 +159,7 @@ export function App() {
   const [revisions, setRevisions] = useState<TestTemplateRevision[]>([]);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [context, setContext] = useState<OperationContext>(emptyContext);
+  const [operationError, setOperationError] = useState<string | null>(null);
 
   const dirty = definition !== null && stableStringify(definition) !== originalDefinitionJson;
   const readOnly = selectedRevision?.status !== "draft";
@@ -276,8 +279,13 @@ export function App() {
     if (!definition) {
       return;
     }
-    const result = await api.validateDefinition(definition);
-    setValidation(result);
+    setOperationError(null);
+    try {
+      const result = await api.validateDefinition(definition);
+      setValidation(result);
+    } catch (error) {
+      setOperationError(errorMessage(error));
+    }
   }
 
   async function saveDraft() {
@@ -319,37 +327,52 @@ export function App() {
     if (!selectedTemplate || !selectedRevision || !validation?.valid || dirty || readOnly) {
       return;
     }
-    const result = await api.submitRevision(
-      selectedTemplate.identity.template_id,
-      selectedRevision.revision_id,
-      context
-    );
-    await afterTransition(result.revision);
+    setOperationError(null);
+    try {
+      const result = await api.submitRevision(
+        selectedTemplate.identity.template_id,
+        selectedRevision.revision_id,
+        context
+      );
+      await afterTransition(result.revision);
+    } catch (error) {
+      setOperationError(errorMessage(error));
+    }
   }
 
   async function approveRevision() {
     if (!selectedTemplate || !selectedRevision || selectedRevision.status !== "under_review") {
       return;
     }
-    const result = await api.approveRevision(
-      selectedTemplate.identity.template_id,
-      selectedRevision.revision_id,
-      context
-    );
-    await afterTransition(result.revision);
+    setOperationError(null);
+    try {
+      const result = await api.approveRevision(
+        selectedTemplate.identity.template_id,
+        selectedRevision.revision_id,
+        context
+      );
+      await afterTransition(result.revision);
+    } catch (error) {
+      setOperationError(errorMessage(error));
+    }
   }
 
   async function deriveNewRevision() {
     if (!selectedTemplate?.current_approved_revision) {
       return;
     }
-    const result = await api.deriveRevision(
-      selectedTemplate.identity.template_id,
-      selectedTemplate.current_approved_revision.revision_id,
-      context
-    );
-    await openRevision(result.test_template, result.revision);
-    await refreshAll();
+    setOperationError(null);
+    try {
+      const result = await api.deriveRevision(
+        selectedTemplate.identity.template_id,
+        selectedTemplate.current_approved_revision.revision_id,
+        context
+      );
+      await openRevision(result.test_template, result.revision);
+      await refreshAll();
+    } catch (error) {
+      setOperationError(errorMessage(error));
+    }
   }
 
   async function afterTransition(revision: TestTemplateRevision) {
@@ -362,32 +385,42 @@ export function App() {
   }
 
   async function createTemplate() {
-    const definitionForCreate = defaultTemplateDefinition(createForm.title || createForm.template_id);
-    const result = await api.createTemplate({
-      template_id: createForm.template_id,
-      title: createForm.title,
-      category_code: createForm.category_code,
-      definition: definitionForCreate,
-      actor: createForm.actor,
-      reason: createForm.reason
-    });
-    setCreationMode("none");
-    await refreshAll();
-    await openRevision(result.test_template, result.revision);
+    setOperationError(null);
+    try {
+      const definitionForCreate = defaultTemplateDefinition(createForm.title || createForm.template_id);
+      const result = await api.createTemplate({
+        template_id: createForm.template_id,
+        title: createForm.title,
+        category_code: createForm.category_code,
+        definition: definitionForCreate,
+        actor: createForm.actor,
+        reason: createForm.reason
+      });
+      setCreationMode("none");
+      await refreshAll();
+      await openRevision(result.test_template, result.revision);
+    } catch (error) {
+      setOperationError(errorMessage(error));
+    }
   }
 
   async function cloneTemplate() {
-    const result = await api.cloneTemplate(cloneForm.source_template_id, {
-      source_revision_id: cloneForm.source_revision_id,
-      new_template_id: cloneForm.new_template_id,
-      title: cloneForm.title,
-      category_code: cloneForm.category_code || undefined,
-      actor: cloneForm.actor,
-      reason: cloneForm.reason
-    });
-    setCreationMode("none");
-    await refreshAll();
-    await openRevision(result.test_template, result.revision);
+    setOperationError(null);
+    try {
+      const result = await api.cloneTemplate(cloneForm.source_template_id, {
+        source_revision_id: cloneForm.source_revision_id,
+        new_template_id: cloneForm.new_template_id,
+        title: cloneForm.title,
+        category_code: cloneForm.category_code || undefined,
+        actor: cloneForm.actor,
+        reason: cloneForm.reason
+      });
+      setCreationMode("none");
+      await refreshAll();
+      await openRevision(result.test_template, result.revision);
+    } catch (error) {
+      setOperationError(errorMessage(error));
+    }
   }
 
   function updateDefinition(next: TestTemplateDefinition) {
@@ -407,11 +440,26 @@ export function App() {
           {sidebarItems.map((item) => (
             <button
               key={item}
-              className={item === "Templates et methodes" && activeView !== "system" ? "active" : ""}
-              onClick={() => setActiveView(item === "Templates et methodes" ? "library" : "system")}
+              className={
+                (item === "Templates et methodes" && (activeView === "library" || activeView === "studio")) ||
+                (item === "Equipment" && activeView === "equipment")
+                  ? "active"
+                  : ""
+              }
+              onClick={() =>
+                setActiveView(
+                  item === "Templates et methodes"
+                    ? "library"
+                    : item === "Equipment"
+                      ? "equipment"
+                      : "system"
+                )
+              }
             >
               <span>{item}</span>
-              {item !== "Templates et methodes" && <small>Non disponible dans cette version</small>}
+              {item !== "Templates et methodes" && item !== "Equipment" && (
+                <small>Non disponible dans cette version</small>
+              )}
             </button>
           ))}
         </nav>
@@ -420,8 +468,18 @@ export function App() {
       <main className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Templates et methodes</p>
-            <h1>{activeView === "studio" ? "Template Studio" : activeView === "system" ? "Systeme local" : "Templates d'essai"}</h1>
+            <p className="eyebrow">
+              {activeView === "equipment" ? "Equipment Definition Catalog" : "Templates et methodes"}
+            </p>
+            <h1>
+              {activeView === "studio"
+                ? "Template Studio"
+                : activeView === "equipment"
+                  ? "Equipment"
+                  : activeView === "system"
+                    ? "Systeme local"
+                    : "Templates d'essai"}
+            </h1>
           </div>
           <div className="connection">
             <span className={health ? "dot ok" : "dot warn"} />
@@ -433,6 +491,7 @@ export function App() {
         </header>
 
         {activeView === "system" && <SystemView health={health} storage={storage} />}
+        {activeView === "equipment" && <EquipmentWorkspace />}
         {activeView === "library" && (
           <LibraryView
             templates={filteredTemplates}
@@ -445,6 +504,7 @@ export function App() {
             statusFilter={statusFilter}
             sort={sort}
             creationMode={creationMode}
+            operationError={operationError}
             createForm={createForm}
             cloneForm={cloneForm}
             onQueryChange={setQuery}
@@ -469,6 +529,7 @@ export function App() {
             dirty={dirty}
             saveState={saveState}
             saveError={saveError}
+            operationError={operationError}
             conflict={conflict}
             validation={validation}
             section={section}
@@ -509,6 +570,7 @@ function LibraryView(props: {
   statusFilter: string;
   sort: string;
   creationMode: "none" | "create" | "clone";
+  operationError: string | null;
   createForm: CreateFormState;
   cloneForm: CloneFormState;
   onQueryChange: (value: string) => void;
@@ -562,7 +624,7 @@ function LibraryView(props: {
         </select>
         <select aria-label="Tri" value={props.sort} onChange={(event) => props.onSortChange(event.target.value)}>
           <option value="updated_desc">Derniere modification</option>
-          <option value="title_asc">Titre</option>
+          <option value="title_asc">Titre bibliotheque</option>
           <option value="category_asc">Categorie</option>
           <option value="revision_desc">Revision</option>
         </select>
@@ -576,12 +638,13 @@ function LibraryView(props: {
           <Copy size={16} /> Cloner
         </button>
       </div>
+      {props.operationError && <StateBlock title="Erreur operation" detail={props.operationError} tone="bad" />}
 
       {props.creationMode === "create" && (
         <div className="actionPanel">
           <h2>Creation vide</h2>
           <TextInput label="Identifiant" value={props.createForm.template_id} onChange={(template_id) => props.onCreateFormChange({ ...props.createForm, template_id })} />
-          <TextInput label="Titre" value={props.createForm.title} onChange={(title) => props.onCreateFormChange({ ...props.createForm, title })} />
+          <TextInput label="Titre bibliotheque" value={props.createForm.title} onChange={(title) => props.onCreateFormChange({ ...props.createForm, title })} />
           <TextInput label="Categorie" value={props.createForm.category_code} onChange={(category_code) => props.onCreateFormChange({ ...props.createForm, category_code })} />
           <TextInput label="Acteur saisi manuellement" value={props.createForm.actor} onChange={(actor) => props.onCreateFormChange({ ...props.createForm, actor })} />
           <TextInput label="Raison" value={props.createForm.reason} onChange={(reason) => props.onCreateFormChange({ ...props.createForm, reason })} />
@@ -616,7 +679,7 @@ function LibraryView(props: {
             </select>
           </label>
           <TextInput label="Nouvel identifiant" value={props.cloneForm.new_template_id} onChange={(new_template_id) => props.onCloneFormChange({ ...props.cloneForm, new_template_id })} />
-          <TextInput label="Nouveau titre" value={props.cloneForm.title} onChange={(title) => props.onCloneFormChange({ ...props.cloneForm, title })} />
+          <TextInput label="Nouveau titre bibliotheque" value={props.cloneForm.title} onChange={(title) => props.onCloneFormChange({ ...props.cloneForm, title })} />
           <TextInput label="Nouvelle categorie optionnelle" value={props.cloneForm.category_code} onChange={(category_code) => props.onCloneFormChange({ ...props.cloneForm, category_code })} />
           <TextInput label="Acteur saisi manuellement" value={props.cloneForm.actor} onChange={(actor) => props.onCloneFormChange({ ...props.cloneForm, actor })} />
           <TextInput label="Raison" value={props.cloneForm.reason} onChange={(reason) => props.onCloneFormChange({ ...props.cloneForm, reason })} />
@@ -681,6 +744,7 @@ function StudioView(props: {
   dirty: boolean;
   saveState: SaveState;
   saveError: string | null;
+  operationError: string | null;
   conflict: { expected?: string; actual?: string } | null;
   validation: ValidationResult | null;
   section: StudioSection;
@@ -757,6 +821,7 @@ function StudioView(props: {
       )}
 
       {props.saveError && <StateBlock title="Erreur de sauvegarde" detail={props.saveError} tone="bad" />}
+      {props.operationError && <StateBlock title="Erreur operation" detail={props.operationError} tone="bad" />}
 
       <div className="studioLayout">
         <aside className="sectionNav">
@@ -813,7 +878,7 @@ function GeneralEditor(props: {
   return (
     <EditorCard title="General">
       <TextInput label="Identifiant stable" value={props.templateId} disabled />
-      <TextInput label="Titre definition" value={d.title} disabled={props.readOnly} onChange={(title) => props.onChange({ ...d, title })} />
+      <TextInput label="Titre technique de revision" value={d.title} disabled={props.readOnly} onChange={(title) => props.onChange({ ...d, title })} />
       <TextArea label="Description" value={d.description} disabled={props.readOnly} onChange={(description) => props.onChange({ ...d, description })} />
       <label>
         Axe de mesure
