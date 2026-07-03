@@ -10,6 +10,8 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected duplicate service-schedule item codes on repository inserts with a
+  controlled planning error before SQLite uniqueness constraints are reached.
 - Added explicit regression coverage for blank service-schedule item codes on
   repository inserts, documenting the existing controlled validation path before
   SQLite uniqueness or non-null constraints are involved.

@@ -284,6 +284,9 @@ Deliverables:
 - project repository service-schedule inserts now explicitly reject unknown
   project references with a controlled planning error before SQLite write
   attempts;
+- project repository service-schedule inserts now explicitly reject duplicate
+  planning item codes with a controlled planning error before SQLite uniqueness
+  constraints are reached;
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

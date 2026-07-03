@@ -1098,6 +1098,12 @@ class ProjectRepository(SQLiteDomainRepository):
                 ).fetchone()
                 if project is None:
                     raise ValueError("project does not exist")
+                existing_item = connection.execute(
+                    "SELECT 1 FROM service_schedule_items WHERE item_code = ?",
+                    (item_code,),
+                ).fetchone()
+                if existing_item is not None:
+                    raise ValueError("service schedule item already exists")
                 cursor = connection.execute(
                     """
                     INSERT INTO service_schedule_items (
