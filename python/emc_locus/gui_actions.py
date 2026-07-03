@@ -705,6 +705,12 @@ def schedule_service_item(
     status = require_non_empty(status, "status")
     notes = optional_text_or_empty(notes)
     validate_service_schedule_status(status)
+    _validate_service_schedule_references(
+        test_definitions_db=test_definitions_db,
+        migrations_root=migrations_root,
+        test_category_code=test_category_code,
+        test_method_code=test_method_code,
+    )
 
     repository = ProjectRepository(Path(projects_db), Path(migrations_root))
     repository.initialize()
@@ -742,6 +748,35 @@ def schedule_service_item(
         "project_code": project_code,
         "status": status,
     }
+
+
+def _validate_service_schedule_references(
+    *,
+    test_definitions_db: Path | str | None,
+    migrations_root: Path | str,
+    test_category_code: str | None,
+    test_method_code: str | None,
+) -> None:
+    if test_definitions_db is None:
+        return
+    if test_category_code is None and test_method_code is None:
+        return
+
+    repository = TestDefinitionRepository(
+        Path(test_definitions_db),
+        Path(migrations_root),
+    )
+    repository.initialize()
+    if (
+        test_category_code is not None
+        and repository.get_test_category(test_category_code) is None
+    ):
+        raise ValueError("test category does not exist")
+    if (
+        test_method_code is not None
+        and repository.get_test_method(test_method_code) is None
+    ):
+        raise ValueError("test method does not exist")
 
 
 def create_test_category(

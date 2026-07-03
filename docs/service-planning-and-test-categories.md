@@ -31,6 +31,9 @@ rule, the allowed status vocabulary, and required planning context fields even
 when callers bypass the GUI/CLI action layer. Optional category and method
 references are trimmed when present; blank optional references are stored as
 absent values rather than empty strings.
+When the local action is given a test-definition repository, non-empty category
+and method references must already exist in that repository before the planning
+row is written.
 Notes are optional operator context; missing notes are normalized to an empty
 non-null text value before the planning row is written.
 Repository inserts also reject blank planning item codes and check that the

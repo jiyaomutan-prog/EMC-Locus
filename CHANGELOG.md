@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected unknown service-planning category and method references in the
+  Python action path when a test-definition repository is provided, preventing
+  operator-entered schedule rows from pointing at absent taxonomy records.
 - Rejected duplicate service-schedule item codes on repository inserts with a
   controlled planning error before SQLite uniqueness constraints are reached.
 - Added explicit regression coverage for blank service-schedule item codes on
