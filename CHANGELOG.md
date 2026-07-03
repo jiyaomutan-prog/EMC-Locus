@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected repository service-schedule inserts for projects that have not
+  entered `test_planning`, so direct Python callers cannot plan execution
+  blocks before the contract-review gate has moved the campaign into planning.
 - Added direct repository regression coverage for weekend-only
   service-schedule blocks, documenting the lower-level business-day guard
   independently from the GUI/CLI action path.

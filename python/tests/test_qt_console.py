@@ -552,7 +552,7 @@ class QtConsoleTests(unittest.TestCase):
                     "code": "CEM-QT-SCHEDULE",
                     "customer_name": "Rail Motion",
                     "execution_mode": "accredited",
-                    "stage": "quotation",
+                    "stage": "test_planning",
                     "actor": "operator.one",
                     "reason": "Qt form project creation",
                 },

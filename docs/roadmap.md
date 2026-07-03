@@ -293,6 +293,9 @@ Deliverables:
 - project repository service-schedule insert coverage now directly proves
   weekend-only planning blocks are rejected by the lower-level business-day
   guard, independently from the GUI/CLI action path;
+- project repository service-schedule inserts now reject projects that have
+  not entered `test_planning`, preserving the contract-review gate even for
+  direct Python callers;
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

@@ -1093,11 +1093,15 @@ class ProjectRepository(SQLiteDomainRepository):
         with closing(self.connect()) as connection:
             with connection:
                 project = connection.execute(
-                    "SELECT 1 FROM projects WHERE code = ?",
+                    "SELECT stage FROM projects WHERE code = ?",
                     (project_code,),
                 ).fetchone()
                 if project is None:
                     raise ValueError("project does not exist")
+                if project["stage"] != "test_planning":
+                    raise ValueError(
+                        "project must be in test_planning before scheduling service items"
+                    )
                 existing_item = connection.execute(
                     "SELECT 1 FROM service_schedule_items WHERE item_code = ?",
                     (item_code,),

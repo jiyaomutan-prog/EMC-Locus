@@ -46,6 +46,9 @@ instead of surfacing raw Python attribute errors.
 Repository regression coverage also proves weekend-only planning blocks are
 rejected before a row can be persisted, independently from the GUI/CLI action
 path.
+Repository inserts also require the referenced project to already be in
+`test_planning`, so direct Python callers cannot create execution planning
+blocks before the contract-review gate has advanced the campaign.
 Repository status updates also reject blank planning item codes before
 attempting the write, avoiding silent no-op updates for malformed operator
 input. Status updates also reject unknown planning item codes instead of
