@@ -264,6 +264,9 @@ Deliverables:
   item codes before they can become silent no-op updates;
 - project repository service-schedule insert coverage now explicitly proves
   blank planning item codes are rejected before SQLite constraints are reached;
+- project repository service-schedule inserts now also return controlled
+  validation errors for missing required planning text instead of raw Python
+  attribute errors;
 - project repository service-schedule list filters now normalize readable
   project/status filters and reject malformed filters instead of returning
   misleading empty schedule lists;

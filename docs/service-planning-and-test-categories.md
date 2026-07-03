@@ -36,6 +36,8 @@ non-null text value before the planning row is written.
 Repository inserts also reject blank planning item codes and check that the
 referenced project exists before the schedule row is written, so direct Python
 callers get the same controlled planning errors as the GUI/CLI action path.
+Missing required planning text is handled through the same validation path
+instead of surfacing raw Python attribute errors.
 Repository status updates also reject blank planning item codes before
 attempting the write, avoiding silent no-op updates for malformed operator
 input. Repository list filters trim project and status values when present,

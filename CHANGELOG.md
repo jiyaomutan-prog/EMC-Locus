@@ -13,6 +13,9 @@ change should remain traceable through Git history, session logs, and this file.
 - Added explicit regression coverage for blank service-schedule item codes on
   repository inserts, documenting the existing controlled validation path before
   SQLite uniqueness or non-null constraints are involved.
+- Normalized missing required text validation so direct Python callers receive
+  controlled `ValueError` messages instead of raw attribute errors when a
+  required service-schedule item code is absent.
 - Normalized optional service-schedule notes in the Python action/repository
   path so callers cannot leak `NULL` into the non-null planning notes column.
 - Added regression coverage and documentation for service-schedule positive
