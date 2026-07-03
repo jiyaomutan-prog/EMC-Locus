@@ -16,6 +16,8 @@ change should remain traceable through Git history, session logs, and this file.
 - Normalized missing required text validation so direct Python callers receive
   controlled `ValueError` messages instead of raw attribute errors when a
   required service-schedule item code is absent.
+- Rejected service-schedule status updates that target an unknown planning item
+  code so direct Python callers cannot miss a silent no-op update.
 - Normalized optional service-schedule notes in the Python action/repository
   path so callers cannot leak `NULL` into the non-null planning notes column.
 - Added regression coverage and documentation for service-schedule positive

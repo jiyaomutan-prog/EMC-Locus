@@ -1187,7 +1187,9 @@ class ProjectRepository(SQLiteDomainRepository):
                     """,
                     (status, utc_timestamp(), item_code),
                 )
-        return cursor.rowcount == 1
+                if cursor.rowcount != 1:
+                    raise ValueError("service schedule item does not exist")
+        return True
 
 
 class MeasurementDataRepository(SQLiteDomainRepository):

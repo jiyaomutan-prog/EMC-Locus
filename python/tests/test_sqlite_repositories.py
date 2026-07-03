@@ -935,6 +935,23 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
                     status="confirmed",
                 )
 
+    def test_repository_rejects_unknown_service_schedule_item_on_update(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "service schedule item does not exist",
+            ):
+                projects.update_service_schedule_status(
+                    item_code="PLAN-REPO-MISSING-UPDATE",
+                    status="confirmed",
+                )
+
     def test_repository_rejects_empty_service_schedule_item_code_on_insert(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(

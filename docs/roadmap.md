@@ -267,6 +267,8 @@ Deliverables:
 - project repository service-schedule inserts now also return controlled
   validation errors for missing required planning text instead of raw Python
   attribute errors;
+- project repository service-schedule status updates now also reject unknown
+  planning item codes instead of returning a silent no-op result;
 - project repository service-schedule list filters now normalize readable
   project/status filters and reject malformed filters instead of returning
   misleading empty schedule lists;

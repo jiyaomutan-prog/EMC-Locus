@@ -40,9 +40,10 @@ Missing required planning text is handled through the same validation path
 instead of surfacing raw Python attribute errors.
 Repository status updates also reject blank planning item codes before
 attempting the write, avoiding silent no-op updates for malformed operator
-input. Repository list filters trim project and status values when present,
-reject blank project filters, and reject unknown status filters before
-returning planning rows.
+input. Status updates also reject unknown planning item codes instead of
+returning a silent no-op result. Repository list filters trim project and status
+values when present, reject blank project filters, and reject unknown status
+filters before returning planning rows.
 
 Example local action:
 
