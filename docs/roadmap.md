@@ -306,6 +306,9 @@ Deliverables:
 - project repository service-schedule status updates now reject planning rows
   whose project reference no longer resolves, preserving campaign context even
   for imported or corrupted local data;
+- project repository service-schedule list reads now reject planning rows whose
+  project reference no longer resolves, preventing corrupted imports from
+  appearing in planning views without campaign context;
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected service-schedule list reads that encounter orphan planning rows
+  whose project reference no longer resolves, preventing corrupted imports from
+  surfacing schedule blocks without campaign context.
 - Rejected service-schedule status updates whose planning row points at a
   missing project, preventing imported or corrupted orphan rows from being
   mutated without controlled campaign context.

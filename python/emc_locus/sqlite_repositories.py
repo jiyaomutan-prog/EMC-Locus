@@ -1157,26 +1157,33 @@ class ProjectRepository(SQLiteDomainRepository):
         parameters: list[str] = []
         if project_code is not None:
             project_code = require_non_empty(project_code, "project_code")
-            filters.append("project_code = ?")
+            filters.append("service_schedule_items.project_code = ?")
             parameters.append(project_code)
         if status is not None:
             status = require_non_empty(status, "status")
             validate_service_schedule_status(status)
-            filters.append("status = ?")
+            filters.append("service_schedule_items.status = ?")
             parameters.append(status)
 
         where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
         with closing(self.connect()) as connection:
             rows = connection.execute(
                 f"""
-                SELECT *
+                SELECT service_schedule_items.*, projects.stage AS project_stage
                 FROM service_schedule_items
+                LEFT JOIN projects ON projects.code = service_schedule_items.project_code
                 {where_clause}
                 ORDER BY planned_start_at, planned_end_at, item_code
                 """,
                 tuple(parameters),
             ).fetchall()
-        return [dict(row) for row in rows]
+        schedule: list[dict[str, object]] = []
+        for row in rows:
+            item = dict(row)
+            if item.pop("project_stage") is None:
+                raise ValueError("service schedule project does not exist")
+            schedule.append(item)
+        return schedule
 
     def update_service_schedule_status(
         self,
