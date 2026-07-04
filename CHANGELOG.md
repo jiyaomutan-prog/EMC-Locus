@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Added an audited repository path for service-schedule status changes, so
+  planning confirmations and completions can leave project audit evidence with
+  previous/new status context.
 - Recorded project audit evidence when GUI/CLI service-planning actions create
   schedule rows, so planned laboratory blocks are traceable like other project
   workflow changes.

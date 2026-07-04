@@ -314,6 +314,8 @@ Deliverables:
 - GUI/CLI service-planning actions now create project audit evidence in the
   same transaction as the schedule row, preserving traceability for planned
   laboratory blocks.
+- project repository service-schedule status changes now have an audited update
+  path that records previous/new status context as project audit evidence.
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

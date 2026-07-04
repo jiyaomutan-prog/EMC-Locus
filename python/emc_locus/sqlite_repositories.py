@@ -1364,19 +1364,7 @@ class ProjectRepository(SQLiteDomainRepository):
         validate_service_schedule_status(status)
         with closing(self.connect()) as connection:
             with connection:
-                item = connection.execute(
-                    """
-                    SELECT service_schedule_items.project_code, projects.stage AS project_stage
-                    FROM service_schedule_items
-                    LEFT JOIN projects ON projects.code = service_schedule_items.project_code
-                    WHERE service_schedule_items.item_code = ?
-                    """,
-                    (item_code,),
-                ).fetchone()
-                if item is None:
-                    raise ValueError("service schedule item does not exist")
-                if item["project_stage"] is None:
-                    raise ValueError("service schedule project does not exist")
+                self._service_schedule_item_for_status_update(connection, item_code)
                 cursor = connection.execute(
                     """
                     UPDATE service_schedule_items
@@ -1388,6 +1376,101 @@ class ProjectRepository(SQLiteDomainRepository):
                 if cursor.rowcount != 1:
                     raise ValueError("service schedule item does not exist")
         return True
+
+    def update_service_schedule_status_with_audit(
+        self,
+        *,
+        item_code: str,
+        status: str,
+        actor: str,
+        reason: str | None = None,
+    ) -> int:
+        item_code = require_non_empty(item_code, "item_code")
+        status = require_non_empty(status, "status")
+        actor = require_non_empty(actor, "actor")
+        reason = optional_text_or_none(reason)
+        validate_service_schedule_status(status)
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                item = self._service_schedule_item_for_status_update(
+                    connection,
+                    item_code,
+                )
+                previous_status = str(item["status"])
+                cursor = connection.execute(
+                    """
+                    UPDATE service_schedule_items
+                    SET status = ?, updated_at = ?
+                    WHERE item_code = ?
+                    """,
+                    (status, now, item_code),
+                )
+                if cursor.rowcount != 1:
+                    raise ValueError("service schedule item does not exist")
+                sequence_row = connection.execute(
+                    """
+                    SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+                    FROM project_audit_events
+                    WHERE project_code = ?
+                    """,
+                    (item["project_code"],),
+                ).fetchone()
+                sequence = int(sequence_row["next_sequence"])
+                payload_json = json.dumps(
+                    {
+                        "item_code": item_code,
+                        "previous_status": previous_status,
+                        "new_status": status,
+                    },
+                    sort_keys=True,
+                )
+                connection.execute(
+                    """
+                    INSERT INTO project_audit_events (
+                        project_code,
+                        sequence,
+                        actor,
+                        action,
+                        reason,
+                        payload_json,
+                        occurred_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item["project_code"],
+                        sequence,
+                        actor,
+                        "service_schedule_item_status_updated",
+                        reason,
+                        payload_json,
+                        now,
+                    ),
+                )
+        return sequence
+
+    @staticmethod
+    def _service_schedule_item_for_status_update(
+        connection: sqlite3.Connection,
+        item_code: str,
+    ) -> sqlite3.Row:
+        item = connection.execute(
+            """
+            SELECT service_schedule_items.project_code,
+                   service_schedule_items.status,
+                   projects.stage AS project_stage
+            FROM service_schedule_items
+            LEFT JOIN projects ON projects.code = service_schedule_items.project_code
+            WHERE service_schedule_items.item_code = ?
+            """,
+            (item_code,),
+        ).fetchone()
+        if item is None:
+            raise ValueError("service schedule item does not exist")
+        if item["project_stage"] is None:
+            raise ValueError("service schedule project does not exist")
+        return item
 
 
 class MeasurementDataRepository(SQLiteDomainRepository):

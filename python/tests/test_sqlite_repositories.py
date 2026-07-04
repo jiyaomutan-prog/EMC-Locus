@@ -1346,6 +1346,53 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             self.assertEqual(payload["planned_start_at"], "2026-07-01T09:00")
             self.assertEqual(payload["status"], "planned")
 
+    def test_repository_records_service_schedule_status_update_with_project_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-SCHEDULE-STATUS-AUDIT",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-SCHEDULE-STATUS-AUDIT",
+                project_code="CEM-REPO-SCHEDULE-STATUS-AUDIT",
+                title="Audited status update",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+            )
+
+            audit_sequence = projects.update_service_schedule_status_with_audit(
+                item_code="PLAN-REPO-SCHEDULE-STATUS-AUDIT",
+                status="confirmed",
+                actor="operator.two",
+                reason="Operator confirmed laboratory slot",
+            )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-SCHEDULE-STATUS-AUDIT",
+            )
+            events = projects.audit_events("CEM-REPO-SCHEDULE-STATUS-AUDIT")
+            payload = json.loads(events[0]["payload_json"])
+
+            self.assertEqual(audit_sequence, 1)
+            self.assertEqual(schedule[0]["status"], "confirmed")
+            self.assertEqual(events[0]["sequence"], 1)
+            self.assertEqual(events[0]["actor"], "operator.two")
+            self.assertEqual(events[0]["action"], "service_schedule_item_status_updated")
+            self.assertEqual(events[0]["reason"], "Operator confirmed laboratory slot")
+            self.assertEqual(payload["item_code"], "PLAN-REPO-SCHEDULE-STATUS-AUDIT")
+            self.assertEqual(payload["previous_status"], "planned")
+            self.assertEqual(payload["new_status"], "confirmed")
+
     def test_repository_normalizes_service_schedule_list_filters(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(

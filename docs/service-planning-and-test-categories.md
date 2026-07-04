@@ -63,6 +63,9 @@ without campaign context.
 The GUI/CLI service-planning action uses the audited repository path: creating
 a planning row also appends a project audit event with the operator, planning
 window, EUT, status, and optional category/method references in the payload.
+Repository callers that change planning status can use the audited status
+update path to append a project audit event with the previous and new status in
+the payload.
 
 Example local action:
 
