@@ -10,6 +10,8 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected service-schedule list reads filtered by an unknown project code, so
+  callers no longer confuse an absent campaign with an empty planning calendar.
 - Rejected service-schedule list reads that encounter orphan planning rows
   whose project reference no longer resolves, preventing corrupted imports from
   surfacing schedule blocks without campaign context.

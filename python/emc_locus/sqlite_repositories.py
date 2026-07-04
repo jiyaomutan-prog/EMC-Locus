@@ -1167,6 +1167,13 @@ class ProjectRepository(SQLiteDomainRepository):
 
         where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
         with closing(self.connect()) as connection:
+            if project_code is not None:
+                project = connection.execute(
+                    "SELECT 1 FROM projects WHERE code = ?",
+                    (project_code,),
+                ).fetchone()
+                if project is None:
+                    raise ValueError("project does not exist")
             rows = connection.execute(
                 f"""
                 SELECT service_schedule_items.*, projects.stage AS project_stage

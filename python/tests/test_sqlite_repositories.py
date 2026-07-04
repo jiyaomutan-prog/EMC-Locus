@@ -1349,6 +1349,19 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unknown service schedule status"):
                 projects.list_service_schedule_items(status="waiting_for_parts")
 
+    def test_repository_rejects_unknown_service_schedule_project_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+
+            with self.assertRaisesRegex(ValueError, "project does not exist"):
+                projects.list_service_schedule_items(
+                    project_code="CEM-REPO-MISSING-FILTER",
+                )
+
 
 class GuiBootstrapTests(unittest.TestCase):
     def test_builds_bootstrap_from_local_repositories(self) -> None:

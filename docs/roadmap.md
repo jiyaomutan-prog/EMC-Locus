@@ -309,6 +309,8 @@ Deliverables:
 - project repository service-schedule list reads now reject planning rows whose
   project reference no longer resolves, preventing corrupted imports from
   appearing in planning views without campaign context;
+- project repository service-schedule list reads filtered by project now reject
+  unknown project codes instead of returning an ambiguous empty planning list;
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

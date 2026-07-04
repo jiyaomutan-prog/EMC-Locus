@@ -55,9 +55,11 @@ input. Status updates also reject unknown planning item codes and orphan rows
 whose project reference no longer resolves instead of mutating schedule state
 without a controlled campaign context. Repository list filters trim project and
 status values when present, reject blank project filters, and reject unknown
-status filters before returning planning rows. Repository list reads also
-reject orphan planning rows whose project reference no longer resolves, so a
-corrupted import cannot surface schedule blocks without campaign context.
+status filters before returning planning rows. Project-filtered list reads also
+reject unknown project codes instead of returning an ambiguous empty schedule.
+Repository list reads also reject orphan planning rows whose project reference
+no longer resolves, so a corrupted import cannot surface schedule blocks
+without campaign context.
 
 Example local action:
 
