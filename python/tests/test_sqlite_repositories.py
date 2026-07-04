@@ -1302,6 +1302,50 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             schedule = projects.list_service_schedule_items(project_code="CEM-REPO-NOTES")
             self.assertEqual(schedule[0]["notes"], "")
 
+    def test_repository_records_service_schedule_item_with_project_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-SCHEDULE-AUDIT",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            schedule_id, audit_sequence = projects.add_service_schedule_item_with_audit(
+                item_code="PLAN-REPO-SCHEDULE-AUDIT",
+                project_code="CEM-REPO-SCHEDULE-AUDIT",
+                title="Audited planning row",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+                actor="operator.one",
+                reason="Planned from operator console",
+            )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-SCHEDULE-AUDIT",
+            )
+            events = projects.audit_events("CEM-REPO-SCHEDULE-AUDIT")
+            payload = json.loads(events[0]["payload_json"])
+
+            self.assertGreater(schedule_id, 0)
+            self.assertEqual(audit_sequence, 1)
+            self.assertEqual(schedule[0]["item_code"], "PLAN-REPO-SCHEDULE-AUDIT")
+            self.assertEqual(events[0]["sequence"], 1)
+            self.assertEqual(events[0]["actor"], "operator.one")
+            self.assertEqual(events[0]["action"], "service_schedule_item_planned")
+            self.assertEqual(events[0]["reason"], "Planned from operator console")
+            self.assertEqual(payload["item_code"], "PLAN-REPO-SCHEDULE-AUDIT")
+            self.assertEqual(payload["planned_start_at"], "2026-07-01T09:00")
+            self.assertEqual(payload["status"], "planned")
+
     def test_repository_normalizes_service_schedule_list_filters(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
@@ -1751,9 +1795,13 @@ class GuiActionTests(unittest.TestCase):
             schedule = projects.list_service_schedule_items(project_code="CEM-SCH-001")
             bootstrap_text = bootstrap_output.read_text()
 
+            events = projects.audit_events("CEM-SCH-001")
             self.assertEqual(result["item_code"], "PLAN-SCH-001")
+            self.assertEqual(result["audit_sequence"], 1)
             self.assertEqual(schedule[0]["title"], "Emission conduite")
             self.assertEqual(schedule[0]["status"], "planned")
+            self.assertEqual(events[0]["action"], "service_schedule_item_planned")
+            self.assertIn("PLAN-SCH-001", events[0]["payload_json"])
             self.assertIn("PLAN-SCH-001", bootstrap_text)
             self.assertIn("Emission conduite", bootstrap_text)
 

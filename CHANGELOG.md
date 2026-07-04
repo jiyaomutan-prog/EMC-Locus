@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Recorded project audit evidence when GUI/CLI service-planning actions create
+  schedule rows, so planned laboratory blocks are traceable like other project
+  workflow changes.
 - Rejected service-schedule list reads filtered by an unknown project code, so
   callers no longer confuse an absent campaign with an empty planning calendar.
 - Rejected service-schedule list reads that encounter orphan planning rows

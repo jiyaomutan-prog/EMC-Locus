@@ -60,6 +60,9 @@ reject unknown project codes instead of returning an ambiguous empty schedule.
 Repository list reads also reject orphan planning rows whose project reference
 no longer resolves, so a corrupted import cannot surface schedule blocks
 without campaign context.
+The GUI/CLI service-planning action uses the audited repository path: creating
+a planning row also appends a project audit event with the operator, planning
+window, EUT, status, and optional category/method references in the payload.
 
 Example local action:
 

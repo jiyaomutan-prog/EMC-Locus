@@ -716,7 +716,7 @@ def schedule_service_item(
     repository.initialize()
     if repository.get_project(project_code) is None:
         raise ValueError("project does not exist")
-    schedule_id = repository.add_service_schedule_item(
+    schedule_id, audit_sequence = repository.add_service_schedule_item_with_audit(
         item_code=item_code,
         project_code=project_code,
         title=title,
@@ -729,6 +729,8 @@ def schedule_service_item(
         equipment_under_test=equipment_under_test,
         status=status,
         notes=notes,
+        actor=assigned_operator,
+        reason=notes or "Service schedule item planned",
     )
 
     if bootstrap_output is not None:
@@ -744,6 +746,7 @@ def schedule_service_item(
 
     return {
         "schedule_id": schedule_id,
+        "audit_sequence": audit_sequence,
         "item_code": item_code,
         "project_code": project_code,
         "status": status,

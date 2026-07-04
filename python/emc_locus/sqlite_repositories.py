@@ -1075,6 +1075,137 @@ class ProjectRepository(SQLiteDomainRepository):
         status: str = "planned",
         notes: str | None = "",
     ) -> int:
+        parameters = self._validated_service_schedule_parameters(
+            item_code=item_code,
+            project_code=project_code,
+            title=title,
+            planned_start_at=planned_start_at,
+            planned_end_at=planned_end_at,
+            assigned_operator=assigned_operator,
+            location=location,
+            equipment_under_test=equipment_under_test,
+            test_category_code=test_category_code,
+            test_method_code=test_method_code,
+            status=status,
+            notes=notes,
+        )
+        now = utc_timestamp()
+        with closing(self.connect()) as connection:
+            with connection:
+                return self._insert_service_schedule_item(
+                    connection,
+                    now=now,
+                    **parameters,
+                )
+
+    def add_service_schedule_item_with_audit(
+        self,
+        *,
+        item_code: str,
+        project_code: str,
+        title: str,
+        planned_start_at: str,
+        planned_end_at: str,
+        assigned_operator: str,
+        location: str,
+        equipment_under_test: str,
+        actor: str,
+        reason: str | None = None,
+        test_category_code: str | None = None,
+        test_method_code: str | None = None,
+        status: str = "planned",
+        notes: str | None = "",
+    ) -> tuple[int, int]:
+        parameters = self._validated_service_schedule_parameters(
+            item_code=item_code,
+            project_code=project_code,
+            title=title,
+            planned_start_at=planned_start_at,
+            planned_end_at=planned_end_at,
+            assigned_operator=assigned_operator,
+            location=location,
+            equipment_under_test=equipment_under_test,
+            test_category_code=test_category_code,
+            test_method_code=test_method_code,
+            status=status,
+            notes=notes,
+        )
+        actor = require_non_empty(actor, "actor")
+        reason = optional_text_or_none(reason)
+        now = utc_timestamp()
+        payload_json = json.dumps(
+            {
+                "item_code": parameters["item_code"],
+                "title": parameters["title"],
+                "test_category_code": parameters["test_category_code"],
+                "test_method_code": parameters["test_method_code"],
+                "planned_start_at": parameters["planned_start_at"],
+                "planned_end_at": parameters["planned_end_at"],
+                "assigned_operator": parameters["assigned_operator"],
+                "location": parameters["location"],
+                "equipment_under_test": parameters["equipment_under_test"],
+                "status": parameters["status"],
+                "notes": parameters["notes"],
+            },
+            sort_keys=True,
+        )
+        with closing(self.connect()) as connection:
+            with connection:
+                schedule_id = self._insert_service_schedule_item(
+                    connection,
+                    now=now,
+                    **parameters,
+                )
+                sequence_row = connection.execute(
+                    """
+                    SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+                    FROM project_audit_events
+                    WHERE project_code = ?
+                    """,
+                    (parameters["project_code"],),
+                ).fetchone()
+                sequence = int(sequence_row["next_sequence"])
+                connection.execute(
+                    """
+                    INSERT INTO project_audit_events (
+                        project_code,
+                        sequence,
+                        actor,
+                        action,
+                        reason,
+                        payload_json,
+                        occurred_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        parameters["project_code"],
+                        sequence,
+                        actor,
+                        "service_schedule_item_planned",
+                        reason,
+                        payload_json,
+                        now,
+                    ),
+                )
+        return schedule_id, sequence
+
+    def _validated_service_schedule_parameters(
+        self,
+        *,
+        item_code: str,
+        project_code: str,
+        title: str,
+        planned_start_at: str,
+        planned_end_at: str,
+        assigned_operator: str,
+        location: str,
+        equipment_under_test: str,
+        test_category_code: str | None,
+        test_method_code: str | None,
+        status: str,
+        notes: str | None,
+    ) -> dict[str, str | None]:
         item_code = require_non_empty(item_code, "item_code")
         project_code = require_non_empty(project_code, "project_code")
         title = require_non_empty(title, "title")
@@ -1089,62 +1220,92 @@ class ProjectRepository(SQLiteDomainRepository):
         notes = optional_text_or_empty(notes)
         validate_service_schedule_block(planned_start_at, planned_end_at)
         validate_service_schedule_status(status)
-        now = utc_timestamp()
-        with closing(self.connect()) as connection:
-            with connection:
-                project = connection.execute(
-                    "SELECT stage FROM projects WHERE code = ?",
-                    (project_code,),
-                ).fetchone()
-                if project is None:
-                    raise ValueError("project does not exist")
-                if project["stage"] != "test_planning":
-                    raise ValueError(
-                        "project must be in test_planning before scheduling service items"
-                    )
-                existing_item = connection.execute(
-                    "SELECT 1 FROM service_schedule_items WHERE item_code = ?",
-                    (item_code,),
-                ).fetchone()
-                if existing_item is not None:
-                    raise ValueError("service schedule item already exists")
-                cursor = connection.execute(
-                    """
-                    INSERT INTO service_schedule_items (
-                        item_code,
-                        project_code,
-                        title,
-                        test_category_code,
-                        test_method_code,
-                        planned_start_at,
-                        planned_end_at,
-                        assigned_operator,
-                        location,
-                        equipment_under_test,
-                        status,
-                        notes,
-                        created_at,
-                        updated_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        item_code,
-                        project_code,
-                        title,
-                        test_category_code,
-                        test_method_code,
-                        planned_start_at,
-                        planned_end_at,
-                        assigned_operator,
-                        location,
-                        equipment_under_test,
-                        status,
-                        notes,
-                        now,
-                        now,
-                    ),
-                )
+        return {
+            "item_code": item_code,
+            "project_code": project_code,
+            "title": title,
+            "planned_start_at": planned_start_at,
+            "planned_end_at": planned_end_at,
+            "assigned_operator": assigned_operator,
+            "location": location,
+            "equipment_under_test": equipment_under_test,
+            "test_category_code": test_category_code,
+            "test_method_code": test_method_code,
+            "status": status,
+            "notes": notes,
+        }
+
+    def _insert_service_schedule_item(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        item_code: str,
+        project_code: str,
+        title: str,
+        planned_start_at: str,
+        planned_end_at: str,
+        assigned_operator: str,
+        location: str,
+        equipment_under_test: str,
+        test_category_code: str | None,
+        test_method_code: str | None,
+        status: str,
+        notes: str | None,
+        now: str,
+    ) -> int:
+        project = connection.execute(
+            "SELECT stage FROM projects WHERE code = ?",
+            (project_code,),
+        ).fetchone()
+        if project is None:
+            raise ValueError("project does not exist")
+        if project["stage"] != "test_planning":
+            raise ValueError(
+                "project must be in test_planning before scheduling service items"
+            )
+        existing_item = connection.execute(
+            "SELECT 1 FROM service_schedule_items WHERE item_code = ?",
+            (item_code,),
+        ).fetchone()
+        if existing_item is not None:
+            raise ValueError("service schedule item already exists")
+        cursor = connection.execute(
+            """
+            INSERT INTO service_schedule_items (
+                item_code,
+                project_code,
+                title,
+                test_category_code,
+                test_method_code,
+                planned_start_at,
+                planned_end_at,
+                assigned_operator,
+                location,
+                equipment_under_test,
+                status,
+                notes,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                item_code,
+                project_code,
+                title,
+                test_category_code,
+                test_method_code,
+                planned_start_at,
+                planned_end_at,
+                assigned_operator,
+                location,
+                equipment_under_test,
+                status,
+                notes,
+                now,
+                now,
+            ),
+        )
         return int(cursor.lastrowid)
 
     def list_service_schedule_items(

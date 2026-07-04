@@ -612,8 +612,10 @@ class QtConsoleTests(unittest.TestCase):
         self.assertEqual(schedule[0]["item_code"], "PLAN-QT-FORM")
         self.assertEqual(schedule[0]["test_category_code"], "emission_conducted")
         self.assertIsNone(schedule[0]["test_method_code"])
-        self.assertEqual(events[0]["action"], "project_created")
-        self.assertEqual(events[1]["action"], "contract_review_item_completed")
+        event_actions = {event["action"] for event in events}
+        self.assertIn("project_created", event_actions)
+        self.assertIn("service_schedule_item_planned", event_actions)
+        self.assertIn("contract_review_item_completed", event_actions)
         self.assertEqual(contract_items[0]["item"], "requirements_reviewed")
         self.assertEqual(category["parent_code"], "immunity_radiated")
 

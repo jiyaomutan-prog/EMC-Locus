@@ -311,6 +311,9 @@ Deliverables:
   appearing in planning views without campaign context;
 - project repository service-schedule list reads filtered by project now reject
   unknown project codes instead of returning an ambiguous empty planning list;
+- GUI/CLI service-planning actions now create project audit evidence in the
+  same transaction as the schedule row, preserving traceability for planned
+  laboratory blocks.
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;
