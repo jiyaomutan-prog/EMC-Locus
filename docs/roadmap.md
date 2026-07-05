@@ -325,6 +325,9 @@ Deliverables:
 - service-schedule status updates now reject changes after a row reaches
   `completed` or `cancelled`, keeping closed laboratory blocks terminal for
   direct and audited repository callers.
+- service-schedule status updates now reject non-sequential transitions, so
+  direct and audited repository callers cannot move planning rows backward or
+  skip the confirmation/start workflow states.
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

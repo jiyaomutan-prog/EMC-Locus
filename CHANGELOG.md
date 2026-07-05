@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected non-sequential service-schedule status transitions, so direct and
+  audited repository callers can no longer move planning rows backward or skip
+  required confirmation/start workflow states.
 - Rejected service-schedule status updates after a planning row reaches
   `completed` or `cancelled`, so closed laboratory blocks cannot be reopened
   through direct or audited Python repository calls.

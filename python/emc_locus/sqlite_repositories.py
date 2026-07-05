@@ -46,6 +46,13 @@ SERVICE_SCHEDULE_STATUSES = {
     "cancelled",
 }
 TERMINAL_SERVICE_SCHEDULE_STATUSES = {"completed", "cancelled"}
+SERVICE_SCHEDULE_STATUS_TRANSITIONS = {
+    "planned": {"confirmed", "cancelled"},
+    "confirmed": {"in_progress", "cancelled"},
+    "in_progress": {"completed", "cancelled"},
+    "completed": set(),
+    "cancelled": set(),
+}
 SYNC_CHECKPOINT_DIRECTIONS = {"push", "pull", "bidirectional"}
 _PACKAGE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SIGNAL_REFERENCE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -110,6 +117,14 @@ def validate_service_schedule_status_transition(
     if previous_status in TERMINAL_SERVICE_SCHEDULE_STATUSES:
         raise ValueError(
             "service schedule status is terminal: "
+            f"{previous_status} cannot change to {new_status}"
+        )
+    allowed_targets = SERVICE_SCHEDULE_STATUS_TRANSITIONS.get(previous_status)
+    if allowed_targets is None:
+        raise ValueError(f"unknown service schedule status: {previous_status}")
+    if new_status not in allowed_targets:
+        raise ValueError(
+            "invalid service schedule status transition: "
             f"{previous_status} cannot change to {new_status}"
         )
 

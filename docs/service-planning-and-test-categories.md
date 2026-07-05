@@ -58,6 +58,10 @@ statuses before mutating `updated_at` or appending audit evidence, so duplicate
 operator submissions remain side-effect free. Once a row reaches `completed` or
 `cancelled`, repository status updates reject further changes so closed
 laboratory blocks cannot be reopened through direct or audited Python calls.
+Status updates also enforce the sequential workflow `planned -> confirmed ->
+in_progress -> completed`, with `cancelled` allowed from any non-terminal
+state, so direct and audited callers cannot move planning rows backward or skip
+the confirmation/start states.
 Repository list filters trim project and status values when present, reject
 blank project filters, and reject unknown status filters before returning
 planning rows. Project-filtered list reads also reject unknown project codes

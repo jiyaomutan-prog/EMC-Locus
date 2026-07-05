@@ -1083,6 +1083,14 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             )
             projects.update_service_schedule_status(
                 item_code="PLAN-REPO-STATUS-TERMINAL",
+                status="confirmed",
+            )
+            projects.update_service_schedule_status(
+                item_code="PLAN-REPO-STATUS-TERMINAL",
+                status="in_progress",
+            )
+            projects.update_service_schedule_status(
+                item_code="PLAN-REPO-STATUS-TERMINAL",
                 status="completed",
             )
 
@@ -1096,6 +1104,45 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
                 project_code="CEM-REPO-STATUS-TERMINAL",
             )
             self.assertEqual(schedule[0]["status"], "completed")
+
+    def test_repository_rejects_backward_service_schedule_status_update(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-BACKWARD",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-STATUS-BACKWARD",
+                project_code="CEM-REPO-STATUS-BACKWARD",
+                title="Backward status guard",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+                status="confirmed",
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "invalid service schedule status transition",
+            ):
+                projects.update_service_schedule_status(
+                    item_code="PLAN-REPO-STATUS-BACKWARD",
+                    status="planned",
+                )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-STATUS-BACKWARD",
+            )
+            self.assertEqual(schedule[0]["status"], "confirmed")
 
     def test_repository_rejects_empty_service_schedule_item_code_on_update(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -1554,6 +1601,50 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             self.assertEqual(schedule[0]["status"], "cancelled")
             self.assertEqual(len(events), 1)
             self.assertEqual(events[0]["action"], "service_schedule_item_status_updated")
+
+    def test_repository_rejects_backward_service_schedule_status_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-AUDIT-BACKWARD",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-STATUS-AUDIT-BACKWARD",
+                project_code="CEM-REPO-STATUS-AUDIT-BACKWARD",
+                title="Backward audited status update",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+                status="in_progress",
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "invalid service schedule status transition",
+            ):
+                projects.update_service_schedule_status_with_audit(
+                    item_code="PLAN-REPO-STATUS-AUDIT-BACKWARD",
+                    status="confirmed",
+                    actor="operator.two",
+                    reason="Move back to confirmed",
+                )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-STATUS-AUDIT-BACKWARD",
+            )
+            events = projects.audit_events("CEM-REPO-STATUS-AUDIT-BACKWARD")
+
+            self.assertEqual(schedule[0]["status"], "in_progress")
+            self.assertEqual(events, [])
 
     def test_repository_normalizes_service_schedule_list_filters(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
