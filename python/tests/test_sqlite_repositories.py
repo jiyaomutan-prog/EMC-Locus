@@ -1058,6 +1058,45 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             )
             self.assertEqual(schedule[0]["status"], "planned")
 
+    def test_repository_rejects_terminal_service_schedule_status_update(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-TERMINAL",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-STATUS-TERMINAL",
+                project_code="CEM-REPO-STATUS-TERMINAL",
+                title="Terminal status guard",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+            )
+            projects.update_service_schedule_status(
+                item_code="PLAN-REPO-STATUS-TERMINAL",
+                status="completed",
+            )
+
+            with self.assertRaisesRegex(ValueError, "status is terminal"):
+                projects.update_service_schedule_status(
+                    item_code="PLAN-REPO-STATUS-TERMINAL",
+                    status="in_progress",
+                )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-STATUS-TERMINAL",
+            )
+            self.assertEqual(schedule[0]["status"], "completed")
+
     def test_repository_rejects_empty_service_schedule_item_code_on_update(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
@@ -1468,6 +1507,53 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
 
             self.assertEqual(schedule[0]["status"], "planned")
             self.assertEqual(events, [])
+
+    def test_repository_rejects_terminal_service_schedule_status_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-AUDIT-TERMINAL",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-STATUS-AUDIT-TERMINAL",
+                project_code="CEM-REPO-STATUS-AUDIT-TERMINAL",
+                title="Terminal audited status update",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+            )
+            projects.update_service_schedule_status_with_audit(
+                item_code="PLAN-REPO-STATUS-AUDIT-TERMINAL",
+                status="cancelled",
+                actor="operator.two",
+                reason="Slot cancelled",
+            )
+
+            with self.assertRaisesRegex(ValueError, "status is terminal"):
+                projects.update_service_schedule_status_with_audit(
+                    item_code="PLAN-REPO-STATUS-AUDIT-TERMINAL",
+                    status="confirmed",
+                    actor="operator.two",
+                    reason="Reopen cancelled slot",
+                )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-STATUS-AUDIT-TERMINAL",
+            )
+            events = projects.audit_events("CEM-REPO-STATUS-AUDIT-TERMINAL")
+
+            self.assertEqual(schedule[0]["status"], "cancelled")
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0]["action"], "service_schedule_item_status_updated")
 
     def test_repository_normalizes_service_schedule_list_filters(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

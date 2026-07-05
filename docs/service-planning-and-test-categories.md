@@ -55,13 +55,15 @@ input. Status updates also reject unknown planning item codes and orphan rows
 whose project reference no longer resolves instead of mutating schedule state
 without a controlled campaign context. Status updates also reject unchanged
 statuses before mutating `updated_at` or appending audit evidence, so duplicate
-operator submissions remain side-effect free. Repository list filters trim
-project and status values when present, reject blank project filters, and
-reject unknown status filters before returning planning rows. Project-filtered
-list reads also reject unknown project codes instead of returning an ambiguous
-empty schedule. Repository list reads also reject orphan planning rows whose
-project reference no longer resolves, so a corrupted import cannot surface
-schedule blocks without campaign context.
+operator submissions remain side-effect free. Once a row reaches `completed` or
+`cancelled`, repository status updates reject further changes so closed
+laboratory blocks cannot be reopened through direct or audited Python calls.
+Repository list filters trim project and status values when present, reject
+blank project filters, and reject unknown status filters before returning
+planning rows. Project-filtered list reads also reject unknown project codes
+instead of returning an ambiguous empty schedule. Repository list reads also
+reject orphan planning rows whose project reference no longer resolves, so a
+corrupted import cannot surface schedule blocks without campaign context.
 The GUI/CLI service-planning action uses the audited repository path: creating
 a planning row also appends a project audit event with the operator, planning
 window, EUT, status, and optional category/method references in the payload.

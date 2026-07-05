@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected service-schedule status updates after a planning row reaches
+  `completed` or `cancelled`, so closed laboratory blocks cannot be reopened
+  through direct or audited Python repository calls.
 - Rejected unchanged service-schedule status updates before mutating planning
   rows or appending project audit evidence, so duplicate operator submissions
   no longer create misleading status-change records.

@@ -45,6 +45,7 @@ SERVICE_SCHEDULE_STATUSES = {
     "completed",
     "cancelled",
 }
+TERMINAL_SERVICE_SCHEDULE_STATUSES = {"completed", "cancelled"}
 SYNC_CHECKPOINT_DIRECTIONS = {"push", "pull", "bidirectional"}
 _PACKAGE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SIGNAL_REFERENCE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -100,6 +101,17 @@ def validate_service_schedule_block(
 def validate_service_schedule_status(status: str) -> None:
     if status not in SERVICE_SCHEDULE_STATUSES:
         raise ValueError(f"unknown service schedule status: {status}")
+
+
+def validate_service_schedule_status_transition(
+    previous_status: str,
+    new_status: str,
+) -> None:
+    if previous_status in TERMINAL_SERVICE_SCHEDULE_STATUSES:
+        raise ValueError(
+            "service schedule status is terminal: "
+            f"{previous_status} cannot change to {new_status}"
+        )
 
 
 def _validate_signal_reference(value: str, *, field_name: str) -> None:
@@ -1371,6 +1383,7 @@ class ProjectRepository(SQLiteDomainRepository):
                 previous_status = str(item["status"])
                 if previous_status == status:
                     raise ValueError("service schedule status is unchanged")
+                validate_service_schedule_status_transition(previous_status, status)
                 cursor = connection.execute(
                     """
                     UPDATE service_schedule_items
@@ -1406,6 +1419,7 @@ class ProjectRepository(SQLiteDomainRepository):
                 previous_status = str(item["status"])
                 if previous_status == status:
                     raise ValueError("service schedule status is unchanged")
+                validate_service_schedule_status_transition(previous_status, status)
                 cursor = connection.execute(
                     """
                     UPDATE service_schedule_items
