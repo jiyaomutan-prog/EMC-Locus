@@ -250,6 +250,7 @@ def build_operator_form_specs(
         label_index=0,
     )
     projects = _project_choices(bootstrap.get("projects"))
+    schedule_items = _schedule_choices(bootstrap.get("schedule"))
     test_categories = _choice_rows(
         bootstrap.get("test_categories"),
         value_index=0,
@@ -577,6 +578,42 @@ def build_operator_form_specs(
             ),
         ),
         OperatorFormSpec(
+            action_id="update_service_schedule_status",
+            title="Statut planning",
+            submit_label="Mettre a jour",
+            enabled=has_projects and bool(schedule_items),
+            disabled_reason=_disabled_reason(
+                has_projects,
+                bool(schedule_items),
+                "Depot projets requis",
+                "Aucun bloc planning disponible",
+            ),
+            fields=(
+                FormFieldSpec(
+                    "item_code",
+                    "Bloc planning",
+                    "choice",
+                    required=True,
+                    choices=schedule_items,
+                ),
+                FormFieldSpec(
+                    "status",
+                    "Statut",
+                    "choice",
+                    required=True,
+                    choices=(
+                        ("planned", "planned"),
+                        ("confirmed", "confirmed"),
+                        ("in_progress", "in_progress"),
+                        ("completed", "completed"),
+                        ("cancelled", "cancelled"),
+                    ),
+                ),
+                FormFieldSpec("actor", "Acteur", "text", required=True),
+                FormFieldSpec("reason", "Raison", "multiline"),
+            ),
+        ),
+        OperatorFormSpec(
             action_id="create_test_category",
             title="Categorie essai",
             submit_label="Creer categorie",
@@ -660,6 +697,21 @@ def _project_choices(rows: Any) -> tuple[tuple[str, str], ...]:
             customer = str(row[1]) if len(row) > 1 else ""
             if code:
                 choices.append((code, f"{code} - {customer}" if customer else code))
+    return tuple(choices)
+
+
+def _schedule_choices(rows: Any) -> tuple[tuple[str, str], ...]:
+    choices: list[tuple[str, str]] = []
+    for row in _list_rows(rows, 9):
+        item_code = row[0]
+        if not item_code:
+            continue
+        label_parts = [item_code]
+        if row[2]:
+            label_parts.append(row[2])
+        if row[8]:
+            label_parts.append(row[8])
+        choices.append((item_code, " - ".join(label_parts)))
     return tuple(choices)
 
 

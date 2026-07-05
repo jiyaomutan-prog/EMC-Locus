@@ -65,7 +65,9 @@ a planning row also appends a project audit event with the operator, planning
 window, EUT, status, and optional category/method references in the payload.
 Repository callers that change planning status can use the audited status
 update path to append a project audit event with the previous and new status in
-the payload.
+the payload. The local Python/CLI action and Qt form use that audited path for
+operator status changes, and can refresh the bootstrap after a confirmation,
+start, completion, or cancellation.
 
 Example local action:
 
@@ -82,6 +84,19 @@ python -m emc_locus.actions_cli schedule-service-item `
   --assigned-operator operator.one `
   --location "Lab A" `
   --equipment-under-test "EUT rail" `
+  --bootstrap-output local/bootstrap.js
+```
+
+Example status update:
+
+```text
+$env:PYTHONPATH='python'
+python -m emc_locus.actions_cli update-service-schedule-status `
+  --projects-db local/projects.sqlite `
+  --item-code PLAN-001 `
+  --status confirmed `
+  --actor operator.one `
+  --reason "Lab slot confirmed" `
   --bootstrap-output local/bootstrap.js
 ```
 

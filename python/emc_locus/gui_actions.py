@@ -753,6 +753,55 @@ def schedule_service_item(
     }
 
 
+def update_service_schedule_status_action(
+    *,
+    projects_db: Path | str,
+    item_code: str,
+    status: str,
+    actor: str,
+    reason: str | None = None,
+    migrations_root: Path | str = Path("storage/sqlite"),
+    bootstrap_output: Path | str | None = None,
+    metrology_db: Path | str | None = None,
+    test_definitions_db: Path | str | None = None,
+    measurement_data_db: Path | str | None = None,
+    update_catalog_db: Path | str | None = None,
+) -> dict[str, Any]:
+    """Change one planned service/test item status with project audit evidence."""
+
+    item_code = require_non_empty(item_code, "item_code")
+    status = require_non_empty(status, "status")
+    actor = require_non_empty(actor, "actor")
+    reason = optional_text_or_none(reason)
+    validate_service_schedule_status(status)
+
+    repository = ProjectRepository(Path(projects_db), Path(migrations_root))
+    repository.initialize()
+    audit_sequence = repository.update_service_schedule_status_with_audit(
+        item_code=item_code,
+        status=status,
+        actor=actor,
+        reason=reason,
+    )
+
+    if bootstrap_output is not None:
+        refresh_bootstrap(
+            output=bootstrap_output,
+            migrations_root=migrations_root,
+            projects_db=projects_db,
+            metrology_db=metrology_db,
+            test_definitions_db=test_definitions_db,
+            measurement_data_db=measurement_data_db,
+            update_catalog_db=update_catalog_db,
+        )
+
+    return {
+        "audit_sequence": audit_sequence,
+        "item_code": item_code,
+        "status": status,
+    }
+
+
 def _validate_service_schedule_references(
     *,
     test_definitions_db: Path | str | None,
@@ -1599,6 +1648,19 @@ def main(argv: list[str] | None = None) -> int:
     schedule_parser.add_argument("--notes", default="")
     schedule_parser.add_argument("--bootstrap-output", type=Path)
 
+    schedule_status_parser = subcommands.add_parser("update-service-schedule-status")
+    _add_repository_args(schedule_status_parser, include_projects=False)
+    schedule_status_parser.add_argument("--projects-db", required=True, type=Path)
+    schedule_status_parser.add_argument("--item-code", required=True)
+    schedule_status_parser.add_argument(
+        "--status",
+        required=True,
+        choices=sorted(SERVICE_SCHEDULE_STATUSES),
+    )
+    schedule_status_parser.add_argument("--actor", required=True)
+    schedule_status_parser.add_argument("--reason", default="")
+    schedule_status_parser.add_argument("--bootstrap-output", type=Path)
+
     category_parser = subcommands.add_parser("create-test-category")
     _add_repository_args(
         category_parser,
@@ -1887,6 +1949,23 @@ def main(argv: list[str] | None = None) -> int:
             test_method_code=args.test_method_code,
             status=args.status,
             notes=args.notes,
+            migrations_root=args.migrations_root,
+            bootstrap_output=args.bootstrap_output,
+            metrology_db=args.metrology_db,
+            test_definitions_db=args.test_definitions_db,
+            measurement_data_db=args.measurement_data_db,
+            update_catalog_db=args.update_catalog_db,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "update-service-schedule-status":
+        result = update_service_schedule_status_action(
+            projects_db=args.projects_db,
+            item_code=args.item_code,
+            status=args.status,
+            actor=args.actor,
+            reason=args.reason,
             migrations_root=args.migrations_root,
             bootstrap_output=args.bootstrap_output,
             metrology_db=args.metrology_db,

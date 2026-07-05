@@ -31,6 +31,7 @@ from emc_locus.gui_actions import (
     run_simulated_emc_test_action,
     schedule_service_item,
     set_metrology_instrument_serviceability,
+    update_service_schedule_status_action,
 )
 from emc_locus.local_agent_client import LocalAgentClient, LocalAgentError
 from emc_locus.qt_console_models import (
@@ -625,6 +626,17 @@ def _execute_form_action(
             test_method_code=_optional(values["test_method_code"]),
             status=values["status"],
             notes=values["notes"],
+        )
+        return
+
+    if action_id == "update_service_schedule_status":
+        update_service_schedule_status_action(
+            projects_db=_required_path(args.projects_db, "projects"),
+            migrations_root=args.migrations_root,
+            item_code=values["item_code"],
+            status=values["status"],
+            actor=values["actor"],
+            reason=_optional(values["reason"]),
         )
         return
 

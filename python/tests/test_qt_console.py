@@ -272,6 +272,19 @@ class QtConsoleTests(unittest.TestCase):
                     ["daq_chassis", "data_monitoring", "DAQ chassis and modules"]
                 ],
                 "projects": [{"code": "CEM-QT-001", "customer": "Rail Motion"}],
+                "schedule": [
+                    [
+                        "PLAN-QT-001",
+                        "CEM-QT-001",
+                        "Emission conduite",
+                        "emission_conducted",
+                        "2026-07-01T09:00",
+                        "2026-07-01T12:00",
+                        "operator.one",
+                        "Lab A",
+                        "planned",
+                    ]
+                ],
                 "test_categories": [
                     ["emission", "", "Emission", "active"],
                     ["emission_conducted", "emission", "Emission conduite", "active"],
@@ -289,6 +302,7 @@ class QtConsoleTests(unittest.TestCase):
         self.assertTrue(by_id["set_instrument_serviceability"].enabled)
         self.assertFalse(by_id["run_simulated_emc_test"].enabled)
         self.assertTrue(by_id["schedule_service_item"].enabled)
+        self.assertTrue(by_id["update_service_schedule_status"].enabled)
         self.assertTrue(by_id["create_test_category"].enabled)
         self.assertIn(
             ("daq_chassis", "daq_chassis - DAQ chassis and modules"),
@@ -297,6 +311,10 @@ class QtConsoleTests(unittest.TestCase):
         self.assertIn(
             ("CEM-QT-001", "CEM-QT-001 - Rail Motion"),
             by_id["schedule_service_item"].fields[1].choices,
+        )
+        self.assertIn(
+            ("PLAN-QT-001", "PLAN-QT-001 - Emission conduite - planned"),
+            by_id["update_service_schedule_status"].fields[0].choices,
         )
 
         disabled = build_operator_form_specs({}, set())
@@ -577,6 +595,16 @@ class QtConsoleTests(unittest.TestCase):
             )
             module._execute_form_action(
                 args,
+                "update_service_schedule_status",
+                {
+                    "item_code": "PLAN-QT-FORM",
+                    "status": "confirmed",
+                    "actor": "operator.two",
+                    "reason": "Qt form confirmation",
+                },
+            )
+            module._execute_form_action(
+                args,
                 "complete_contract_review_item",
                 {
                     "project_code": "CEM-QT-SCHEDULE",
@@ -612,9 +640,11 @@ class QtConsoleTests(unittest.TestCase):
         self.assertEqual(schedule[0]["item_code"], "PLAN-QT-FORM")
         self.assertEqual(schedule[0]["test_category_code"], "emission_conducted")
         self.assertIsNone(schedule[0]["test_method_code"])
+        self.assertEqual(schedule[0]["status"], "confirmed")
         event_actions = {event["action"] for event in events}
         self.assertIn("project_created", event_actions)
         self.assertIn("service_schedule_item_planned", event_actions)
+        self.assertIn("service_schedule_item_status_updated", event_actions)
         self.assertIn("contract_review_item_completed", event_actions)
         self.assertEqual(contract_items[0]["item"], "requirements_reviewed")
         self.assertEqual(category["parent_code"], "immunity_radiated")

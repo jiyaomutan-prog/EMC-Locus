@@ -13,6 +13,9 @@ change should remain traceable through Git history, session logs, and this file.
 - Added an audited repository path for service-schedule status changes, so
   planning confirmations and completions can leave project audit evidence with
   previous/new status context.
+- Routed service-schedule status changes through a local Python/CLI/Qt action,
+  so operators can confirm, start, complete, or cancel planned blocks while
+  recording project audit evidence and refreshing the local bootstrap.
 - Recorded project audit evidence when GUI/CLI service-planning actions create
   schedule rows, so planned laboratory blocks are traceable like other project
   workflow changes.

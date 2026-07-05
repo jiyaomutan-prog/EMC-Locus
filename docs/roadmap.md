@@ -316,6 +316,9 @@ Deliverables:
   laboratory blocks.
 - project repository service-schedule status changes now have an audited update
   path that records previous/new status context as project audit evidence.
+- local service-planning actions now expose audited status changes through the
+  Python/CLI and Qt form paths, so planned blocks can be confirmed, started,
+  completed, or cancelled without bypassing project audit evidence.
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

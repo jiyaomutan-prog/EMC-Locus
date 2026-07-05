@@ -30,6 +30,7 @@ from emc_locus import (
     set_metrology_instrument_capabilities,
     set_metrology_instrument_availability,
     set_metrology_instrument_serviceability,
+    update_service_schedule_status_action,
     write_bootstrap_js,
 )
 
@@ -2000,6 +2001,53 @@ class GuiActionTests(unittest.TestCase):
                 )
 
             self.assertEqual(projects.list_service_schedule_items(), [])
+
+    def test_update_service_schedule_status_records_audit_and_refreshes_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path("storage/sqlite")
+            base = Path(temporary_directory)
+            projects_db = base / "projects.sqlite"
+            bootstrap_output = base / "bootstrap.js"
+            projects = ProjectRepository(projects_db, root)
+            projects.initialize()
+            projects.create_project(
+                code="CEM-SCH-STATUS",
+                customer_name="Schedule Status Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            schedule_service_item(
+                projects_db=projects_db,
+                item_code="PLAN-SCH-STATUS",
+                project_code="CEM-SCH-STATUS",
+                title="Emission conduite",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+            )
+
+            result = update_service_schedule_status_action(
+                projects_db=projects_db,
+                item_code="PLAN-SCH-STATUS",
+                status="confirmed",
+                actor="operator.two",
+                reason="Lab slot confirmed",
+                bootstrap_output=bootstrap_output,
+            )
+
+            schedule = projects.list_service_schedule_items(project_code="CEM-SCH-STATUS")
+            events = projects.audit_events("CEM-SCH-STATUS")
+            bootstrap_text = bootstrap_output.read_text()
+
+            self.assertEqual(result["item_code"], "PLAN-SCH-STATUS")
+            self.assertEqual(result["audit_sequence"], 2)
+            self.assertEqual(schedule[0]["status"], "confirmed")
+            self.assertEqual(events[-1]["action"], "service_schedule_item_status_updated")
+            self.assertIn('"previous_status": "planned"', events[-1]["payload_json"])
+            self.assertIn('"new_status": "confirmed"', events[-1]["payload_json"])
+            self.assertIn("confirmed", bootstrap_text)
 
     def test_register_metrology_instrument_records_asset_certificate_and_bootstrap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
