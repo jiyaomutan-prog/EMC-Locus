@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected unchanged service-schedule status updates before mutating planning
+  rows or appending project audit evidence, so duplicate operator submissions
+  no longer create misleading status-change records.
 - Added an audited repository path for service-schedule status changes, so
   planning confirmations and completions can leave project audit evidence with
   previous/new status context.

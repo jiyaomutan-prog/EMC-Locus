@@ -319,6 +319,9 @@ Deliverables:
 - local service-planning actions now expose audited status changes through the
   Python/CLI and Qt form paths, so planned blocks can be confirmed, started,
   completed, or cancelled without bypassing project audit evidence.
+- service-schedule status updates now reject unchanged statuses before mutating
+  planning rows or creating audit evidence, keeping duplicate operator
+  submissions side-effect free.
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

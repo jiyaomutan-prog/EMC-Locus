@@ -1023,6 +1023,41 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             )
             self.assertEqual(schedule[0]["status"], "planned")
 
+    def test_repository_rejects_unchanged_service_schedule_status_update(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-UNCHANGED",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-STATUS-UNCHANGED",
+                project_code="CEM-REPO-STATUS-UNCHANGED",
+                title="Unchanged status guard",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+            )
+
+            with self.assertRaisesRegex(ValueError, "status is unchanged"):
+                projects.update_service_schedule_status(
+                    item_code="PLAN-REPO-STATUS-UNCHANGED",
+                    status="planned",
+                )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-STATUS-UNCHANGED",
+            )
+            self.assertEqual(schedule[0]["status"], "planned")
+
     def test_repository_rejects_empty_service_schedule_item_code_on_update(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
@@ -1393,6 +1428,46 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             self.assertEqual(payload["item_code"], "PLAN-REPO-SCHEDULE-STATUS-AUDIT")
             self.assertEqual(payload["previous_status"], "planned")
             self.assertEqual(payload["new_status"], "confirmed")
+
+    def test_repository_rejects_unchanged_service_schedule_status_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-AUDIT-UNCHANGED",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-STATUS-AUDIT-UNCHANGED",
+                project_code="CEM-REPO-STATUS-AUDIT-UNCHANGED",
+                title="Unchanged audited status update",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+            )
+
+            with self.assertRaisesRegex(ValueError, "status is unchanged"):
+                projects.update_service_schedule_status_with_audit(
+                    item_code="PLAN-REPO-STATUS-AUDIT-UNCHANGED",
+                    status="planned",
+                    actor="operator.two",
+                    reason="Duplicate confirmation",
+                )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-STATUS-AUDIT-UNCHANGED",
+            )
+            events = projects.audit_events("CEM-REPO-STATUS-AUDIT-UNCHANGED")
+
+            self.assertEqual(schedule[0]["status"], "planned")
+            self.assertEqual(events, [])
 
     def test_repository_normalizes_service_schedule_list_filters(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

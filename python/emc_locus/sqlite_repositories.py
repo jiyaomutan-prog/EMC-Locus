@@ -1364,7 +1364,13 @@ class ProjectRepository(SQLiteDomainRepository):
         validate_service_schedule_status(status)
         with closing(self.connect()) as connection:
             with connection:
-                self._service_schedule_item_for_status_update(connection, item_code)
+                item = self._service_schedule_item_for_status_update(
+                    connection,
+                    item_code,
+                )
+                previous_status = str(item["status"])
+                if previous_status == status:
+                    raise ValueError("service schedule status is unchanged")
                 cursor = connection.execute(
                     """
                     UPDATE service_schedule_items
@@ -1398,6 +1404,8 @@ class ProjectRepository(SQLiteDomainRepository):
                     item_code,
                 )
                 previous_status = str(item["status"])
+                if previous_status == status:
+                    raise ValueError("service schedule status is unchanged")
                 cursor = connection.execute(
                     """
                     UPDATE service_schedule_items
