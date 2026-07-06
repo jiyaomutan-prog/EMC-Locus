@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Normalized service-schedule status text before repository inserts, updates,
+  filters, and GUI/CLI actions, so operator whitespace cannot create false
+  unknown-status rejections or non-canonical audit payloads.
 - Rejected service-schedule inserts whose initial status is not `planned`, so
   direct Python, CLI, and Qt callers can no longer create planning blocks that
   skip the confirmation/start/completion workflow.

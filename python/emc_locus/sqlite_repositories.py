@@ -111,6 +111,12 @@ def validate_service_schedule_status(status: str) -> None:
         raise ValueError(f"unknown service schedule status: {status}")
 
 
+def normalize_service_schedule_status(status: str) -> str:
+    trimmed = require_non_empty(status, "status")
+    validate_service_schedule_status(trimmed)
+    return trimmed
+
+
 def validate_service_schedule_initial_status(status: str) -> None:
     if status != INITIAL_SERVICE_SCHEDULE_STATUS:
         raise ValueError(
@@ -1252,10 +1258,9 @@ class ProjectRepository(SQLiteDomainRepository):
         equipment_under_test = require_non_empty(equipment_under_test, "equipment_under_test")
         test_category_code = optional_text_or_none(test_category_code)
         test_method_code = optional_text_or_none(test_method_code)
-        status = require_non_empty(status, "status")
+        status = normalize_service_schedule_status(status)
         notes = optional_text_or_empty(notes)
         validate_service_schedule_block(planned_start_at, planned_end_at)
-        validate_service_schedule_status(status)
         validate_service_schedule_initial_status(status)
         return {
             "item_code": item_code,
@@ -1358,8 +1363,7 @@ class ProjectRepository(SQLiteDomainRepository):
             filters.append("service_schedule_items.project_code = ?")
             parameters.append(project_code)
         if status is not None:
-            status = require_non_empty(status, "status")
-            validate_service_schedule_status(status)
+            status = normalize_service_schedule_status(status)
             filters.append("service_schedule_items.status = ?")
             parameters.append(status)
 
@@ -1397,8 +1401,7 @@ class ProjectRepository(SQLiteDomainRepository):
         status: str,
     ) -> bool:
         item_code = require_non_empty(item_code, "item_code")
-        status = require_non_empty(status, "status")
-        validate_service_schedule_status(status)
+        status = normalize_service_schedule_status(status)
         with closing(self.connect()) as connection:
             with connection:
                 item = self._service_schedule_item_for_status_update(
@@ -1430,10 +1433,9 @@ class ProjectRepository(SQLiteDomainRepository):
         reason: str | None = None,
     ) -> int:
         item_code = require_non_empty(item_code, "item_code")
-        status = require_non_empty(status, "status")
+        status = normalize_service_schedule_status(status)
         actor = require_non_empty(actor, "actor")
         reason = optional_text_or_none(reason)
-        validate_service_schedule_status(status)
         now = utc_timestamp()
         with closing(self.connect()) as connection:
             with connection:

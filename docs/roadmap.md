@@ -331,6 +331,9 @@ Deliverables:
 - service-schedule inserts now require the initial status to be `planned`, so
   direct Python, CLI, and Qt callers cannot create planning rows that bypass
   the controlled confirmation/start/completion transitions.
+- service-schedule status text is now normalized before inserts, updates,
+  filters, and GUI/CLI actions, so whitespace in operator input cannot create
+  false unknown-status rejections or non-canonical audit evidence.
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

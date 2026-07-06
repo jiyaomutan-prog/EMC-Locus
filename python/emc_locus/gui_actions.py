@@ -21,12 +21,12 @@ from .sqlite_repositories import (
     SERVICE_SCHEDULE_STATUSES,
     TestDefinitionRepository,
     UpdateCatalogRepository,
+    normalize_service_schedule_status,
     optional_text_or_empty,
     optional_text_or_none,
     require_non_empty,
     serviceability_from_legacy_availability,
     validate_service_schedule_block,
-    validate_service_schedule_status,
 )
 
 
@@ -703,9 +703,8 @@ def schedule_service_item(
     equipment_under_test = require_non_empty(equipment_under_test, "equipment_under_test")
     test_category_code = optional_text_or_none(test_category_code)
     test_method_code = optional_text_or_none(test_method_code)
-    status = require_non_empty(status, "status")
+    status = normalize_service_schedule_status(status)
     notes = optional_text_or_empty(notes)
-    validate_service_schedule_status(status)
     _validate_service_schedule_references(
         test_definitions_db=test_definitions_db,
         migrations_root=migrations_root,
@@ -771,10 +770,9 @@ def update_service_schedule_status_action(
     """Change one planned service/test item status with project audit evidence."""
 
     item_code = require_non_empty(item_code, "item_code")
-    status = require_non_empty(status, "status")
+    status = normalize_service_schedule_status(status)
     actor = require_non_empty(actor, "actor")
     reason = optional_text_or_none(reason)
-    validate_service_schedule_status(status)
 
     repository = ProjectRepository(Path(projects_db), Path(migrations_root))
     repository.initialize()
