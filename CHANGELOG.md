@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Normalized optional service-schedule references and notes while listing
+  persisted planning rows, so corrupted imports cannot surface blank optional
+  traceability fields differently from repository-written rows.
 - Rejected service-schedule list reads that encounter persisted rows with blank
   required planning text, so corrupted imports cannot surface unusable operator,
   location, title, EUT, or planning-code context.

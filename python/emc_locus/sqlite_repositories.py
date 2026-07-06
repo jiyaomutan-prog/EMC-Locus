@@ -1428,6 +1428,25 @@ class ProjectRepository(SQLiteDomainRepository):
             str(item["planned_start_at"]),
             str(item["planned_end_at"]),
         )
+        item["test_category_code"] = optional_text_or_none(
+            self._optional_service_schedule_text(item, "test_category_code")
+        )
+        item["test_method_code"] = optional_text_or_none(
+            self._optional_service_schedule_text(item, "test_method_code")
+        )
+        item["notes"] = optional_text_or_empty(
+            self._optional_service_schedule_text(item, "notes")
+        )
+
+    def _optional_service_schedule_text(
+        self,
+        item: dict[str, object],
+        field_name: str,
+    ) -> str | None:
+        value = item[field_name]
+        if value is None or isinstance(value, str):
+            return value
+        raise ValueError(f"{field_name} must be text")
 
     def update_service_schedule_status(
         self,

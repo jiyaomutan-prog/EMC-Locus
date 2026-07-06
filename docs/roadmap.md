@@ -345,6 +345,9 @@ Deliverables:
 - service-schedule list reads now also reject persisted rows with blank
   required planning text, preventing corrupted imports from reaching repository
   callers or operator views without usable planning context.
+- service-schedule list reads now normalize optional category, method, and
+  notes text from persisted rows, keeping imported blank optional planning
+  fields aligned with repository-written rows.
 - the Qt service-schedule status form now exposes only actionable update
   targets and hides completed/cancelled planning rows, keeping the operator
   form aligned with repository transition guards.
