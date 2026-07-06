@@ -23,14 +23,17 @@ The project repository owns `service_schedule_items`. A planning row records:
 
 Allowed status values are `planned`, `confirmed`, `in_progress`, `completed`,
 and `cancelled`.
+New planning rows must start as `planned`. Confirmation, start, completion, and
+cancellation are recorded afterward through the audited status-update path, so
+callers cannot create rows that have already skipped workflow evidence.
 
 Schedule rows must use canonical `YYYY-MM-DDTHH:MM` local date-times without
 timezone offsets. A single row must have a planned end after its planned start
 and remain inside one business day, and the project repository enforces that
-rule, the allowed status vocabulary, and required planning context fields even
-when callers bypass the GUI/CLI action layer. Optional category and method
-references are trimmed when present; blank optional references are stored as
-absent values rather than empty strings.
+rule, the allowed status vocabulary, the initial `planned` status, and required
+planning context fields even when callers bypass the GUI/CLI action layer.
+Optional category and method references are trimmed when present; blank optional
+references are stored as absent values rather than empty strings.
 When the local action is given a test-definition repository, non-empty category
 and method references must already exist in that repository before the planning
 row is written.

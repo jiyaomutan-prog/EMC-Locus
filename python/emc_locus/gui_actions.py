@@ -13,6 +13,7 @@ from typing import Any
 from .gui_bootstrap import build_bootstrap, write_bootstrap_js
 from .local_agent_client import LocalAgentClient
 from .sqlite_repositories import (
+    INITIAL_SERVICE_SCHEDULE_STATUS,
     INSTRUMENT_SERVICEABILITY_STATUSES,
     MeasurementDataRepository,
     MetrologyRepository,
@@ -1642,8 +1643,8 @@ def main(argv: list[str] | None = None) -> int:
     schedule_parser.add_argument("--test-method-code")
     schedule_parser.add_argument(
         "--status",
-        default="planned",
-        choices=sorted(SERVICE_SCHEDULE_STATUSES),
+        default=INITIAL_SERVICE_SCHEDULE_STATUS,
+        choices=(INITIAL_SERVICE_SCHEDULE_STATUS,),
     )
     schedule_parser.add_argument("--notes", default="")
     schedule_parser.add_argument("--bootstrap-output", type=Path)

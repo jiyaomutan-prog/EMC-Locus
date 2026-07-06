@@ -328,6 +328,9 @@ Deliverables:
 - service-schedule status updates now reject non-sequential transitions, so
   direct and audited repository callers cannot move planning rows backward or
   skip the confirmation/start workflow states.
+- service-schedule inserts now require the initial status to be `planned`, so
+  direct Python, CLI, and Qt callers cannot create planning rows that bypass
+  the controlled confirmation/start/completion transitions.
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

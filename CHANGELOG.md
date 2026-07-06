@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected service-schedule inserts whose initial status is not `planned`, so
+  direct Python, CLI, and Qt callers can no longer create planning blocks that
+  skip the confirmation/start/completion workflow.
 - Rejected non-sequential service-schedule status transitions, so direct and
   audited repository callers can no longer move planning rows backward or skip
   required confirmation/start workflow states.

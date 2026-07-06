@@ -45,6 +45,7 @@ SERVICE_SCHEDULE_STATUSES = {
     "completed",
     "cancelled",
 }
+INITIAL_SERVICE_SCHEDULE_STATUS = "planned"
 TERMINAL_SERVICE_SCHEDULE_STATUSES = {"completed", "cancelled"}
 SERVICE_SCHEDULE_STATUS_TRANSITIONS = {
     "planned": {"confirmed", "cancelled"},
@@ -108,6 +109,14 @@ def validate_service_schedule_block(
 def validate_service_schedule_status(status: str) -> None:
     if status not in SERVICE_SCHEDULE_STATUSES:
         raise ValueError(f"unknown service schedule status: {status}")
+
+
+def validate_service_schedule_initial_status(status: str) -> None:
+    if status != INITIAL_SERVICE_SCHEDULE_STATUS:
+        raise ValueError(
+            "service schedule initial status must be planned: "
+            f"{status}"
+        )
 
 
 def validate_service_schedule_status_transition(
@@ -1247,6 +1256,7 @@ class ProjectRepository(SQLiteDomainRepository):
         notes = optional_text_or_empty(notes)
         validate_service_schedule_block(planned_start_at, planned_end_at)
         validate_service_schedule_status(status)
+        validate_service_schedule_initial_status(status)
         return {
             "item_code": item_code,
             "project_code": project_code,

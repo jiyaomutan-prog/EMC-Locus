@@ -943,6 +943,35 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
 
             self.assertEqual(projects.list_service_schedule_items(), [])
 
+    def test_repository_rejects_non_planned_service_schedule_initial_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-INITIAL-STATUS",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            with self.assertRaisesRegex(ValueError, "initial status must be planned"):
+                projects.add_service_schedule_item(
+                    item_code="PLAN-REPO-SKIPPED-INITIAL",
+                    project_code="CEM-REPO-INITIAL-STATUS",
+                    title="Skipped initial status attempt",
+                    planned_start_at="2026-07-01T09:00",
+                    planned_end_at="2026-07-01T12:00",
+                    assigned_operator="operator.one",
+                    location="Lab A",
+                    equipment_under_test="EUT rail",
+                    status="confirmed",
+                )
+
+            self.assertEqual(projects.list_service_schedule_items(), [])
+
     def test_repository_rejects_duplicate_service_schedule_item_code_on_insert(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
@@ -1127,6 +1156,9 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
                 assigned_operator="operator.one",
                 location="Lab A",
                 equipment_under_test="EUT rail",
+            )
+            projects.update_service_schedule_status(
+                item_code="PLAN-REPO-STATUS-BACKWARD",
                 status="confirmed",
             )
 
@@ -1624,6 +1656,13 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
                 assigned_operator="operator.one",
                 location="Lab A",
                 equipment_under_test="EUT rail",
+            )
+            projects.update_service_schedule_status(
+                item_code="PLAN-REPO-STATUS-AUDIT-BACKWARD",
+                status="confirmed",
+            )
+            projects.update_service_schedule_status(
+                item_code="PLAN-REPO-STATUS-AUDIT-BACKWARD",
                 status="in_progress",
             )
 
@@ -1668,6 +1707,9 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
                 assigned_operator="operator.one",
                 location="Lab A",
                 equipment_under_test="EUT rail",
+            )
+            projects.update_service_schedule_status(
+                item_code="PLAN-REPO-LIST-FILTERS",
                 status="confirmed",
             )
 
@@ -2104,6 +2146,35 @@ class GuiActionTests(unittest.TestCase):
             self.assertIn("PLAN-SCH-001", events[0]["payload_json"])
             self.assertIn("PLAN-SCH-001", bootstrap_text)
             self.assertIn("Emission conduite", bootstrap_text)
+
+    def test_schedule_service_item_rejects_non_planned_initial_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path("storage/sqlite")
+            projects_db = Path(temporary_directory) / "projects.sqlite"
+            projects = ProjectRepository(projects_db, root)
+            projects.initialize()
+            projects.create_project(
+                code="CEM-SCH-INITIAL-STATUS",
+                customer_name="Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            with self.assertRaisesRegex(ValueError, "initial status must be planned"):
+                schedule_service_item(
+                    projects_db=projects_db,
+                    item_code="PLAN-SCH-SKIPPED-INITIAL",
+                    project_code="CEM-SCH-INITIAL-STATUS",
+                    title="Skipped initial status",
+                    planned_start_at="2026-07-01T09:00",
+                    planned_end_at="2026-07-01T12:00",
+                    assigned_operator="operator.one",
+                    location="Lab A",
+                    equipment_under_test="EUT rail",
+                    status="confirmed",
+                )
+
+            self.assertEqual(projects.list_service_schedule_items(), [])
 
     def test_schedule_service_item_rejects_unknown_test_category_reference(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

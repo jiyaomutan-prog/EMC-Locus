@@ -312,6 +312,10 @@ class QtConsoleTests(unittest.TestCase):
             ("CEM-QT-001", "CEM-QT-001 - Rail Motion"),
             by_id["schedule_service_item"].fields[1].choices,
         )
+        self.assertEqual(
+            by_id["schedule_service_item"].fields[10].choices,
+            (("planned", "planned"),),
+        )
         self.assertIn(
             ("PLAN-QT-001", "PLAN-QT-001 - Emission conduite - planned"),
             by_id["update_service_schedule_status"].fields[0].choices,
