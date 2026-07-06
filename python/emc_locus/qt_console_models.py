@@ -55,6 +55,13 @@ TEST_EXECUTION_COLUMNS = (
     "Termine",
     "Revision",
 )
+SERVICE_SCHEDULE_TERMINAL_STATUSES = {"completed", "cancelled"}
+SERVICE_SCHEDULE_ACTION_STATUS_CHOICES = (
+    ("confirmed", "confirmed"),
+    ("in_progress", "in_progress"),
+    ("completed", "completed"),
+    ("cancelled", "cancelled"),
+)
 
 
 @dataclass(frozen=True)
@@ -595,13 +602,7 @@ def build_operator_form_specs(
                     "Statut",
                     "choice",
                     required=True,
-                    choices=(
-                        ("planned", "planned"),
-                        ("confirmed", "confirmed"),
-                        ("in_progress", "in_progress"),
-                        ("completed", "completed"),
-                        ("cancelled", "cancelled"),
-                    ),
+                    choices=SERVICE_SCHEDULE_ACTION_STATUS_CHOICES,
                 ),
                 FormFieldSpec("actor", "Acteur", "text", required=True),
                 FormFieldSpec("reason", "Raison", "multiline"),
@@ -700,11 +701,14 @@ def _schedule_choices(rows: Any) -> tuple[tuple[str, str], ...]:
         item_code = row[0]
         if not item_code:
             continue
+        status = row[8]
+        if status in SERVICE_SCHEDULE_TERMINAL_STATUSES:
+            continue
         label_parts = [item_code]
         if row[2]:
             label_parts.append(row[2])
-        if row[8]:
-            label_parts.append(row[8])
+        if status:
+            label_parts.append(status)
         choices.append((item_code, " - ".join(label_parts)))
     return tuple(choices)
 

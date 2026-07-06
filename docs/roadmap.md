@@ -334,6 +334,9 @@ Deliverables:
 - service-schedule status text is now normalized before inserts, updates,
   filters, and GUI/CLI actions, so whitespace in operator input cannot create
   false unknown-status rejections or non-canonical audit evidence.
+- the Qt service-schedule status form now exposes only actionable update
+  targets and hides completed/cancelled planning rows, keeping the operator
+  form aligned with repository transition guards.
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

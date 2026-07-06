@@ -283,6 +283,17 @@ class QtConsoleTests(unittest.TestCase):
                         "operator.one",
                         "Lab A",
                         "planned",
+                    ],
+                    [
+                        "PLAN-QT-DONE",
+                        "CEM-QT-001",
+                        "Emission terminee",
+                        "emission_conducted",
+                        "2026-07-01T13:00",
+                        "2026-07-01T15:00",
+                        "operator.one",
+                        "Lab A",
+                        "completed",
                     ]
                 ],
                 "test_categories": [
@@ -319,6 +330,45 @@ class QtConsoleTests(unittest.TestCase):
         self.assertIn(
             ("PLAN-QT-001", "PLAN-QT-001 - Emission conduite - planned"),
             by_id["update_service_schedule_status"].fields[0].choices,
+        )
+        self.assertNotIn(
+            ("PLAN-QT-DONE", "PLAN-QT-DONE - Emission terminee - completed"),
+            by_id["update_service_schedule_status"].fields[0].choices,
+        )
+        self.assertEqual(
+            by_id["update_service_schedule_status"].fields[1].choices,
+            (
+                ("confirmed", "confirmed"),
+                ("in_progress", "in_progress"),
+                ("completed", "completed"),
+                ("cancelled", "cancelled"),
+            ),
+        )
+
+        closed_specs = build_operator_form_specs(
+            {
+                "projects": [{"code": "CEM-QT-001", "customer": "Rail Motion"}],
+                "schedule": [
+                    [
+                        "PLAN-QT-CLOSED",
+                        "CEM-QT-001",
+                        "Emission cloturee",
+                        "emission_conducted",
+                        "2026-07-01T09:00",
+                        "2026-07-01T12:00",
+                        "operator.one",
+                        "Lab A",
+                        "cancelled",
+                    ]
+                ],
+            },
+            {"projects"},
+        )
+        closed_by_id = {spec.action_id: spec for spec in closed_specs}
+        self.assertFalse(closed_by_id["update_service_schedule_status"].enabled)
+        self.assertEqual(
+            closed_by_id["update_service_schedule_status"].disabled_reason,
+            "Aucun bloc planning disponible",
         )
 
         disabled = build_operator_form_specs({}, set())

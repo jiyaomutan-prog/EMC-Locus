@@ -79,7 +79,10 @@ Repository callers that change planning status can use the audited status
 update path to append a project audit event with the previous and new status in
 the payload. The local Python/CLI action and Qt form use that audited path for
 operator status changes, and can refresh the bootstrap after a confirmation,
-start, completion, or cancellation.
+start, completion, or cancellation. The Qt status form offers only actionable
+update targets (`confirmed`, `in_progress`, `completed`, `cancelled`) and hides
+already terminal planning rows, so completed or cancelled blocks are not
+presented as editable status targets.
 
 Example local action:
 
