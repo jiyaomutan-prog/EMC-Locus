@@ -1402,6 +1402,10 @@ class ProjectRepository(SQLiteDomainRepository):
             if item.pop("project_stage") is None:
                 raise ValueError("service schedule project does not exist")
             validate_service_schedule_status(str(item["status"]))
+            validate_service_schedule_block(
+                str(item["planned_start_at"]),
+                str(item["planned_end_at"]),
+            )
             schedule.append(item)
         return schedule
 

@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected service-schedule list reads that encounter persisted rows whose
+  planning window is no longer a valid single business-day block, so corrupted
+  imports cannot surface invalid laboratory planning slots.
 - Rejected service-schedule list reads that encounter persisted rows with an
   unknown status, so corrupted or constraint-bypassed imports cannot surface
   non-canonical planning states in repository or UI views.
