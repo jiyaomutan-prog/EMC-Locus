@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected service-schedule list reads that encounter persisted rows with blank
+  required planning text, so corrupted imports cannot surface unusable operator,
+  location, title, EUT, or planning-code context.
 - Rejected service-schedule list reads that encounter persisted rows whose
   planning window is no longer a valid single business-day block, so corrupted
   imports cannot surface invalid laboratory planning slots.

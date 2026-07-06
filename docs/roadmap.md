@@ -342,6 +342,9 @@ Deliverables:
 - service-schedule list reads now also revalidate persisted planning windows,
   preventing corrupted imports from surfacing weekend, multi-day, or
   non-positive laboratory blocks.
+- service-schedule list reads now also reject persisted rows with blank
+  required planning text, preventing corrupted imports from reaching repository
+  callers or operator views without usable planning context.
 - the Qt service-schedule status form now exposes only actionable update
   targets and hides completed/cancelled planning rows, keeping the operator
   form aligned with repository transition guards.

@@ -75,7 +75,10 @@ corrupted import cannot surface schedule blocks without campaign context. They
 also validate each persisted planning status before returning rows, preventing
 constraint-bypassed imports from surfacing non-canonical workflow states. They
 also revalidate the persisted planning window, preventing corrupted imports
-from surfacing weekend, multi-day, or non-positive laboratory blocks.
+from surfacing weekend, multi-day, or non-positive laboratory blocks. They also
+reject persisted rows with blank required planning text, preventing imported
+rows without usable operator, location, title, EUT, project, or planning-code
+context from reaching repository callers or operator views.
 The GUI/CLI service-planning action uses the audited repository path: creating
 a planning row also appends a project audit event with the operator, planning
 window, EUT, status, and optional category/method references in the payload.

@@ -1401,13 +1401,33 @@ class ProjectRepository(SQLiteDomainRepository):
             item = dict(row)
             if item.pop("project_stage") is None:
                 raise ValueError("service schedule project does not exist")
-            validate_service_schedule_status(str(item["status"]))
-            validate_service_schedule_block(
-                str(item["planned_start_at"]),
-                str(item["planned_end_at"]),
-            )
+            self._validate_service_schedule_item_on_list(item)
             schedule.append(item)
         return schedule
+
+    def _validate_service_schedule_item_on_list(
+        self,
+        item: dict[str, object],
+    ) -> None:
+        for field_name in (
+            "item_code",
+            "project_code",
+            "title",
+            "planned_start_at",
+            "planned_end_at",
+            "assigned_operator",
+            "location",
+            "equipment_under_test",
+        ):
+            value = item[field_name]
+            if not isinstance(value, str):
+                raise ValueError(f"{field_name} must not be empty")
+            require_non_empty(value, field_name)
+        validate_service_schedule_status(str(item["status"]))
+        validate_service_schedule_block(
+            str(item["planned_start_at"]),
+            str(item["planned_end_at"]),
+        )
 
     def update_service_schedule_status(
         self,
