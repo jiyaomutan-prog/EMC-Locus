@@ -168,6 +168,8 @@ Deliverables:
   controlled signal traceability evidence;
 - Python measurement-data writes now reject processing graph instances and
   executions whose software-version evidence is blank;
+- Python measurement-data writes now reject malformed processing-graph
+  operation definitions before persisting legacy or revisioned graph records;
 - CEM time-domain test families such as railway harmonics, axle counters, and
   inrush measurements.
 

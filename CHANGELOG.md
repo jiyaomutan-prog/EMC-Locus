@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected malformed processing-graph operation definitions in Python
+  measurement-data writes, so legacy and revisioned graph records cannot persist
+  invalid or scalar `operations_json` evidence.
 - Limited the Qt service-schedule status update form to actionable status
   targets and non-terminal planning rows, so operators are no longer prompted
   toward already-rejected initial/backward/closed-block transitions.

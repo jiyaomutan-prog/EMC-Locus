@@ -162,6 +162,8 @@ Implemented in the Rust core:
     whose output signal reference or raw-lineage JSON is malformed.
 20. Python measurement-data writes reject blank software-version evidence on
     processing graph instances and executions.
+21. Python measurement-data writes reject processing-graph operation definitions
+    whose `operations_json` is not valid structured JSON.
 
 Not yet implemented:
 

@@ -403,6 +403,32 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                     source_dataset_checksum="sha256:wrong",
                 )
 
+            with self.assertRaisesRegex(
+                ValueError,
+                "operations_json must contain valid JSON",
+            ):
+                repository.add_processing_graph(
+                    source_dataset_id=dataset_id,
+                    graph_reference="legacy-invalid-json",
+                    operations_json='{"nodes": [',
+                    created_by="signal.engineer",
+                    checksum="sha256:legacyinvalidjson",
+                )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "operations_json must be a JSON object or array",
+            ):
+                repository.add_processing_graph_instance(
+                    source_dataset_id=dataset_id,
+                    graph_reference="inrush-fft",
+                    graph_revision="C",
+                    operations_json='"fft_current"',
+                    created_by="signal.engineer",
+                    software_version="0.1.2",
+                    graph_checksum="sha256:graphfft003",
+                )
+
             with self.assertRaises(ValueError):
                 repository.add_processing_graph_instance(
                     source_dataset_id=dataset_id,

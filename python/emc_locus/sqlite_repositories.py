@@ -165,6 +165,16 @@ def _validate_raw_lineage_json(raw_lineage_json: str) -> None:
         _validate_signal_reference(signal_reference, field_name="raw lineage")
 
 
+def _validate_processing_graph_operations_json(operations_json: str) -> None:
+    text = require_non_empty(operations_json, "operations_json")
+    try:
+        operations = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError("operations_json must contain valid JSON") from error
+    if not isinstance(operations, (dict, list)):
+        raise ValueError("operations_json must be a JSON object or array")
+
+
 @dataclass(frozen=True)
 class SQLiteDomainRepository:
     """A single SQLite database backed by one migration domain."""
@@ -1949,6 +1959,8 @@ class MeasurementDataRepository(SQLiteDomainRepository):
         created_by: str,
         checksum: str,
     ) -> int:
+        _validate_processing_graph_operations_json(operations_json)
+
         with closing(self.connect()) as connection:
             with connection:
                 cursor = connection.execute(
@@ -2002,6 +2014,7 @@ class MeasurementDataRepository(SQLiteDomainRepository):
     ) -> int:
         if status not in PROCESSING_GRAPH_STATUSES:
             raise ValueError(f"invalid processing graph status: {status}")
+        _validate_processing_graph_operations_json(operations_json)
         software_version = require_non_empty(software_version, "software_version")
 
         with closing(self.connect()) as connection:
