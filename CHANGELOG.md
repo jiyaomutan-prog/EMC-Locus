@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected service-schedule list reads that encounter persisted rows with an
+  unknown status, so corrupted or constraint-bypassed imports cannot surface
+  non-canonical planning states in repository or UI views.
 - Rejected malformed processing-graph operation definitions in Python
   measurement-data writes, so legacy and revisioned graph records cannot persist
   invalid or scalar `operations_json` evidence.
