@@ -65,7 +65,10 @@ laboratory blocks cannot be reopened through direct or audited Python calls.
 Status updates also enforce the sequential workflow `planned -> confirmed ->
 in_progress -> completed`, with `cancelled` allowed from any non-terminal
 state, so direct and audited callers cannot move planning rows backward or skip
-the confirmation/start states.
+the confirmation/start states. When a status update encounters a persisted
+current status with surrounding whitespace from a constraint-bypassed import,
+the repository normalizes that current status before transition validation and
+before writing audited previous/new status evidence.
 Repository list filters trim project and status values when present, reject
 blank project filters, and reject unknown status filters before returning
 planning rows. Project-filtered list reads also reject unknown project codes

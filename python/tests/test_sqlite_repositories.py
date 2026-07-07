@@ -1239,6 +1239,66 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             )
             self.assertEqual(schedule[0]["status"], "confirmed")
 
+    def test_repository_normalizes_existing_service_schedule_status_on_update(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-UPDATE-NORM",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            with closing(sqlite3.connect(projects.database_path)) as connection:
+                connection.execute("PRAGMA ignore_check_constraints = ON")
+                connection.execute(
+                    """
+                    INSERT INTO service_schedule_items (
+                        item_code,
+                        project_code,
+                        title,
+                        planned_start_at,
+                        planned_end_at,
+                        assigned_operator,
+                        location,
+                        equipment_under_test,
+                        status,
+                        notes,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "PLAN-REPO-STATUS-UPDATE-NORM",
+                        "CEM-REPO-STATUS-UPDATE-NORM",
+                        "Corrupted status update normalization",
+                        "2026-07-01T09:00",
+                        "2026-07-01T12:00",
+                        "operator.one",
+                        "Lab A",
+                        "EUT rail",
+                        " planned ",
+                        "",
+                        "2026-07-01T08:00:00Z",
+                        "2026-07-01T08:00:00Z",
+                    ),
+                )
+                connection.commit()
+
+            projects.update_service_schedule_status(
+                item_code="PLAN-REPO-STATUS-UPDATE-NORM",
+                status="confirmed",
+            )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-STATUS-UPDATE-NORM",
+            )
+            self.assertEqual(schedule[0]["status"], "confirmed")
+
     def test_repository_rejects_empty_service_schedule_item_code_on_update(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
@@ -1945,6 +2005,76 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             self.assertEqual(payload["item_code"], "PLAN-REPO-SCHEDULE-STATUS-AUDIT")
             self.assertEqual(payload["previous_status"], "planned")
             self.assertEqual(payload["new_status"], "confirmed")
+
+    def test_repository_normalizes_existing_service_schedule_status_on_audit_update(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-AUDIT-NORM",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            with closing(sqlite3.connect(projects.database_path)) as connection:
+                connection.execute("PRAGMA ignore_check_constraints = ON")
+                connection.execute(
+                    """
+                    INSERT INTO service_schedule_items (
+                        item_code,
+                        project_code,
+                        title,
+                        planned_start_at,
+                        planned_end_at,
+                        assigned_operator,
+                        location,
+                        equipment_under_test,
+                        status,
+                        notes,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "PLAN-REPO-STATUS-AUDIT-NORM",
+                        "CEM-REPO-STATUS-AUDIT-NORM",
+                        "Corrupted audit status update normalization",
+                        "2026-07-01T09:00",
+                        "2026-07-01T12:00",
+                        "operator.one",
+                        "Lab A",
+                        "EUT rail",
+                        " confirmed ",
+                        "",
+                        "2026-07-01T08:00:00Z",
+                        "2026-07-01T08:00:00Z",
+                    ),
+                )
+                connection.commit()
+
+            audit_sequence = projects.update_service_schedule_status_with_audit(
+                item_code="PLAN-REPO-STATUS-AUDIT-NORM",
+                status="in_progress",
+                actor="operator.two",
+                reason="Start laboratory slot",
+            )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-STATUS-AUDIT-NORM",
+            )
+            events = projects.audit_events("CEM-REPO-STATUS-AUDIT-NORM")
+            payload = json.loads(events[0]["payload_json"])
+
+            self.assertEqual(audit_sequence, 1)
+            self.assertEqual(schedule[0]["status"], "in_progress")
+            self.assertEqual(payload["previous_status"], "confirmed")
+            self.assertEqual(payload["new_status"], "in_progress")
 
     def test_repository_rejects_unchanged_service_schedule_status_audit(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

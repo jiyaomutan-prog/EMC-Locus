@@ -10,6 +10,10 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Normalized persisted current service-schedule status text before direct and
+  audited status updates, so constraint-bypassed imports with padded but known
+  statuses can still follow controlled transitions and audit canonical
+  previous/new status evidence.
 - Normalized persisted service-schedule status text while listing planning rows,
   so corrupted imports with padded but known statuses align with
   repository-written rows while unknown statuses remain rejected.

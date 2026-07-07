@@ -1465,7 +1465,7 @@ class ProjectRepository(SQLiteDomainRepository):
                     connection,
                     item_code,
                 )
-                previous_status = str(item["status"])
+                previous_status = normalize_service_schedule_status(str(item["status"]))
                 if previous_status == status:
                     raise ValueError("service schedule status is unchanged")
                 validate_service_schedule_status_transition(previous_status, status)
@@ -1500,7 +1500,7 @@ class ProjectRepository(SQLiteDomainRepository):
                     connection,
                     item_code,
                 )
-                previous_status = str(item["status"])
+                previous_status = normalize_service_schedule_status(str(item["status"]))
                 if previous_status == status:
                     raise ValueError("service schedule status is unchanged")
                 validate_service_schedule_status_transition(previous_status, status)
