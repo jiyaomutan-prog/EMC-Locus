@@ -333,6 +333,10 @@ Deliverables:
 - service-schedule status updates now normalize the persisted current status
   before transition validation and audit payload creation, so padded known
   states imported outside repository guards can still advance canonically.
+- service-schedule status updates now match persisted project references
+  against normalized project codes before mutation or audit creation, so padded
+  imported project references can still advance under canonical project
+  evidence.
 - service-schedule status updates now reject persisted current statuses that
   are not text before direct or audited mutation, preventing corrupted imports
   from producing ambiguous transition evidence.

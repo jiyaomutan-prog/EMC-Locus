@@ -1567,11 +1567,12 @@ class ProjectRepository(SQLiteDomainRepository):
     ) -> sqlite3.Row:
         item = connection.execute(
             """
-            SELECT service_schedule_items.project_code,
+            SELECT TRIM(service_schedule_items.project_code) AS project_code,
                    service_schedule_items.status,
                    projects.stage AS project_stage
             FROM service_schedule_items
-            LEFT JOIN projects ON projects.code = service_schedule_items.project_code
+            LEFT JOIN projects
+                ON projects.code = TRIM(service_schedule_items.project_code)
             WHERE service_schedule_items.item_code = ?
             """,
             (item_code,),

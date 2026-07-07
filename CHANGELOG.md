@@ -10,6 +10,10 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Matched service-schedule status-update project lookups against normalized
+  persisted project codes, so constraint-bypassed imports with padded project
+  references can still advance through direct and audited updates with
+  canonical project audit evidence.
 - Matched service-schedule list filters and project joins against normalized
   persisted project/status text, so constraint-bypassed imports with padded
   known values are still visible to canonical filtered reads.
