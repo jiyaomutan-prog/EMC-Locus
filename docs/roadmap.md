@@ -333,6 +333,9 @@ Deliverables:
 - service-schedule status updates now normalize the persisted current status
   before transition validation and audit payload creation, so padded known
   states imported outside repository guards can still advance canonically.
+- service-schedule status updates now reject persisted current statuses that
+  are not text before direct or audited mutation, preventing corrupted imports
+  from producing ambiguous transition evidence.
 - service-schedule inserts now require the initial status to be `planned`, so
   direct Python, CLI, and Qt callers cannot create planning rows that bypass
   the controlled confirmation/start/completion transitions.

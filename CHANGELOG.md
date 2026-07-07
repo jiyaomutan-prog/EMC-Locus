@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected direct and audited service-schedule status updates when the
+  persisted current status is not text, so corrupted imports cannot mutate
+  planning rows or create audit evidence from non-canonical status storage.
 - Normalized persisted current service-schedule status text before direct and
   audited status updates, so constraint-bypassed imports with padded but known
   statuses can still follow controlled transitions and audit canonical

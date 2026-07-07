@@ -1465,7 +1465,7 @@ class ProjectRepository(SQLiteDomainRepository):
                     connection,
                     item_code,
                 )
-                previous_status = normalize_service_schedule_status(str(item["status"]))
+                previous_status = self._current_service_schedule_status(item)
                 if previous_status == status:
                     raise ValueError("service schedule status is unchanged")
                 validate_service_schedule_status_transition(previous_status, status)
@@ -1500,7 +1500,7 @@ class ProjectRepository(SQLiteDomainRepository):
                     connection,
                     item_code,
                 )
-                previous_status = normalize_service_schedule_status(str(item["status"]))
+                previous_status = self._current_service_schedule_status(item)
                 if previous_status == status:
                     raise ValueError("service schedule status is unchanged")
                 validate_service_schedule_status_transition(previous_status, status)
@@ -1577,6 +1577,13 @@ class ProjectRepository(SQLiteDomainRepository):
         if item["project_stage"] is None:
             raise ValueError("service schedule project does not exist")
         return item
+
+    @staticmethod
+    def _current_service_schedule_status(item: sqlite3.Row) -> str:
+        status = item["status"]
+        if not isinstance(status, str):
+            raise ValueError("status must be text")
+        return normalize_service_schedule_status(status)
 
 
 class MeasurementDataRepository(SQLiteDomainRepository):
