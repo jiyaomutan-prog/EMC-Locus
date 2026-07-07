@@ -105,13 +105,16 @@ Repository callers that change planning status can use the audited status
 update path to append a project audit event with the previous and new status in
 the payload. Status update paths match persisted project references against
 normalized project codes before mutation or audit creation, so padded imported
-planning rows still advance with canonical project evidence. The local
-Python/CLI action and Qt form use that audited path for
-operator status changes, and can refresh the bootstrap after a confirmation,
-start, completion, or cancellation. The Qt status form offers only actionable
-update targets (`confirmed`, `in_progress`, `completed`, `cancelled`) and hides
-already terminal planning rows, so completed or cancelled blocks are not
-presented as editable status targets.
+planning rows still advance with canonical project evidence. They also match
+persisted planning item codes by their normalized value before mutating the
+resolved row, so padded imported planning codes can be advanced with canonical
+audit payloads; if multiple imported rows normalize to the same planning code,
+the update is rejected as ambiguous. The local Python/CLI action and Qt form
+use that audited path for operator status changes, and can refresh the
+bootstrap after a confirmation, start, completion, or cancellation. The Qt
+status form offers only actionable update targets (`confirmed`, `in_progress`,
+`completed`, `cancelled`) and hides already terminal planning rows, so completed
+or cancelled blocks are not presented as editable status targets.
 
 Example local action:
 

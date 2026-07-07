@@ -337,6 +337,10 @@ Deliverables:
   against normalized project codes before mutation or audit creation, so padded
   imported project references can still advance under canonical project
   evidence.
+- service-schedule status updates now match persisted planning item codes
+  against normalized item references before mutation or audit creation, so
+  padded imported planning codes can still advance under canonical audit
+  evidence while ambiguous normalized duplicates are rejected.
 - service-schedule status updates now reject persisted current statuses that
   are not text before direct or audited mutation, preventing corrupted imports
   from producing ambiguous transition evidence.

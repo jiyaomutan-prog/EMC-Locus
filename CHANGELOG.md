@@ -10,6 +10,10 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Matched service-schedule status updates against normalized persisted planning
+  item codes, so constraint-bypassed imports with padded item references can
+  still advance through direct and audited updates with canonical audit
+  evidence while ambiguous duplicates are rejected.
 - Revalidated persisted service-schedule planning rows before direct and
   audited status updates, so corrupted imports with invalid business-day
   blocks or malformed planning context cannot be advanced or audited.

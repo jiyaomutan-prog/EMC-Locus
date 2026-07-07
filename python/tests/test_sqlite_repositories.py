@@ -1419,6 +1419,99 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             )
             self.assertEqual(schedule[0]["status"], "confirmed")
 
+    def test_repository_matches_normalized_service_schedule_item_code_on_update(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-ITEM-NORM",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            self._insert_corrupted_service_schedule_item(
+                projects,
+                item_code=" PLAN-REPO-STATUS-ITEM-NORM ",
+                project_code="CEM-REPO-STATUS-ITEM-NORM",
+                status="planned",
+            )
+
+            projects.update_service_schedule_status(
+                item_code="PLAN-REPO-STATUS-ITEM-NORM",
+                status="confirmed",
+            )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-STATUS-ITEM-NORM",
+            )
+            with closing(projects.connect()) as connection:
+                row = connection.execute(
+                    """
+                    SELECT status
+                    FROM service_schedule_items
+                    WHERE item_code = ?
+                    """,
+                    (" PLAN-REPO-STATUS-ITEM-NORM ",),
+                ).fetchone()
+
+            self.assertEqual(schedule[0]["item_code"], "PLAN-REPO-STATUS-ITEM-NORM")
+            self.assertEqual(schedule[0]["status"], "confirmed")
+            self.assertEqual(row["status"], "confirmed")
+
+    def test_repository_rejects_ambiguous_service_schedule_item_code_on_update(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-ITEM-AMBIGUOUS",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            self._insert_corrupted_service_schedule_item(
+                projects,
+                item_code="PLAN-REPO-STATUS-ITEM-AMBIGUOUS",
+                project_code="CEM-REPO-STATUS-ITEM-AMBIGUOUS",
+                status="planned",
+            )
+            self._insert_corrupted_service_schedule_item(
+                projects,
+                item_code=" PLAN-REPO-STATUS-ITEM-AMBIGUOUS ",
+                project_code="CEM-REPO-STATUS-ITEM-AMBIGUOUS",
+                status="planned",
+            )
+
+            with self.assertRaisesRegex(ValueError, "item code is ambiguous"):
+                projects.update_service_schedule_status(
+                    item_code="PLAN-REPO-STATUS-ITEM-AMBIGUOUS",
+                    status="confirmed",
+                )
+
+            with closing(projects.connect()) as connection:
+                statuses = [
+                    row["status"]
+                    for row in connection.execute(
+                        """
+                        SELECT status
+                        FROM service_schedule_items
+                        WHERE TRIM(item_code) = ?
+                        ORDER BY item_code
+                        """,
+                        ("PLAN-REPO-STATUS-ITEM-AMBIGUOUS",),
+                    ).fetchall()
+                ]
+            self.assertEqual(statuses, ["planned", "planned"])
+
     def test_repository_rejects_non_text_service_schedule_status_on_update(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
@@ -2410,6 +2503,51 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
                 events[0]["project_code"],
                 "CEM-REPO-STATUS-AUDIT-PROJECT-NORM",
             )
+            self.assertEqual(payload["previous_status"], "confirmed")
+            self.assertEqual(payload["new_status"], "in_progress")
+
+    def test_repository_matches_normalized_service_schedule_item_code_on_audit_update(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-AUDIT-ITEM-NORM",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            self._insert_corrupted_service_schedule_item(
+                projects,
+                item_code=" PLAN-REPO-STATUS-AUDIT-ITEM-NORM ",
+                project_code="CEM-REPO-STATUS-AUDIT-ITEM-NORM",
+                status="confirmed",
+            )
+
+            audit_sequence = projects.update_service_schedule_status_with_audit(
+                item_code="PLAN-REPO-STATUS-AUDIT-ITEM-NORM",
+                status="in_progress",
+                actor="operator.two",
+                reason="Start laboratory slot",
+            )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-STATUS-AUDIT-ITEM-NORM",
+            )
+            events = projects.audit_events("CEM-REPO-STATUS-AUDIT-ITEM-NORM")
+            payload = json.loads(events[0]["payload_json"])
+
+            self.assertEqual(audit_sequence, 1)
+            self.assertEqual(
+                schedule[0]["item_code"],
+                "PLAN-REPO-STATUS-AUDIT-ITEM-NORM",
+            )
+            self.assertEqual(schedule[0]["status"], "in_progress")
+            self.assertEqual(payload["item_code"], "PLAN-REPO-STATUS-AUDIT-ITEM-NORM")
             self.assertEqual(payload["previous_status"], "confirmed")
             self.assertEqual(payload["new_status"], "in_progress")
 

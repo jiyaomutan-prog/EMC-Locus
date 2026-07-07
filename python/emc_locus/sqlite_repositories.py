@@ -1477,9 +1477,9 @@ class ProjectRepository(SQLiteDomainRepository):
                     """
                     UPDATE service_schedule_items
                     SET status = ?, updated_at = ?
-                    WHERE item_code = ?
+                    WHERE id = ?
                     """,
-                    (status, utc_timestamp(), item_code),
+                    (status, utc_timestamp(), item["id"]),
                 )
                 if cursor.rowcount != 1:
                     raise ValueError("service schedule item does not exist")
@@ -1512,9 +1512,9 @@ class ProjectRepository(SQLiteDomainRepository):
                     """
                     UPDATE service_schedule_items
                     SET status = ?, updated_at = ?
-                    WHERE item_code = ?
+                    WHERE id = ?
                     """,
-                    (status, now, item_code),
+                    (status, now, item["id"]),
                 )
                 if cursor.rowcount != 1:
                     raise ValueError("service schedule item does not exist")
@@ -1529,7 +1529,7 @@ class ProjectRepository(SQLiteDomainRepository):
                 sequence = int(sequence_row["next_sequence"])
                 payload_json = json.dumps(
                     {
-                        "item_code": item_code,
+                        "item_code": item["item_code"],
                         "previous_status": previous_status,
                         "new_status": status,
                     },
@@ -1565,19 +1565,22 @@ class ProjectRepository(SQLiteDomainRepository):
         connection: sqlite3.Connection,
         item_code: str,
     ) -> dict[str, object]:
-        row = connection.execute(
+        rows = connection.execute(
             """
             SELECT service_schedule_items.*,
                    projects.stage AS project_stage
             FROM service_schedule_items
             LEFT JOIN projects
                 ON projects.code = TRIM(service_schedule_items.project_code)
-            WHERE service_schedule_items.item_code = ?
+            WHERE TRIM(service_schedule_items.item_code) = ?
             """,
             (item_code,),
-        ).fetchone()
-        if row is None:
+        ).fetchall()
+        if not rows:
             raise ValueError("service schedule item does not exist")
+        if len(rows) > 1:
+            raise ValueError("service schedule item code is ambiguous")
+        row = rows[0]
         item = dict(row)
         if item["project_stage"] is None:
             raise ValueError("service schedule project does not exist")
