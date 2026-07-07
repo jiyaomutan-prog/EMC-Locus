@@ -10,6 +10,10 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Normalized required service-schedule text while listing persisted planning
+  rows, so corrupted imports cannot surface padded planning codes, titles,
+  operator names, locations, or EUT context differently from repository-written
+  rows.
 - Normalized optional service-schedule references and notes while listing
   persisted planning rows, so corrupted imports cannot surface blank optional
   traceability fields differently from repository-written rows.

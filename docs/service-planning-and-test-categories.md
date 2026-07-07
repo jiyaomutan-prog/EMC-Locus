@@ -78,9 +78,12 @@ also revalidate the persisted planning window, preventing corrupted imports
 from surfacing weekend, multi-day, or non-positive laboratory blocks. They also
 reject persisted rows with blank required planning text, preventing imported
 rows without usable operator, location, title, EUT, project, or planning-code
-context from reaching repository callers or operator views. Persisted optional
-category, method, and notes text is normalized on read as well, so blank
-optional import values do not leak into repository callers or operator views.
+context from reaching repository callers or operator views. Persisted required
+planning text is normalized on read as well, so padded planning codes, titles,
+operators, locations, and EUT context from imports stay aligned with
+repository-written rows. Persisted optional category, method, and notes text is
+normalized on read as well, so blank optional import values do not leak into
+repository callers or operator views.
 The GUI/CLI service-planning action uses the audited repository path: creating
 a planning row also appends a project audit event with the operator, planning
 window, EUT, status, and optional category/method references in the payload.
