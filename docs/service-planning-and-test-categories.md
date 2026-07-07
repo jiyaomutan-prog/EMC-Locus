@@ -72,6 +72,10 @@ before writing audited previous/new status evidence. If the persisted current
 status is not text, direct and audited status updates reject the row before any
 mutation or audit write, so corrupted imports cannot produce ambiguous
 transition evidence.
+Before direct or audited status updates mutate a row, the repository also
+revalidates the persisted planning context and business-day block, so corrupted
+imports that would be rejected by list reads cannot still advance or create
+project audit evidence.
 Repository list filters trim project and status values when present, reject
 blank project filters, and reject unknown status filters before returning
 planning rows. Filtered reads compare against normalized persisted project and

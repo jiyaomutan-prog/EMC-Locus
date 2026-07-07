@@ -1560,15 +1560,14 @@ class ProjectRepository(SQLiteDomainRepository):
                 )
         return sequence
 
-    @staticmethod
     def _service_schedule_item_for_status_update(
+        self,
         connection: sqlite3.Connection,
         item_code: str,
-    ) -> sqlite3.Row:
-        item = connection.execute(
+    ) -> dict[str, object]:
+        row = connection.execute(
             """
-            SELECT TRIM(service_schedule_items.project_code) AS project_code,
-                   service_schedule_items.status,
+            SELECT service_schedule_items.*,
                    projects.stage AS project_stage
             FROM service_schedule_items
             LEFT JOIN projects
@@ -1577,14 +1576,17 @@ class ProjectRepository(SQLiteDomainRepository):
             """,
             (item_code,),
         ).fetchone()
-        if item is None:
+        if row is None:
             raise ValueError("service schedule item does not exist")
+        item = dict(row)
         if item["project_stage"] is None:
             raise ValueError("service schedule project does not exist")
+        item.pop("project_stage")
+        self._validate_service_schedule_item_on_list(item)
         return item
 
     @staticmethod
-    def _current_service_schedule_status(item: sqlite3.Row) -> str:
+    def _current_service_schedule_status(item: dict[str, object]) -> str:
         status = item["status"]
         if not isinstance(status, str):
             raise ValueError("status must be text")

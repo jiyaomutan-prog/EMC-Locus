@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Revalidated persisted service-schedule planning rows before direct and
+  audited status updates, so corrupted imports with invalid business-day
+  blocks or malformed planning context cannot be advanced or audited.
 - Matched service-schedule status-update project lookups against normalized
   persisted project codes, so constraint-bypassed imports with padded project
   references can still advance through direct and audited updates with

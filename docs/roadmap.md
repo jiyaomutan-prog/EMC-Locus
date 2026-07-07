@@ -340,6 +340,9 @@ Deliverables:
 - service-schedule status updates now reject persisted current statuses that
   are not text before direct or audited mutation, preventing corrupted imports
   from producing ambiguous transition evidence.
+- service-schedule status updates now revalidate the persisted planning row
+  before direct or audited mutation, preventing corrupted imports with invalid
+  business-day blocks or malformed planning context from advancing.
 - service-schedule inserts now require the initial status to be `planned`, so
   direct Python, CLI, and Qt callers cannot create planning rows that bypass
   the controlled confirmation/start/completion transitions.
