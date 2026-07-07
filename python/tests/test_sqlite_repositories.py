@@ -1429,6 +1429,60 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             ):
                 projects.list_service_schedule_items()
 
+    def test_repository_normalizes_service_schedule_status_on_list(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-CORRUPT-STATUS-NORM",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            with closing(sqlite3.connect(projects.database_path)) as connection:
+                connection.execute("PRAGMA ignore_check_constraints = ON")
+                connection.execute(
+                    """
+                    INSERT INTO service_schedule_items (
+                        item_code,
+                        project_code,
+                        title,
+                        planned_start_at,
+                        planned_end_at,
+                        assigned_operator,
+                        location,
+                        equipment_under_test,
+                        status,
+                        notes,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "PLAN-REPO-CORRUPT-STATUS-NORM",
+                        "CEM-REPO-CORRUPT-STATUS-NORM",
+                        "Corrupted schedule status normalization",
+                        "2026-07-01T09:00",
+                        "2026-07-01T12:00",
+                        "operator.one",
+                        "Lab A",
+                        "EUT rail",
+                        " confirmed ",
+                        "",
+                        "2026-07-01T08:00:00Z",
+                        "2026-07-01T08:00:00Z",
+                    ),
+                )
+                connection.commit()
+
+            schedule = projects.list_service_schedule_items()
+
+            self.assertEqual(schedule[0]["status"], "confirmed")
+
     def test_repository_rejects_invalid_service_schedule_block_on_list(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(

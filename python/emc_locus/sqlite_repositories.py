@@ -1423,7 +1423,10 @@ class ProjectRepository(SQLiteDomainRepository):
             if not isinstance(value, str):
                 raise ValueError(f"{field_name} must not be empty")
             item[field_name] = require_non_empty(value, field_name)
-        validate_service_schedule_status(str(item["status"]))
+        status = item["status"]
+        if not isinstance(status, str):
+            raise ValueError("status must be text")
+        item["status"] = normalize_service_schedule_status(status)
         validate_service_schedule_block(
             str(item["planned_start_at"]),
             str(item["planned_end_at"]),

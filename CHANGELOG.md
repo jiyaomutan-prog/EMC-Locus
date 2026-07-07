@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Normalized persisted service-schedule status text while listing planning rows,
+  so corrupted imports with padded but known statuses align with
+  repository-written rows while unknown statuses remain rejected.
 - Normalized required service-schedule text while listing persisted planning
   rows, so corrupted imports cannot surface padded planning codes, titles,
   operator names, locations, or EUT context differently from repository-written
