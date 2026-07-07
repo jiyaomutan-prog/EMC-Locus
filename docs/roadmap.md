@@ -342,6 +342,9 @@ Deliverables:
 - service-schedule status text is now normalized before inserts, updates,
   filters, and GUI/CLI actions, so whitespace in operator input cannot create
   false unknown-status rejections or non-canonical audit evidence.
+- service-schedule list filters and project joins now compare against
+  normalized persisted project/status text, so constraint-bypassed imports with
+  padded known values remain visible to canonical filtered reads.
 - service-schedule list reads now normalize persisted known status text,
   keeping imported padded planning states aligned with repository-written rows.
 - service-schedule list reads now reject persisted rows with unknown status

@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Matched service-schedule list filters and project joins against normalized
+  persisted project/status text, so constraint-bypassed imports with padded
+  known values are still visible to canonical filtered reads.
 - Rejected direct and audited service-schedule status updates when the
   persisted current status is not text, so corrupted imports cannot mutate
   planning rows or create audit evidence from non-canonical status storage.

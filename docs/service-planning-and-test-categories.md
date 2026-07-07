@@ -74,8 +74,11 @@ mutation or audit write, so corrupted imports cannot produce ambiguous
 transition evidence.
 Repository list filters trim project and status values when present, reject
 blank project filters, and reject unknown status filters before returning
-planning rows. Project-filtered list reads also reject unknown project codes
-instead of returning an ambiguous empty schedule. Repository list reads also
+planning rows. Filtered reads compare against normalized persisted project and
+status text, so constraint-bypassed imports with padded known values are still
+returned through canonical project/status filters. Project-filtered list reads
+also reject unknown project codes instead of returning an ambiguous empty
+schedule. Repository list reads also
 reject orphan planning rows whose project reference no longer resolves, so a
 corrupted import cannot surface schedule blocks without campaign context. They
 also normalize each persisted known planning status before returning rows while

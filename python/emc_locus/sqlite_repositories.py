@@ -1370,11 +1370,14 @@ class ProjectRepository(SQLiteDomainRepository):
         parameters: list[str] = []
         if project_code is not None:
             project_code = require_non_empty(project_code, "project_code")
-            filters.append("service_schedule_items.project_code = ?")
+            filters.append("TRIM(service_schedule_items.project_code) = ?")
             parameters.append(project_code)
         if status is not None:
             status = normalize_service_schedule_status(status)
-            filters.append("service_schedule_items.status = ?")
+            filters.append(
+                "typeof(service_schedule_items.status) = 'text' "
+                "AND TRIM(service_schedule_items.status) = ?"
+            )
             parameters.append(status)
 
         where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
@@ -1390,7 +1393,8 @@ class ProjectRepository(SQLiteDomainRepository):
                 f"""
                 SELECT service_schedule_items.*, projects.stage AS project_stage
                 FROM service_schedule_items
-                LEFT JOIN projects ON projects.code = service_schedule_items.project_code
+                LEFT JOIN projects
+                    ON projects.code = TRIM(service_schedule_items.project_code)
                 {where_clause}
                 ORDER BY planned_start_at, planned_end_at, item_code
                 """,
