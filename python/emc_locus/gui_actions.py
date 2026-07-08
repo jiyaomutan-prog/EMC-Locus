@@ -701,10 +701,16 @@ def schedule_service_item(
     assigned_operator = require_non_empty(assigned_operator, "assigned_operator")
     location = require_non_empty(location, "location")
     equipment_under_test = require_non_empty(equipment_under_test, "equipment_under_test")
-    test_category_code = optional_text_or_none(test_category_code)
-    test_method_code = optional_text_or_none(test_method_code)
+    test_category_code = optional_text_or_none(
+        test_category_code,
+        "test_category_code",
+    )
+    test_method_code = optional_text_or_none(
+        test_method_code,
+        "test_method_code",
+    )
     status = normalize_service_schedule_status(status)
-    notes = optional_text_or_empty(notes)
+    notes = optional_text_or_empty(notes, "notes")
     _validate_service_schedule_references(
         test_definitions_db=test_definitions_db,
         migrations_root=migrations_root,
@@ -772,7 +778,7 @@ def update_service_schedule_status_action(
     item_code = require_non_empty(item_code, "item_code")
     status = normalize_service_schedule_status(status)
     actor = require_non_empty(actor, "actor")
-    reason = optional_text_or_none(reason)
+    reason = optional_text_or_none(reason, "reason")
 
     repository = ProjectRepository(Path(projects_db), Path(migrations_root))
     repository.initialize()

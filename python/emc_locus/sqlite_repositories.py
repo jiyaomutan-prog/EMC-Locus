@@ -1223,7 +1223,7 @@ class ProjectRepository(SQLiteDomainRepository):
             notes=notes,
         )
         actor = require_non_empty(actor, "actor")
-        reason = optional_text_or_none(reason)
+        reason = optional_text_or_none(reason, "reason")
         now = utc_timestamp()
         payload_json = json.dumps(
             {
@@ -1306,10 +1306,16 @@ class ProjectRepository(SQLiteDomainRepository):
         assigned_operator = require_non_empty(assigned_operator, "assigned_operator")
         location = require_non_empty(location, "location")
         equipment_under_test = require_non_empty(equipment_under_test, "equipment_under_test")
-        test_category_code = optional_text_or_none(test_category_code)
-        test_method_code = optional_text_or_none(test_method_code)
+        test_category_code = optional_text_or_none(
+            test_category_code,
+            "test_category_code",
+        )
+        test_method_code = optional_text_or_none(
+            test_method_code,
+            "test_method_code",
+        )
         status = normalize_service_schedule_status(status)
-        notes = optional_text_or_empty(notes)
+        notes = optional_text_or_empty(notes, "notes")
         validate_service_schedule_block(planned_start_at, planned_end_at)
         validate_service_schedule_initial_status(status)
         return {
@@ -1484,13 +1490,16 @@ class ProjectRepository(SQLiteDomainRepository):
             str(item["planned_end_at"]),
         )
         item["test_category_code"] = optional_text_or_none(
-            self._optional_service_schedule_text(item, "test_category_code")
+            self._optional_service_schedule_text(item, "test_category_code"),
+            "test_category_code",
         )
         item["test_method_code"] = optional_text_or_none(
-            self._optional_service_schedule_text(item, "test_method_code")
+            self._optional_service_schedule_text(item, "test_method_code"),
+            "test_method_code",
         )
         item["notes"] = optional_text_or_empty(
-            self._optional_service_schedule_text(item, "notes")
+            self._optional_service_schedule_text(item, "notes"),
+            "notes",
         )
         for field_name in ("created_at", "updated_at"):
             value = item[field_name]
@@ -1549,7 +1558,7 @@ class ProjectRepository(SQLiteDomainRepository):
         item_code = require_non_empty(item_code, "item_code")
         status = normalize_service_schedule_status(status)
         actor = require_non_empty(actor, "actor")
-        reason = optional_text_or_none(reason)
+        reason = optional_text_or_none(reason, "reason")
         now = utc_timestamp()
         with closing(self.connect()) as connection:
             with connection:
@@ -3939,16 +3948,20 @@ def optional_non_empty(value: str | None, field_name: str) -> str | None:
     return require_non_empty(value, field_name)
 
 
-def optional_text_or_none(value: str | None) -> str | None:
+def optional_text_or_none(value: object, field_name: str = "value") -> str | None:
     if value is None:
         return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be text")
     trimmed = value.strip()
     return trimmed or None
 
 
-def optional_text_or_empty(value: str | None) -> str:
+def optional_text_or_empty(value: object, field_name: str = "value") -> str:
     if value is None:
         return ""
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be text")
     return value.strip()
 
 

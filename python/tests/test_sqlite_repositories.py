@@ -944,6 +944,89 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
 
             self.assertEqual(projects.list_service_schedule_items(), [])
 
+    def test_repository_rejects_non_text_service_schedule_optional_fields_on_insert(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-OPTIONAL-TEXT",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            with self.assertRaisesRegex(ValueError, "test_category_code must be text"):
+                projects.add_service_schedule_item(
+                    item_code="PLAN-REPO-OPTIONAL-TEXT",
+                    project_code="CEM-REPO-OPTIONAL-TEXT",
+                    title="Non-text optional field guard",
+                    planned_start_at="2026-07-01T09:00",
+                    planned_end_at="2026-07-01T12:00",
+                    assigned_operator="operator.one",
+                    location="Lab A",
+                    equipment_under_test="EUT rail",
+                    test_category_code=sqlite3.Binary(b"EMISSION"),
+                )
+
+            self.assertEqual(projects.list_service_schedule_items(), [])
+
+    def test_repository_rejects_non_text_service_schedule_notes_on_audit_insert(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-AUDIT-NOTES-TEXT",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            with self.assertRaisesRegex(ValueError, "notes must be text"):
+                projects.add_service_schedule_item_with_audit(
+                    item_code="PLAN-REPO-AUDIT-NOTES-TEXT",
+                    project_code="CEM-REPO-AUDIT-NOTES-TEXT",
+                    title="Non-text audit notes guard",
+                    planned_start_at="2026-07-01T09:00",
+                    planned_end_at="2026-07-01T12:00",
+                    assigned_operator="operator.one",
+                    location="Lab A",
+                    equipment_under_test="EUT rail",
+                    notes=sqlite3.Binary(b"needs shielded room"),
+                    actor="operator.one",
+                    reason="Plan corrupted notes",
+                )
+
+            with closing(projects.connect()) as connection:
+                schedule_count = connection.execute(
+                    """
+                    SELECT COUNT(*) AS schedule_count
+                    FROM service_schedule_items
+                    WHERE project_code = ?
+                    """,
+                    ("CEM-REPO-AUDIT-NOTES-TEXT",),
+                ).fetchone()["schedule_count"]
+                audit_count = connection.execute(
+                    """
+                    SELECT COUNT(*) AS audit_count
+                    FROM project_audit_events
+                    WHERE project_code = ?
+                      AND action = 'service_schedule_item_planned'
+                    """,
+                    ("CEM-REPO-AUDIT-NOTES-TEXT",),
+                ).fetchone()["audit_count"]
+            self.assertEqual(schedule_count, 0)
+            self.assertEqual(audit_count, 0)
+
     def test_repository_rejects_non_positive_service_schedule_duration(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(

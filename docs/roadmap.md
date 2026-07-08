@@ -290,6 +290,9 @@ Deliverables:
 - project repository service-schedule inserts now normalize optional notes so
   missing notes persist as an empty non-null planning note instead of surfacing
   a raw SQLite constraint error;
+- service-schedule inserts and audited inserts now reject non-text optional
+  category, method, and notes values before writing planning rows or audit
+  evidence;
 - project repository service-schedule inserts now explicitly reject unknown
   project references with a controlled planning error before SQLite write
   attempts;

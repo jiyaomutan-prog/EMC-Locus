@@ -38,12 +38,15 @@ reject non-text planned start/end evidence before business-day validation, so
 corrupted imported block timestamps cannot surface, advance, or create audit
 records.
 Optional category and method references are trimmed when present; blank optional
-references are stored as absent values rather than empty strings.
+references are stored as absent values rather than empty strings. Non-text
+optional references are rejected before direct or audited repository inserts can
+write a planning row.
 When the local action is given a test-definition repository, non-empty category
 and method references must already exist in that repository before the planning
 row is written.
 Notes are optional operator context; missing notes are normalized to an empty
-non-null text value before the planning row is written.
+non-null text value before the planning row is written, and non-text notes are
+rejected before any planning row or audit event is created.
 Repository inserts also reject blank planning item codes and check that the
 referenced project exists before the schedule row is written, so direct Python
 callers get the same controlled planning errors as the GUI/CLI action path.
