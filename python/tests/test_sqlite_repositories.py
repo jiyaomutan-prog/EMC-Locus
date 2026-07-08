@@ -1132,6 +1132,49 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             self.assertEqual(len(schedule), 1)
             self.assertEqual(schedule[0]["title"], "First duplicate guard")
 
+    def test_repository_rejects_normalized_duplicate_service_schedule_item_code_on_insert(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-DUPLICATE-ITEM-NORM",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            self._insert_corrupted_service_schedule_item(
+                projects,
+                item_code=" PLAN-REPO-DUPLICATE-ITEM-NORM ",
+                project_code="CEM-REPO-DUPLICATE-ITEM-NORM",
+                status="planned",
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "service schedule item already exists",
+            ):
+                projects.add_service_schedule_item(
+                    item_code="PLAN-REPO-DUPLICATE-ITEM-NORM",
+                    project_code="CEM-REPO-DUPLICATE-ITEM-NORM",
+                    title="Normalized duplicate guard",
+                    planned_start_at="2026-07-01T13:00",
+                    planned_end_at="2026-07-01T15:00",
+                    assigned_operator="operator.two",
+                    location="Lab B",
+                    equipment_under_test="EUT rail",
+                )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-DUPLICATE-ITEM-NORM",
+            )
+            self.assertEqual(len(schedule), 1)
+            self.assertEqual(schedule[0]["item_code"], "PLAN-REPO-DUPLICATE-ITEM-NORM")
+
     def test_repository_rejects_unknown_service_schedule_status_on_update(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(

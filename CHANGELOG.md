@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected service-schedule inserts when an imported padded planning code would
+  normalize to the same item code, preventing repository-created rows from
+  becoming ambiguous for later reads and status updates.
 - Matched service-schedule status updates against normalized persisted planning
   item codes, so constraint-bypassed imports with padded item references can
   still advance through direct and audited updates with canonical audit

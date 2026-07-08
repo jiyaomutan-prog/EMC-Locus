@@ -1316,7 +1316,7 @@ class ProjectRepository(SQLiteDomainRepository):
                 "project must be in test_planning before scheduling service items"
             )
         existing_item = connection.execute(
-            "SELECT 1 FROM service_schedule_items WHERE item_code = ?",
+            "SELECT 1 FROM service_schedule_items WHERE TRIM(item_code) = ?",
             (item_code,),
         ).fetchone()
         if existing_item is not None:

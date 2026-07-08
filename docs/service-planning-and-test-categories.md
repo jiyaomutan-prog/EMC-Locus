@@ -44,7 +44,10 @@ Repository inserts also reject blank planning item codes and check that the
 referenced project exists before the schedule row is written, so direct Python
 callers get the same controlled planning errors as the GUI/CLI action path.
 Duplicate planning item codes are rejected through the repository path before
-SQLite uniqueness constraints are reached.
+SQLite uniqueness constraints are reached. The duplicate guard compares against
+normalized persisted item codes as well, so a constraint-bypassed import with
+surrounding whitespace cannot later be duplicated by a canonical repository
+insert.
 Missing required planning text is handled through the same validation path
 instead of surfacing raw Python attribute errors.
 Repository regression coverage also proves weekend-only planning blocks are
