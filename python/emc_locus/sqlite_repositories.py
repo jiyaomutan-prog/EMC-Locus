@@ -60,6 +60,7 @@ _SIGNAL_REFERENCE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SOFTWARE_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 _SHA256_CHECKSUM = re.compile(r"^sha256:[0-9A-Fa-f]{64}$")
 _SCHEDULE_LOCAL_DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$")
+_UTC_EVIDENCE_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 _PROJECT_STAGE_FLOW = (
     "quotation",
     "contract_review",
@@ -169,6 +170,17 @@ def validate_service_schedule_project_stage(project_stage: object) -> str:
             "can be read or updated"
         )
     return stage
+
+
+def validate_service_schedule_timestamp(value: str, field_name: str) -> str:
+    timestamp = require_non_empty(value, field_name)
+    if not _UTC_EVIDENCE_TIMESTAMP.fullmatch(timestamp):
+        raise ValueError(f"{field_name} must use YYYY-MM-DDTHH:MM:SSZ UTC timestamp")
+    try:
+        datetime.fromisoformat(timestamp.removesuffix("Z") + "+00:00")
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must use YYYY-MM-DDTHH:MM:SSZ UTC timestamp") from exc
+    return timestamp
 
 
 def _validate_signal_reference(value: str, *, field_name: str) -> None:
@@ -1486,7 +1498,7 @@ class ProjectRepository(SQLiteDomainRepository):
             value = item[field_name]
             if not isinstance(value, str):
                 raise ValueError(f"{field_name} must be text")
-            item[field_name] = require_non_empty(value, field_name)
+            item[field_name] = validate_service_schedule_timestamp(value, field_name)
 
     def _optional_service_schedule_text(
         self,

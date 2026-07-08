@@ -1696,6 +1696,46 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
                 ).fetchone()
             self.assertEqual(row["status"], "planned")
 
+    def test_repository_rejects_non_canonical_service_schedule_timestamp_on_update(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-TIMESTAMP-FORMAT",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            self._insert_corrupted_service_schedule_item(
+                projects,
+                item_code="PLAN-REPO-STATUS-TIMESTAMP-FORMAT",
+                project_code="CEM-REPO-STATUS-TIMESTAMP-FORMAT",
+                status="planned",
+                updated_at="2026-07-01T08:00",
+            )
+
+            with self.assertRaisesRegex(ValueError, "updated_at must use"):
+                projects.update_service_schedule_status(
+                    item_code="PLAN-REPO-STATUS-TIMESTAMP-FORMAT",
+                    status="confirmed",
+                )
+
+            with closing(projects.connect()) as connection:
+                row = connection.execute(
+                    """
+                    SELECT status
+                    FROM service_schedule_items
+                    WHERE item_code = ?
+                    """,
+                    ("PLAN-REPO-STATUS-TIMESTAMP-FORMAT",),
+                ).fetchone()
+            self.assertEqual(row["status"], "planned")
+
     def test_repository_rejects_invalid_service_schedule_block_on_update(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
@@ -2208,6 +2248,35 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 ValueError,
                 "updated_at must be text",
+            ):
+                projects.list_service_schedule_items()
+
+    def test_repository_rejects_non_canonical_service_schedule_timestamp_on_list(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-CORRUPT-TIMESTAMP-FORMAT",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            self._insert_corrupted_service_schedule_item(
+                projects,
+                item_code="PLAN-REPO-CORRUPT-TIMESTAMP-FORMAT",
+                project_code="CEM-REPO-CORRUPT-TIMESTAMP-FORMAT",
+                status="planned",
+                created_at="2026-07-01T08:00:00+00:00",
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "created_at must use",
             ):
                 projects.list_service_schedule_items()
 
@@ -2799,6 +2868,50 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
                     ("PLAN-REPO-STATUS-AUDIT-BLOB",),
                 ).fetchone()
             self.assertEqual(row["status"], b"confirmed")
+            self.assertEqual(events, [])
+
+    def test_repository_rejects_non_canonical_service_schedule_timestamp_on_audit_update(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-AUDIT-TIMESTAMP-FORMAT",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            self._insert_corrupted_service_schedule_item(
+                projects,
+                item_code="PLAN-REPO-STATUS-AUDIT-TIMESTAMP-FORMAT",
+                project_code="CEM-REPO-STATUS-AUDIT-TIMESTAMP-FORMAT",
+                status="confirmed",
+                created_at="2026-07-01 08:00:00Z",
+            )
+
+            with self.assertRaisesRegex(ValueError, "created_at must use"):
+                projects.update_service_schedule_status_with_audit(
+                    item_code="PLAN-REPO-STATUS-AUDIT-TIMESTAMP-FORMAT",
+                    status="in_progress",
+                    actor="operator.two",
+                    reason="Advance corrupted row",
+                )
+
+            events = projects.audit_events("CEM-REPO-STATUS-AUDIT-TIMESTAMP-FORMAT")
+            with closing(projects.connect()) as connection:
+                row = connection.execute(
+                    """
+                    SELECT status
+                    FROM service_schedule_items
+                    WHERE item_code = ?
+                    """,
+                    ("PLAN-REPO-STATUS-AUDIT-TIMESTAMP-FORMAT",),
+                ).fetchone()
+            self.assertEqual(row["status"], "confirmed")
             self.assertEqual(events, [])
 
     def test_repository_rejects_invalid_service_schedule_block_on_audit_update(

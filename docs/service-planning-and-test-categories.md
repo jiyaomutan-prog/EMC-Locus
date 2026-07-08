@@ -107,8 +107,9 @@ locations, and EUT context from imports stay aligned with repository-written
 rows. Persisted optional category, method, and notes text is normalized on read
 as well, so blank optional import values do not leak into repository callers or
 operator views. Persisted `created_at` and `updated_at` evidence must also be
-non-empty text before a planning row can be listed or advanced by status update,
-so corrupted timestamp evidence is not silently surfaced or mutated.
+non-empty text using canonical `YYYY-MM-DDTHH:MM:SSZ` UTC timestamps before a
+planning row can be listed or advanced by status update, so corrupted timestamp
+evidence is not silently surfaced, mutated, or used to create audit records.
 The GUI/CLI service-planning action uses the audited repository path: creating
 a planning row also appends a project audit event with the operator, planning
 window, EUT, status, and optional category/method references in the payload.

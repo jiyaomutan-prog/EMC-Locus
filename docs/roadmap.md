@@ -350,6 +350,10 @@ Deliverables:
 - service-schedule list reads and status updates now reject blank or non-text
   persisted `created_at`/`updated_at` evidence, preventing corrupted planning
   timestamp evidence from surfacing or being advanced.
+- service-schedule list reads and status updates now also require persisted
+  `created_at`/`updated_at` evidence to use canonical `YYYY-MM-DDTHH:MM:SSZ`
+  UTC timestamps, preventing malformed textual import evidence from surfacing,
+  mutating, or creating audit records.
 - service-schedule list reads and status updates now reject imported planning
   rows whose project has not reached `test_planning`, preventing
   constraint-bypassed rows from surfacing or advancing before the
