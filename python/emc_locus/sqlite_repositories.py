@@ -85,11 +85,12 @@ def serviceability_from_legacy_availability(availability: str) -> str:
     return "out_of_service" if availability == "out_of_service" else "usable"
 
 
-def _parse_schedule_datetime(value: str, field_name: str) -> datetime:
-    if not _SCHEDULE_LOCAL_DATETIME.fullmatch(value):
+def _parse_schedule_datetime(value: object, field_name: str) -> datetime:
+    text = require_text(value, field_name)
+    if not _SCHEDULE_LOCAL_DATETIME.fullmatch(text):
         raise ValueError(f"{field_name} must use YYYY-MM-DDTHH:MM local date-time")
     try:
-        parsed = datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(text)
     except ValueError as exc:
         raise ValueError(f"{field_name} must use YYYY-MM-DDTHH:MM local date-time") from exc
     if parsed.tzinfo is not None:
@@ -98,8 +99,8 @@ def _parse_schedule_datetime(value: str, field_name: str) -> datetime:
 
 
 def validate_service_schedule_block(
-    planned_start_at: str,
-    planned_end_at: str,
+    planned_start_at: object,
+    planned_end_at: object,
 ) -> None:
     """Reject schedule blocks that are not one intra-day business block."""
 
@@ -1300,8 +1301,8 @@ class ProjectRepository(SQLiteDomainRepository):
         item_code = require_non_empty(item_code, "item_code")
         project_code = require_non_empty(project_code, "project_code")
         title = require_non_empty(title, "title")
-        planned_start_at = require_non_empty(planned_start_at, "planned_start_at")
-        planned_end_at = require_non_empty(planned_end_at, "planned_end_at")
+        planned_start_at = require_text(planned_start_at, "planned_start_at")
+        planned_end_at = require_text(planned_end_at, "planned_end_at")
         assigned_operator = require_non_empty(assigned_operator, "assigned_operator")
         location = require_non_empty(location, "location")
         equipment_under_test = require_non_empty(equipment_under_test, "equipment_under_test")
@@ -1473,10 +1474,7 @@ class ProjectRepository(SQLiteDomainRepository):
             "location",
             "equipment_under_test",
         ):
-            value = item[field_name]
-            if not isinstance(value, str):
-                raise ValueError(f"{field_name} must not be empty")
-            item[field_name] = require_non_empty(value, field_name)
+            item[field_name] = require_text(item[field_name], field_name)
         status = item["status"]
         if not isinstance(status, str):
             raise ValueError("status must be text")
@@ -3925,6 +3923,14 @@ def require_non_empty(value: str | None, field_name: str) -> str:
     if not trimmed:
         raise ValueError(f"{field_name} must not be empty")
     return trimmed
+
+
+def require_text(value: object, field_name: str) -> str:
+    if value is None:
+        raise ValueError(f"{field_name} must not be empty")
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be text")
+    return require_non_empty(value, field_name)
 
 
 def optional_non_empty(value: str | None, field_name: str) -> str | None:

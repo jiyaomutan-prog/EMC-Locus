@@ -33,6 +33,10 @@ timezone offsets. A single row must have a planned end after its planned start
 and remain inside one business day, and the project repository enforces that
 rule, the allowed status vocabulary, the initial `planned` status, and required
 planning context fields even when callers bypass the GUI/CLI action layer.
+Repository inserts, list reads, and direct or audited status updates also
+reject non-text planned start/end evidence before business-day validation, so
+corrupted imported block timestamps cannot surface, advance, or create audit
+records.
 Optional category and method references are trimmed when present; blank optional
 references are stored as absent values rather than empty strings.
 When the local action is given a test-definition repository, non-empty category

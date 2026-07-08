@@ -10,6 +10,10 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected service-schedule inserts, list reads, and status updates when
+  planning rows carry non-text `planned_start_at`/`planned_end_at` evidence, so
+  corrupted business-day block timestamps cannot surface, persist, advance, or
+  create audit events.
 - Rejected service-schedule list reads and status updates when imported
   planning rows carry non-canonical `created_at`/`updated_at` UTC timestamp
   evidence, so malformed textual planning timestamps cannot surface, advance,
