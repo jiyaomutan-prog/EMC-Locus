@@ -1453,6 +1453,11 @@ class ProjectRepository(SQLiteDomainRepository):
         item["notes"] = optional_text_or_empty(
             self._optional_service_schedule_text(item, "notes")
         )
+        for field_name in ("created_at", "updated_at"):
+            value = item[field_name]
+            if not isinstance(value, str):
+                raise ValueError(f"{field_name} must be text")
+            item[field_name] = require_non_empty(value, field_name)
 
     def _optional_service_schedule_text(
         self,

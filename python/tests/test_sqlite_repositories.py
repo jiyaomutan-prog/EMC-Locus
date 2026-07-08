@@ -792,6 +792,8 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
         equipment_under_test: object = "EUT rail",
         title: object = "Corrupted schedule row",
         notes: object = "",
+        created_at: object = "2026-07-01T08:00:00Z",
+        updated_at: object = "2026-07-01T08:00:00Z",
     ) -> None:
         with closing(projects.connect()) as connection:
             with connection:
@@ -825,8 +827,8 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
                         equipment_under_test,
                         status,
                         notes,
-                        "2026-07-01T08:00:00Z",
-                        "2026-07-01T08:00:00Z",
+                        created_at,
+                        updated_at,
                     ),
                 )
 
@@ -1592,6 +1594,44 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
                 ).fetchone()
             self.assertEqual(row["status"], b"planned")
 
+    def test_repository_rejects_invalid_service_schedule_timestamps_on_update(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-TIMESTAMP",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            self._insert_corrupted_service_schedule_item(
+                projects,
+                item_code="PLAN-REPO-STATUS-TIMESTAMP",
+                project_code="CEM-REPO-STATUS-TIMESTAMP",
+                status="planned",
+                created_at="  ",
+            )
+
+            with self.assertRaisesRegex(ValueError, "created_at must not be empty"):
+                projects.update_service_schedule_status(
+                    item_code="PLAN-REPO-STATUS-TIMESTAMP",
+                    status="confirmed",
+                )
+
+            with closing(projects.connect()) as connection:
+                row = connection.execute(
+                    """
+                    SELECT status
+                    FROM service_schedule_items
+                    WHERE item_code = ?
+                    """,
+                    ("PLAN-REPO-STATUS-TIMESTAMP",),
+                ).fetchone()
+            self.assertEqual(row["status"], "planned")
+
     def test_repository_rejects_invalid_service_schedule_block_on_update(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
@@ -2077,6 +2117,33 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 ValueError,
                 "assigned_operator must not be empty",
+            ):
+                projects.list_service_schedule_items()
+
+    def test_repository_rejects_invalid_service_schedule_timestamps_on_list(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-CORRUPT-TIMESTAMP",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            self._insert_corrupted_service_schedule_item(
+                projects,
+                item_code="PLAN-REPO-CORRUPT-TIMESTAMP",
+                project_code="CEM-REPO-CORRUPT-TIMESTAMP",
+                status="planned",
+                updated_at=sqlite3.Binary(b"2026-07-01T08:00:00Z"),
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "updated_at must be text",
             ):
                 projects.list_service_schedule_items()
 

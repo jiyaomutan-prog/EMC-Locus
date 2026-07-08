@@ -347,6 +347,9 @@ Deliverables:
 - service-schedule list reads now reject persisted planning rows whose item
   codes normalize to the same value, so operator views cannot surface ambiguous
   planning identifiers that later status updates would refuse.
+- service-schedule list reads and status updates now reject blank or non-text
+  persisted `created_at`/`updated_at` evidence, preventing corrupted planning
+  timestamp evidence from surfacing or being advanced.
 - service-schedule status updates now reject persisted current statuses that
   are not text before direct or audited mutation, preventing corrupted imports
   from producing ambiguous transition evidence.

@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected service-schedule list reads and status updates when imported
+  planning rows carry blank or non-text `created_at`/`updated_at` evidence, so
+  corrupted planning timestamps cannot surface or be advanced.
 - Rejected service-schedule list reads when imported planning rows normalize to
   the same item code, preventing operator views from surfacing ambiguous
   planning identifiers that status updates would later reject.
