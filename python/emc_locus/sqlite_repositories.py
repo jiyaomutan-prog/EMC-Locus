@@ -60,6 +60,16 @@ _SIGNAL_REFERENCE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SOFTWARE_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 _SHA256_CHECKSUM = re.compile(r"^sha256:[0-9A-Fa-f]{64}$")
 _SCHEDULE_LOCAL_DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$")
+_PROJECT_STAGE_FLOW = (
+    "quotation",
+    "contract_review",
+    "test_planning",
+    "measuring",
+    "technical_review",
+    "report_issued",
+    "archived",
+)
+_SERVICE_SCHEDULE_MIN_PROJECT_STAGE = "test_planning"
 
 
 def utc_timestamp() -> str:
@@ -142,6 +152,23 @@ def validate_service_schedule_status_transition(
             "invalid service schedule status transition: "
             f"{previous_status} cannot change to {new_status}"
         )
+
+
+def validate_service_schedule_project_stage(project_stage: object) -> str:
+    if not isinstance(project_stage, str):
+        raise ValueError("project stage must be text")
+    stage = require_non_empty(project_stage, "project_stage")
+    try:
+        stage_index = _PROJECT_STAGE_FLOW.index(stage)
+    except ValueError as exc:
+        raise ValueError(f"unknown project stage: {stage}") from exc
+    min_index = _PROJECT_STAGE_FLOW.index(_SERVICE_SCHEDULE_MIN_PROJECT_STAGE)
+    if stage_index < min_index:
+        raise ValueError(
+            "project must reach test_planning before service schedule items "
+            "can be read or updated"
+        )
+    return stage
 
 
 def _validate_signal_reference(value: str, *, field_name: str) -> None:
@@ -1410,8 +1437,10 @@ class ProjectRepository(SQLiteDomainRepository):
         schedule: list[dict[str, object]] = []
         for row in rows:
             item = dict(row)
-            if item.pop("project_stage") is None:
+            project_stage = item.pop("project_stage")
+            if project_stage is None:
                 raise ValueError("service schedule project does not exist")
+            validate_service_schedule_project_stage(project_stage)
             if int(item.pop("normalized_item_code_count")) > 1:
                 raise ValueError("service schedule item code is ambiguous")
             self._validate_service_schedule_item_on_list(item)
@@ -1598,6 +1627,7 @@ class ProjectRepository(SQLiteDomainRepository):
         item = dict(row)
         if item["project_stage"] is None:
             raise ValueError("service schedule project does not exist")
+        validate_service_schedule_project_stage(item["project_stage"])
         item.pop("project_stage")
         self._validate_service_schedule_item_on_list(item)
         return item

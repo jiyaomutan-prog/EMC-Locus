@@ -994,6 +994,70 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
 
             self.assertEqual(projects.list_service_schedule_items(), [])
 
+    def test_repository_rejects_pre_planning_service_schedule_item_on_list(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-CORRUPT-STAGE-LIST",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="contract_review",
+            )
+            self._insert_corrupted_service_schedule_item(
+                projects,
+                item_code="PLAN-REPO-CORRUPT-STAGE-LIST",
+                project_code="CEM-REPO-CORRUPT-STAGE-LIST",
+                status="planned",
+            )
+
+            with self.assertRaisesRegex(ValueError, "test_planning"):
+                projects.list_service_schedule_items()
+
+    def test_repository_rejects_pre_planning_service_schedule_item_on_update(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-CORRUPT-STAGE-UPDATE",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="contract_review",
+            )
+            self._insert_corrupted_service_schedule_item(
+                projects,
+                item_code="PLAN-REPO-CORRUPT-STAGE-UPDATE",
+                project_code="CEM-REPO-CORRUPT-STAGE-UPDATE",
+                status="planned",
+            )
+
+            with self.assertRaisesRegex(ValueError, "test_planning"):
+                projects.update_service_schedule_status(
+                    item_code="PLAN-REPO-CORRUPT-STAGE-UPDATE",
+                    status="confirmed",
+                )
+
+            with closing(projects.connect()) as connection:
+                row = connection.execute(
+                    """
+                    SELECT status
+                    FROM service_schedule_items
+                    WHERE item_code = ?
+                    """,
+                    ("PLAN-REPO-CORRUPT-STAGE-UPDATE",),
+                ).fetchone()
+            self.assertEqual(row["status"], "planned")
+
     def test_repository_rejects_unknown_service_schedule_status_on_insert(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(

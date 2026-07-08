@@ -11,6 +11,10 @@ change should remain traceable through Git history, session logs, and this file.
 ### Fixed
 
 - Rejected service-schedule list reads and status updates when imported
+  planning rows point at projects that have not reached `test_planning`,
+  preventing constraint-bypassed rows from surfacing or advancing before the
+  contract-review gate.
+- Rejected service-schedule list reads and status updates when imported
   planning rows carry blank or non-text `created_at`/`updated_at` evidence, so
   corrupted planning timestamps cannot surface or be advanced.
 - Rejected service-schedule list reads when imported planning rows normalize to
