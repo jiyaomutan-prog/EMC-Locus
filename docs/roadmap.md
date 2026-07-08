@@ -361,6 +361,9 @@ Deliverables:
   `planned_start_at`/`planned_end_at` evidence before business-day validation,
   preventing corrupted planning blocks from surfacing, advancing, or creating
   audit records.
+- service-schedule inserts, list filters, and direct or audited status updates
+  now reject non-text requested statuses before normalization, preventing raw
+  Python type errors and audit evidence from malformed status input.
 - service-schedule list reads and status updates now reject imported planning
   rows whose project has not reached `test_planning`, preventing
   constraint-bypassed rows from surfacing or advancing before the

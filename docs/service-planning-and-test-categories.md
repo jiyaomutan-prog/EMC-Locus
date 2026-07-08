@@ -23,7 +23,9 @@ The project repository owns `service_schedule_items`. A planning row records:
 
 Allowed status values are `planned`, `confirmed`, `in_progress`, `completed`,
 and `cancelled`. Repository and GUI/CLI paths trim surrounding whitespace from
-status text before validation, persistence, filtering, and audit payloads.
+status text before validation, persistence, filtering, and audit payloads, and
+reject non-text requested statuses before any planning row or audit event can
+be written.
 New planning rows must start as `planned`. Confirmation, start, completion, and
 cancellation are recorded afterward through the audited status-update path, so
 callers cannot create rows that have already skipped workflow evidence.

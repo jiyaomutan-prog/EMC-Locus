@@ -123,8 +123,8 @@ def validate_service_schedule_status(status: str) -> None:
         raise ValueError(f"unknown service schedule status: {status}")
 
 
-def normalize_service_schedule_status(status: str) -> str:
-    trimmed = require_non_empty(status, "status")
+def normalize_service_schedule_status(status: object) -> str:
+    trimmed = require_text(status, "status")
     validate_service_schedule_status(trimmed)
     return trimmed
 

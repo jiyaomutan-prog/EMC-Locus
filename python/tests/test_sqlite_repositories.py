@@ -1198,6 +1198,87 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
 
             self.assertEqual(projects.list_service_schedule_items(), [])
 
+    def test_repository_rejects_non_text_service_schedule_status_on_insert(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-TEXT-INSERT",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            with self.assertRaisesRegex(ValueError, "status must be text"):
+                projects.add_service_schedule_item(
+                    item_code="PLAN-REPO-STATUS-TEXT-INSERT",
+                    project_code="CEM-REPO-STATUS-TEXT-INSERT",
+                    title="Non-text status insert guard",
+                    planned_start_at="2026-07-01T09:00",
+                    planned_end_at="2026-07-01T12:00",
+                    assigned_operator="operator.one",
+                    location="Lab A",
+                    equipment_under_test="EUT rail",
+                    status=sqlite3.Binary(b"planned"),
+                )
+
+            self.assertEqual(projects.list_service_schedule_items(), [])
+
+    def test_repository_rejects_non_text_service_schedule_status_on_audit_insert(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-TEXT-AUDIT-INSERT",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            with self.assertRaisesRegex(ValueError, "status must be text"):
+                projects.add_service_schedule_item_with_audit(
+                    item_code="PLAN-REPO-STATUS-TEXT-AUDIT-INSERT",
+                    project_code="CEM-REPO-STATUS-TEXT-AUDIT-INSERT",
+                    title="Non-text audited status insert guard",
+                    planned_start_at="2026-07-01T09:00",
+                    planned_end_at="2026-07-01T12:00",
+                    assigned_operator="operator.one",
+                    location="Lab A",
+                    equipment_under_test="EUT rail",
+                    actor="operator.one",
+                    reason="Plan corrupted status",
+                    status=sqlite3.Binary(b"planned"),
+                )
+
+            with closing(projects.connect()) as connection:
+                schedule_count = connection.execute(
+                    """
+                    SELECT COUNT(*) AS schedule_count
+                    FROM service_schedule_items
+                    WHERE project_code = ?
+                    """,
+                    ("CEM-REPO-STATUS-TEXT-AUDIT-INSERT",),
+                ).fetchone()["schedule_count"]
+                audit_count = connection.execute(
+                    """
+                    SELECT COUNT(*) AS audit_count
+                    FROM project_audit_events
+                    WHERE project_code = ?
+                      AND action = 'service_schedule_item_planned'
+                    """,
+                    ("CEM-REPO-STATUS-TEXT-AUDIT-INSERT",),
+                ).fetchone()["audit_count"]
+            self.assertEqual(schedule_count, 0)
+            self.assertEqual(audit_count, 0)
+
     def test_repository_rejects_non_planned_service_schedule_initial_status(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
@@ -1384,6 +1465,43 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
 
             schedule = projects.list_service_schedule_items(
                 project_code="CEM-REPO-STATUS-UPDATE",
+            )
+            self.assertEqual(schedule[0]["status"], "planned")
+
+    def test_repository_rejects_non_text_service_schedule_target_status_on_update(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-TEXT-UPDATE",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-STATUS-TEXT-UPDATE",
+                project_code="CEM-REPO-STATUS-TEXT-UPDATE",
+                title="Non-text target status update guard",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+            )
+
+            with self.assertRaisesRegex(ValueError, "status must be text"):
+                projects.update_service_schedule_status(
+                    item_code="PLAN-REPO-STATUS-TEXT-UPDATE",
+                    status=sqlite3.Binary(b"confirmed"),
+                )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-STATUS-TEXT-UPDATE",
             )
             self.assertEqual(schedule[0]["status"], "planned")
 
@@ -3098,6 +3216,47 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             self.assertEqual(row["status"], b"confirmed")
             self.assertEqual(events, [])
 
+    def test_repository_rejects_non_text_service_schedule_target_status_on_audit_update(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-AUDIT-TEXT-UPDATE",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-STATUS-AUDIT-TEXT-UPDATE",
+                project_code="CEM-REPO-STATUS-AUDIT-TEXT-UPDATE",
+                title="Non-text audited target status update guard",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+            )
+
+            with self.assertRaisesRegex(ValueError, "status must be text"):
+                projects.update_service_schedule_status_with_audit(
+                    item_code="PLAN-REPO-STATUS-AUDIT-TEXT-UPDATE",
+                    status=sqlite3.Binary(b"confirmed"),
+                    actor="operator.two",
+                    reason="Advance with corrupted target status",
+                )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-STATUS-AUDIT-TEXT-UPDATE",
+            )
+            events = projects.audit_events("CEM-REPO-STATUS-AUDIT-TEXT-UPDATE")
+            self.assertEqual(schedule[0]["status"], "planned")
+            self.assertEqual(events, [])
+
     def test_repository_rejects_non_canonical_service_schedule_timestamp_on_audit_update(
         self,
     ) -> None:
@@ -3374,6 +3533,9 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "unknown service schedule status"):
                 projects.list_service_schedule_items(status="waiting_for_parts")
+
+            with self.assertRaisesRegex(ValueError, "status must be text"):
+                projects.list_service_schedule_items(status=sqlite3.Binary(b"planned"))
 
     def test_repository_rejects_unknown_service_schedule_project_filter(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

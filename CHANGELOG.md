@@ -10,6 +10,10 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected service-schedule inserts, list filters, and direct or audited status
+  updates when the requested planning status is non-text, so direct Python
+  callers cannot trigger raw type errors or create audit events from malformed
+  status input.
 - Rejected service-schedule inserts and audited inserts when optional planning
   references or notes are non-text values, so direct Python callers cannot
   persist corrupted optional traceability fields or create audit events from
