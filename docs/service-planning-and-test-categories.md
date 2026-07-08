@@ -48,6 +48,9 @@ SQLite uniqueness constraints are reached. The duplicate guard compares against
 normalized persisted item codes as well, so a constraint-bypassed import with
 surrounding whitespace cannot later be duplicated by a canonical repository
 insert.
+Repository list reads also reject imported planning rows whose item codes
+normalize to the same value, so operator views do not expose ambiguous planning
+identifiers that later status updates would refuse.
 Missing required planning text is handled through the same validation path
 instead of surfacing raw Python attribute errors.
 Repository regression coverage also proves weekend-only planning blocks are

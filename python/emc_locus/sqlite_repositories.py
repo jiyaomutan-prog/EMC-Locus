@@ -1391,7 +1391,14 @@ class ProjectRepository(SQLiteDomainRepository):
                     raise ValueError("project does not exist")
             rows = connection.execute(
                 f"""
-                SELECT service_schedule_items.*, projects.stage AS project_stage
+                SELECT service_schedule_items.*,
+                       projects.stage AS project_stage,
+                       (
+                           SELECT COUNT(*)
+                           FROM service_schedule_items AS duplicate_items
+                           WHERE TRIM(duplicate_items.item_code)
+                               = TRIM(service_schedule_items.item_code)
+                       ) AS normalized_item_code_count
                 FROM service_schedule_items
                 LEFT JOIN projects
                     ON projects.code = TRIM(service_schedule_items.project_code)
@@ -1405,6 +1412,8 @@ class ProjectRepository(SQLiteDomainRepository):
             item = dict(row)
             if item.pop("project_stage") is None:
                 raise ValueError("service schedule project does not exist")
+            if int(item.pop("normalized_item_code_count")) > 1:
+                raise ValueError("service schedule item code is ambiguous")
             self._validate_service_schedule_item_on_list(item)
             schedule.append(item)
         return schedule

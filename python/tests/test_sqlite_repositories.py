@@ -1937,6 +1937,39 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             self.assertEqual(schedule[0]["project_code"], "CEM-REPO-CORRUPT-FILTERS")
             self.assertEqual(schedule[0]["status"], "confirmed")
 
+    def test_repository_rejects_ambiguous_service_schedule_item_code_on_list(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-CORRUPT-ITEM-AMBIGUOUS",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            self._insert_corrupted_service_schedule_item(
+                projects,
+                item_code="PLAN-REPO-CORRUPT-ITEM-AMBIGUOUS",
+                project_code="CEM-REPO-CORRUPT-ITEM-AMBIGUOUS",
+                status="planned",
+            )
+            self._insert_corrupted_service_schedule_item(
+                projects,
+                item_code=" PLAN-REPO-CORRUPT-ITEM-AMBIGUOUS ",
+                project_code="CEM-REPO-CORRUPT-ITEM-AMBIGUOUS",
+                status="confirmed",
+            )
+
+            with self.assertRaisesRegex(ValueError, "item code is ambiguous"):
+                projects.list_service_schedule_items(
+                    project_code="CEM-REPO-CORRUPT-ITEM-AMBIGUOUS",
+                )
+
     def test_repository_rejects_invalid_service_schedule_block_on_list(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(

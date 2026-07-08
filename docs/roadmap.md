@@ -344,6 +344,9 @@ Deliverables:
 - service-schedule inserts now reject new planning item codes that would
   duplicate an already-persisted padded planning code after normalization, so
   repository-created rows cannot introduce later read/update ambiguity.
+- service-schedule list reads now reject persisted planning rows whose item
+  codes normalize to the same value, so operator views cannot surface ambiguous
+  planning identifiers that later status updates would refuse.
 - service-schedule status updates now reject persisted current statuses that
   are not text before direct or audited mutation, preventing corrupted imports
   from producing ambiguous transition evidence.
