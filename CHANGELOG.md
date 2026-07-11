@@ -10,6 +10,10 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected non-text required service-schedule planning text, update item codes,
+  and audit actors before inserts or status updates can write schedule rows or
+  project audit events, replacing raw attribute errors with controlled
+  validation failures.
 - Rejected service-schedule inserts, list filters, and direct or audited status
   updates when the requested planning status is non-text, so direct Python
   callers cannot trigger raw type errors or create audit events from malformed

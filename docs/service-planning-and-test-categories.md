@@ -119,6 +119,9 @@ operator views. Persisted `created_at` and `updated_at` evidence must also be
 non-empty text using canonical `YYYY-MM-DDTHH:MM:SSZ` UTC timestamps before a
 planning row can be listed or advanced by status update, so corrupted timestamp
 evidence is not silently surfaced, mutated, or used to create audit records.
+Direct repository insert and status-update calls reject non-text required
+planning fields, update item codes, and audit actors before mutation, so
+malformed Python inputs produce controlled field-specific validation errors.
 The GUI/CLI service-planning action uses the audited repository path: creating
 a planning row also appends a project audit event with the operator, planning
 window, EUT, status, and optional category/method references in the payload.

@@ -1279,6 +1279,57 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             self.assertEqual(schedule_count, 0)
             self.assertEqual(audit_count, 0)
 
+    def test_repository_rejects_non_text_service_schedule_actor_on_audit_insert(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-AUDIT-ACTOR-TEXT",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            with self.assertRaisesRegex(ValueError, "actor must be text"):
+                projects.add_service_schedule_item_with_audit(
+                    item_code="PLAN-REPO-AUDIT-ACTOR-TEXT",
+                    project_code="CEM-REPO-AUDIT-ACTOR-TEXT",
+                    title="Non-text audit actor guard",
+                    planned_start_at="2026-07-01T09:00",
+                    planned_end_at="2026-07-01T12:00",
+                    assigned_operator="operator.one",
+                    location="Lab A",
+                    equipment_under_test="EUT rail",
+                    actor=sqlite3.Binary(b"operator.one"),
+                    reason="Plan corrupted actor",
+                )
+
+            with closing(projects.connect()) as connection:
+                schedule_count = connection.execute(
+                    """
+                    SELECT COUNT(*) AS schedule_count
+                    FROM service_schedule_items
+                    WHERE project_code = ?
+                    """,
+                    ("CEM-REPO-AUDIT-ACTOR-TEXT",),
+                ).fetchone()["schedule_count"]
+                audit_count = connection.execute(
+                    """
+                    SELECT COUNT(*) AS audit_count
+                    FROM project_audit_events
+                    WHERE project_code = ?
+                      AND action = 'service_schedule_item_planned'
+                    """,
+                    ("CEM-REPO-AUDIT-ACTOR-TEXT",),
+                ).fetchone()["audit_count"]
+            self.assertEqual(schedule_count, 0)
+            self.assertEqual(audit_count, 0)
+
     def test_repository_rejects_non_planned_service_schedule_initial_status(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
@@ -2108,6 +2159,22 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
                     status="confirmed",
                 )
 
+    def test_repository_rejects_non_text_service_schedule_item_code_on_update(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+
+            with self.assertRaisesRegex(ValueError, "item_code must be text"):
+                projects.update_service_schedule_status(
+                    item_code=sqlite3.Binary(b"PLAN-REPO-STATUS-TEXT"),
+                    status="confirmed",
+                )
+
     def test_repository_rejects_unknown_service_schedule_item_on_update(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
@@ -2798,6 +2865,101 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
 
             self.assertEqual(projects.list_service_schedule_items(), [])
 
+    def test_repository_rejects_non_text_service_schedule_required_text_on_insert(
+        self,
+    ) -> None:
+        required_values = {
+            "item_code": "PLAN-REPO-REQUIRED-TEXT",
+            "project_code": "CEM-REPO-REQUIRED-TEXT",
+            "title": "Required text guard",
+            "planned_start_at": "2026-07-01T09:00",
+            "planned_end_at": "2026-07-01T12:00",
+            "assigned_operator": "operator.one",
+            "location": "Lab A",
+            "equipment_under_test": "EUT rail",
+        }
+        guarded_fields = (
+            "item_code",
+            "project_code",
+            "title",
+            "assigned_operator",
+            "location",
+            "equipment_under_test",
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-REQUIRED-TEXT",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            for field_name in guarded_fields:
+                with self.subTest(field_name=field_name):
+                    values = dict(required_values)
+                    values[field_name] = sqlite3.Binary(b"corrupted")
+                    with self.assertRaisesRegex(ValueError, f"{field_name} must be text"):
+                        projects.add_service_schedule_item(**values)
+
+            self.assertEqual(projects.list_service_schedule_items(), [])
+
+    def test_repository_rejects_non_text_service_schedule_required_text_on_audit_insert(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-AUDIT-REQUIRED-TEXT",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+
+            with self.assertRaisesRegex(ValueError, "assigned_operator must be text"):
+                projects.add_service_schedule_item_with_audit(
+                    item_code="PLAN-REPO-AUDIT-REQUIRED-TEXT",
+                    project_code="CEM-REPO-AUDIT-REQUIRED-TEXT",
+                    title="Audited required text guard",
+                    planned_start_at="2026-07-01T09:00",
+                    planned_end_at="2026-07-01T12:00",
+                    assigned_operator=sqlite3.Binary(b"operator.one"),
+                    location="Lab A",
+                    equipment_under_test="EUT rail",
+                    actor="operator.one",
+                    reason="Plan corrupted required text",
+                )
+
+            with closing(projects.connect()) as connection:
+                schedule_count = connection.execute(
+                    """
+                    SELECT COUNT(*) AS schedule_count
+                    FROM service_schedule_items
+                    WHERE project_code = ?
+                    """,
+                    ("CEM-REPO-AUDIT-REQUIRED-TEXT",),
+                ).fetchone()["schedule_count"]
+                audit_count = connection.execute(
+                    """
+                    SELECT COUNT(*) AS audit_count
+                    FROM project_audit_events
+                    WHERE project_code = ?
+                      AND action = 'service_schedule_item_planned'
+                    """,
+                    ("CEM-REPO-AUDIT-REQUIRED-TEXT",),
+                ).fetchone()["audit_count"]
+            self.assertEqual(schedule_count, 0)
+            self.assertEqual(audit_count, 0)
+
     def test_repository_rejects_empty_service_schedule_operator(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
@@ -3254,6 +3416,47 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
                 project_code="CEM-REPO-STATUS-AUDIT-TEXT-UPDATE",
             )
             events = projects.audit_events("CEM-REPO-STATUS-AUDIT-TEXT-UPDATE")
+            self.assertEqual(schedule[0]["status"], "planned")
+            self.assertEqual(events, [])
+
+    def test_repository_rejects_non_text_service_schedule_actor_on_audit_update(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-STATUS-AUDIT-ACTOR-TEXT",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-STATUS-AUDIT-ACTOR-TEXT",
+                project_code="CEM-REPO-STATUS-AUDIT-ACTOR-TEXT",
+                title="Non-text audited actor update guard",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+            )
+
+            with self.assertRaisesRegex(ValueError, "actor must be text"):
+                projects.update_service_schedule_status_with_audit(
+                    item_code="PLAN-REPO-STATUS-AUDIT-ACTOR-TEXT",
+                    status="confirmed",
+                    actor=sqlite3.Binary(b"operator.two"),
+                    reason="Advance with corrupted actor",
+                )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-STATUS-AUDIT-ACTOR-TEXT",
+            )
+            events = projects.audit_events("CEM-REPO-STATUS-AUDIT-ACTOR-TEXT")
             self.assertEqual(schedule[0]["status"], "planned")
             self.assertEqual(events, [])
 

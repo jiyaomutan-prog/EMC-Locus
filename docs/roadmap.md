@@ -364,6 +364,10 @@ Deliverables:
 - service-schedule inserts, list filters, and direct or audited status updates
   now reject non-text requested statuses before normalization, preventing raw
   Python type errors and audit evidence from malformed status input.
+- service-schedule inserts and status updates now reject non-text required
+  planning text, update item codes, and audit actors before any planning row
+  mutation or project audit event can be created, preventing raw required-text
+  errors in direct repository and traceability paths.
 - service-schedule list reads and status updates now reject imported planning
   rows whose project has not reached `test_planning`, preventing
   constraint-bypassed rows from surfacing or advancing before the

@@ -3925,9 +3925,11 @@ def row_to_dict(row: sqlite3.Row | None) -> dict[str, object] | None:
     return dict(row)
 
 
-def require_non_empty(value: str | None, field_name: str) -> str:
+def require_non_empty(value: object, field_name: str) -> str:
     if value is None:
         raise ValueError(f"{field_name} must not be empty")
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be text")
     trimmed = value.strip()
     if not trimmed:
         raise ValueError(f"{field_name} must not be empty")
