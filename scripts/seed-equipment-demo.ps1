@@ -210,18 +210,21 @@ function New-Value {
 
 function New-ScpiPowerMeterModel {
     return [ordered]@{
-        definition_schema_version = "emc-locus.equipment-model-definition.v1"
+        definition_schema_version = "emc-locus.equipment-model-definition.v2"
         manufacturer = "R&S"
         model_name = "NRP6AN"
         variant = "FWD"
         equipment_class = "controllable_instrument"
+        functional_role = "measurement_instrument"
         category_code = "power_meter"
+        signal_domains = @("rf", "usb", "ethernet")
+        technology_tags = @("rf_50_ohm", "usb", "ethernet", "visa", "raw_tcp", "scpi")
         specifications = @(
             [ordered]@{ specification_id = "frequency_range"; label = "Frequency range"; quantity = "frequency"; unit = "GHz"; minimum = 0.009; maximum = 6.0 },
             [ordered]@{ specification_id = "power_range"; label = "Power range"; quantity = "power"; unit = "dBm"; minimum = -70.0; maximum = 23.0 }
         )
         signal_ports = @(
-            [ordered]@{ port_id = "rf_input"; label = "RF INPUT 50 ohm"; direction = "input"; signal_domain = "rf"; connector_type = "N"; quantity = "power"; unit = "dBm"; impedance = 50.0; frequency_min = 9000.0; frequency_max = 6000000000.0 }
+            [ordered]@{ port_id = "rf_input"; label = "RF INPUT 50 ohm"; directionality = "input"; flow_role = "measurement_port"; signal_domain = "rf"; connector_type = "N"; quantity = "power"; unit = "dBm"; impedance = 50.0; frequency_min = 9000.0; frequency_max = 6000000000.0 }
         )
         communication_interfaces = @(
             [ordered]@{
@@ -271,19 +274,22 @@ function New-ScpiPowerMeterModel {
 
 function New-SerialAmplifierModel {
     return [ordered]@{
-        definition_schema_version = "emc-locus.equipment-model-definition.v1"
+        definition_schema_version = "emc-locus.equipment-model-definition.v2"
         manufacturer = "Demo"
         model_name = "RF Amplifier"
         variant = "Serial"
         equipment_class = "controllable_instrument"
+        functional_role = "actuator"
         category_code = "rf_amplifier"
+        signal_domains = @("rf", "rs232")
+        technology_tags = @("rf_50_ohm", "rs232", "serial_text")
         specifications = @(
             [ordered]@{ specification_id = "frequency_range"; label = "Frequency range"; quantity = "frequency"; unit = "MHz"; minimum = 80.0; maximum = 1000.0 },
             [ordered]@{ specification_id = "output_power_max"; label = "Output power max"; quantity = "power"; unit = "W"; maximum = 1000.0 }
         )
         signal_ports = @(
-            [ordered]@{ port_id = "rf_input"; label = "RF input"; direction = "input"; signal_domain = "rf"; connector_type = "N"; quantity = "power"; unit = "dBm"; impedance = 50.0 },
-            [ordered]@{ port_id = "rf_output"; label = "RF output"; direction = "output"; signal_domain = "rf"; connector_type = "N"; quantity = "power"; unit = "W"; impedance = 50.0 }
+            [ordered]@{ port_id = "rf_input"; label = "RF input"; directionality = "input"; flow_role = "sink_port"; signal_domain = "rf"; connector_type = "N"; quantity = "power"; unit = "dBm"; impedance = 50.0 },
+            [ordered]@{ port_id = "rf_output"; label = "RF output"; directionality = "output"; flow_role = "source_port"; signal_domain = "rf"; connector_type = "N"; quantity = "power"; unit = "W"; impedance = 50.0 }
         )
         communication_interfaces = @(
             [ordered]@{
@@ -311,33 +317,36 @@ function New-SerialAmplifierModel {
 
 function New-CanPowerUnitModel {
     return [ordered]@{
-        definition_schema_version = "emc-locus.equipment-model-definition.v1"
+        definition_schema_version = "emc-locus.equipment-model-definition.v2"
         manufacturer = "Demo"
-        model_name = "CAN Controlled Power Unit"
+        model_name = "CAN bus controlled power unit"
         variant = "48V"
         equipment_class = "controllable_instrument"
-        category_code = "can_power_unit"
+        functional_role = "energy_source"
+        category_code = "can_bus_power_unit"
+        signal_domains = @("power_dc", "can_bus")
+        technology_tags = @("can_bus", "voltage_input")
         specifications = @(
             [ordered]@{ specification_id = "dc_voltage"; label = "DC bus voltage"; quantity = "voltage"; unit = "V"; nominal = 48.0; maximum = 60.0 }
         )
         signal_ports = @(
-            [ordered]@{ port_id = "dc_output"; label = "DC output"; direction = "output"; signal_domain = "analog_electrical"; connector_type = "terminal"; quantity = "voltage"; unit = "V"; voltage_max = 60.0 }
+            [ordered]@{ port_id = "dc_output"; label = "DC output"; directionality = "output"; flow_role = "source_port"; signal_domain = "power_dc"; connector_type = "terminal"; quantity = "voltage"; unit = "V"; voltage_max = 60.0 }
         )
         communication_interfaces = @(
             [ordered]@{
                 interface_id = "can0"
-                label = "CAN control bus"
-                transport_kind = "can"
+                label = "CAN bus control"
+                transport_kind = "can_bus"
                 access_provider_kind = "socketcan"
-                protocol_kind = "can_frames"
+                protocol_kind = "can_bus_frames"
                 required = $true
                 default_interface = $true
                 default_configuration = [ordered]@{ provider = "socketcan"; channel = "can0"; bitrate = 500000; fd_enabled = $false; extended_id = $false; timeout_ms = 1000 }
-                identification_strategy = [ordered]@{ strategy_id = "can_handshake"; strategy_type = "can_handshake"; parameters = [ordered]@{ request_id = 256; response_id = 257 } }
+                identification_strategy = [ordered]@{ strategy_id = "can_bus_handshake"; strategy_type = "can_bus_handshake"; parameters = [ordered]@{ request_id = 256; response_id = 257 } }
             }
         )
         capabilities = @(
-            [ordered]@{ capability_id = "read_status"; label = "Read status"; description = "Read CAN status word."; capability_kind = "read_status"; inputs = @(); outputs = @((New-Value -Name "status_word" -ValueType "integer" -Quantity "dimensionless" -Unit "dimensionless")); safety_class = "read_only" },
+            [ordered]@{ capability_id = "read_status"; label = "Read status"; description = "Read CAN bus status word."; capability_kind = "read_status"; inputs = @(); outputs = @((New-Value -Name "status_word" -ValueType "integer" -Quantity "dimensionless" -Unit "dimensionless")); safety_class = "read_only" },
             [ordered]@{ capability_id = "set_mode"; label = "Set mode"; description = "Set operating mode."; capability_kind = "set_mode"; inputs = @((New-Value -Name "mode" -ValueType "text" -Quantity "text" -Unit "dimensionless" -EnumValues @("standby", "test", "run"))); outputs = @(); safety_class = "configuration_change" },
             [ordered]@{ capability_id = "enable_output"; label = "Enable output"; description = "Enable power output."; capability_kind = "activate_rf"; inputs = @(); outputs = @(); required_signal_ports = @("dc_output"); safety_class = "energizes_output" },
             [ordered]@{ capability_id = "disable_output"; label = "Disable output"; description = "Disable power output."; capability_kind = "deactivate_rf"; inputs = @(); outputs = @(); required_signal_ports = @("dc_output"); safety_class = "deenergizes_output" }
@@ -348,17 +357,21 @@ function New-CanPowerUnitModel {
 
 function New-ManualAntennaModel {
     return [ordered]@{
-        definition_schema_version = "emc-locus.equipment-model-definition.v1"
+        definition_schema_version = "emc-locus.equipment-model-definition.v2"
         manufacturer = "Demo"
         model_name = "Manual Antenna"
         variant = "Broadband"
         equipment_class = "manual_equipment"
+        functional_role = "sensor"
         category_code = "antenna"
+        signal_domains = @("rf")
+        technology_tags = @("rf_50_ohm")
         specifications = @(
             [ordered]@{ specification_id = "frequency_range"; label = "Frequency range"; quantity = "frequency"; unit = "MHz"; minimum = 30.0; maximum = 1000.0 }
         )
         signal_ports = @(
-            [ordered]@{ port_id = "rf_output"; label = "RF output"; direction = "output"; signal_domain = "rf"; connector_type = "N"; quantity = "electric_field"; unit = "dBuV_per_m" }
+            [ordered]@{ port_id = "field"; label = "RF field"; directionality = "input"; flow_role = "field_side_port"; signal_domain = "rf"; quantity = "electric_field"; unit = "dBuV_per_m" },
+            [ordered]@{ port_id = "rf_output"; label = "RF output"; directionality = "output"; flow_role = "transducer_output_port"; signal_domain = "rf"; connector_type = "N"; quantity = "power"; unit = "dBm"; impedance = 50.0 }
         )
         communication_interfaces = @()
         capabilities = @(
@@ -415,16 +428,16 @@ function New-CanPowerUnitDriver {
     param([object]$ModelRevision)
     return [ordered]@{
         definition_schema_version = "emc-locus.driver-profile-definition.v1"
-        equipment_model_id = "EQM-DEMO-CAN-POWER"
+        equipment_model_id = "EQM-DEMO-CAN-BUS-POWER"
         supported_model_revision_id = $ModelRevision.revision_id
         supported_model_definition_checksum = $ModelRevision.definition_checksum
         supported_firmware_ranges = @("*")
         communication_profiles = @("can0")
         actions = @(
-            [ordered]@{ action_id = "read_status"; label = "Read status"; description = "Read status word from CAN."; implements_capability_id = "read_status"; inputs = @(); outputs = @((New-Value -Name "status_word" -ValueType "integer" -Quantity "dimensionless" -Unit "dimensionless")); safety_class = "read_only"; default_timeout_ms = 1000; script = [ordered]@{ steps = @([ordered]@{ step_id = "request_status"; step_type = "can_request_response"; interface_id = "can0"; frame = [ordered]@{ arbitration_id = 256; extended = $false; remote_frame = $false; data = @(1); dlc = 1 }; response_binding = '${result.status_word}' }) } },
-            [ordered]@{ action_id = "set_mode"; label = "Set mode"; description = "Set CAN operating mode."; implements_capability_id = "set_mode"; inputs = @((New-Value -Name "mode" -ValueType "text" -Quantity "text" -Unit "dimensionless" -EnumValues @("standby", "test", "run"))); outputs = @(); safety_class = "configuration_change"; default_timeout_ms = 1000; script = [ordered]@{ steps = @([ordered]@{ step_id = "send_mode"; step_type = "can_send"; interface_id = "can0"; frame = [ordered]@{ arbitration_id = 258; extended = $false; remote_frame = $false; data = @(2, 1); dlc = 2 } }) } },
-            [ordered]@{ action_id = "disable_output"; label = "Disable output"; description = "Disable DC output."; implements_capability_id = "disable_output"; inputs = @(); outputs = @(); safety_class = "deenergizes_output"; default_timeout_ms = 1000; script = [ordered]@{ steps = @([ordered]@{ step_id = "send_disable"; step_type = "can_send"; interface_id = "can0"; frame = [ordered]@{ arbitration_id = 259; extended = $false; remote_frame = $false; data = @(0); dlc = 1 } }) } },
-            [ordered]@{ action_id = "enable_output"; label = "Enable output"; description = "Enable DC output."; implements_capability_id = "enable_output"; inputs = @(); outputs = @(); safety_class = "energizes_output"; default_timeout_ms = 1000; safe_state_action_id = "disable_output"; requires_operator_confirmation = $true; script = [ordered]@{ steps = @([ordered]@{ step_id = "send_enable"; step_type = "can_send"; interface_id = "can0"; frame = [ordered]@{ arbitration_id = 259; extended = $false; remote_frame = $false; data = @(1); dlc = 1 } }) } }
+            [ordered]@{ action_id = "read_status"; label = "Read status"; description = "Read status word from CAN bus."; implements_capability_id = "read_status"; inputs = @(); outputs = @((New-Value -Name "status_word" -ValueType "integer" -Quantity "dimensionless" -Unit "dimensionless")); safety_class = "read_only"; default_timeout_ms = 1000; script = [ordered]@{ steps = @([ordered]@{ step_id = "request_status"; step_type = "can_bus_request_response"; interface_id = "can0"; frame = [ordered]@{ arbitration_id = 256; extended = $false; remote_frame = $false; data = @(1); dlc = 1 }; response_binding = '${result.status_word}' }) } },
+            [ordered]@{ action_id = "set_mode"; label = "Set mode"; description = "Set CAN bus operating mode."; implements_capability_id = "set_mode"; inputs = @((New-Value -Name "mode" -ValueType "text" -Quantity "text" -Unit "dimensionless" -EnumValues @("standby", "test", "run"))); outputs = @(); safety_class = "configuration_change"; default_timeout_ms = 1000; script = [ordered]@{ steps = @([ordered]@{ step_id = "send_mode"; step_type = "can_bus_send"; interface_id = "can0"; frame = [ordered]@{ arbitration_id = 258; extended = $false; remote_frame = $false; data = @(2, 1); dlc = 2 } }) } },
+            [ordered]@{ action_id = "disable_output"; label = "Disable output"; description = "Disable DC output."; implements_capability_id = "disable_output"; inputs = @(); outputs = @(); safety_class = "deenergizes_output"; default_timeout_ms = 1000; script = [ordered]@{ steps = @([ordered]@{ step_id = "send_disable"; step_type = "can_bus_send"; interface_id = "can0"; frame = [ordered]@{ arbitration_id = 259; extended = $false; remote_frame = $false; data = @(0); dlc = 1 } }) } },
+            [ordered]@{ action_id = "enable_output"; label = "Enable output"; description = "Enable DC output."; implements_capability_id = "enable_output"; inputs = @(); outputs = @(); safety_class = "energizes_output"; default_timeout_ms = 1000; safe_state_action_id = "disable_output"; requires_operator_confirmation = $true; script = [ordered]@{ steps = @([ordered]@{ step_id = "send_enable"; step_type = "can_bus_send"; interface_id = "can0"; frame = [ordered]@{ arbitration_id = 259; extended = $false; remote_frame = $false; data = @(1); dlc = 1 } }) } }
         )
         safe_state_action_id = "disable_output"
         metadata = [ordered]@{ demo = $true }
@@ -435,12 +448,12 @@ Invoke-EmcApi -Method GET -Path "/api/v1/health" | Out-Null
 
 $powerMeter = Ensure-ApprovedEquipmentModel -ModelId "EQM-DEMO-NRP6AN-FWD" -Definition (New-ScpiPowerMeterModel)
 $amplifier = Ensure-ApprovedEquipmentModel -ModelId "EQM-DEMO-SERIAL-AMP" -Definition (New-SerialAmplifierModel)
-$canUnit = Ensure-ApprovedEquipmentModel -ModelId "EQM-DEMO-CAN-POWER" -Definition (New-CanPowerUnitModel)
+$canUnit = Ensure-ApprovedEquipmentModel -ModelId "EQM-DEMO-CAN-BUS-POWER" -Definition (New-CanPowerUnitModel)
 Ensure-ApprovedEquipmentModel -ModelId "EQM-DEMO-MANUAL-ANTENNA" -Definition (New-ManualAntennaModel) | Out-Null
 
 Ensure-ApprovedDriverProfile -DriverId "DRV-DEMO-NRP6AN-SCPI" -Label "R&S NRP6AN SCPI" -Definition (New-ScpiPowerMeterDriver -ModelRevision $powerMeter.current_approved_revision) | Out-Null
 Ensure-ApprovedDriverProfile -DriverId "DRV-DEMO-SERIAL-AMP" -Label "Demo serial amplifier" -Definition (New-SerialAmplifierDriver -ModelRevision $amplifier.current_approved_revision) | Out-Null
-Ensure-ApprovedDriverProfile -DriverId "DRV-DEMO-CAN-POWER" -Label "Demo CAN power unit" -Definition (New-CanPowerUnitDriver -ModelRevision $canUnit.current_approved_revision) | Out-Null
+Ensure-ApprovedDriverProfile -DriverId "DRV-DEMO-CAN-BUS-POWER" -Label "Demo CAN bus power unit" -Definition (New-CanPowerUnitDriver -ModelRevision $canUnit.current_approved_revision) | Out-Null
 
 $providers = Invoke-EmcApi -Method GET -Path "/api/v1/equipment/communication-providers"
 Write-Host "Equipment demo seed complete via API at $AgentUrl"

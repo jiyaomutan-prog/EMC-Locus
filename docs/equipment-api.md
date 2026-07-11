@@ -50,4 +50,4 @@ GET /api/v1/equipment/communication-providers
 ```
 
 The endpoint reports installed or modeled communication providers. Unavailable
-VISA, vendor CAN and USB providers are not hidden behind simulation.
+VISA, vendor CAN bus and USB providers are not hidden behind simulation.

@@ -2252,6 +2252,8 @@ fn equipment_class_text(class: emc_locus_core::equipment::EquipmentClass) -> &'s
             "controllable_instrument"
         }
         emc_locus_core::equipment::EquipmentClass::DaqDevice => "daq_device",
+        emc_locus_core::equipment::EquipmentClass::AcquisitionDevice => "acquisition_device",
+        emc_locus_core::equipment::EquipmentClass::Converter => "converter",
         emc_locus_core::equipment::EquipmentClass::Sensor => "sensor",
         emc_locus_core::equipment::EquipmentClass::Transducer => "transducer",
         emc_locus_core::equipment::EquipmentClass::PassiveComponent => "passive_component",

@@ -114,12 +114,15 @@ def _template_definition(sample_rate_hz: float = 100_000.0) -> dict[str, object]
 
 def _equipment_model_definition() -> dict[str, object]:
     return {
-        "definition_schema_version": "emc-locus.equipment-model-definition.v1",
+        "definition_schema_version": "emc-locus.equipment-model-definition.v2",
         "manufacturer": "Demo",
         "model_name": "Python Power Meter",
         "variant": "FWD",
         "equipment_class": "controllable_instrument",
+        "functional_role": "measurement_instrument",
         "category_code": "power_meter",
+        "signal_domains": ["rf", "ethernet"],
+        "technology_tags": ["rf_50_ohm", "ethernet", "raw_tcp", "scpi"],
         "specifications": [
             {
                 "specification_id": "frequency_range",
@@ -134,7 +137,8 @@ def _equipment_model_definition() -> dict[str, object]:
             {
                 "port_id": "rf_input",
                 "label": "RF input",
-                "direction": "input",
+                "directionality": "input",
+                "flow_role": "measurement_port",
                 "signal_domain": "rf",
                 "connector_type": "N",
                 "quantity": "power",

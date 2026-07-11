@@ -4319,12 +4319,15 @@ mod tests {
         variant: Option<&str>,
     ) -> Value {
         json!({
-            "definition_schema_version": "emc-locus.equipment-model-definition.v1",
+            "definition_schema_version": "emc-locus.equipment-model-definition.v2",
             "manufacturer": manufacturer,
             "model_name": model_name,
             "variant": variant,
             "equipment_class": "controllable_instrument",
+            "functional_role": "measurement_instrument",
             "category_code": "power_meter",
+            "signal_domains": ["rf", "ethernet"],
+            "technology_tags": ["rf_50_ohm", "ethernet", "raw_tcp", "scpi"],
             "specifications": [
                 {
                     "specification_id": "frequency_range",
@@ -4347,7 +4350,8 @@ mod tests {
                 {
                     "port_id": "rf_input",
                     "label": "RF Input",
-                    "direction": "input",
+                    "directionality": "input",
+                    "flow_role": "measurement_port",
                     "signal_domain": "rf",
                     "connector_type": "N",
                     "quantity": "power",

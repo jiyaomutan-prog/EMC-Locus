@@ -8,6 +8,22 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added physics-based equipment classification to the equipment model
+  definition: `functional_role`, `signal_domains`, explicit port
+  `directionality`, port `flow_role`, and searchable `technology_tags`.
+- Added static equipment topology validation for RF impedance, communication
+  ports, through-path ports, sensor input/output shape, signal-source outputs,
+  measurement-instrument inputs, software-system physical-port exceptions, and
+  ADC/DAC/CAN-bus ambiguity.
+
+### Changed
+
+- Renamed the equipment communication schema from bare `can`/`can_frames` and
+  driver script `can_*` steps to explicit `can_bus`/`can_bus_frames` and
+  `can_bus_*` steps.
+
 ### Fixed
 
 - Rejected non-text required service-schedule planning text, update item codes,

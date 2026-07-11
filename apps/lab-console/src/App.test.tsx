@@ -260,7 +260,7 @@ function equipmentModelFixture() {
     revision_number: 1,
     parent_revision_id: null,
     status: "approved",
-    definition_schema_version: "emc-locus.equipment-model-definition.v1",
+    definition_schema_version: "emc-locus.equipment-model-definition.v2",
     definition_checksum: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     created_by: "equipment.author",
     created_at: "2026-07-03T00:00:00Z",
@@ -271,14 +271,29 @@ function equipmentModelFixture() {
     interface_count: 1,
     signal_port_count: 1,
     definition: {
-      definition_schema_version: "emc-locus.equipment-model-definition.v1",
+      definition_schema_version: "emc-locus.equipment-model-definition.v2",
       manufacturer: "R&S",
       model_name: "NRP6AN",
       variant: "FWD",
       equipment_class: "controllable_instrument",
+      functional_role: "measurement_instrument",
       category_code: "power_meter",
+      signal_domains: ["rf", "ethernet"],
+      technology_tags: ["rf_50_ohm", "ethernet", "raw_tcp", "scpi"],
       specifications: [],
-      signal_ports: [],
+      signal_ports: [
+        {
+          port_id: "rf_input",
+          label: "RF input",
+          directionality: "input",
+          flow_role: "measurement_port",
+          signal_domain: "rf",
+          connector_type: "N",
+          quantity: "power",
+          unit: "dBm",
+          impedance: 50
+        }
+      ],
       communication_interfaces: [
         {
           interface_id: "tcp",

@@ -9,7 +9,7 @@ is the source of truth.
 `0.11.0` models:
 
 - generic I/O: `io_write`, `io_read`, `io_query`;
-- CAN I/O: `can_send`, `can_receive`, `can_request_response`;
+- CAN bus I/O: `can_bus_send`, `can_bus_receive`, `can_bus_request_response`;
 - processing: `set_variable`, `parse_number`, `parse_text`, `parse_csv`,
   `parse_regex`, `convert_unit`, `calculate`, `assert`;
 - control flow: `if`, `loop_until`, `repeat`, `call_action`, `return`;
@@ -33,7 +33,7 @@ ${context.instrument_id}
 
 Validation detects unknown variables in expressions, duplicate step ids,
 missing payloads, missing interfaces, unknown called actions, declared outputs
-that are never produced, and CAN steps targeting non-CAN contracts.
+that are never produced, and CAN bus steps targeting non-CAN-bus contracts.
 
 ## Simulation
 

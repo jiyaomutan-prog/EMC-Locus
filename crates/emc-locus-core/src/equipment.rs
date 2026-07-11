@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION: &str =
-    "emc-locus.equipment-model-definition.v1";
+    "emc-locus.equipment-model-definition.v2";
 pub const DRIVER_PROFILE_DEFINITION_SCHEMA_VERSION: &str = "emc-locus.driver-profile-definition.v1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -23,6 +23,8 @@ pub enum EquipmentRevisionStatus {
 pub enum EquipmentClass {
     ControllableInstrument,
     DaqDevice,
+    AcquisitionDevice,
+    Converter,
     Sensor,
     Transducer,
     PassiveComponent,
@@ -31,6 +33,23 @@ pub enum EquipmentClass {
     Facility,
     SoftwareAdapter,
     ManualEquipment,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FunctionalRole {
+    EnergySource,
+    SignalSource,
+    RfNetworkElement,
+    Sensor,
+    Actuator,
+    MeasurementInstrument,
+    AcquisitionDevice,
+    Converter,
+    ControlSystem,
+    SoftwareSystem,
+    Facility,
+    ManualAccessory,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -72,24 +91,85 @@ pub enum ValueType {
     Frame,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SignalPortDirection {
+pub enum PortDirectionality {
     Input,
     Output,
     Bidirectional,
+    Through,
+    Control,
+    Communication,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PortFlowRole {
+    SourcePort,
+    SinkPort,
+    ThroughPort,
+    MeasurementPort,
+    ControlPort,
+    CommunicationPort,
+    FieldSidePort,
+    TransducerOutputPort,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SignalDomain {
-    AnalogElectrical,
-    DigitalElectrical,
+    PowerDc,
+    PowerAc,
     Rf,
+    AnalogVoltage,
+    AnalogCurrent,
+    AnalogCharge,
+    DigitalLogic,
+    Trigger,
+    Pulse,
+    ContactDry,
+    Relay,
+    CanBus,
+    Rs232,
+    Rs485,
+    Ethernet,
+    Usb,
+    Gpib,
     Optical,
     Mechanical,
     Environmental,
-    Logical,
+    Software,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TechnologyTag {
+    AdcConverter,
+    DacConverter,
+    #[serde(rename = "rf_50_ohm")]
+    Rf50Ohm,
+    #[serde(rename = "rf_75_ohm")]
+    Rf75Ohm,
+    Ttl,
+    Cmos,
+    Trigger,
+    DryContact,
+    RelayContact,
+    VoltageInput,
+    CurrentInput,
+    ChargeInput,
+    Iepe,
+    Bridge,
+    Usb,
+    Ethernet,
+    Gpib,
+    Rs232,
+    Rs485,
+    CanBus,
+    Visa,
+    RawTcp,
+    SerialText,
+    Scpi,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -100,7 +180,7 @@ pub enum TransportKind {
     Gpib,
     EthernetTcp,
     EthernetUdp,
-    Can,
+    CanBus,
     Usb,
     Rs485,
     Lin,
@@ -131,7 +211,7 @@ pub enum ProtocolKind {
     Scpi,
     RawAscii,
     RawBinary,
-    CanFrames,
+    CanBusFrames,
     ModbusRtu,
     ModbusTcp,
     CustomProtocol,
@@ -175,7 +255,8 @@ pub struct EngineeringSpecification {
 pub struct SignalPortDefinition {
     pub port_id: String,
     pub label: String,
-    pub direction: SignalPortDirection,
+    pub directionality: PortDirectionality,
+    pub flow_role: PortFlowRole,
     pub signal_domain: SignalDomain,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector_type: Option<String>,
@@ -280,7 +361,12 @@ pub struct EquipmentModelDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant: Option<String>,
     pub equipment_class: EquipmentClass,
+    pub functional_role: FunctionalRole,
     pub category_code: String,
+    #[serde(default)]
+    pub signal_domains: Vec<SignalDomain>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub technology_tags: Vec<TechnologyTag>,
     #[serde(default)]
     pub specifications: Vec<EngineeringSpecification>,
     #[serde(default)]
@@ -308,9 +394,9 @@ pub enum ScriptStepType {
     IoWrite,
     IoRead,
     IoQuery,
-    CanSend,
-    CanReceive,
-    CanRequestResponse,
+    CanBusSend,
+    CanBusReceive,
+    CanBusRequestResponse,
     SetVariable,
     ParseNumber,
     ParseText,
@@ -590,11 +676,24 @@ pub fn validate_equipment_model_definition(
     require_text(&mut issues, &definition.manufacturer, "manufacturer");
     require_text(&mut issues, &definition.model_name, "model_name");
     require_token(&mut issues, &definition.category_code, "category_code");
+    validate_equipment_classification(&mut issues, definition);
 
-    let port_ids = validate_signal_ports(&mut issues, &definition.signal_ports);
+    let model_signal_domains = definition
+        .signal_domains
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let port_ids =
+        validate_signal_ports(&mut issues, &definition.signal_ports, &model_signal_domains);
+    validate_functional_port_topology(&mut issues, definition);
     let interface_ids = validate_interfaces(&mut issues, &definition.communication_interfaces);
     validate_specifications(&mut issues, &definition.specifications);
-    validate_capabilities(&mut issues, &definition.capabilities, &port_ids);
+    validate_capabilities(
+        &mut issues,
+        &definition.capabilities,
+        &port_ids,
+        &port_map_for(&definition.signal_ports),
+    );
 
     if definition.equipment_class == EquipmentClass::ManualEquipment
         && definition
@@ -618,10 +717,50 @@ pub fn validate_equipment_model_definition(
             "controllable_equipment_without_interface",
             "communication_interfaces",
             "controllable equipment should define at least one communication interface",
-            Some("Add a simulation, serial, TCP, UDP, VISA, CAN, or USB interface."),
+            Some("Add a simulation, serial, TCP, UDP, VISA, CAN bus, or USB interface."),
         ));
     }
     issues
+}
+
+fn validate_equipment_classification(
+    issues: &mut Vec<DefinitionValidationIssue>,
+    definition: &EquipmentModelDefinition,
+) {
+    if definition.signal_domains.is_empty() {
+        issues.push(issue(
+            "error",
+            "missing_signal_domains",
+            "signal_domains",
+            "equipment model must declare the signal, energy, or communication domains it handles",
+            Some("Declare values such as rf, analog_voltage, power_dc, ethernet, or can_bus."),
+        ));
+    }
+    if matches!(definition.category_code.as_str(), "can" | "adc" | "dac") {
+        issues.push(issue(
+            "error",
+            "ambiguous_equipment_category_code",
+            "category_code",
+            format!(
+                "category_code={} is ambiguous in a French/English laboratory context",
+                definition.category_code
+            ),
+            Some("Use adc_converter, dac_converter, or can_bus with explicit context."),
+        ));
+    }
+    if matches!(
+        definition.functional_role,
+        FunctionalRole::AcquisitionDevice | FunctionalRole::Converter
+    ) && definition.category_code == "can_bus"
+    {
+        issues.push(issue(
+            "error",
+            "adc_dac_can_bus_ambiguity",
+            "category_code",
+            "an ADC/DAC converter role cannot be categorized as can_bus",
+            Some("Use adc_converter or dac_converter for converters; reserve can_bus for Controller Area Network communication."),
+        ));
+    }
 }
 
 pub fn validate_driver_profile_definition(
@@ -751,6 +890,7 @@ fn validate_specifications(
 fn validate_signal_ports(
     issues: &mut Vec<DefinitionValidationIssue>,
     ports: &[SignalPortDefinition],
+    model_signal_domains: &BTreeSet<SignalDomain>,
 ) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
     for (index, port) in ports.iter().enumerate() {
@@ -767,6 +907,50 @@ fn validate_signal_ports(
             ));
         }
         validate_quantity_unit(issues, port.quantity, &port.unit, &format!("{path}.unit"));
+        validate_port_directionality(issues, port, &path);
+        if !model_signal_domains.contains(&port.signal_domain) {
+            issues.push(issue(
+                "error",
+                "port_signal_domain_not_declared_on_model",
+                format!("{path}.signal_domain"),
+                format!(
+                    "port domain {:?} is not present in model signal_domains",
+                    port.signal_domain
+                ),
+                Some("Add the domain to signal_domains or correct the port classification."),
+            ));
+        }
+        if port.signal_domain == SignalDomain::Rf
+            && !is_communication_port(port)
+            && port.flow_role != PortFlowRole::FieldSidePort
+            && port.impedance.unwrap_or(0.0) <= 0.0
+        {
+            issues.push(issue(
+                "error",
+                "rf_port_missing_impedance",
+                format!("{path}.impedance"),
+                "RF signal ports must declare their reference impedance",
+                Some("Declare impedance such as 50.0 or 75.0 ohm."),
+            ));
+        }
+        if is_communication_port(port) && !is_communication_signal_domain(port.signal_domain) {
+            issues.push(issue(
+                "error",
+                "communication_port_has_physical_signal_domain",
+                format!("{path}.signal_domain"),
+                "communication ports must use a communication signal domain",
+                Some("Use ethernet, usb, gpib, rs232, rs485, can_bus, or software."),
+            ));
+        }
+        if !is_communication_port(port) && is_communication_signal_domain(port.signal_domain) {
+            issues.push(issue(
+                "error",
+                "communication_domain_used_as_measurement_port",
+                format!("{path}.flow_role"),
+                "communication domains cannot be modeled as measurement signal ports",
+                Some("Use flow_role=communication_port and directionality=communication, or choose a physical signal domain."),
+            ));
+        }
         validate_bounds(
             issues,
             port.frequency_min,
@@ -776,6 +960,60 @@ fn validate_signal_ports(
         );
     }
     ids
+}
+
+fn validate_port_directionality(
+    issues: &mut Vec<DefinitionValidationIssue>,
+    port: &SignalPortDefinition,
+    path: &str,
+) {
+    let compatible = match port.flow_role {
+        PortFlowRole::SourcePort => matches!(
+            port.directionality,
+            PortDirectionality::Output | PortDirectionality::Bidirectional
+        ),
+        PortFlowRole::SinkPort | PortFlowRole::MeasurementPort => matches!(
+            port.directionality,
+            PortDirectionality::Input | PortDirectionality::Bidirectional
+        ),
+        PortFlowRole::ThroughPort => matches!(
+            port.directionality,
+            PortDirectionality::Through | PortDirectionality::Bidirectional
+        ),
+        PortFlowRole::ControlPort => matches!(
+            port.directionality,
+            PortDirectionality::Control
+                | PortDirectionality::Input
+                | PortDirectionality::Output
+                | PortDirectionality::Bidirectional
+        ),
+        PortFlowRole::CommunicationPort => matches!(
+            port.directionality,
+            PortDirectionality::Communication | PortDirectionality::Bidirectional
+        ),
+        PortFlowRole::FieldSidePort => matches!(
+            port.directionality,
+            PortDirectionality::Input
+                | PortDirectionality::Output
+                | PortDirectionality::Bidirectional
+        ),
+        PortFlowRole::TransducerOutputPort => matches!(
+            port.directionality,
+            PortDirectionality::Output | PortDirectionality::Bidirectional
+        ),
+    };
+    if !compatible {
+        issues.push(issue(
+            "error",
+            "port_flow_role_directionality_mismatch",
+            format!("{path}.flow_role"),
+            format!(
+                "flow_role {:?} is not compatible with directionality {:?}",
+                port.flow_role, port.directionality
+            ),
+            Some("Choose a flow role that matches the physical direction of energy, signal, control, or communication."),
+        ));
+    }
 }
 
 fn validate_interfaces(
@@ -821,10 +1059,106 @@ fn validate_interfaces(
     ids
 }
 
+fn validate_functional_port_topology(
+    issues: &mut Vec<DefinitionValidationIssue>,
+    definition: &EquipmentModelDefinition,
+) {
+    let through_count = definition
+        .signal_ports
+        .iter()
+        .filter(|port| {
+            port.flow_role == PortFlowRole::ThroughPort
+                && matches!(
+                    port.directionality,
+                    PortDirectionality::Through | PortDirectionality::Bidirectional
+                )
+        })
+        .count();
+    if through_count == 1 {
+        issues.push(issue(
+            "error",
+            "through_device_requires_two_ports",
+            "signal_ports",
+            "through-path devices must expose at least two through-compatible ports",
+            Some("Model both sides of a cable, attenuator, filter, coupler, combiner, divider, isolator, or adapter."),
+        ));
+    }
+
+    if definition.functional_role == FunctionalRole::Sensor {
+        let has_physical_input = definition.signal_ports.iter().any(is_physical_input_port);
+        let has_output = definition.signal_ports.iter().any(is_physical_output_port);
+        if !has_physical_input || !has_output {
+            issues.push(issue(
+                "error",
+                "sensor_requires_input_and_output",
+                "signal_ports",
+                "sensor models must expose at least one physical input and one output",
+                Some("Example: FIELD input plus RF_OUT, voltage, current, charge, digital, or optical output."),
+            ));
+        }
+    }
+
+    if definition.functional_role == FunctionalRole::SignalSource
+        && !definition
+            .signal_ports
+            .iter()
+            .any(|port| port.flow_role == PortFlowRole::SourcePort && !is_communication_port(port))
+    {
+        issues.push(issue(
+            "error",
+            "signal_source_requires_source_output",
+            "signal_ports",
+            "signal sources must expose at least one physical source output",
+            Some("Add an RF_OUT, analog output, pulse output, field-side output, or other source port."),
+        ));
+    }
+
+    if definition.functional_role == FunctionalRole::MeasurementInstrument
+        && !definition.signal_ports.iter().any(|port| {
+            port.flow_role == PortFlowRole::MeasurementPort && !is_communication_port(port)
+        })
+    {
+        issues.push(issue(
+            "error",
+            "measurement_instrument_requires_measurement_input",
+            "signal_ports",
+            "measurement instruments must expose at least one physical measurement input",
+            Some("Add an RF, voltage, current, field, temperature, vibration, acoustic, or digital measurement input."),
+        ));
+    }
+
+    let communication_only_domains = definition
+        .signal_domains
+        .iter()
+        .all(|domain| is_communication_signal_domain(*domain));
+    let allows_physical_ports = definition
+        .metadata
+        .get("allow_physical_ports")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if definition.functional_role == FunctionalRole::SoftwareSystem
+        && communication_only_domains
+        && !allows_physical_ports
+        && definition
+            .signal_ports
+            .iter()
+            .any(|port| port.signal_domain == SignalDomain::Rf)
+    {
+        issues.push(issue(
+            "error",
+            "software_system_declares_physical_rf_port",
+            "signal_ports",
+            "communication-only software systems cannot declare physical RF ports",
+            Some("Set metadata.allow_physical_ports=true only for an explicitly modeled hybrid adapter."),
+        ));
+    }
+}
+
 fn validate_capabilities(
     issues: &mut Vec<DefinitionValidationIssue>,
     capabilities: &[MeasurementCapabilityDefinition],
     port_ids: &BTreeSet<String>,
+    ports_by_id: &BTreeMap<String, &SignalPortDefinition>,
 ) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
     for (index, capability) in capabilities.iter().enumerate() {
@@ -865,10 +1199,73 @@ fn validate_capabilities(
                     format!("capability references unknown signal port: {port_id}"),
                     Some("Use a port_id declared in signal_ports."),
                 ));
+            } else if ports_by_id
+                .get(port_id)
+                .is_some_and(|port| is_communication_port(port))
+            {
+                issues.push(issue(
+                    "error",
+                    "communication_port_used_as_signal_port",
+                    format!("{path}.required_signal_ports[{port_index}]"),
+                    format!("capability references communication-only port as a measurement signal: {port_id}"),
+                    Some("Reference a physical signal port, not Ethernet, USB, GPIB, RS-232/RS-485, or CAN bus communication."),
+                ));
             }
         }
     }
     ids
+}
+
+fn port_map_for(ports: &[SignalPortDefinition]) -> BTreeMap<String, &SignalPortDefinition> {
+    ports
+        .iter()
+        .map(|port| (port.port_id.clone(), port))
+        .collect()
+}
+
+fn is_communication_signal_domain(domain: SignalDomain) -> bool {
+    matches!(
+        domain,
+        SignalDomain::CanBus
+            | SignalDomain::Rs232
+            | SignalDomain::Rs485
+            | SignalDomain::Ethernet
+            | SignalDomain::Usb
+            | SignalDomain::Gpib
+            | SignalDomain::Software
+    )
+}
+
+fn is_communication_port(port: &SignalPortDefinition) -> bool {
+    port.flow_role == PortFlowRole::CommunicationPort
+        || port.directionality == PortDirectionality::Communication
+        || is_communication_signal_domain(port.signal_domain)
+}
+
+fn is_physical_input_port(port: &SignalPortDefinition) -> bool {
+    !is_communication_port(port)
+        && matches!(
+            port.directionality,
+            PortDirectionality::Input | PortDirectionality::Bidirectional
+        )
+        && matches!(
+            port.flow_role,
+            PortFlowRole::SinkPort | PortFlowRole::MeasurementPort | PortFlowRole::FieldSidePort
+        )
+}
+
+fn is_physical_output_port(port: &SignalPortDefinition) -> bool {
+    !is_communication_port(port)
+        && matches!(
+            port.directionality,
+            PortDirectionality::Output | PortDirectionality::Bidirectional
+        )
+        && matches!(
+            port.flow_role,
+            PortFlowRole::SourcePort
+                | PortFlowRole::TransducerOutputPort
+                | PortFlowRole::FieldSidePort
+        )
 }
 
 fn validate_actions(
@@ -1121,9 +1518,9 @@ fn validate_step_required_fields(
         ScriptStepType::IoWrite
             | ScriptStepType::IoRead
             | ScriptStepType::IoQuery
-            | ScriptStepType::CanSend
-            | ScriptStepType::CanReceive
-            | ScriptStepType::CanRequestResponse
+            | ScriptStepType::CanBusSend
+            | ScriptStepType::CanBusReceive
+            | ScriptStepType::CanBusRequestResponse
     );
     if uses_interface {
         match step.interface_id.as_deref() {
@@ -1166,14 +1563,14 @@ fn validate_step_required_fields(
     }
     if matches!(
         step.step_type,
-        ScriptStepType::CanSend | ScriptStepType::CanRequestResponse
+        ScriptStepType::CanBusSend | ScriptStepType::CanBusRequestResponse
     ) && step.frame.is_none()
     {
         issues.push(issue(
             "error",
-            "missing_can_frame",
+            "missing_can_bus_frame",
             format!("{path}.frame"),
-            "CAN send/request steps require a structured frame",
+            "CAN bus send/request steps require a structured frame",
             Option::<String>::None,
         ));
     }
@@ -1217,7 +1614,7 @@ fn validate_interface_compatibility(
         AccessProviderKind::NativeUdp => interface.transport_kind == TransportKind::EthernetUdp,
         AccessProviderKind::Socketcan
         | AccessProviderKind::Pcan
-        | AccessProviderKind::VectorCan => interface.transport_kind == TransportKind::Can,
+        | AccessProviderKind::VectorCan => interface.transport_kind == TransportKind::CanBus,
         AccessProviderKind::Usbtmc | AccessProviderKind::Hid => {
             interface.transport_kind == TransportKind::Usb
         }
@@ -1239,14 +1636,14 @@ fn validate_interface_compatibility(
             Some("Treat VISA as an access layer and choose a compatible transport."),
         ));
     }
-    if interface.protocol_kind == ProtocolKind::CanFrames
-        && interface.transport_kind != TransportKind::Can
+    if interface.protocol_kind == ProtocolKind::CanBusFrames
+        && interface.transport_kind != TransportKind::CanBus
     {
         issues.push(issue(
             "error",
-            "can_protocol_requires_can_transport",
+            "can_bus_protocol_requires_can_bus_transport",
             format!("{path}.protocol_kind"),
-            "CAN frame protocol requires transport_kind=can",
+            "CAN bus frame protocol requires transport_kind=can_bus",
             Option::<String>::None,
         ));
     }
@@ -1694,25 +2091,25 @@ impl SimulationEngine<'_> {
                     Some(response),
                 );
             }
-            ScriptStepType::CanSend => self.record_io(
+            ScriptStepType::CanBusSend => self.record_io(
                 step,
-                "can_send",
+                "can_bus_send",
                 step.frame
                     .as_ref()
                     .and_then(|frame| serde_json::to_value(frame).ok()),
                 None,
             ),
-            ScriptStepType::CanReceive => {
+            ScriptStepType::CanBusReceive => {
                 let response = self.next_response(step)?;
                 self.bind_response(step, response.clone());
-                self.record_io(step, "can_receive", None, Some(response));
+                self.record_io(step, "can_bus_receive", None, Some(response));
             }
-            ScriptStepType::CanRequestResponse => {
+            ScriptStepType::CanBusRequestResponse => {
                 let response = self.next_response(step)?;
                 self.bind_response(step, response.clone());
                 self.record_io(
                     step,
-                    "can_request_response",
+                    "can_bus_request_response",
                     step.frame
                         .as_ref()
                         .and_then(|frame| serde_json::to_value(frame).ok()),
@@ -1874,9 +2271,9 @@ impl SimulationEngine<'_> {
                     "query" => "query",
                     "read" => "read",
                     "write" => "write",
-                    "can_send" => "can_send",
-                    "can_receive" => "can_receive",
-                    "can_request_response" => "can_request_response",
+                    "can_bus_send" => "can_bus_send",
+                    "can_bus_receive" => "can_bus_receive",
+                    "can_bus_request_response" => "can_bus_request_response",
                     _ => "io",
                 },
                 request,
@@ -2022,6 +2419,128 @@ mod tests {
     }
 
     #[test]
+    fn rejects_rf_signal_port_without_impedance() {
+        let mut definition = minimal_model();
+        definition.signal_ports[0].impedance = None;
+
+        let issues = definition.validate_all();
+
+        assert!(issues
+            .iter()
+            .any(|issue| issue.code == "rf_port_missing_impedance"));
+    }
+
+    #[test]
+    fn rejects_signal_source_without_source_output() {
+        let mut definition = minimal_model();
+        definition.functional_role = FunctionalRole::SignalSource;
+        definition.signal_ports[0].flow_role = PortFlowRole::MeasurementPort;
+
+        let issues = definition.validate_all();
+
+        assert!(issues
+            .iter()
+            .any(|issue| issue.code == "signal_source_requires_source_output"));
+    }
+
+    #[test]
+    fn rejects_sensor_without_transducer_output() {
+        let mut definition = minimal_model();
+        definition.equipment_class = EquipmentClass::Sensor;
+        definition.functional_role = FunctionalRole::Sensor;
+        definition.signal_domains = vec![SignalDomain::Environmental];
+        definition.signal_ports = vec![SignalPortDefinition {
+            port_id: "temperature_field".to_owned(),
+            label: "Temperature field".to_owned(),
+            directionality: PortDirectionality::Input,
+            flow_role: PortFlowRole::FieldSidePort,
+            signal_domain: SignalDomain::Environmental,
+            connector_type: None,
+            quantity: PhysicalQuantity::Temperature,
+            unit: "Celsius".to_owned(),
+            impedance: None,
+            frequency_min: None,
+            frequency_max: None,
+            voltage_max: None,
+            current_max: None,
+            power_max: None,
+            channel_index: None,
+            differential: false,
+            isolated: false,
+            comment: None,
+        }];
+
+        let issues = definition.validate_all();
+
+        assert!(issues
+            .iter()
+            .any(|issue| issue.code == "sensor_requires_input_and_output"));
+    }
+
+    #[test]
+    fn rejects_communication_port_used_as_measurement_signal() {
+        let mut definition = minimal_model();
+        definition.signal_domains.push(SignalDomain::Usb);
+        definition.signal_ports.push(SignalPortDefinition {
+            port_id: "usb_control".to_owned(),
+            label: "USB control".to_owned(),
+            directionality: PortDirectionality::Communication,
+            flow_role: PortFlowRole::CommunicationPort,
+            signal_domain: SignalDomain::Usb,
+            connector_type: Some("USB-C".to_owned()),
+            quantity: PhysicalQuantity::Binary,
+            unit: "dimensionless".to_owned(),
+            impedance: None,
+            frequency_min: None,
+            frequency_max: None,
+            voltage_max: None,
+            current_max: None,
+            power_max: None,
+            channel_index: None,
+            differential: false,
+            isolated: false,
+            comment: None,
+        });
+        definition.capabilities[0]
+            .required_signal_ports
+            .push("usb_control".to_owned());
+
+        let issues = definition.validate_all();
+
+        assert!(issues
+            .iter()
+            .any(|issue| issue.code == "communication_port_used_as_signal_port"));
+    }
+
+    #[test]
+    fn rejects_bare_can_category_for_converter_context() {
+        let mut definition = minimal_model();
+        definition.equipment_class = EquipmentClass::Converter;
+        definition.functional_role = FunctionalRole::Converter;
+        definition.category_code = "can".to_owned();
+
+        let issues = definition.validate_all();
+
+        assert!(issues
+            .iter()
+            .any(|issue| issue.code == "ambiguous_equipment_category_code"));
+    }
+
+    #[test]
+    fn rejects_single_through_port_topology() {
+        let mut definition = minimal_model();
+        definition.functional_role = FunctionalRole::RfNetworkElement;
+        definition.signal_ports[0].directionality = PortDirectionality::Through;
+        definition.signal_ports[0].flow_role = PortFlowRole::ThroughPort;
+
+        let issues = definition.validate_all();
+
+        assert!(issues
+            .iter()
+            .any(|issue| issue.code == "through_device_requires_two_ports"));
+    }
+
+    #[test]
     fn rejects_unbounded_driver_loop() {
         let model = minimal_model();
         let driver = DriverProfileDefinition {
@@ -2110,12 +2629,21 @@ mod tests {
             model_name: "NRP6AN".to_owned(),
             variant: Some("FWD".to_owned()),
             equipment_class: EquipmentClass::ControllableInstrument,
+            functional_role: FunctionalRole::MeasurementInstrument,
             category_code: "power_meter".to_owned(),
+            signal_domains: vec![SignalDomain::Rf, SignalDomain::Ethernet],
+            technology_tags: vec![
+                TechnologyTag::Rf50Ohm,
+                TechnologyTag::Ethernet,
+                TechnologyTag::RawTcp,
+                TechnologyTag::Scpi,
+            ],
             specifications: Vec::new(),
             signal_ports: vec![SignalPortDefinition {
                 port_id: "rf_input".to_owned(),
                 label: "RF input".to_owned(),
-                direction: SignalPortDirection::Input,
+                directionality: PortDirectionality::Input,
+                flow_role: PortFlowRole::MeasurementPort,
                 signal_domain: SignalDomain::Rf,
                 connector_type: Some("N".to_owned()),
                 quantity: PhysicalQuantity::Power,

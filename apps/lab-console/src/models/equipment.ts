@@ -3,6 +3,8 @@ import type { RevisionStatus, ValidationResult } from "../types";
 export type EquipmentClass =
   | "controllable_instrument"
   | "daq_device"
+  | "acquisition_device"
+  | "converter"
   | "sensor"
   | "transducer"
   | "passive_component"
@@ -11,6 +13,87 @@ export type EquipmentClass =
   | "facility"
   | "software_adapter"
   | "manual_equipment";
+
+export type FunctionalRole =
+  | "energy_source"
+  | "signal_source"
+  | "rf_network_element"
+  | "sensor"
+  | "actuator"
+  | "measurement_instrument"
+  | "acquisition_device"
+  | "converter"
+  | "control_system"
+  | "software_system"
+  | "facility"
+  | "manual_accessory";
+
+export type SignalDomain =
+  | "power_dc"
+  | "power_ac"
+  | "rf"
+  | "analog_voltage"
+  | "analog_current"
+  | "analog_charge"
+  | "digital_logic"
+  | "trigger"
+  | "pulse"
+  | "contact_dry"
+  | "relay"
+  | "can_bus"
+  | "rs232"
+  | "rs485"
+  | "ethernet"
+  | "usb"
+  | "gpib"
+  | "optical"
+  | "mechanical"
+  | "environmental"
+  | "software";
+
+export type PortDirectionality =
+  | "input"
+  | "output"
+  | "bidirectional"
+  | "through"
+  | "control"
+  | "communication";
+
+export type PortFlowRole =
+  | "source_port"
+  | "sink_port"
+  | "through_port"
+  | "measurement_port"
+  | "control_port"
+  | "communication_port"
+  | "field_side_port"
+  | "transducer_output_port";
+
+export type TechnologyTag =
+  | "adc_converter"
+  | "dac_converter"
+  | "rf_50_ohm"
+  | "rf_75_ohm"
+  | "ttl"
+  | "cmos"
+  | "trigger"
+  | "dry_contact"
+  | "relay_contact"
+  | "voltage_input"
+  | "current_input"
+  | "charge_input"
+  | "iepe"
+  | "bridge"
+  | "usb"
+  | "ethernet"
+  | "gpib"
+  | "rs232"
+  | "rs485"
+  | "can_bus"
+  | "visa"
+  | "raw_tcp"
+  | "serial_text"
+  | "scpi";
 
 export type PhysicalQuantity =
   | "frequency"
@@ -54,7 +137,7 @@ export type TransportKind =
   | "gpib"
   | "ethernet_tcp"
   | "ethernet_udp"
-  | "can"
+  | "can_bus"
   | "usb"
   | "rs485"
   | "lin"
@@ -66,7 +149,7 @@ export type ProtocolKind =
   | "scpi"
   | "raw_ascii"
   | "raw_binary"
-  | "can_frames"
+  | "can_bus_frames"
   | "modbus_rtu"
   | "modbus_tcp"
   | "custom_protocol"
@@ -98,15 +181,9 @@ export interface EngineeringSpecification {
 export interface SignalPortDefinition {
   port_id: string;
   label: string;
-  direction: "input" | "output" | "bidirectional";
-  signal_domain:
-    | "analog_electrical"
-    | "digital_electrical"
-    | "rf"
-    | "optical"
-    | "mechanical"
-    | "environmental"
-    | "logical";
+  directionality: PortDirectionality;
+  flow_role: PortFlowRole;
+  signal_domain: SignalDomain;
   connector_type?: string;
   quantity: PhysicalQuantity;
   unit: string;
@@ -168,7 +245,10 @@ export interface EquipmentModelDefinition {
   model_name: string;
   variant?: string;
   equipment_class: EquipmentClass;
+  functional_role: FunctionalRole;
   category_code: string;
+  signal_domains: SignalDomain[];
+  technology_tags?: TechnologyTag[];
   specifications: EngineeringSpecification[];
   signal_ports: SignalPortDefinition[];
   communication_interfaces: CommunicationInterfaceDefinition[];
@@ -221,9 +301,9 @@ export interface DriverScriptStep {
     | "io_write"
     | "io_read"
     | "io_query"
-    | "can_send"
-    | "can_receive"
-    | "can_request_response"
+    | "can_bus_send"
+    | "can_bus_receive"
+    | "can_bus_request_response"
     | "set_variable"
     | "parse_number"
     | "parse_text"

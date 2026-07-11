@@ -25,7 +25,8 @@ import type {
   EquipmentModelAggregate,
   EquipmentModelDefinition,
   EquipmentModelRevision,
-  EquipmentValidationResult
+  EquipmentValidationResult,
+  FunctionalRole
 } from "../../models/equipment";
 
 type EquipmentSpace =
@@ -88,6 +89,8 @@ const driverSections: Array<[DriverSection, string]> = [
 const equipmentClasses: EquipmentClass[] = [
   "controllable_instrument",
   "daq_device",
+  "acquisition_device",
+  "converter",
   "sensor",
   "transducer",
   "passive_component",
@@ -96,6 +99,21 @@ const equipmentClasses: EquipmentClass[] = [
   "facility",
   "software_adapter",
   "manual_equipment"
+];
+
+const functionalRoles: FunctionalRole[] = [
+  "energy_source",
+  "signal_source",
+  "rf_network_element",
+  "sensor",
+  "actuator",
+  "measurement_instrument",
+  "acquisition_device",
+  "converter",
+  "control_system",
+  "software_system",
+  "facility",
+  "manual_accessory"
 ];
 
 const context: OperationContext = {
@@ -141,7 +159,8 @@ export function EquipmentWorkspace() {
   const filteredModels = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return models.filter((model) => {
-      const text = `${model.identity.manufacturer} ${model.identity.model_name} ${model.identity.variant ?? ""} ${model.identity.category_code}`.toLowerCase();
+      const definition = model.latest_revision?.definition ?? model.current_approved_revision?.definition;
+      const text = `${model.identity.manufacturer} ${model.identity.model_name} ${model.identity.variant ?? ""} ${model.identity.category_code} ${definition?.functional_role ?? ""} ${definition?.signal_domains?.join(" ") ?? ""} ${definition?.technology_tags?.join(" ") ?? ""}`.toLowerCase();
       return (
         (!normalized || text.includes(normalized)) &&
         (classFilter === "all" || model.identity.equipment_class === classFilter)
@@ -691,7 +710,15 @@ function ModelStudio(props: {
                   {equipmentClasses.map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
               </label>
+              <label>
+                Functional role
+                <select disabled={props.readOnly} value={definition.functional_role} onChange={(event) => props.onDefinition({ ...definition, functional_role: event.target.value as FunctionalRole })}>
+                  {functionalRoles.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
               <Field label="Category code" value={definition.category_code} disabled={props.readOnly} onChange={(category_code) => props.onDefinition({ ...definition, category_code })} />
+              <Field label="Signal domains" value={definition.signal_domains.join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, signal_domains: splitTokens(value) as EquipmentModelDefinition["signal_domains"] })} />
+              <Field label="Technology tags" value={(definition.technology_tags ?? []).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, technology_tags: splitTokens(value) as EquipmentModelDefinition["technology_tags"] })} />
             </EditorCard>
           )}
           {props.section === "specifications" && (
@@ -713,9 +740,9 @@ function ModelStudio(props: {
           )}
           {props.section === "ports" && (
             <EditorCard title="Physical Ports">
-              <StructuredTable columns={["ID", "Label", "Direction", "Domain", "Quantity", "Unit"]}>
+              <StructuredTable columns={["ID", "Label", "Directionality", "Flow role", "Domain", "Quantity", "Unit"]}>
                 {definition.signal_ports.map((port) => (
-                  <tr key={port.port_id}><td>{port.port_id}</td><td>{port.label}</td><td>{port.direction}</td><td>{port.signal_domain}</td><td>{port.quantity}</td><td>{port.unit}</td></tr>
+                  <tr key={port.port_id}><td>{port.port_id}</td><td>{port.label}</td><td>{port.directionality}</td><td>{port.flow_role}</td><td>{port.signal_domain}</td><td>{port.quantity}</td><td>{port.unit}</td></tr>
                 ))}
               </StructuredTable>
               <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultPort(definition.signal_ports.length + 1)] })}>Ajouter un port RF</button>
@@ -729,7 +756,7 @@ function ModelStudio(props: {
                 ))}
               </StructuredTable>
               <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, communication_interfaces: [...definition.communication_interfaces, defaultTcpInterface(definition.communication_interfaces.length + 1)] })}>Ajouter TCP SCPI</button>
-              <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, communication_interfaces: [...definition.communication_interfaces, defaultCanInterface(definition.communication_interfaces.length + 1)] })}>Ajouter CAN simule</button>
+              <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, communication_interfaces: [...definition.communication_interfaces, defaultCanInterface(definition.communication_interfaces.length + 1)] })}>Ajouter CAN bus simule</button>
             </EditorCard>
           )}
           {props.section === "capabilities" && (
@@ -867,7 +894,7 @@ function DriverStudio(props: {
               <ScriptSteps steps={firstAction.script.steps} />
               <div className="buttonRow">
                 <button disabled={props.readOnly} onClick={() => props.onDefinition(replaceFirstAction(definition, { ...firstAction, script: { steps: [...firstAction.script.steps, defaultIoQueryStep(firstAction.script.steps.length + 1, definition.communication_profiles[0] ?? "tcp")] } }))}>Ajouter QUERY</button>
-                <button disabled={props.readOnly} onClick={() => props.onDefinition(replaceFirstAction(definition, { ...firstAction, script: { steps: [...firstAction.script.steps, defaultCanStep(firstAction.script.steps.length + 1, definition.communication_profiles[0] ?? "can")] } }))}>Ajouter CAN</button>
+                <button disabled={props.readOnly} onClick={() => props.onDefinition(replaceFirstAction(definition, { ...firstAction, script: { steps: [...firstAction.script.steps, defaultCanStep(firstAction.script.steps.length + 1, definition.communication_profiles[0] ?? "can_bus")] } }))}>Ajouter CAN bus</button>
                 <button disabled={props.readOnly} onClick={() => props.onDefinition(replaceFirstAction(definition, { ...firstAction, script: { steps: [...firstAction.script.steps, { step_id: `assert_${firstAction.script.steps.length + 1}`, step_type: "assert", expression: "${result.power_dbm} > -200" }] } }))}>Ajouter ASSERT</button>
               </div>
               <pre className="scriptPreview">{textualScript(firstAction.script.steps)}</pre>
@@ -992,11 +1019,14 @@ function StateBlock(props: { title: string; detail: string }) {
 
 function defaultEquipmentModelDefinition(id: string): EquipmentModelDefinition {
   return {
-    definition_schema_version: "emc-locus.equipment-model-definition.v1",
+    definition_schema_version: "emc-locus.equipment-model-definition.v2",
     manufacturer: "Demo Instruments",
     model_name: id,
     equipment_class: "controllable_instrument",
+    functional_role: "measurement_instrument",
     category_code: "power_meter",
+    signal_domains: ["rf", "ethernet"],
+    technology_tags: ["rf_50_ohm", "ethernet", "raw_tcp", "scpi"],
     specifications: [defaultSpecification(1)],
     signal_ports: [defaultPort(1)],
     communication_interfaces: [defaultTcpInterface(1)],
@@ -1036,7 +1066,8 @@ function defaultPort(index: number) {
   return {
     port_id: `rf_input_${index}`,
     label: `RF Input ${index}`,
-    direction: "input" as const,
+    directionality: "input" as const,
+    flow_role: "measurement_port" as const,
     signal_domain: "rf" as const,
     connector_type: "N",
     quantity: "power" as const,
@@ -1066,10 +1097,10 @@ function defaultTcpInterface(index: number) {
 function defaultCanInterface(index: number) {
   return {
     interface_id: `can_${index}`,
-    label: `CAN ${index}`,
-    transport_kind: "can" as const,
+    label: `CAN bus ${index}`,
+    transport_kind: "can_bus" as const,
     access_provider_kind: "simulation" as const,
-    protocol_kind: "can_frames" as const,
+    protocol_kind: "can_bus_frames" as const,
     required: false,
     default_interface: false,
     configuration_schema: { bitrate: { type: "integer" } },
@@ -1136,11 +1167,11 @@ function defaultIoQueryStep(index: number, interfaceId: string): DriverScriptSte
 
 function defaultCanStep(index: number, interfaceId: string): DriverScriptStep {
   return {
-    step_id: `can_request_${index}`,
-    step_type: "can_request_response",
+    step_id: `can_bus_request_${index}`,
+    step_type: "can_bus_request_response",
     interface_id: interfaceId,
     frame: { arbitration_id: 0x120, extended: false, data: [1, 0], dlc: 2 },
-    response_binding: "${state.can_response}",
+    response_binding: "${state.can_bus_response}",
     timeout_ms: 100
   };
 }
@@ -1160,6 +1191,13 @@ function replaceAt<T>(items: T[], index: number, value: T) {
 function optionalString(value: string) {
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function splitTokens(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function formatDate(value?: string | null) {
