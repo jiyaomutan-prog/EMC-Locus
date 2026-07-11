@@ -1,4 +1,5 @@
 use crate::{
+    measurement_engineering_repository::required_measurement_engineering_tables,
     render_json,
     sqlite_policy::{enforce_project_slice_journal_mode, AttachedDatabase},
     AgentError,
@@ -396,6 +397,14 @@ fn ensure_equipment_tables(connection: &Connection) -> Result<(), AgentError> {
             return Err(AgentError::new(
                 "storage_not_initialized",
                 format!("missing required equipment table {table}"),
+            ));
+        }
+    }
+    for table in required_measurement_engineering_tables() {
+        if !table_exists_in_schema(connection, "main", table)? {
+            return Err(AgentError::new(
+                "storage_not_initialized",
+                format!("missing required measurement engineering table {table}"),
             ));
         }
     }

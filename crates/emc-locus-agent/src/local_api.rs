@@ -25,6 +25,18 @@ use crate::equipment_service::{
     ReplaceEquipmentModelDefinitionInput, SimulateDriverProfileInput,
     TransitionDriverProfileRevisionInput, TransitionEquipmentModelRevisionInput,
 };
+use crate::measurement_engineering_service::{
+    clone_measurement_engineering_definition, create_measurement_engineering_definition,
+    create_measurement_engineering_revision, evaluate_engineering_curve_revision,
+    get_measurement_engineering_definition, get_measurement_engineering_revision_json,
+    list_measurement_engineering_audit_events, list_measurement_engineering_definitions,
+    list_measurement_engineering_revisions_json,
+    replace_measurement_engineering_revision_definition,
+    transition_measurement_engineering_revision, validate_measurement_engineering_definition_json,
+    CloneMeasurementEngineeringInput, CreateMeasurementEngineeringInput,
+    CreateMeasurementEngineeringRevisionInput, EvaluateEngineeringCurveInput,
+    ReplaceMeasurementEngineeringDefinitionInput, TransitionMeasurementEngineeringRevisionInput,
+};
 use crate::metrology_service::{
     AssessReadinessInput, MetrologyOperationContext, RecordCalibrationInput,
     RegisterInstrumentInput, SetServiceabilityInput,
@@ -46,7 +58,11 @@ use crate::test_template_service::{
     TransitionTestTemplateRevisionInput,
 };
 use emc_locus_core::{
-    equipment::EquipmentRevisionStatus, test_definitions::TemplateRevisionStatus,
+    equipment::EquipmentRevisionStatus,
+    measurement_engineering::{
+        MeasurementEngineeringAggregateKind, MeasurementEngineeringRevisionStatus,
+    },
+    test_definitions::TemplateRevisionStatus,
 };
 use serde_json::{json, Value};
 use std::{
@@ -462,6 +478,32 @@ fn route_api_request(
         let payload = parse_json_body(body)?;
         return simulate_driver_profile(&config.storage_root, driver_simulation_input(&payload)?);
     }
+    if parts.len() == 3 && parts[0] == "api" && parts[1] == "v1" {
+        if let Some(kind) = measurement_engineering_kind_for_collection(parts[2]) {
+            if method == "GET" {
+                return list_measurement_engineering_definitions(&config.storage_root, kind);
+            }
+            if method == "POST" {
+                let payload = parse_json_body(body)?;
+                return create_measurement_engineering_definition(
+                    &config.storage_root,
+                    measurement_engineering_create_input(kind, &payload)?,
+                );
+            }
+        }
+    }
+    if parts.len() == 4 && parts[0] == "api" && parts[1] == "v1" && parts[3] == "validate" {
+        if let Some(kind) = measurement_engineering_kind_for_validation(parts[2]) {
+            if method == "POST" {
+                let payload = parse_json_body(body)?;
+                return validate_measurement_engineering_definition_json(
+                    &config.storage_root,
+                    kind,
+                    &required_json_or_string(&payload, "definition", "definition_json")?,
+                );
+            }
+        }
+    }
     if parts.as_slice() == ["api", "v1", "equipment", "communication-providers"] && method == "GET"
     {
         return communication_provider_status();
@@ -683,6 +725,131 @@ fn route_api_request(
         }
         ["api", "v1", "driver-profiles", driver_profile_id, "audit-events"] if method == "GET" => {
             list_equipment_audit_events_for_driver(&config.storage_root, driver_profile_id)
+        }
+        ["api", "v1", collection, entity_id]
+            if method == "GET"
+                && measurement_engineering_kind_for_collection(collection).is_some() =>
+        {
+            get_measurement_engineering_definition(
+                &config.storage_root,
+                measurement_engineering_kind_for_collection(collection).unwrap(),
+                entity_id,
+            )
+        }
+        ["api", "v1", collection, entity_id, "clone"]
+            if method == "POST"
+                && measurement_engineering_kind_for_collection(collection).is_some() =>
+        {
+            let payload = parse_json_body(body)?;
+            clone_measurement_engineering_definition(
+                &config.storage_root,
+                measurement_engineering_clone_input(
+                    measurement_engineering_kind_for_collection(collection).unwrap(),
+                    entity_id,
+                    &payload,
+                )?,
+            )
+        }
+        ["api", "v1", collection, entity_id, "revisions"]
+            if method == "GET"
+                && measurement_engineering_kind_for_collection(collection).is_some() =>
+        {
+            list_measurement_engineering_revisions_json(
+                &config.storage_root,
+                measurement_engineering_kind_for_collection(collection).unwrap(),
+                entity_id,
+            )
+        }
+        ["api", "v1", collection, entity_id, "revisions"]
+            if method == "POST"
+                && measurement_engineering_kind_for_collection(collection).is_some() =>
+        {
+            let payload = parse_json_body(body)?;
+            create_measurement_engineering_revision(
+                &config.storage_root,
+                measurement_engineering_revision_input(
+                    measurement_engineering_kind_for_collection(collection).unwrap(),
+                    entity_id,
+                    &payload,
+                )?,
+            )
+        }
+        ["api", "v1", collection, entity_id, "revisions", revision_id]
+            if method == "GET"
+                && measurement_engineering_kind_for_collection(collection).is_some() =>
+        {
+            get_measurement_engineering_revision_json(
+                &config.storage_root,
+                measurement_engineering_kind_for_collection(collection).unwrap(),
+                entity_id,
+                revision_id,
+            )
+        }
+        ["api", "v1", collection, entity_id, "revisions", revision_id, "definition"]
+            if method == "PUT"
+                && measurement_engineering_kind_for_collection(collection).is_some() =>
+        {
+            let payload = parse_json_body(body)?;
+            replace_measurement_engineering_revision_definition(
+                &config.storage_root,
+                measurement_engineering_replace_input(
+                    measurement_engineering_kind_for_collection(collection).unwrap(),
+                    entity_id,
+                    revision_id,
+                    &payload,
+                )?,
+            )
+        }
+        ["api", "v1", collection, entity_id, "revisions", revision_id, "transitions", "submit-for-review"]
+            if method == "POST"
+                && measurement_engineering_kind_for_collection(collection).is_some() =>
+        {
+            let payload = parse_json_body(body)?;
+            transition_measurement_engineering_revision(
+                &config.storage_root,
+                measurement_engineering_transition_input(
+                    measurement_engineering_kind_for_collection(collection).unwrap(),
+                    entity_id,
+                    revision_id,
+                    MeasurementEngineeringRevisionStatus::UnderReview,
+                    &payload,
+                )?,
+            )
+        }
+        ["api", "v1", collection, entity_id, "revisions", revision_id, "transitions", "approve"]
+            if method == "POST"
+                && measurement_engineering_kind_for_collection(collection).is_some() =>
+        {
+            let payload = parse_json_body(body)?;
+            transition_measurement_engineering_revision(
+                &config.storage_root,
+                measurement_engineering_transition_input(
+                    measurement_engineering_kind_for_collection(collection).unwrap(),
+                    entity_id,
+                    revision_id,
+                    MeasurementEngineeringRevisionStatus::Approved,
+                    &payload,
+                )?,
+            )
+        }
+        ["api", "v1", "engineering-curves", curve_id, "revisions", revision_id, "evaluate"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            evaluate_engineering_curve_revision(
+                &config.storage_root,
+                engineering_curve_evaluate_input(curve_id, revision_id, &payload)?,
+            )
+        }
+        ["api", "v1", collection, entity_id, "audit-events"]
+            if method == "GET"
+                && measurement_engineering_kind_for_collection(collection).is_some() =>
+        {
+            list_measurement_engineering_audit_events(
+                &config.storage_root,
+                measurement_engineering_kind_for_collection(collection).unwrap(),
+                entity_id,
+            )
         }
         ["api", "v1", "test-templates", template_id] if method == "GET" => {
             get_test_template_definition(&config.storage_root, template_id)
@@ -1280,6 +1447,195 @@ fn driver_simulation_input(payload: &Value) -> Result<SimulateDriverProfileInput
     })
 }
 
+fn measurement_engineering_kind_for_collection(
+    collection: &str,
+) -> Option<MeasurementEngineeringAggregateKind> {
+    Some(match collection {
+        "sensor-definitions" => MeasurementEngineeringAggregateKind::SensorDefinition,
+        "scaling-profiles" => MeasurementEngineeringAggregateKind::ScalingProfile,
+        "engineering-curves" => MeasurementEngineeringAggregateKind::EngineeringCurve,
+        "daq-channel-profiles" => MeasurementEngineeringAggregateKind::DaqChannelProfile,
+        "acquisition-channel-recipes" => {
+            MeasurementEngineeringAggregateKind::AcquisitionChannelRecipe
+        }
+        _ => return None,
+    })
+}
+
+fn measurement_engineering_kind_for_validation(
+    collection: &str,
+) -> Option<MeasurementEngineeringAggregateKind> {
+    Some(match collection {
+        "sensor-definition-definitions" => MeasurementEngineeringAggregateKind::SensorDefinition,
+        "scaling-profile-definitions" => MeasurementEngineeringAggregateKind::ScalingProfile,
+        "engineering-curve-definitions" => MeasurementEngineeringAggregateKind::EngineeringCurve,
+        "daq-channel-profile-definitions" => MeasurementEngineeringAggregateKind::DaqChannelProfile,
+        "acquisition-channel-recipe-definitions" => {
+            MeasurementEngineeringAggregateKind::AcquisitionChannelRecipe
+        }
+        _ => return None,
+    })
+}
+
+fn measurement_engineering_create_input(
+    kind: MeasurementEngineeringAggregateKind,
+    payload: &Value,
+) -> Result<CreateMeasurementEngineeringInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(CreateMeasurementEngineeringInput {
+        kind,
+        entity_id: measurement_engineering_entity_id(kind, payload)?,
+        definition_json: required_json_or_string(payload, "definition", "definition_json")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn measurement_engineering_replace_input(
+    kind: MeasurementEngineeringAggregateKind,
+    entity_id: &str,
+    revision_id: &str,
+    payload: &Value,
+) -> Result<ReplaceMeasurementEngineeringDefinitionInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(ReplaceMeasurementEngineeringDefinitionInput {
+        kind,
+        entity_id: entity_id.to_owned(),
+        revision_id: revision_id.to_owned(),
+        expected_definition_checksum: required_string(payload, "expected_definition_checksum")?,
+        definition_json: required_json_or_string(payload, "definition", "definition_json")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn measurement_engineering_revision_input(
+    kind: MeasurementEngineeringAggregateKind,
+    entity_id: &str,
+    payload: &Value,
+) -> Result<CreateMeasurementEngineeringRevisionInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(CreateMeasurementEngineeringRevisionInput {
+        kind,
+        entity_id: entity_id.to_owned(),
+        source_revision_id: required_string(payload, "source_revision_id")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn measurement_engineering_clone_input(
+    kind: MeasurementEngineeringAggregateKind,
+    source_entity_id: &str,
+    payload: &Value,
+) -> Result<CloneMeasurementEngineeringInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(CloneMeasurementEngineeringInput {
+        kind,
+        source_entity_id: source_entity_id.to_owned(),
+        source_revision_id: optional_string(payload, "source_revision_id"),
+        new_entity_id: required_string(payload, "new_entity_id")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn measurement_engineering_transition_input(
+    kind: MeasurementEngineeringAggregateKind,
+    entity_id: &str,
+    revision_id: &str,
+    target_status: MeasurementEngineeringRevisionStatus,
+    payload: &Value,
+) -> Result<TransitionMeasurementEngineeringRevisionInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(TransitionMeasurementEngineeringRevisionInput {
+        kind,
+        entity_id: entity_id.to_owned(),
+        revision_id: revision_id.to_owned(),
+        target_status,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn engineering_curve_evaluate_input(
+    curve_id: &str,
+    revision_id: &str,
+    payload: &Value,
+) -> Result<EvaluateEngineeringCurveInput, AgentError> {
+    let axis_values = payload
+        .get("axis_values")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            AgentError::with_details(
+                "missing_json_field",
+                "axis_values is required",
+                json!({ "field": "axis_values" }),
+            )
+        })?
+        .iter()
+        .map(|(key, value)| {
+            value
+                .as_f64()
+                .map(|number| (key.clone(), number))
+                .ok_or_else(|| {
+                    AgentError::with_details(
+                        "invalid_json_field",
+                        "axis_values entries must be numbers",
+                        json!({ "field": key }),
+                    )
+                })
+        })
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
+    Ok(EvaluateEngineeringCurveInput {
+        curve_id: curve_id.to_owned(),
+        revision_id: revision_id.to_owned(),
+        axis_values,
+    })
+}
+
+fn measurement_engineering_entity_id(
+    kind: MeasurementEngineeringAggregateKind,
+    payload: &Value,
+) -> Result<String, AgentError> {
+    if let Some(entity_id) = optional_string(payload, "entity_id") {
+        return Ok(entity_id);
+    }
+    let key = match kind {
+        MeasurementEngineeringAggregateKind::SensorDefinition => "sensor_definition_id",
+        MeasurementEngineeringAggregateKind::ScalingProfile => "scaling_profile_id",
+        MeasurementEngineeringAggregateKind::EngineeringCurve => "curve_id",
+        MeasurementEngineeringAggregateKind::DaqChannelProfile => "daq_channel_profile_id",
+        MeasurementEngineeringAggregateKind::AcquisitionChannelRecipe => "recipe_id",
+    };
+    required_string(payload, key)
+}
+
 fn create_test_template_input(payload: &Value) -> Result<CreateTestTemplateInput, AgentError> {
     let operation_id = required_string(payload, "operation_id")?;
     Ok(CreateTestTemplateInput {
@@ -1519,6 +1875,8 @@ fn status_for_error(code: &str) -> u16 {
         | "equipment_classification_preset_not_found"
         | "driver_profile_not_found"
         | "driver_profile_revision_not_found"
+        | "measurement_engineering_not_found"
+        | "measurement_engineering_revision_not_found"
         | "metrology_instrument_not_found" => 404,
         "contract_review_incomplete"
         | "invalid_project_transition"
@@ -1546,6 +1904,15 @@ fn status_for_error(code: &str) -> u16 {
         | "driver_model_definition_checksum_mismatch"
         | "driver_simulation_revision_mismatch"
         | "driver_simulation_action_mismatch"
+        | "measurement_engineering_already_exists"
+        | "measurement_engineering_definition_checksum_mismatch"
+        | "measurement_engineering_definition_concurrent_update"
+        | "measurement_engineering_active_draft_exists"
+        | "measurement_engineering_revision_immutable"
+        | "measurement_engineering_revision_source_not_approved"
+        | "measurement_engineering_revision_transition_conflict"
+        | "measurement_engineering_revision_transition_not_allowed"
+        | "measurement_engineering_revision_checksum_invalid"
         | "attached_document_already_exists"
         | "operation_replay_mismatch"
         | "metrology_instrument_already_exists"
@@ -1577,6 +1944,9 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_driver_profile_definition"
         | "invalid_driver_simulation"
         | "invalid_driver_simulation_scenario"
+        | "invalid_checksum"
+        | "invalid_stable_id"
+        | "invalid_measurement_engineering_definition"
         | "invalid_metrology_calibration"
         | "invalid_metrology_instrument"
         | "invalid_metrology_readiness"
@@ -1902,6 +2272,189 @@ mod tests {
         assert!(outbox
             .body
             .contains("\"operation_kind\":\"driver_profile_approved\""));
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn local_api_runs_measurement_engineering_workflow() {
+        let storage_root = temporary_storage_root("agent-api-measurement-engineering");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: None,
+        };
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+
+        let initial_scaling_definition = scaling_definition("demo-current-probe-10mv-a", 100.0);
+        let scaling_validation = handle_api_request(
+            "POST",
+            "/api/v1/scaling-profile-definitions/validate",
+            &render_json(&json!({ "definition": initial_scaling_definition })),
+            &config,
+        );
+        assert_eq!(
+            scaling_validation.status, 200,
+            "{}",
+            scaling_validation.body
+        );
+        assert!(scaling_validation.body.contains("\"valid\":true"));
+
+        let scaling_created = handle_api_request(
+            "POST",
+            "/api/v1/scaling-profiles",
+            &create_measurement_body(
+                "demo-current-probe-10mv-a",
+                initial_scaling_definition.clone(),
+                "op-scaling-create",
+            ),
+            &config,
+        );
+        assert_eq!(scaling_created.status, 200, "{}", scaling_created.body);
+        let scaling_created_json: Value = serde_json::from_str(&scaling_created.body).unwrap();
+        let scaling_revision_id = scaling_created_json["revision"]["revision_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let scaling_initial_checksum = scaling_created_json["revision"]["definition_checksum"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        let scaling_updated_definition = scaling_definition("demo-current-probe-10mv-a", 101.0);
+        let scaling_edited = handle_api_request(
+            "PUT",
+            &format!(
+                "/api/v1/scaling-profiles/demo-current-probe-10mv-a/revisions/{scaling_revision_id}/definition"
+            ),
+            &replace_measurement_body(
+                scaling_updated_definition.clone(),
+                &scaling_initial_checksum,
+                "op-scaling-save",
+            ),
+            &config,
+        );
+        assert_eq!(scaling_edited.status, 200, "{}", scaling_edited.body);
+        let scaling_edited_json: Value = serde_json::from_str(&scaling_edited.body).unwrap();
+        let scaling_checksum = scaling_edited_json["revision"]["definition_checksum"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        let scaling_stale = handle_api_request(
+            "PUT",
+            &format!(
+                "/api/v1/scaling-profiles/demo-current-probe-10mv-a/revisions/{scaling_revision_id}/definition"
+            ),
+            &replace_measurement_body(
+                scaling_updated_definition,
+                &scaling_initial_checksum,
+                "op-scaling-stale",
+            ),
+            &config,
+        );
+        assert_eq!(scaling_stale.status, 409, "{}", scaling_stale.body);
+        assert!(scaling_stale
+            .body
+            .contains("measurement_engineering_definition_checksum_mismatch"));
+
+        approve_measurement_revision(
+            &config,
+            "scaling-profiles",
+            "demo-current-probe-10mv-a",
+            &scaling_revision_id,
+            "op-scaling-submit",
+            "op-scaling-approve",
+        );
+
+        let curve_revision_id = create_and_approve_measurement(
+            &config,
+            "engineering-curves",
+            "demo-current-probe-transfer",
+            curve_definition("demo-current-probe-transfer", "current_probe_transfer"),
+            "curve",
+        );
+        let evaluation = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/engineering-curves/demo-current-probe-transfer/revisions/{curve_revision_id}/evaluate"
+            ),
+            r#"{"axis_values":{"frequency":100000000.0}}"#,
+            &config,
+        );
+        assert_eq!(evaluation.status, 200, "{}", evaluation.body);
+        assert!(evaluation.body.contains("\"correction_db\":1.0"));
+
+        create_and_approve_measurement(
+            &config,
+            "daq-channel-profiles",
+            "demo-daq-ai-10v",
+            daq_definition("demo-daq-ai-10v"),
+            "daq",
+        );
+
+        create_and_approve_measurement(
+            &config,
+            "sensor-definitions",
+            "demo-current-probe",
+            sensor_definition(
+                "demo-current-probe",
+                "demo-current-probe-10mv-a",
+                "demo-current-probe-transfer",
+            ),
+            "sensor",
+        );
+
+        let recipe_revision_id = create_and_approve_measurement(
+            &config,
+            "acquisition-channel-recipes",
+            "current-a",
+            recipe_definition(
+                "current-a",
+                "demo-daq-ai-10v",
+                "demo-current-probe",
+                "demo-current-probe-10mv-a",
+                "demo-current-probe-transfer",
+            ),
+            "recipe",
+        );
+
+        let recipe_revisions = handle_api_request(
+            "GET",
+            "/api/v1/acquisition-channel-recipes/current-a/revisions",
+            "",
+            &config,
+        );
+        assert_eq!(recipe_revisions.status, 200, "{}", recipe_revisions.body);
+        assert!(recipe_revisions.body.contains(&recipe_revision_id));
+        assert!(recipe_revisions.body.contains("\"status\":\"approved\""));
+
+        let audit = handle_api_request(
+            "GET",
+            "/api/v1/acquisition-channel-recipes/current-a/audit-events",
+            "",
+            &config,
+        );
+        assert_eq!(audit.status, 200, "{}", audit.body);
+        assert!(audit
+            .body
+            .contains("\"action\":\"acquisition_channel_recipe_approved\""));
+
+        let outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
+        assert_eq!(outbox.status, 200, "{}", outbox.body);
+        assert!(outbox.body.contains("\"domain\":\"equipment\""));
+        assert!(outbox
+            .body
+            .contains("\"operation_kind\":\"engineering_curve_approved\""));
+        assert!(outbox
+            .body
+            .contains("\"operation_kind\":\"acquisition_channel_recipe_approved\""));
+        assert!(outbox.body.contains(&scaling_checksum));
 
         remove_temporary_storage_root(&storage_root);
     }
@@ -4695,6 +5248,283 @@ mod tests {
             "metadata": {
                 "demo": true
             }
+        })
+    }
+
+    fn create_and_approve_measurement(
+        config: &ApiServerConfig,
+        collection: &str,
+        entity_id: &str,
+        definition: Value,
+        operation_prefix: &str,
+    ) -> String {
+        let created = handle_api_request(
+            "POST",
+            &format!("/api/v1/{collection}"),
+            &create_measurement_body(
+                entity_id,
+                definition,
+                &format!("op-{operation_prefix}-create"),
+            ),
+            config,
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        let created_json: Value = serde_json::from_str(&created.body).unwrap();
+        let revision_id = created_json["revision"]["revision_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        approve_measurement_revision(
+            config,
+            collection,
+            entity_id,
+            &revision_id,
+            &format!("op-{operation_prefix}-submit"),
+            &format!("op-{operation_prefix}-approve"),
+        );
+        revision_id
+    }
+
+    fn approve_measurement_revision(
+        config: &ApiServerConfig,
+        collection: &str,
+        entity_id: &str,
+        revision_id: &str,
+        submit_operation_id: &str,
+        approve_operation_id: &str,
+    ) {
+        let submit = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/{collection}/{entity_id}/revisions/{revision_id}/transitions/submit-for-review"
+            ),
+            &transition_body(
+                "measurement.author",
+                "submit measurement engineering definition",
+                submit_operation_id,
+            ),
+            config,
+        );
+        assert_eq!(submit.status, 200, "{}", submit.body);
+        let approve = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/{collection}/{entity_id}/revisions/{revision_id}/transitions/approve"
+            ),
+            &transition_body(
+                "quality.approver",
+                "approve measurement engineering definition",
+                approve_operation_id,
+            ),
+            config,
+        );
+        assert_eq!(approve.status, 200, "{}", approve.body);
+    }
+
+    fn create_measurement_body(entity_id: &str, definition: Value, operation_id: &str) -> String {
+        render_json(&json!({
+            "entity_id": entity_id,
+            "definition": definition,
+            "actor": "measurement.author",
+            "reason": "create measurement engineering definition",
+            "operation_id": operation_id
+        }))
+    }
+
+    fn replace_measurement_body(
+        definition: Value,
+        expected_definition_checksum: &str,
+        operation_id: &str,
+    ) -> String {
+        render_json(&json!({
+            "definition": definition,
+            "expected_definition_checksum": expected_definition_checksum,
+            "actor": "measurement.author",
+            "reason": "replace measurement engineering draft",
+            "operation_id": operation_id
+        }))
+    }
+
+    fn scaling_definition(scaling_profile_id: &str, scale: f64) -> Value {
+        json!({
+            "definition_schema_version": "emc-locus.scaling-profile-definition.v1",
+            "scaling_profile_id": scaling_profile_id,
+            "label": "Demo Current Probe 10mV/A",
+            "input_quantity": "voltage",
+            "input_unit": "V",
+            "output_quantity": "current",
+            "output_unit": "A",
+            "scaling_kind": "linear",
+            "parameters": {
+                "scale": scale,
+                "offset": 0.0
+            },
+            "validity_domain": {
+                "note": "10 mV/A current-probe sensitivity"
+            },
+            "metadata": {
+                "demo": true
+            }
+        })
+    }
+
+    fn curve_definition(curve_id: &str, curve_type: &str) -> Value {
+        json!({
+            "definition_schema_version": "emc-locus.engineering-curve-definition.v1",
+            "curve_id": curve_id,
+            "curve_type": curve_type,
+            "label": "Demo current probe transfer",
+            "independent_axes": [
+                {
+                    "axis": "frequency",
+                    "quantity": "frequency",
+                    "unit": "Hz"
+                }
+            ],
+            "dependent_values": [
+                {
+                    "value_id": "correction_db",
+                    "quantity": "dimensionless",
+                    "unit": "dB"
+                }
+            ],
+            "points": [
+                {
+                    "axis_values": { "frequency": 10000000.0 },
+                    "values": { "correction_db": 0.0 }
+                },
+                {
+                    "axis_values": { "frequency": 100000000.0 },
+                    "values": { "correction_db": 1.0 }
+                },
+                {
+                    "axis_values": { "frequency": 1000000000.0 },
+                    "values": { "correction_db": 3.0 }
+                }
+            ],
+            "interpolation": "log_x_linear_y",
+            "extrapolation_policy": "forbidden",
+            "source_document_reference": "demo:current-probe-transfer",
+            "source_checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "metadata": { "demo": true }
+        })
+    }
+
+    fn daq_definition(daq_channel_profile_id: &str) -> Value {
+        json!({
+            "definition_schema_version": "emc-locus.daq-channel-profile-definition.v1",
+            "daq_channel_profile_id": daq_channel_profile_id,
+            "label": "Demo DAQ AI +/-10V",
+            "channel_kind": "analog_input",
+            "signal_domain": "analog_voltage",
+            "input_quantity": "voltage",
+            "input_unit": "V",
+            "supported_ranges": [
+                {
+                    "minimum": -10.0,
+                    "maximum": 10.0,
+                    "unit": "V"
+                }
+            ],
+            "resolution_bits": 16,
+            "max_sampling_rate": 1000000.0,
+            "min_sampling_rate": 1.0,
+            "coupling_modes": ["dc"],
+            "input_modes": ["single_ended", "differential"],
+            "anti_alias_filter": "optional",
+            "synchronization": "shared_clock_ready",
+            "triggering": "software_or_external",
+            "metadata": { "demo": true }
+        })
+    }
+
+    fn sensor_definition(
+        sensor_definition_id: &str,
+        scaling_profile_id: &str,
+        curve_id: &str,
+    ) -> Value {
+        json!({
+            "definition_schema_version": "emc-locus.sensor-definition.v1",
+            "sensor_definition_id": sensor_definition_id,
+            "manufacturer": "EMC Locus",
+            "model_name": "Demo Current Probe 10mV/A",
+            "sensor_family": "current_probe",
+            "physical_input_quantity": "current",
+            "engineering_output_quantity": "current",
+            "engineering_output_unit": "A",
+            "electrical_output_quantity": "voltage",
+            "electrical_output_unit": "V",
+            "signal_domain": "analog_voltage",
+            "technology_tags": ["voltage_input"],
+            "input_mode_requirement": "single_ended",
+            "nominal_range": {
+                "minimum": -100.0,
+                "maximum": 100.0,
+                "unit": "A"
+            },
+            "frequency_range": {
+                "minimum_hz": 10.0,
+                "maximum_hz": 100000000.0
+            },
+            "settling_time_ms": 1.0,
+            "scaling_profile_refs": [
+                {
+                    "entity_id": scaling_profile_id,
+                    "require_approved": true
+                }
+            ],
+            "correction_curve_refs": [
+                {
+                    "entity_id": curve_id,
+                    "require_approved": true
+                }
+            ],
+            "metadata": { "demo": true }
+        })
+    }
+
+    fn recipe_definition(
+        recipe_id: &str,
+        daq_channel_profile_id: &str,
+        sensor_definition_id: &str,
+        scaling_profile_id: &str,
+        curve_id: &str,
+    ) -> Value {
+        json!({
+            "definition_schema_version": "emc-locus.acquisition-channel-recipe-definition.v1",
+            "recipe_id": recipe_id,
+            "label": "current_A",
+            "output_channel_name": "current_A",
+            "output_quantity": "current",
+            "output_unit": "A",
+            "daq_channel_profile_ref": {
+                "entity_id": daq_channel_profile_id,
+                "require_approved": true
+            },
+            "sensor_definition_ref": {
+                "entity_id": sensor_definition_id,
+                "require_approved": true
+            },
+            "scaling_profile_ref": {
+                "entity_id": scaling_profile_id,
+                "require_approved": true
+            },
+            "correction_curve_refs": [
+                {
+                    "entity_id": curve_id,
+                    "require_approved": true
+                }
+            ],
+            "sample_rate": 1000000.0,
+            "range": {
+                "minimum": -10.0,
+                "maximum": 10.0,
+                "unit": "V"
+            },
+            "coupling": "dc",
+            "input_mode": "single_ended",
+            "validation_rules": ["sample_rate_within_daq_profile", "range_within_daq_profile"],
+            "metadata": { "demo": true }
         })
     }
 

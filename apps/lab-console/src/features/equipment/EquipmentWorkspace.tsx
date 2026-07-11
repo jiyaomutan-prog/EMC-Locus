@@ -32,10 +32,16 @@ import type {
   SignalDomain,
   TechnologyTag
 } from "../../models/equipment";
+import { MeasurementEngineeringPanel } from "./MeasurementEngineeringPanel";
 
 type EquipmentSpace =
   | "catalog"
   | "drivers"
+  | "sensors"
+  | "scaling"
+  | "curves"
+  | "daq"
+  | "recipes"
   | "metrology"
   | "fleet"
   | "connections"
@@ -64,6 +70,11 @@ type DriverSection =
 const equipmentSpaces: Array<[EquipmentSpace, string]> = [
   ["catalog", "Model Catalog"],
   ["drivers", "Drivers and Actions"],
+  ["sensors", "Sensors & Transducers"],
+  ["scaling", "Scaling Profiles"],
+  ["curves", "Engineering Curves"],
+  ["daq", "DAQ Channels"],
+  ["recipes", "Acquisition Recipes"],
   ["metrology", "Metrology"],
   ["fleet", "Physical Fleet"],
   ["connections", "Connections"],
@@ -667,7 +678,6 @@ export function EquipmentWorkspace() {
             key={key}
             className={space === key ? "active" : ""}
             onClick={() => setSpace(key)}
-            disabled={!["catalog", "drivers"].includes(key)}
           >
             {label}
           </button>
@@ -745,9 +755,25 @@ export function EquipmentWorkspace() {
         </div>
       )}
 
-      {!["catalog", "drivers"].includes(space) && (
+      {["sensors", "scaling", "curves", "daq", "recipes"].includes(space) && (
+        <MeasurementEngineeringPanel
+          initialSpace={
+            space === "sensors"
+              ? "sensors"
+              : space === "scaling"
+                ? "scaling"
+                : space === "curves"
+                  ? "curves"
+                  : space === "daq"
+                    ? "daq"
+                    : "recipes"
+          }
+        />
+      )}
+
+      {["metrology", "fleet", "connections", "readiness"].includes(space) && (
         <StateBlock
-          title="Non disponible en 0.12.0"
+          title="Non disponible en 0.13.0"
           detail="Cette sous-section restera liee a la flotte physique, aux connexions station et a la readiness dans une verticale ulterieure."
         />
       )}
@@ -1227,7 +1253,7 @@ function ProviderList(props: { providers: CommunicationProviderStatus[] }) {
   );
 }
 
-function ValidationPanel(props: { validation: EquipmentValidationResult | null }) {
+export function ValidationPanel(props: { validation: EquipmentValidationResult | null }) {
   return (
     <aside className="validationPanel">
       <h2>Validation</h2>
@@ -1244,7 +1270,7 @@ function ValidationPanel(props: { validation: EquipmentValidationResult | null }
   );
 }
 
-function RevisionTable<T extends EquipmentModelRevision | DriverProfileRevision>(props: {
+export function RevisionTable<T extends EquipmentModelRevision | DriverProfileRevision>(props: {
   revisions: T[];
   onOpen: (revision: T) => void;
 }) {
@@ -1261,7 +1287,7 @@ function RevisionTable<T extends EquipmentModelRevision | DriverProfileRevision>
   );
 }
 
-function AuditTable(props: { audit: EquipmentAuditEvent[] }) {
+export function AuditTable(props: { audit: EquipmentAuditEvent[] }) {
   return (
     <EditorCard title="Audit">
       <StructuredTable columns={["Date", "Action", "Actor", "Reason", "Operation", "Checksum"]}>
@@ -1283,21 +1309,21 @@ function ScriptSteps(props: { steps: DriverScriptStep[] }) {
   );
 }
 
-function EditorCard(props: { title: string; children: React.ReactNode }) {
+export function EditorCard(props: { title: string; children: React.ReactNode }) {
   return <section className="editorCard"><h2>{props.title}</h2>{props.children}</section>;
 }
 
-function StructuredTable(props: { columns: string[]; children: React.ReactNode }) {
+export function StructuredTable(props: { columns: string[]; children: React.ReactNode }) {
   return (
     <div className="tableWrap"><table><thead><tr>{props.columns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{props.children}</tbody></table></div>
   );
 }
 
-function Field(props: { label: string; value: string; disabled?: boolean; onChange: (value: string) => void }) {
+export function Field(props: { label: string; value: string; disabled?: boolean; onChange: (value: string) => void }) {
   return <label>{props.label}<input value={props.value} disabled={props.disabled} onChange={(event) => props.onChange(event.target.value)} /></label>;
 }
 
-function StateBlock(props: { title: string; detail: string }) {
+export function StateBlock(props: { title: string; detail: string }) {
   return <div className="stateBlock"><h2>{props.title}</h2><p>{props.detail}</p></div>;
 }
 

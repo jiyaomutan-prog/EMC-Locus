@@ -14,6 +14,7 @@ $StopAgent = Join-Path $PSScriptRoot "stop-agent.ps1"
 $StartQtDemo = Join-Path $PSScriptRoot "start-qt-demo.ps1"
 $SeedLabDemo = Join-Path $PSScriptRoot "seed-lab-demo.ps1"
 $SeedEquipmentDemo = Join-Path $PSScriptRoot "seed-equipment-demo.ps1"
+$SeedMeasurementDemo = Join-Path $PSScriptRoot "seed-measurement-engineering-demo.ps1"
 
 function Invoke-Step {
     param(
@@ -156,6 +157,28 @@ try {
                 if ($driverIds -notcontains $expected) {
                     throw "Seeded driver profile missing from API library: $expected"
                 }
+            }
+        } finally {
+            & $StopAgent
+        }
+    }
+
+    Invoke-Step "Measurement engineering seed uses public API and definitions become visible through API" {
+        & $StartLab -Port $labPort -NoBrowser -Reset -CargoCommand $CargoCommand -PythonCommand $PythonCommand
+        try {
+            $agentUrl = "http://127.0.0.1:$labPort"
+            & $SeedMeasurementDemo -AgentUrl $agentUrl
+            $curves = Invoke-RestMethod -Uri "$agentUrl/api/v1/engineering-curves" -TimeoutSec 10
+            $curveIds = @($curves.items | ForEach-Object { $_.identity.entity_id })
+            foreach ($expected in @("CURVE-DEMO-CURRENT-PROBE-TRANSFER", "CURVE-DEMO-BICONICAL-ANTENNA-FACTOR", "CURVE-DEMO-RF-CABLE-1M-LOSS", "CURVE-DEMO-RF-AMPLIFIER-GAIN")) {
+                if ($curveIds -notcontains $expected) {
+                    throw "Seeded engineering curve missing from API library: $expected"
+                }
+            }
+            $recipes = Invoke-RestMethod -Uri "$agentUrl/api/v1/acquisition-channel-recipes" -TimeoutSec 10
+            $recipeIds = @($recipes.items | ForEach-Object { $_.identity.entity_id })
+            if ($recipeIds -notcontains "REC-DEMO-CURRENT-A") {
+                throw "Seeded acquisition recipe missing from API library: REC-DEMO-CURRENT-A"
             }
         } finally {
             & $StopAgent

@@ -27,7 +27,13 @@ import type {
   EquipmentModelDefinition,
   EquipmentModelRevision,
   EquipmentOperationResult,
-  EquipmentValidationResult
+  EquipmentValidationResult,
+  EngineeringCurveEvaluation,
+  MeasurementEngineeringAggregate,
+  MeasurementEngineeringCollection,
+  MeasurementEngineeringDefinition,
+  MeasurementEngineeringOperationResult,
+  MeasurementEngineeringRevision
 } from "./models/equipment";
 
 export class ApiError extends Error {
@@ -92,6 +98,16 @@ export type DriverProfileOperationResult = EquipmentOperationResult<
   DriverProfileAggregate,
   DriverProfileRevision
 >;
+
+function operationAggregate<TAggregate>(
+  result: { aggregate?: TAggregate; item?: TAggregate }
+): TAggregate {
+  const aggregate = result.aggregate ?? result.item;
+  if (!aggregate) {
+    throw new Error("agent operation result is missing aggregate/item");
+  }
+  return aggregate;
+}
 
 function normalizeDefinition(definition: TestTemplateDefinition): TestTemplateDefinition {
   return {
@@ -485,6 +501,130 @@ export const equipmentApi = {
       "/api/v1/equipment/communication-providers"
     )
 };
+
+export interface MeasurementEngineeringConfig {
+  collection: MeasurementEngineeringCollection;
+  validationCollection: string;
+  operationPrefix: string;
+}
+
+export const measurementEngineeringApi = {
+  list: (config: MeasurementEngineeringConfig) =>
+    request<{
+      aggregate_kind: string;
+      collection_key: string;
+      items: MeasurementEngineeringAggregate[];
+    }>(`/api/v1/${config.collection}`),
+  get: (config: MeasurementEngineeringConfig, entityId: string) =>
+    request<{
+      aggregate_kind: string;
+      item: MeasurementEngineeringAggregate;
+    }>(`/api/v1/${config.collection}/${encodeURIComponent(entityId)}`),
+  listRevisions: (config: MeasurementEngineeringConfig, entityId: string) =>
+    request<{
+      aggregate_kind: string;
+      entity_id: string;
+      revisions: MeasurementEngineeringRevision[];
+    }>(`/api/v1/${config.collection}/${encodeURIComponent(entityId)}/revisions`),
+  listAudit: (config: MeasurementEngineeringConfig, entityId: string) =>
+    request<{ aggregate_kind: string; entity_id: string; audit_events: EquipmentAuditEvent[] }>(
+      `/api/v1/${config.collection}/${encodeURIComponent(entityId)}/audit-events`
+    ),
+  validateDefinition: (
+    config: MeasurementEngineeringConfig,
+    definition: MeasurementEngineeringDefinition
+  ) =>
+    post<EquipmentValidationResult>(`/api/v1/${config.validationCollection}/validate`, {
+      definition
+    }),
+  create: (
+    config: MeasurementEngineeringConfig,
+    input: {
+      entity_id: string;
+      definition: MeasurementEngineeringDefinition;
+    } & OperationContext
+  ) =>
+    post<MeasurementEngineeringOperationResult>(`/api/v1/${config.collection}`, {
+      ...input,
+      operation_id: operationId(`${config.operationPrefix}-create`, input.entity_id)
+    }),
+  saveDraft: (
+    config: MeasurementEngineeringConfig,
+    entityId: string,
+    revisionId: string,
+    expectedChecksum: string,
+    definition: MeasurementEngineeringDefinition,
+    context: OperationContext
+  ) =>
+    put<MeasurementEngineeringOperationResult>(
+      `/api/v1/${config.collection}/${encodeURIComponent(entityId)}/revisions/${encodeURIComponent(
+        revisionId
+      )}/definition`,
+      {
+        expected_definition_checksum: expectedChecksum,
+        definition,
+        actor: context.actor,
+        reason: context.reason,
+        operation_id: operationId(`${config.operationPrefix}-save`, `${entityId}-${revisionId}`)
+      }
+    ),
+  submit: (
+    config: MeasurementEngineeringConfig,
+    entityId: string,
+    revisionId: string,
+    context: OperationContext
+  ) =>
+    post<MeasurementEngineeringOperationResult>(
+      `/api/v1/${config.collection}/${encodeURIComponent(entityId)}/revisions/${encodeURIComponent(
+        revisionId
+      )}/transitions/submit-for-review`,
+      {
+        actor: context.actor,
+        reason: context.reason,
+        operation_id: operationId(`${config.operationPrefix}-submit`, `${entityId}-${revisionId}`)
+      }
+    ),
+  approve: (
+    config: MeasurementEngineeringConfig,
+    entityId: string,
+    revisionId: string,
+    context: OperationContext
+  ) =>
+    post<MeasurementEngineeringOperationResult>(
+      `/api/v1/${config.collection}/${encodeURIComponent(entityId)}/revisions/${encodeURIComponent(
+        revisionId
+      )}/transitions/approve`,
+      {
+        actor: context.actor,
+        reason: context.reason,
+        operation_id: operationId(`${config.operationPrefix}-approve`, `${entityId}-${revisionId}`)
+      }
+    ),
+  deriveRevision: (
+    config: MeasurementEngineeringConfig,
+    entityId: string,
+    sourceRevisionId: string,
+    context: OperationContext
+  ) =>
+    post<MeasurementEngineeringOperationResult>(
+      `/api/v1/${config.collection}/${encodeURIComponent(entityId)}/revisions`,
+      {
+        source_revision_id: sourceRevisionId,
+        actor: context.actor,
+        reason: context.reason,
+        operation_id: operationId(`${config.operationPrefix}-derive`, `${entityId}-${sourceRevisionId}`)
+      }
+    ),
+  evaluateCurve: (curveId: string, revisionId: string, axisValues: Record<string, number>) =>
+    post<{ evaluation: EngineeringCurveEvaluation }>(
+      `/api/v1/engineering-curves/${encodeURIComponent(curveId)}/revisions/${encodeURIComponent(
+        revisionId
+      )}/evaluate`,
+      { axis_values: axisValues }
+    )
+};
+
+export { operationAggregate };
 
 export function operationId(prefix: string, key: string): string {
   const normalized = key.replace(/[^a-zA-Z0-9_.:-]+/g, "-").slice(0, 48);

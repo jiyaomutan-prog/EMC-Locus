@@ -13,6 +13,7 @@ $labArgs = @{
     Port = $Port
     NoBrowser = $NoBrowser
     SeedEquipmentDemo = $true
+    SeedMeasurementDemo = $true
     PythonCommand = $PythonCommand
     CargoCommand = $CargoCommand
 }

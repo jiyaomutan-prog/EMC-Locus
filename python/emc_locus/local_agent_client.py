@@ -685,6 +685,442 @@ class LocalAgentClient:
     def communication_provider_status(self) -> dict[str, Any]:
         return self.request_json("GET", "/api/v1/equipment/communication-providers")
 
+    def list_sensor_definitions(self) -> dict[str, Any]:
+        return self._list_measurement_engineering("sensor-definitions")
+
+    def get_sensor_definition(self, sensor_definition_id: str) -> dict[str, Any]:
+        return self._get_measurement_engineering("sensor-definitions", sensor_definition_id)
+
+    def list_sensor_definition_revisions(self, sensor_definition_id: str) -> dict[str, Any]:
+        return self._list_measurement_engineering_revisions("sensor-definitions", sensor_definition_id)
+
+    def get_sensor_definition_revision(
+        self,
+        sensor_definition_id: str,
+        revision_id: str,
+    ) -> dict[str, Any]:
+        return self._get_measurement_engineering_revision(
+            "sensor-definitions",
+            sensor_definition_id,
+            revision_id,
+        )
+
+    def validate_sensor_definition(self, definition: dict[str, Any]) -> dict[str, Any]:
+        return self._validate_measurement_engineering("sensor-definition-definitions", definition)
+
+    def create_sensor_definition(self, **kwargs: Any) -> dict[str, Any]:
+        return self._create_measurement_engineering("sensor-definitions", "sensor-definition", **kwargs)
+
+    def replace_sensor_definition_revision(self, **kwargs: Any) -> dict[str, Any]:
+        return self._replace_measurement_engineering_revision("sensor-definitions", "sensor-definition", **kwargs)
+
+    def create_sensor_definition_revision(self, **kwargs: Any) -> dict[str, Any]:
+        return self._create_measurement_engineering_revision("sensor-definitions", "sensor-definition", **kwargs)
+
+    def clone_sensor_definition(self, **kwargs: Any) -> dict[str, Any]:
+        return self._clone_measurement_engineering("sensor-definitions", "sensor-definition", **kwargs)
+
+    def submit_sensor_definition_revision_for_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._transition_measurement_engineering_revision("sensor-definitions", "sensor-definition", "submit-for-review", **kwargs)
+
+    def approve_sensor_definition_revision(self, **kwargs: Any) -> dict[str, Any]:
+        return self._transition_measurement_engineering_revision("sensor-definitions", "sensor-definition", "approve", **kwargs)
+
+    def sensor_definition_audit_events(self, sensor_definition_id: str) -> dict[str, Any]:
+        return self._measurement_engineering_audit_events("sensor-definitions", sensor_definition_id)
+
+    def list_scaling_profiles(self) -> dict[str, Any]:
+        return self._list_measurement_engineering("scaling-profiles")
+
+    def get_scaling_profile(self, scaling_profile_id: str) -> dict[str, Any]:
+        return self._get_measurement_engineering("scaling-profiles", scaling_profile_id)
+
+    def list_scaling_profile_revisions(self, scaling_profile_id: str) -> dict[str, Any]:
+        return self._list_measurement_engineering_revisions("scaling-profiles", scaling_profile_id)
+
+    def get_scaling_profile_revision(
+        self,
+        scaling_profile_id: str,
+        revision_id: str,
+    ) -> dict[str, Any]:
+        return self._get_measurement_engineering_revision(
+            "scaling-profiles",
+            scaling_profile_id,
+            revision_id,
+        )
+
+    def validate_scaling_profile(self, definition: dict[str, Any]) -> dict[str, Any]:
+        return self._validate_measurement_engineering("scaling-profile-definitions", definition)
+
+    def create_scaling_profile(self, **kwargs: Any) -> dict[str, Any]:
+        return self._create_measurement_engineering("scaling-profiles", "scaling-profile", **kwargs)
+
+    def replace_scaling_profile_revision(self, **kwargs: Any) -> dict[str, Any]:
+        return self._replace_measurement_engineering_revision("scaling-profiles", "scaling-profile", **kwargs)
+
+    def create_scaling_profile_revision(self, **kwargs: Any) -> dict[str, Any]:
+        return self._create_measurement_engineering_revision("scaling-profiles", "scaling-profile", **kwargs)
+
+    def clone_scaling_profile(self, **kwargs: Any) -> dict[str, Any]:
+        return self._clone_measurement_engineering("scaling-profiles", "scaling-profile", **kwargs)
+
+    def submit_scaling_profile_revision_for_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._transition_measurement_engineering_revision("scaling-profiles", "scaling-profile", "submit-for-review", **kwargs)
+
+    def approve_scaling_profile_revision(self, **kwargs: Any) -> dict[str, Any]:
+        return self._transition_measurement_engineering_revision("scaling-profiles", "scaling-profile", "approve", **kwargs)
+
+    def scaling_profile_audit_events(self, scaling_profile_id: str) -> dict[str, Any]:
+        return self._measurement_engineering_audit_events("scaling-profiles", scaling_profile_id)
+
+    def list_engineering_curves(self) -> dict[str, Any]:
+        return self._list_measurement_engineering("engineering-curves")
+
+    def get_engineering_curve(self, curve_id: str) -> dict[str, Any]:
+        return self._get_measurement_engineering("engineering-curves", curve_id)
+
+    def list_engineering_curve_revisions(self, curve_id: str) -> dict[str, Any]:
+        return self._list_measurement_engineering_revisions("engineering-curves", curve_id)
+
+    def get_engineering_curve_revision(
+        self,
+        curve_id: str,
+        revision_id: str,
+    ) -> dict[str, Any]:
+        return self._get_measurement_engineering_revision(
+            "engineering-curves",
+            curve_id,
+            revision_id,
+        )
+
+    def validate_engineering_curve(self, definition: dict[str, Any]) -> dict[str, Any]:
+        return self._validate_measurement_engineering("engineering-curve-definitions", definition)
+
+    def create_engineering_curve(self, **kwargs: Any) -> dict[str, Any]:
+        return self._create_measurement_engineering("engineering-curves", "engineering-curve", **kwargs)
+
+    def replace_engineering_curve_revision(self, **kwargs: Any) -> dict[str, Any]:
+        return self._replace_measurement_engineering_revision("engineering-curves", "engineering-curve", **kwargs)
+
+    def create_engineering_curve_revision(self, **kwargs: Any) -> dict[str, Any]:
+        return self._create_measurement_engineering_revision("engineering-curves", "engineering-curve", **kwargs)
+
+    def clone_engineering_curve(self, **kwargs: Any) -> dict[str, Any]:
+        return self._clone_measurement_engineering("engineering-curves", "engineering-curve", **kwargs)
+
+    def submit_engineering_curve_revision_for_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._transition_measurement_engineering_revision("engineering-curves", "engineering-curve", "submit-for-review", **kwargs)
+
+    def approve_engineering_curve_revision(self, **kwargs: Any) -> dict[str, Any]:
+        return self._transition_measurement_engineering_revision("engineering-curves", "engineering-curve", "approve", **kwargs)
+
+    def engineering_curve_audit_events(self, curve_id: str) -> dict[str, Any]:
+        return self._measurement_engineering_audit_events("engineering-curves", curve_id)
+
+    def evaluate_engineering_curve(
+        self,
+        *,
+        curve_id: str,
+        revision_id: str,
+        axis_values: dict[str, float],
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "POST",
+            f"/api/v1/engineering-curves/{quote(curve_id)}/revisions/{quote(revision_id)}/evaluate",
+            {"axis_values": axis_values},
+        )
+
+    def list_daq_channel_profiles(self) -> dict[str, Any]:
+        return self._list_measurement_engineering("daq-channel-profiles")
+
+    def get_daq_channel_profile(self, daq_channel_profile_id: str) -> dict[str, Any]:
+        return self._get_measurement_engineering("daq-channel-profiles", daq_channel_profile_id)
+
+    def list_daq_channel_profile_revisions(self, daq_channel_profile_id: str) -> dict[str, Any]:
+        return self._list_measurement_engineering_revisions("daq-channel-profiles", daq_channel_profile_id)
+
+    def get_daq_channel_profile_revision(
+        self,
+        daq_channel_profile_id: str,
+        revision_id: str,
+    ) -> dict[str, Any]:
+        return self._get_measurement_engineering_revision(
+            "daq-channel-profiles",
+            daq_channel_profile_id,
+            revision_id,
+        )
+
+    def validate_daq_channel_profile(self, definition: dict[str, Any]) -> dict[str, Any]:
+        return self._validate_measurement_engineering("daq-channel-profile-definitions", definition)
+
+    def create_daq_channel_profile(self, **kwargs: Any) -> dict[str, Any]:
+        return self._create_measurement_engineering("daq-channel-profiles", "daq-channel-profile", **kwargs)
+
+    def replace_daq_channel_profile_revision(self, **kwargs: Any) -> dict[str, Any]:
+        return self._replace_measurement_engineering_revision("daq-channel-profiles", "daq-channel-profile", **kwargs)
+
+    def create_daq_channel_profile_revision(self, **kwargs: Any) -> dict[str, Any]:
+        return self._create_measurement_engineering_revision("daq-channel-profiles", "daq-channel-profile", **kwargs)
+
+    def clone_daq_channel_profile(self, **kwargs: Any) -> dict[str, Any]:
+        return self._clone_measurement_engineering("daq-channel-profiles", "daq-channel-profile", **kwargs)
+
+    def submit_daq_channel_profile_revision_for_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._transition_measurement_engineering_revision("daq-channel-profiles", "daq-channel-profile", "submit-for-review", **kwargs)
+
+    def approve_daq_channel_profile_revision(self, **kwargs: Any) -> dict[str, Any]:
+        return self._transition_measurement_engineering_revision("daq-channel-profiles", "daq-channel-profile", "approve", **kwargs)
+
+    def daq_channel_profile_audit_events(self, daq_channel_profile_id: str) -> dict[str, Any]:
+        return self._measurement_engineering_audit_events("daq-channel-profiles", daq_channel_profile_id)
+
+    def list_acquisition_channel_recipes(self) -> dict[str, Any]:
+        return self._list_measurement_engineering("acquisition-channel-recipes")
+
+    def get_acquisition_channel_recipe(self, recipe_id: str) -> dict[str, Any]:
+        return self._get_measurement_engineering("acquisition-channel-recipes", recipe_id)
+
+    def list_acquisition_channel_recipe_revisions(self, recipe_id: str) -> dict[str, Any]:
+        return self._list_measurement_engineering_revisions("acquisition-channel-recipes", recipe_id)
+
+    def get_acquisition_channel_recipe_revision(
+        self,
+        recipe_id: str,
+        revision_id: str,
+    ) -> dict[str, Any]:
+        return self._get_measurement_engineering_revision(
+            "acquisition-channel-recipes",
+            recipe_id,
+            revision_id,
+        )
+
+    def validate_acquisition_channel_recipe(self, definition: dict[str, Any]) -> dict[str, Any]:
+        return self._validate_measurement_engineering("acquisition-channel-recipe-definitions", definition)
+
+    def create_acquisition_channel_recipe(self, **kwargs: Any) -> dict[str, Any]:
+        return self._create_measurement_engineering("acquisition-channel-recipes", "acquisition-channel-recipe", **kwargs)
+
+    def replace_acquisition_channel_recipe_revision(self, **kwargs: Any) -> dict[str, Any]:
+        return self._replace_measurement_engineering_revision("acquisition-channel-recipes", "acquisition-channel-recipe", **kwargs)
+
+    def create_acquisition_channel_recipe_revision(self, **kwargs: Any) -> dict[str, Any]:
+        return self._create_measurement_engineering_revision("acquisition-channel-recipes", "acquisition-channel-recipe", **kwargs)
+
+    def clone_acquisition_channel_recipe(self, **kwargs: Any) -> dict[str, Any]:
+        return self._clone_measurement_engineering("acquisition-channel-recipes", "acquisition-channel-recipe", **kwargs)
+
+    def submit_acquisition_channel_recipe_revision_for_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._transition_measurement_engineering_revision("acquisition-channel-recipes", "acquisition-channel-recipe", "submit-for-review", **kwargs)
+
+    def approve_acquisition_channel_recipe_revision(self, **kwargs: Any) -> dict[str, Any]:
+        return self._transition_measurement_engineering_revision("acquisition-channel-recipes", "acquisition-channel-recipe", "approve", **kwargs)
+
+    def acquisition_channel_recipe_audit_events(self, recipe_id: str) -> dict[str, Any]:
+        return self._measurement_engineering_audit_events("acquisition-channel-recipes", recipe_id)
+
+    def _list_measurement_engineering(self, collection: str) -> dict[str, Any]:
+        return self.request_json("GET", f"/api/v1/{collection}")
+
+    def _get_measurement_engineering(self, collection: str, entity_id: str) -> dict[str, Any]:
+        return self.request_json("GET", f"/api/v1/{collection}/{quote(entity_id)}")
+
+    def _list_measurement_engineering_revisions(
+        self,
+        collection: str,
+        entity_id: str,
+    ) -> dict[str, Any]:
+        return self.request_json("GET", f"/api/v1/{collection}/{quote(entity_id)}/revisions")
+
+    def _get_measurement_engineering_revision(
+        self,
+        collection: str,
+        entity_id: str,
+        revision_id: str,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/{collection}/{quote(entity_id)}/revisions/{quote(revision_id)}",
+        )
+
+    def _validate_measurement_engineering(
+        self,
+        definition_collection: str,
+        definition: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "POST",
+            f"/api/v1/{definition_collection}/validate",
+            {"definition": definition},
+        )
+
+    def _create_measurement_engineering(
+        self,
+        collection: str,
+        operation_prefix: str,
+        *,
+        entity_id: str,
+        definition: dict[str, Any],
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(f"{operation_prefix}-create", entity_id)
+        payload = {
+            "entity_id": entity_id,
+            "definition": definition,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json("POST", f"/api/v1/{collection}", payload)
+
+    def _replace_measurement_engineering_revision(
+        self,
+        collection: str,
+        operation_prefix: str,
+        *,
+        entity_id: str,
+        revision_id: str,
+        expected_definition_checksum: str,
+        definition: dict[str, Any],
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            f"{operation_prefix}-replace",
+            entity_id,
+            revision_id,
+        )
+        payload = {
+            "expected_definition_checksum": expected_definition_checksum,
+            "definition": definition,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "PUT",
+            f"/api/v1/{collection}/{quote(entity_id)}/revisions/{quote(revision_id)}/definition",
+            payload,
+        )
+
+    def _create_measurement_engineering_revision(
+        self,
+        collection: str,
+        operation_prefix: str,
+        *,
+        entity_id: str,
+        source_revision_id: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            f"{operation_prefix}-revision-create",
+            entity_id,
+            source_revision_id,
+        )
+        payload = {
+            "source_revision_id": source_revision_id,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/{collection}/{quote(entity_id)}/revisions",
+            payload,
+        )
+
+    def _clone_measurement_engineering(
+        self,
+        collection: str,
+        operation_prefix: str,
+        *,
+        source_entity_id: str,
+        new_entity_id: str,
+        actor: str,
+        reason: str,
+        source_revision_id: str | None = None,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            f"{operation_prefix}-clone",
+            source_entity_id,
+            new_entity_id,
+        )
+        payload = {
+            "new_entity_id": new_entity_id,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "source_revision_id", source_revision_id)
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/{collection}/{quote(source_entity_id)}/clone",
+            payload,
+        )
+
+    def _transition_measurement_engineering_revision(
+        self,
+        collection: str,
+        operation_prefix: str,
+        transition: str,
+        *,
+        entity_id: str,
+        revision_id: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            f"{operation_prefix}-{transition}",
+            entity_id,
+            revision_id,
+        )
+        payload = {
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/{collection}/{quote(entity_id)}/revisions/{quote(revision_id)}/transitions/{transition}",
+            payload,
+        )
+
+    def _measurement_engineering_audit_events(
+        self,
+        collection: str,
+        entity_id: str,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/{collection}/{quote(entity_id)}/audit-events",
+        )
+
     def create_project(
         self,
         *,

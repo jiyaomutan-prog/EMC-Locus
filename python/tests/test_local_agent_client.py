@@ -258,6 +258,160 @@ def _driver_simulation_scenario() -> dict[str, object]:
     }
 
 
+def _scaling_profile_definition() -> dict[str, object]:
+    return {
+        "definition_schema_version": "emc-locus.scaling-profile-definition.v1",
+        "scaling_profile_id": "SCL-PY-CURRENT-10MV-A",
+        "label": "Demo current probe 10 mV/A",
+        "input_quantity": "voltage",
+        "input_unit": "V",
+        "output_quantity": "current",
+        "output_unit": "A",
+        "scaling_kind": "linear",
+        "parameters": {"scale": 100.0, "offset": 0.0},
+        "validity_domain": {},
+        "source_reference": "demo:current-probe-10mv-a",
+        "metadata": {},
+    }
+
+
+def _engineering_curve_definition() -> dict[str, object]:
+    return {
+        "definition_schema_version": "emc-locus.engineering-curve-definition.v1",
+        "curve_id": "CURVE-PY-CABLE-LOSS",
+        "curve_type": "cable_loss",
+        "label": "Demo cable loss",
+        "independent_axes": [
+            {"axis": "frequency", "quantity": "frequency", "unit": "Hz"}
+        ],
+        "dependent_values": [
+            {
+                "value_id": "correction_db",
+                "quantity": "dimensionless",
+                "unit": "dB",
+            }
+        ],
+        "units": {"frequency": "Hz", "correction_db": "dB"},
+        "points": [
+            {
+                "axis_values": {"frequency": 10_000_000.0},
+                "values": {"correction_db": 0.35},
+            },
+            {
+                "axis_values": {"frequency": 100_000_000.0},
+                "values": {"correction_db": 1.25},
+            },
+            {
+                "axis_values": {"frequency": 1_000_000_000.0},
+                "values": {"correction_db": 3.8},
+            },
+        ],
+        "interpolation": "log_x_linear_y",
+        "extrapolation_policy": "clamp",
+        "validity_domain": {},
+        "conditions": {},
+        "source_document_reference": "demo:cable-certificate",
+        "source_checksum": "sha256:" + "c" * 64,
+        "metadata": {},
+    }
+
+
+def _daq_channel_profile_definition() -> dict[str, object]:
+    return {
+        "definition_schema_version": "emc-locus.daq-channel-profile-definition.v1",
+        "daq_channel_profile_id": "DAQ-PY-AI-10V",
+        "label": "Demo DAQ AI +/-10 V",
+        "channel_kind": "analog_input",
+        "signal_domain": "analog_voltage",
+        "input_quantity": "voltage",
+        "input_unit": "V",
+        "supported_ranges": [{"minimum": -10.0, "maximum": 10.0, "unit": "V"}],
+        "resolution_bits": 16,
+        "max_sampling_rate": 1_000_000.0,
+        "min_sampling_rate": 1.0,
+        "coupling_modes": ["dc", "ac"],
+        "input_modes": ["single_ended", "differential", "iepe"],
+        "anti_alias_filter": "available",
+        "excitation_capabilities": [
+            {"excitation_kind": "iepe", "nominal_value": 4.0, "unit": "mA"}
+        ],
+        "iepe_support": True,
+        "synchronization": "shared_clock",
+        "triggering": "digital_trigger",
+        "metadata": {},
+    }
+
+
+def _sensor_definition() -> dict[str, object]:
+    return {
+        "definition_schema_version": "emc-locus.sensor-definition.v1",
+        "sensor_definition_id": "SNS-PY-CURRENT-PROBE",
+        "manufacturer": "Demo",
+        "model_name": "Current Probe 10mV/A",
+        "variant": "python-client",
+        "sensor_family": "current_probe",
+        "physical_input_quantity": "current",
+        "engineering_output_quantity": "current",
+        "engineering_output_unit": "A",
+        "electrical_output_quantity": "voltage",
+        "electrical_output_unit": "V",
+        "signal_domain": "analog_voltage",
+        "technology_tags": ["voltage_input"],
+        "required_excitation": {"excitation_kind": "none", "external_allowed": False},
+        "input_mode_requirement": "differential",
+        "nominal_range": {"minimum": -100.0, "maximum": 100.0, "unit": "A"},
+        "safe_range": {"minimum": -200.0, "maximum": 200.0, "unit": "A"},
+        "orientation_axes": [],
+        "settling_time_ms": 1.0,
+        "frequency_range": {"minimum_hz": 10.0, "maximum_hz": 100_000_000.0},
+        "scaling_profile_refs": [
+            {
+                "entity_id": "SCL-PY-CURRENT-10MV-A",
+                "revision_id": "SCL-PY-CURRENT-10MV-A-rev-0001",
+                "require_approved": True,
+            }
+        ],
+        "correction_curve_refs": [],
+        "metadata": {},
+    }
+
+
+def _acquisition_channel_recipe_definition() -> dict[str, object]:
+    return {
+        "definition_schema_version": "emc-locus.acquisition-channel-recipe-definition.v1",
+        "recipe_id": "REC-PY-CURRENT-A",
+        "label": "current_A logical channel",
+        "output_channel_name": "current_A",
+        "output_quantity": "current",
+        "output_unit": "A",
+        "daq_channel_profile_ref": {
+            "entity_id": "DAQ-PY-AI-10V",
+            "revision_id": "DAQ-PY-AI-10V-rev-0001",
+            "require_approved": True,
+        },
+        "sensor_definition_ref": {
+            "entity_id": "SNS-PY-CURRENT-PROBE",
+            "revision_id": "SNS-PY-CURRENT-PROBE-rev-0001",
+            "require_approved": True,
+        },
+        "scaling_profile_ref": {
+            "entity_id": "SCL-PY-CURRENT-10MV-A",
+            "revision_id": "SCL-PY-CURRENT-10MV-A-rev-0001",
+            "require_approved": True,
+        },
+        "correction_curve_refs": [],
+        "sample_rate": 1_000_000.0,
+        "range": {"minimum": -10.0, "maximum": 10.0, "unit": "V"},
+        "coupling": "dc",
+        "input_mode": "differential",
+        "excitation": {"excitation_kind": "none", "external_allowed": False},
+        "filtering": "anti_alias_on",
+        "triggering": "software",
+        "validation_rules": [],
+        "metadata": {},
+    }
+
+
 class LocalAgentClientTests(unittest.TestCase):
     def test_posts_project_creation_payload(self) -> None:
         captured: dict[str, object] = {}
@@ -1048,6 +1202,306 @@ class LocalAgentClientTests(unittest.TestCase):
                     },
                 ),
             ],
+        )
+
+    def test_posts_measurement_engineering_lifecycle_payloads(self) -> None:
+        captured: list[tuple[str, str, dict[str, object]]] = []
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            body = json.loads(request.data.decode("utf-8"))
+            captured.append((request.get_method(), request.full_url, body))
+            if request.full_url.endswith("/validate"):
+                return _FakeResponse(
+                    {
+                        "valid": True,
+                        "issues": [],
+                        "definition_checksum": "sha256:" + "d" * 64,
+                    }
+                )
+            status = "draft"
+            if "submit-for-review" in request.full_url:
+                status = "under_review"
+            if request.full_url.endswith("/transitions/approve"):
+                status = "approved"
+            return _FakeResponse(
+                {
+                    "operation_id": body.get("operation_id", "op"),
+                    "replayed": False,
+                    "revision": {"revision_id": "REV-PY-0001", "status": status},
+                }
+            )
+
+        client = LocalAgentClient("http://127.0.0.1:8765")
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            self.assertTrue(client.validate_sensor_definition(_sensor_definition())["valid"])
+            client.create_sensor_definition(
+                entity_id="SNS-PY-CURRENT-PROBE",
+                definition=_sensor_definition(),
+                actor="measurement.author",
+                reason="create current probe",
+                operation_id="op-sensor-create",
+            )
+            client.submit_sensor_definition_revision_for_review(
+                entity_id="SNS-PY-CURRENT-PROBE",
+                revision_id="SNS-PY-CURRENT-PROBE-rev-0001",
+                actor="measurement.author",
+                reason="ready",
+                operation_id="op-sensor-submit",
+            )
+            client.approve_sensor_definition_revision(
+                entity_id="SNS-PY-CURRENT-PROBE",
+                revision_id="SNS-PY-CURRENT-PROBE-rev-0001",
+                actor="measurement.reviewer",
+                reason="accepted",
+                operation_id="op-sensor-approve",
+            )
+
+            self.assertTrue(client.validate_scaling_profile(_scaling_profile_definition())["valid"])
+            client.create_scaling_profile(
+                entity_id="SCL-PY-CURRENT-10MV-A",
+                definition=_scaling_profile_definition(),
+                actor="measurement.author",
+                reason="create scaling",
+                operation_id="op-scaling-create",
+            )
+            client.replace_scaling_profile_revision(
+                entity_id="SCL-PY-CURRENT-10MV-A",
+                revision_id="SCL-PY-CURRENT-10MV-A-rev-0001",
+                expected_definition_checksum="sha256:" + "d" * 64,
+                definition=_scaling_profile_definition(),
+                actor="measurement.author",
+                reason="save draft",
+                operation_id="op-scaling-save",
+            )
+            client.create_scaling_profile_revision(
+                entity_id="SCL-PY-CURRENT-10MV-A",
+                source_revision_id="SCL-PY-CURRENT-10MV-A-rev-0001",
+                actor="measurement.author",
+                reason="derive next revision",
+                operation_id="op-scaling-derive",
+            )
+            client.clone_scaling_profile(
+                source_entity_id="SCL-PY-CURRENT-10MV-A",
+                source_revision_id="SCL-PY-CURRENT-10MV-A-rev-0001",
+                new_entity_id="SCL-PY-CURRENT-10MV-A-CLONE",
+                actor="measurement.author",
+                reason="clone scaling",
+                operation_id="op-scaling-clone",
+            )
+            client.submit_scaling_profile_revision_for_review(
+                entity_id="SCL-PY-CURRENT-10MV-A",
+                revision_id="SCL-PY-CURRENT-10MV-A-rev-0001",
+                actor="measurement.author",
+                reason="ready",
+                operation_id="op-scaling-submit",
+            )
+            client.approve_scaling_profile_revision(
+                entity_id="SCL-PY-CURRENT-10MV-A",
+                revision_id="SCL-PY-CURRENT-10MV-A-rev-0001",
+                actor="measurement.reviewer",
+                reason="accepted",
+                operation_id="op-scaling-approve",
+            )
+
+            self.assertTrue(client.validate_engineering_curve(_engineering_curve_definition())["valid"])
+            client.create_engineering_curve(
+                entity_id="CURVE-PY-CABLE-LOSS",
+                definition=_engineering_curve_definition(),
+                actor="measurement.author",
+                reason="create curve",
+                operation_id="op-curve-create",
+            )
+            client.submit_engineering_curve_revision_for_review(
+                entity_id="CURVE-PY-CABLE-LOSS",
+                revision_id="CURVE-PY-CABLE-LOSS-rev-0001",
+                actor="measurement.author",
+                reason="ready",
+                operation_id="op-curve-submit",
+            )
+            client.approve_engineering_curve_revision(
+                entity_id="CURVE-PY-CABLE-LOSS",
+                revision_id="CURVE-PY-CABLE-LOSS-rev-0001",
+                actor="measurement.reviewer",
+                reason="accepted",
+                operation_id="op-curve-approve",
+            )
+
+            self.assertTrue(client.validate_daq_channel_profile(_daq_channel_profile_definition())["valid"])
+            client.create_daq_channel_profile(
+                entity_id="DAQ-PY-AI-10V",
+                definition=_daq_channel_profile_definition(),
+                actor="measurement.author",
+                reason="create daq profile",
+                operation_id="op-daq-create",
+            )
+            client.submit_daq_channel_profile_revision_for_review(
+                entity_id="DAQ-PY-AI-10V",
+                revision_id="DAQ-PY-AI-10V-rev-0001",
+                actor="measurement.author",
+                reason="ready",
+                operation_id="op-daq-submit",
+            )
+            client.approve_daq_channel_profile_revision(
+                entity_id="DAQ-PY-AI-10V",
+                revision_id="DAQ-PY-AI-10V-rev-0001",
+                actor="measurement.reviewer",
+                reason="accepted",
+                operation_id="op-daq-approve",
+            )
+
+            self.assertTrue(
+                client.validate_acquisition_channel_recipe(
+                    _acquisition_channel_recipe_definition()
+                )["valid"]
+            )
+            client.create_acquisition_channel_recipe(
+                entity_id="REC-PY-CURRENT-A",
+                definition=_acquisition_channel_recipe_definition(),
+                actor="measurement.author",
+                reason="create recipe",
+                operation_id="op-recipe-create",
+            )
+            client.submit_acquisition_channel_recipe_revision_for_review(
+                entity_id="REC-PY-CURRENT-A",
+                revision_id="REC-PY-CURRENT-A-rev-0001",
+                actor="measurement.author",
+                reason="ready",
+                operation_id="op-recipe-submit",
+            )
+            client.approve_acquisition_channel_recipe_revision(
+                entity_id="REC-PY-CURRENT-A",
+                revision_id="REC-PY-CURRENT-A-rev-0001",
+                actor="measurement.reviewer",
+                reason="accepted",
+                operation_id="op-recipe-approve",
+            )
+
+        urls = [item[1] for item in captured]
+        self.assertIn(
+            "http://127.0.0.1:8765/api/v1/sensor-definition-definitions/validate",
+            urls,
+        )
+        self.assertIn(
+            "http://127.0.0.1:8765/api/v1/scaling-profiles/SCL-PY-CURRENT-10MV-A/revisions/SCL-PY-CURRENT-10MV-A-rev-0001/definition",
+            urls,
+        )
+        self.assertIn(
+            "http://127.0.0.1:8765/api/v1/scaling-profiles/SCL-PY-CURRENT-10MV-A/clone",
+            urls,
+        )
+        self.assertIn(
+            "http://127.0.0.1:8765/api/v1/engineering-curve-definitions/validate",
+            urls,
+        )
+        self.assertIn(
+            "http://127.0.0.1:8765/api/v1/daq-channel-profile-definitions/validate",
+            urls,
+        )
+        self.assertIn(
+            "http://127.0.0.1:8765/api/v1/acquisition-channel-recipe-definitions/validate",
+            urls,
+        )
+        scaling_save = next(item for item in captured if item[2].get("operation_id") == "op-scaling-save")
+        self.assertEqual(scaling_save[0], "PUT")
+        self.assertEqual(scaling_save[2]["expected_definition_checksum"], "sha256:" + "d" * 64)
+        scaling_clone = next(item for item in captured if item[2].get("operation_id") == "op-scaling-clone")
+        self.assertEqual(scaling_clone[2]["new_entity_id"], "SCL-PY-CURRENT-10MV-A-CLONE")
+
+    def test_reads_measurement_engineering_routes_and_evaluates_curve(self) -> None:
+        captured: list[tuple[str, str, dict[str, object] | None]] = []
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            body = None
+            if request.data:
+                body = json.loads(request.data.decode("utf-8"))
+            captured.append((request.get_method(), request.full_url, body))
+            if request.full_url.endswith("/evaluate"):
+                return _FakeResponse(
+                    {
+                        "evaluation": {
+                            "values": {"correction_db": 1.25},
+                            "axis_values": {"frequency": 100_000_000.0},
+                            "interpolation": "log_x_linear_y",
+                            "extrapolated": False,
+                            "source_revision_id": "CURVE-PY-CABLE-LOSS-rev-0001",
+                            "source_checksum": "sha256:" + "e" * 64,
+                        }
+                    }
+                )
+            if request.full_url.endswith("/revisions"):
+                return _FakeResponse({"revisions": []})
+            if request.full_url.endswith("/audit-events"):
+                return _FakeResponse({"audit_events": []})
+            return _FakeResponse({"ok": True})
+
+        client = LocalAgentClient("http://127.0.0.1:8765")
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            client.list_sensor_definitions()
+            client.get_sensor_definition("SNS-PY-CURRENT-PROBE")
+            client.list_sensor_definition_revisions("SNS-PY-CURRENT-PROBE")
+            client.get_sensor_definition_revision(
+                "SNS-PY-CURRENT-PROBE",
+                "SNS-PY-CURRENT-PROBE-rev-0001",
+            )
+            client.sensor_definition_audit_events("SNS-PY-CURRENT-PROBE")
+
+            client.list_scaling_profiles()
+            client.get_scaling_profile("SCL-PY-CURRENT-10MV-A")
+            client.list_scaling_profile_revisions("SCL-PY-CURRENT-10MV-A")
+            client.get_scaling_profile_revision(
+                "SCL-PY-CURRENT-10MV-A",
+                "SCL-PY-CURRENT-10MV-A-rev-0001",
+            )
+            client.scaling_profile_audit_events("SCL-PY-CURRENT-10MV-A")
+
+            client.list_engineering_curves()
+            client.get_engineering_curve("CURVE-PY-CABLE-LOSS")
+            client.list_engineering_curve_revisions("CURVE-PY-CABLE-LOSS")
+            client.get_engineering_curve_revision(
+                "CURVE-PY-CABLE-LOSS",
+                "CURVE-PY-CABLE-LOSS-rev-0001",
+            )
+            curve_evaluation = client.evaluate_engineering_curve(
+                curve_id="CURVE-PY-CABLE-LOSS",
+                revision_id="CURVE-PY-CABLE-LOSS-rev-0001",
+                axis_values={"frequency": 100_000_000.0},
+            )
+            client.engineering_curve_audit_events("CURVE-PY-CABLE-LOSS")
+
+            client.list_daq_channel_profiles()
+            client.get_daq_channel_profile("DAQ-PY-AI-10V")
+            client.list_daq_channel_profile_revisions("DAQ-PY-AI-10V")
+            client.get_daq_channel_profile_revision(
+                "DAQ-PY-AI-10V",
+                "DAQ-PY-AI-10V-rev-0001",
+            )
+            client.daq_channel_profile_audit_events("DAQ-PY-AI-10V")
+
+            client.list_acquisition_channel_recipes()
+            client.get_acquisition_channel_recipe("REC-PY-CURRENT-A")
+            client.list_acquisition_channel_recipe_revisions("REC-PY-CURRENT-A")
+            client.get_acquisition_channel_recipe_revision(
+                "REC-PY-CURRENT-A",
+                "REC-PY-CURRENT-A-rev-0001",
+            )
+            client.acquisition_channel_recipe_audit_events("REC-PY-CURRENT-A")
+
+        self.assertEqual(curve_evaluation["evaluation"]["interpolation"], "log_x_linear_y")
+        self.assertIn(
+            (
+                "POST",
+                "http://127.0.0.1:8765/api/v1/engineering-curves/CURVE-PY-CABLE-LOSS/revisions/CURVE-PY-CABLE-LOSS-rev-0001/evaluate",
+                {"axis_values": {"frequency": 100_000_000.0}},
+            ),
+            captured,
+        )
+        self.assertIn(
+            (
+                "GET",
+                "http://127.0.0.1:8765/api/v1/acquisition-channel-recipes/REC-PY-CURRENT-A/audit-events",
+                None,
+            ),
+            captured,
         )
 
     def test_posts_simulated_emc_execution_payload(self) -> None:

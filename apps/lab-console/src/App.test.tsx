@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { App } from "./App";
@@ -345,6 +345,101 @@ describe("LAB CONSOLE", () => {
     await user.click(screen.getByRole("button", { name: /Valider/ }));
     expect(await screen.findByText("Definition valide")).toBeInTheDocument();
   });
+
+  test("opens measurement engineering studios and runs curve CSV evaluation workflow", async () => {
+    let curveStatus = "draft";
+    let curveChecksum = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/health") return jsonResponse(healthFixture);
+      if (path === "/api/v1/storage/status") return jsonResponse(storageFixture);
+      if (path === "/api/v1/test-templates") return jsonResponse({ test_templates: [templateFixture()] });
+      if (path === "/api/v1/equipment/registries") return jsonResponse(equipmentRegistriesFixture());
+      if (path === "/api/v1/equipment/classification-presets") return jsonResponse({ presets: [rfCablePresetFixture(), adcPresetFixture()] });
+      if (path === "/api/v1/equipment-models" || path.startsWith("/api/v1/equipment-models?")) return jsonResponse({ equipment_models: [equipmentModelFixture()] });
+      if (path === "/api/v1/driver-profiles") return jsonResponse({ driver_profiles: [] });
+      if (path === "/api/v1/equipment/communication-providers") return jsonResponse({ providers: [{ provider: "simulation", available: true }] });
+      const measurementResponse = measurementApiResponse(path, init, {
+        curveStatus,
+        curveChecksum,
+        onCurveStatus: (status, checksum) => {
+          curveStatus = status;
+          curveChecksum = checksum;
+        }
+      });
+      if (measurementResponse) return measurementResponse;
+      return mockBaseApiResponse(path, init);
+    });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Equipment" }));
+    await user.click(await screen.findByRole("button", { name: "Engineering Curves" }));
+    await user.click(await screen.findByRole("button", { name: /Demo RF cable loss/ }));
+    await user.click(screen.getByRole("button", { name: "Curve Table" }));
+    expect(await screen.findByRole("img", { name: "1D curve plot" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("frequency_hz,correction_db"), {
+      target: { value: "frequency_hz,correction_db\n10000000,0.2\n100000000,1.25\n1000000000,3.8" }
+    });
+    await user.click(screen.getByRole("button", { name: /Import CSV/ }));
+    await user.click(screen.getByRole("button", { name: "Evaluation" }));
+    await user.clear(screen.getByLabelText("Frequency Hz"));
+    await user.type(screen.getByLabelText("Frequency Hz"), "100000000");
+    await user.click(screen.getByRole("button", { name: /Evaluer la courbe/ }));
+    expect(await screen.findByText(/log_x_linear_y/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Valider/ }));
+    expect(await screen.findByText("Definition valide")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Sauvegarder/ }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/definition"), expect.objectContaining({ method: "PUT" })));
+    await user.click(screen.getByRole("button", { name: /Soumettre/ }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("submit-for-review"), expect.objectContaining({ method: "POST" })));
+    await user.click(screen.getByRole("button", { name: /Approuver/ }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("transitions/approve"), expect.objectContaining({ method: "POST" })));
+  });
+
+  test("opens sensor, scaling, DAQ and acquisition recipe measurement studios", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/health") return jsonResponse(healthFixture);
+      if (path === "/api/v1/storage/status") return jsonResponse(storageFixture);
+      if (path === "/api/v1/test-templates") return jsonResponse({ test_templates: [templateFixture()] });
+      if (path === "/api/v1/equipment/registries") return jsonResponse(equipmentRegistriesFixture());
+      if (path === "/api/v1/equipment/classification-presets") return jsonResponse({ presets: [rfCablePresetFixture(), adcPresetFixture()] });
+      if (path === "/api/v1/equipment-models" || path.startsWith("/api/v1/equipment-models?")) return jsonResponse({ equipment_models: [equipmentModelFixture()] });
+      if (path === "/api/v1/driver-profiles") return jsonResponse({ driver_profiles: [] });
+      if (path === "/api/v1/equipment/communication-providers") return jsonResponse({ providers: [{ provider: "simulation", available: true }] });
+      const measurementResponse = measurementApiResponse(path, init, {});
+      if (measurementResponse) return measurementResponse;
+      return mockBaseApiResponse(path, init);
+    });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Equipment" }));
+    await user.click(await screen.findByRole("button", { name: "Sensors & Transducers" }));
+    await user.click(await screen.findByRole("button", { name: /Demo Current Probe/ }));
+    expect(await screen.findByDisplayValue("current_probe")).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "Scaling Profiles" })[0]);
+    await user.click(await screen.findByRole("button", { name: /Current probe 10 mV/ }));
+    await user.click(screen.getByRole("button", { name: "Lookup Table" }));
+    expect(screen.getByPlaceholderText("input,output")).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "DAQ Channels" })[0]);
+    await user.click(await screen.findByRole("button", { name: /Demo DAQ AI/ }));
+    await user.click(screen.getByRole("button", { name: "Sampling" }));
+    expect(screen.getByDisplayValue("1000000")).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "Acquisition Recipes" })[0]);
+    await user.click(await screen.findByRole("button", { name: /current_A through demo current probe/ }));
+    await user.click(screen.getByRole("button", { name: "Measurement Chain" }));
+    expect(await screen.findByText("DAQ channel")).toBeInTheDocument();
+    expect(screen.getAllByText(/REC-DEMO-CURRENT-A/).length).toBeGreaterThan(0);
+  });
 });
 
 function equipmentModelFixture() {
@@ -635,4 +730,265 @@ function mockBaseApiResponse(path: string, init?: RequestInit) {
   if (path === "/api/v1/test-templates/TT-LAB-001/revisions") return jsonResponse({ template_id: "TT-LAB-001", revisions: [revisionFixture()] });
   if (path === "/api/v1/test-templates/TT-LAB-001/audit-events") return jsonResponse({ template_id: "TT-LAB-001", audit_events: auditFixture });
   return jsonResponse({ error: { code: "unexpected", message: `${path} ${init?.method ?? "GET"}` } }, 500);
+}
+
+function measurementApiResponse(
+  path: string,
+  init: RequestInit | undefined,
+  state: {
+    curveStatus?: string;
+    curveChecksum?: string;
+    onCurveStatus?: (status: string, checksum: string) => void;
+  }
+) {
+  const collections = [
+    "sensor-definitions",
+    "scaling-profiles",
+    "engineering-curves",
+    "daq-channel-profiles",
+    "acquisition-channel-recipes"
+  ];
+  for (const collection of collections) {
+    if (path === `/api/v1/${collection}`) {
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        const aggregate = measurementAggregate(collection, state, body.entity_id, body.definition);
+        return jsonResponse({
+          operation: `${collection}_created`,
+          operation_id: body.operation_id,
+          replayed: false,
+          item: aggregate,
+          revision: aggregate.latest_revision
+        });
+      }
+      return jsonResponse({ aggregate_kind: collection, collection_key: "items", items: [measurementAggregate(collection, state)] });
+    }
+    if (path.startsWith(`/api/v1/${collection}/`) && path.endsWith("/audit-events")) {
+      return jsonResponse({ aggregate_kind: collection, entity_id: path.split("/")[4], audit_events: [] });
+    }
+    if (path.startsWith(`/api/v1/${collection}/`) && path.endsWith("/revisions")) {
+      return jsonResponse({
+        aggregate_kind: collection,
+        entity_id: path.split("/")[4],
+        revisions: [measurementAggregate(collection, state).latest_revision]
+      });
+    }
+    if (path.startsWith(`/api/v1/${collection}/`) && path.includes("/revisions/") && path.endsWith("/definition")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      const aggregate = measurementAggregate(collection, state, undefined, body.definition);
+      return jsonResponse({
+        operation: `${collection}_saved`,
+        operation_id: body.operation_id,
+        replayed: false,
+        item: aggregate,
+        revision: aggregate.latest_revision
+      });
+    }
+    if (path.startsWith(`/api/v1/${collection}/`) && path.includes("submit-for-review")) {
+      state.onCurveStatus?.("under_review", "sha256:2222222222222222222222222222222222222222222222222222222222222222");
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      const aggregate = measurementAggregate(collection, state);
+      return jsonResponse({
+        operation: `${collection}_submitted`,
+        operation_id: body.operation_id,
+        replayed: false,
+        item: aggregate,
+        revision: aggregate.latest_revision
+      });
+    }
+    if (path.startsWith(`/api/v1/${collection}/`) && path.includes("transitions/approve")) {
+      state.onCurveStatus?.("approved", "sha256:3333333333333333333333333333333333333333333333333333333333333333");
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      const aggregate = measurementAggregate(collection, state);
+      return jsonResponse({
+        operation: `${collection}_approved`,
+        operation_id: body.operation_id,
+        replayed: false,
+        item: aggregate,
+        revision: aggregate.latest_revision
+      });
+    }
+    if (path.startsWith(`/api/v1/${collection}/`) && !path.includes("/revisions/")) {
+      return jsonResponse({ aggregate_kind: collection, item: measurementAggregate(collection, state) });
+    }
+  }
+  if (path.endsWith("-definitions/validate")) {
+    return jsonResponse({ valid: true, issues: [], definition_checksum: "sha256:dddd" });
+  }
+  if (path.includes("/engineering-curves/") && path.endsWith("/evaluate")) {
+    return jsonResponse({
+      evaluation: {
+        values: { correction_db: 1.25 },
+        axis_values: { frequency: 100000000 },
+        interpolation: "log_x_linear_y",
+        extrapolated: false,
+        source_revision_id: "CURVE-DEMO-RF-CABLE-1M-LOSS-rev-0001",
+        source_checksum: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    });
+  }
+  return null;
+}
+
+function measurementAggregate(
+  collection: string,
+  state: { curveStatus?: string; curveChecksum?: string },
+  entityId?: string,
+  definitionOverride?: Record<string, unknown>
+) {
+  const definition = definitionOverride ?? measurementDefinition(collection);
+  const id = entityId ?? String(
+    definition.sensor_definition_id ??
+      definition.scaling_profile_id ??
+      definition.curve_id ??
+      definition.daq_channel_profile_id ??
+      definition.recipe_id
+  );
+  const status = collection === "engineering-curves" ? state.curveStatus ?? "draft" : "approved";
+  const checksum = collection === "engineering-curves"
+    ? state.curveChecksum ?? "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    : "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const revision = {
+    aggregate_kind: collection.replace(/-/g, "_"),
+    revision_id: `${id}-rev-0001`,
+    entity_id: id,
+    revision_number: 1,
+    parent_revision_id: null,
+    status,
+    definition_schema_version: String(definition.definition_schema_version),
+    definition,
+    definition_checksum: checksum,
+    label: measurementLabel(collection),
+    summary_kind: collection,
+    created_by: "measurement.author",
+    created_at: "2026-07-11T00:00:00Z",
+    updated_at: "2026-07-11T00:00:00Z",
+    submitted_at: status === "draft" ? null : "2026-07-11T00:10:00Z",
+    approved_at: status === "approved" ? "2026-07-11T00:20:00Z" : null
+  };
+  return {
+    identity: {
+      aggregate_kind: collection.replace(/-/g, "_"),
+      entity_id: id,
+      label: measurementLabel(collection),
+      summary_kind: collection,
+      current_approved_revision_id: status === "approved" ? revision.revision_id : null,
+      created_by: "measurement.author",
+      created_at: "2026-07-11T00:00:00Z",
+      updated_at: "2026-07-11T00:00:00Z"
+    },
+    current_approved_revision: status === "approved" ? revision : null,
+    latest_revision: revision,
+    active_draft_revision: status === "draft" ? revision : null
+  };
+}
+
+function measurementLabel(collection: string) {
+  return {
+    "sensor-definitions": "Demo Current Probe 10mV/A",
+    "scaling-profiles": "Current probe 10 mV/A",
+    "engineering-curves": "Demo RF cable loss",
+    "daq-channel-profiles": "Demo DAQ AI +/-10 V",
+    "acquisition-channel-recipes": "current_A through demo current probe"
+  }[collection] ?? collection;
+}
+
+function measurementDefinition(collection: string): Record<string, unknown> {
+  if (collection === "sensor-definitions") {
+    return {
+      definition_schema_version: "emc-locus.sensor-definition.v1",
+      sensor_definition_id: "SNS-DEMO-CURRENT-PROBE-10MV-A",
+      manufacturer: "Demo",
+      model_name: "Current Probe 10mV/A",
+      sensor_family: "current_probe",
+      physical_input_quantity: "current",
+      engineering_output_quantity: "current",
+      engineering_output_unit: "A",
+      electrical_output_quantity: "voltage",
+      electrical_output_unit: "V",
+      signal_domain: "analog_voltage",
+      technology_tags: ["voltage_input"],
+      required_excitation: { excitation_kind: "none", external_allowed: false },
+      input_mode_requirement: "differential",
+      nominal_range: { minimum: -100, maximum: 100, unit: "A" },
+      frequency_range: { minimum_hz: 10, maximum_hz: 100000000 },
+      scaling_profile_refs: [{ entity_id: "SCL-DEMO-CURRENT-10MV-A", revision_id: "SCL-DEMO-CURRENT-10MV-A-rev-0001", require_approved: true }],
+      correction_curve_refs: [],
+      metadata: {}
+    };
+  }
+  if (collection === "scaling-profiles") {
+    return {
+      definition_schema_version: "emc-locus.scaling-profile-definition.v1",
+      scaling_profile_id: "SCL-DEMO-CURRENT-10MV-A",
+      label: "Current probe 10 mV/A",
+      input_quantity: "voltage",
+      input_unit: "V",
+      output_quantity: "current",
+      output_unit: "A",
+      scaling_kind: "linear",
+      parameters: { scale: 100, offset: 0, points: [{ input: 0, output: 0 }, { input: 0.01, output: 1 }] },
+      metadata: {}
+    };
+  }
+  if (collection === "engineering-curves") {
+    return {
+      definition_schema_version: "emc-locus.engineering-curve-definition.v1",
+      curve_id: "CURVE-DEMO-RF-CABLE-1M-LOSS",
+      curve_type: "cable_loss",
+      label: "Demo RF cable loss",
+      independent_axes: [{ axis: "frequency", quantity: "frequency", unit: "Hz" }],
+      dependent_values: [{ value_id: "correction_db", quantity: "dimensionless", unit: "dB" }],
+      units: { frequency: "Hz", correction_db: "dB" },
+      points: [
+        { axis_values: { frequency: 10000000 }, values: { correction_db: 0.2 } },
+        { axis_values: { frequency: 100000000 }, values: { correction_db: 1.25 } },
+        { axis_values: { frequency: 1000000000 }, values: { correction_db: 3.8 } }
+      ],
+      interpolation: "log_x_linear_y",
+      extrapolation_policy: "warn",
+      validity_domain: {},
+      conditions: {},
+      metadata: {}
+    };
+  }
+  if (collection === "daq-channel-profiles") {
+    return {
+      definition_schema_version: "emc-locus.daq-channel-profile-definition.v1",
+      daq_channel_profile_id: "DAQ-DEMO-AI-10V-1MS",
+      label: "Demo DAQ AI +/-10 V",
+      channel_kind: "analog_input",
+      signal_domain: "analog_voltage",
+      input_quantity: "voltage",
+      input_unit: "V",
+      supported_ranges: [{ minimum: -10, maximum: 10, unit: "V" }],
+      resolution_bits: 16,
+      max_sampling_rate: 1000000,
+      min_sampling_rate: 1,
+      coupling_modes: ["dc", "ac"],
+      input_modes: ["single_ended", "differential", "iepe"],
+      excitation_capabilities: [{ excitation_kind: "iepe", nominal_value: 4, unit: "mA", external_allowed: false }],
+      iepe_support: true,
+      metadata: {}
+    };
+  }
+  return {
+    definition_schema_version: "emc-locus.acquisition-channel-recipe-definition.v1",
+    recipe_id: "REC-DEMO-CURRENT-A",
+    label: "current_A through demo current probe",
+    output_channel_name: "current_A",
+    output_quantity: "current",
+    output_unit: "A",
+    daq_channel_profile_ref: { entity_id: "DAQ-DEMO-AI-10V-1MS", revision_id: "DAQ-DEMO-AI-10V-1MS-rev-0001", require_approved: true },
+    sensor_definition_ref: { entity_id: "SNS-DEMO-CURRENT-PROBE-10MV-A", revision_id: "SNS-DEMO-CURRENT-PROBE-10MV-A-rev-0001", require_approved: true },
+    scaling_profile_ref: { entity_id: "SCL-DEMO-CURRENT-10MV-A", revision_id: "SCL-DEMO-CURRENT-10MV-A-rev-0001", require_approved: true },
+    correction_curve_refs: [],
+    sample_rate: 1000000,
+    range: { minimum: -10, maximum: 10, unit: "V" },
+    coupling: "dc",
+    input_mode: "differential",
+    excitation: { excitation_kind: "none", external_allowed: false },
+    validation_rules: [],
+    metadata: {}
+  };
 }

@@ -105,6 +105,43 @@ tables, `equipment_model_signal_domain_summaries` and
 `equipment_model_technology_tag_summaries`, support indexed role/domain/tag
 catalog filters without parsing `definition_json`.
 
+### measurement engineering definitions
+
+Release `0.13.0` keeps reusable measurement-chain engineering definitions in
+`equipment.sqlite`, because they describe what a class of sensor, correction
+artifact, DAQ channel, or logical channel recipe is. They are not physical
+serial-numbered assets and they are not runtime acquisitions.
+
+The migration `storage/sqlite/equipment/0003_sensors_scaling_curves.sql`
+adds the following revisioned aggregate tables:
+
+- `sensor_definition_identities` and `sensor_definition_revisions`;
+- `scaling_profile_identities` and `scaling_profile_revisions`;
+- `engineering_curve_identities` and `engineering_curve_revisions`;
+- `daq_channel_profile_identities` and `daq_channel_profile_revisions`;
+- `acquisition_channel_recipe_identities` and
+  `acquisition_channel_recipe_revisions`;
+- `measurement_engineering_audit_events`.
+
+Each identity table stores the stable entity id, label, summary kind, current
+approved revision pointer, creator, and timestamps. Each revision table stores
+the deterministic revision number, optional parent revision, lifecycle status,
+canonical typed definition JSON, SHA-256 definition checksum, creator,
+timestamps, and submit/approval evidence. The lifecycle supports `draft`,
+`under_review`, `approved`, `superseded`, `suspended`, and `retired`.
+
+The audit table records the aggregate kind, entity id, revision id, action,
+actor, reason, old/new revision references, old/new definition checksums,
+operation id, device id, correlation id, payload JSON, payload checksum, and
+event time. This audit sequence is local event order only; the business content
+history is carried by revision ids, revision numbers, parent links, statuses,
+and definition checksums.
+
+Engineering curves store 1D and future multi-axis correction artifacts as typed
+canonical JSON. The current runtime supports deterministic 1D evaluation for
+frequency-dependent artifacts; the table does not imply a real DAQ runtime,
+station connection binding, or calibration-certificate file store.
+
 ### projects
 
 ```sql

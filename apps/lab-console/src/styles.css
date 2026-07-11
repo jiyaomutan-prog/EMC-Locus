@@ -553,6 +553,7 @@ td textarea {
 .segmented button {
   background: #fff;
   border-color: #c8d0c7;
+  color: #24312a;
 }
 
 .segmented button.active {
@@ -682,6 +683,121 @@ td textarea {
   overflow: auto;
   padding: 12px;
   white-space: pre-wrap;
+}
+
+.measurementPanel {
+  display: grid;
+  gap: 14px;
+}
+
+.measurementHeader {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #d9dfd7;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.measurementHeader h2 {
+  margin: 0;
+}
+
+.measurementCreateBar > label {
+  min-width: 210px;
+}
+
+.measurementLayout {
+  grid-template-columns: 340px minmax(0, 1fr);
+}
+
+.measurementFourGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  max-width: 760px;
+}
+
+.measurementFieldset {
+  border: 1px solid #d9dfd7;
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  max-width: 760px;
+  padding: 12px;
+}
+
+.measurementFieldset legend {
+  color: #4f5d55;
+  font-weight: 700;
+  padding: 0 5px;
+}
+
+.checkboxLabel {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.checkboxLabel input {
+  min-height: auto;
+}
+
+.chainSummary {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.chainSummary span {
+  background: #eef1eb;
+  border-left: 3px solid #80ac97;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 8px;
+}
+
+.chainSummary strong {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.fileButton {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #c8d0c7;
+  color: #24312a;
+  display: inline-flex;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
+.fileButton input {
+  max-width: 180px;
+  padding: 0;
+}
+
+.curvePlot {
+  background: #f8faf6;
+  border: 1px solid #d9dfd7;
+  height: 180px;
+  width: 100%;
+}
+
+.curvePlot line {
+  stroke: #7d8a81;
+  stroke-width: 1;
+}
+
+.curvePlot polyline {
+  fill: none;
+  stroke: #2f6f5e;
+  stroke-width: 2.5;
 }
 
 @media (max-width: 1100px) {

@@ -112,7 +112,19 @@ export type PhysicalQuantity =
   | "angle"
   | "velocity"
   | "acceleration"
+  | "angular_velocity"
+  | "sound_pressure"
   | "pressure"
+  | "force"
+  | "torque"
+  | "strain"
+  | "charge"
+  | "electric_charge"
+  | "magnetic_flux_density"
+  | "humidity"
+  | "illuminance"
+  | "mass"
+  | "flow_rate"
   | "dimensionless"
   | "text"
   | "boolean"
@@ -530,3 +542,74 @@ export interface DriverSimulationResult {
 }
 
 export type EquipmentValidationResult = ValidationResult;
+
+export type MeasurementEngineeringKind =
+  | "sensor_definition"
+  | "scaling_profile"
+  | "engineering_curve"
+  | "daq_channel_profile"
+  | "acquisition_channel_recipe";
+
+export type MeasurementEngineeringCollection =
+  | "sensor-definitions"
+  | "scaling-profiles"
+  | "engineering-curves"
+  | "daq-channel-profiles"
+  | "acquisition-channel-recipes";
+
+export type MeasurementEngineeringDefinition = Record<string, unknown>;
+
+export interface MeasurementEngineeringIdentity {
+  aggregate_kind: MeasurementEngineeringKind;
+  entity_id: string;
+  label: string;
+  summary_kind: string;
+  current_approved_revision_id: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MeasurementEngineeringRevision {
+  aggregate_kind: MeasurementEngineeringKind;
+  revision_id: string;
+  entity_id: string;
+  revision_number: number;
+  parent_revision_id: string | null;
+  status: RevisionStatus;
+  definition_schema_version: string;
+  definition: MeasurementEngineeringDefinition;
+  definition_checksum: string;
+  label: string;
+  summary_kind: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  submitted_at: string | null;
+  approved_at: string | null;
+}
+
+export interface MeasurementEngineeringAggregate {
+  identity: MeasurementEngineeringIdentity;
+  current_approved_revision: MeasurementEngineeringRevision | null;
+  latest_revision: MeasurementEngineeringRevision | null;
+  active_draft_revision: MeasurementEngineeringRevision | null;
+}
+
+export interface MeasurementEngineeringOperationResult {
+  operation: string;
+  operation_id: string;
+  replayed: boolean;
+  item: MeasurementEngineeringAggregate;
+  revision: MeasurementEngineeringRevision;
+}
+
+export interface EngineeringCurveEvaluation {
+  values: Record<string, number>;
+  axis_values: Record<string, number>;
+  interpolation: string;
+  extrapolated: boolean;
+  warning?: string;
+  source_revision_id: string;
+  source_checksum: string;
+}

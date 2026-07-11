@@ -89,7 +89,15 @@ pointers remain indexed columns. Version 2 adds first-class physical
 classification registries, backend-owned classification presets with port
 topology, and transactionally maintained model summary tables so catalog
 filters by class, manufacturer, status, functional role, signal domain, and
-technology tag do not scan canonical definition JSON.
+technology tag do not scan canonical definition JSON. Version 3 adds the
+measurement-engineering definition layer in the same repository:
+`sensor_definition_*`, `scaling_profile_*`, `engineering_curve_*`,
+`daq_channel_profile_*`, `acquisition_channel_recipe_*`, and
+`measurement_engineering_audit_events`. These aggregates follow the same
+revision discipline as models and driver profiles: one active draft, immutable
+approved revisions, approval supersession, checksum CAS for draft saves, audit,
+and outbox evidence. They describe reusable measurement-chain definitions and
+recipes; they do not create physical assets or runtime acquisitions.
 
 ### Measurement Data
 
@@ -196,6 +204,8 @@ perform minimal insert/count/query operations for smoke testing:
   `emc-locus-agent`.
 - agent-owned test-template submit-for-review and approve transitions through
   `emc-locus-agent`.
+- agent-owned sensor definitions, scaling profiles, engineering curves, DAQ
+  channel profiles, and acquisition channel recipes through `emc-locus-agent`.
 - synchronization conflict insert/count/get/list APIs;
 - synchronization action-plan insert/list APIs;
 - transactional conflict resolution/defer APIs with optional audit-event

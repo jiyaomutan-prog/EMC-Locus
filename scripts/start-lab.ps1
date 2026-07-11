@@ -4,6 +4,7 @@ param(
     [switch]$Reset,
     [switch]$SeedDemo,
     [switch]$SeedEquipmentDemo,
+    [switch]$SeedMeasurementDemo,
     [switch]$Rebuild,
     [string]$PythonCommand = "py",
     [string]$CargoCommand = "cargo"
@@ -48,6 +49,9 @@ if ($SeedDemo) {
 }
 if ($SeedEquipmentDemo) {
     & (Join-Path $PSScriptRoot "seed-equipment-demo.ps1") -AgentUrl $AgentUrl
+}
+if ($SeedMeasurementDemo) {
+    & (Join-Path $PSScriptRoot "seed-measurement-engineering-demo.ps1") -AgentUrl $AgentUrl
 }
 
 Write-Host "LAB CONSOLE ready: $LabUrl"

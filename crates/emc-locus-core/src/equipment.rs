@@ -72,6 +72,18 @@ pub enum PhysicalQuantity {
     Velocity,
     Acceleration,
     Pressure,
+    SoundPressure,
+    Force,
+    Torque,
+    Strain,
+    Charge,
+    MagneticFluxDensity,
+    ElectricCharge,
+    AngularVelocity,
+    Humidity,
+    Illuminance,
+    Mass,
+    FlowRate,
     Dimensionless,
     Text,
     Boolean,
@@ -1965,15 +1977,31 @@ pub fn unit_quantity(unit: &str) -> Option<PhysicalQuantity> {
         "V" | "mV" | "uV" => PhysicalQuantity::Voltage,
         "A" | "mA" | "uA" => PhysicalQuantity::Current,
         "W" | "mW" | "dBm" => PhysicalQuantity::Power,
-        "dBuV_per_m" => PhysicalQuantity::ElectricField,
-        "dB_per_m" => PhysicalQuantity::MagneticField,
+        "V_per_meter" | "dBuV_per_m" => PhysicalQuantity::ElectricField,
+        "A_per_meter" | "dB_per_m" => PhysicalQuantity::MagneticField,
         "dBuV" => PhysicalQuantity::Voltage,
-        "dB" | "percent" | "dimensionless" => PhysicalQuantity::Dimensionless,
+        "dB" | "percent" | "dimensionless" | "mV_per_g" | "V_per_g" | "pC_per_N" | "V_per_A"
+        | "mV_per_A" | "A_per_V" | "V_per_V" | "dB_ohm" | "dB_per_meter" | "dB_per_microampere" => {
+            PhysicalQuantity::Dimensionless
+        }
         "ohm" => PhysicalQuantity::Resistance,
         "m" | "cm" | "mm" => PhysicalQuantity::Distance,
         "deg" | "rad" => PhysicalQuantity::Angle,
+        "m_per_s" => PhysicalQuantity::Velocity,
+        "g" | "m_per_s2" => PhysicalQuantity::Acceleration,
         "Celsius" => PhysicalQuantity::Temperature,
         "Pa" => PhysicalQuantity::Pressure,
+        "dB_SPL" => PhysicalQuantity::SoundPressure,
+        "N" => PhysicalQuantity::Force,
+        "Nm" => PhysicalQuantity::Torque,
+        "strain" | "microstrain" => PhysicalQuantity::Strain,
+        "C" | "pC" => PhysicalQuantity::ElectricCharge,
+        "Tesla" | "uT" => PhysicalQuantity::MagneticFluxDensity,
+        "rad_per_s" => PhysicalQuantity::AngularVelocity,
+        "percent_RH" => PhysicalQuantity::Humidity,
+        "lux" => PhysicalQuantity::Illuminance,
+        "kg" | "g_mass" => PhysicalQuantity::Mass,
+        "m3_per_s" => PhysicalQuantity::FlowRate,
         _ => return None,
     })
 }
@@ -1989,7 +2017,18 @@ pub fn convert_prefixed_value(value: f64, from_unit: &str, to_unit: &str) -> Opt
 }
 
 pub fn is_logarithmic_unit(unit: &str) -> bool {
-    matches!(unit, "dBm" | "dBuV" | "dBuV_per_m" | "dB" | "dB_per_m")
+    matches!(
+        unit,
+        "dBm"
+            | "dBuV"
+            | "dBuV_per_m"
+            | "dB"
+            | "dB_per_m"
+            | "dB_SPL"
+            | "dB_ohm"
+            | "dB_per_meter"
+            | "dB_per_microampere"
+    )
 }
 
 fn unit_scale(unit: &str) -> Option<f64> {
@@ -1997,15 +2036,18 @@ fn unit_scale(unit: &str) -> Option<f64> {
         "GHz" => 1_000_000_000.0,
         "MHz" => 1_000_000.0,
         "kHz" => 1_000.0,
-        "Hz" | "s" | "V" | "A" | "W" | "ohm" | "m" | "rad" | "Celsius" | "Pa" | "dimensionless" => {
-            1.0
-        }
+        "Hz" | "s" | "V" | "A" | "W" | "ohm" | "m" | "rad" | "Celsius" | "Pa" | "dimensionless"
+        | "m_per_s" | "m_per_s2" | "N" | "Nm" | "strain" | "C" | "Tesla" | "rad_per_s"
+        | "percent_RH" | "lux" | "kg" | "m3_per_s" => 1.0,
         "ms" | "mV" | "mA" | "mW" | "mm" => 0.001,
-        "us" | "uV" | "uA" => 0.000_001,
+        "us" | "uV" | "uA" | "microstrain" | "uT" => 0.000_001,
         "ns" => 0.000_000_001,
+        "pC" => 0.000_000_000_001,
+        "g_mass" => 0.001,
         "cm" => 0.01,
         "deg" => std::f64::consts::PI / 180.0,
         "percent" => 0.01,
+        "g" => 9.806_65,
         _ => return None,
     })
 }

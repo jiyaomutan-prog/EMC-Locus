@@ -112,6 +112,13 @@ Deliverables:
   active frontend validation path, `scripts/validate-ci.ps1` mirrors GitHub
   Actions, and CI emits tool versions plus failure diagnostics. It adds no
   product feature.
+- `0.13.0` delivers Sensors, DAQ Channels, Scaling And Engineering Curves:
+  typed revisioned sensor/transducer definitions, scaling profiles, engineering
+  correction curves, DAQ channel profiles, and logical acquisition channel
+  recipes in `equipment.sqlite`; public local-agent routes; Python client
+  helpers; seed/demo data; and LAB CONSOLE editors with CSV curve/table support
+  and deterministic 1D curve evaluation. It is not real acquisition, station
+  wiring, physical fleet deployment, FFT, reporting, RBAC, or synchronization.
 
 ## Phase 3: Measurement Runtime
 
@@ -427,12 +434,11 @@ Deliverables:
 
 ## Near-Term Next Session
 
-Recommended next vertical: `0.13.0 - Sensors, DAQ Channels, Scaling And
-Engineering Curves`. It should cover sensors, transducers, DAQ channels,
-two-point scaling, function-based scaling, transfer curves, antenna factors,
-cable losses, gains, uncertainties, frequency-dependent corrections, and
-interactive calibration. It should not become a full acquisition runtime, FFT
-engine, report generator, or RBAC implementation.
+Recommended next vertical: `0.14.0 - Physical Asset Fleet, Station Connections
+And Measurement Chain Drafting`. It should connect approved equipment models,
+sensors, curves, DAQ profiles, and recipes to physical serial-numbered assets
+and station-level connection bindings. It should not become a real acquisition
+runtime, FFT engine, report generator, RBAC implementation, or central sync.
 
 The parallel runtime stream should continue guarded serial or VISA IO behind the
 adapter skeletons.

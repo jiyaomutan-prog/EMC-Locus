@@ -8,6 +8,52 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-11
+
+### Added
+
+- Added typed Rust core definitions for measurement-engineering aggregates:
+  sensor/transducer definitions, scaling profiles, engineering curves, DAQ
+  channel profiles, and acquisition channel recipes, with canonical JSON and
+  SHA-256 definition checksums.
+- Added SQLite equipment migration `0003_sensors_scaling_curves.sql` with
+  revisioned identity/revision tables, lifecycle statuses, audit events, and
+  sync outbox integration for the new aggregates.
+- Added local-agent REST routes for create/list/read, revision listing, draft
+  CAS replacement, submit, approve, clone/derive, audit inspection, definition
+  validation, and engineering-curve evaluation.
+- Added deterministic 1D engineering-curve evaluation for linear/log/nearest
+  and step-style interpolation with explicit extrapolation policies.
+- Expanded equipment quantities and unit registry coverage for current probes,
+  accelerometers, microphones, antennas, charge sensors, vibration, force,
+  torque, strain, humidity, flow, and RF correction artifacts.
+- Added Python `LocalAgentClient` helpers and tests for the new public API.
+- Added LAB CONSOLE Measurement Engineering editors for Sensors &
+  Transducers, Scaling Profiles, Engineering Curves, DAQ Channels, and
+  Acquisition Recipes, including CSV paste/import/export for curves and lookup
+  scaling tables.
+- Added public-API seed scripts for the measurement-engineering demo and wired
+  them into LAB/equipment launchers and launcher smoke checks.
+- Added Playwright coverage for a complete LAB CONSOLE workflow from scaling
+  and curve authoring through sensor, DAQ, and approved logical `current_A`
+  acquisition recipe creation.
+
+### Changed
+
+- Bumped synchronized Rust, Python, and frontend versions to `0.13.0`.
+- LAB CONSOLE Equipment navigation now separates model/driver authoring from
+  reusable measurement-engineering definitions instead of extending metrology
+  follow-up screens.
+- The recommended next vertical is now `0.14.0 - Physical Asset Fleet, Station
+  Connections And Measurement Chain Drafting`.
+
+### Fixed
+
+- Fixed the new IEPE validation path so IEPE excitation is treated as a current
+  excitation and compatible DAQ profiles can satisfy IEPE sensor requirements.
+- Fixed unit-registry scale metadata for `pC` and gram mass while expanding the
+  measurement unit registry.
+
 ## [0.12.1] - 2026-07-11
 
 ### Added

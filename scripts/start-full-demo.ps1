@@ -4,6 +4,7 @@ param(
     [switch]$Reset,
     [switch]$SeedDemo,
     [switch]$SeedEquipmentDemo,
+    [switch]$SeedMeasurementDemo,
     [switch]$Rebuild,
     [string]$PythonCommand = "py",
     [string]$CargoCommand = "cargo"
@@ -25,6 +26,9 @@ if ($SeedDemo) {
 }
 if ($SeedEquipmentDemo) {
     $labArgs.SeedEquipmentDemo = $true
+}
+if ($SeedMeasurementDemo) {
+    $labArgs.SeedMeasurementDemo = $true
 }
 if ($Rebuild) {
     $labArgs.Rebuild = $true

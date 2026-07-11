@@ -5,6 +5,9 @@ mod equipment_dto;
 mod equipment_repository;
 mod equipment_service;
 mod local_api;
+mod measurement_engineering_dto;
+mod measurement_engineering_repository;
+mod measurement_engineering_service;
 mod metrology_agent;
 mod metrology_dto;
 mod metrology_repository;
@@ -45,6 +48,18 @@ pub use equipment_service::{
     TransitionDriverProfileRevisionInput, TransitionEquipmentModelRevisionInput,
 };
 pub use local_api::{run_local_api_server, ApiServerConfig};
+pub use measurement_engineering_service::{
+    clone_measurement_engineering_definition, create_measurement_engineering_definition,
+    create_measurement_engineering_revision, evaluate_engineering_curve_revision,
+    get_measurement_engineering_definition, get_measurement_engineering_revision_json,
+    list_measurement_engineering_audit_events, list_measurement_engineering_definitions,
+    list_measurement_engineering_revisions_json,
+    replace_measurement_engineering_revision_definition,
+    transition_measurement_engineering_revision, validate_measurement_engineering_definition_json,
+    CloneMeasurementEngineeringInput, CreateMeasurementEngineeringInput,
+    CreateMeasurementEngineeringRevisionInput, EvaluateEngineeringCurveInput,
+    ReplaceMeasurementEngineeringDefinitionInput, TransitionMeasurementEngineeringRevisionInput,
+};
 pub use metrology_agent::{run_metrology_command, MetrologyAction};
 pub use metrology_service::{
     assess_metrology_readiness, get_metrology_calibration_status, get_metrology_instrument,
@@ -890,7 +905,7 @@ mod tests {
                 .find(|domain| domain.domain == "equipment")
                 .unwrap()
                 .schema_version,
-            Some(2)
+            Some(3)
         );
         assert_eq!(
             second_report

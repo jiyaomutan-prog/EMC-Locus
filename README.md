@@ -43,7 +43,7 @@ crates/
   emc-locus-agent/       Rust local agent executable skeleton
   emc-locus-core/        Rust domain model and core invariants
 apps/
-  lab-console/           React/TypeScript LAB CONSOLE Template Studio
+  lab-console/           React/TypeScript LAB CONSOLE workflows
   qt-console/            Qt desktop TEST CONSOLE bootstrap for measurement stations
 docs/
   architecture.md        System boundaries and technical direction
@@ -83,7 +83,20 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.12.1`.
+Current software version: `0.13.0`.
+
+Version `0.13.0` adds the measurement-engineering layer needed between the
+equipment catalog and a future acquisition runtime. The equipment repository
+now owns revisioned sensor/transducer definitions, scaling profiles,
+engineering correction curves, DAQ channel profiles, and logical acquisition
+channel recipes. These aggregates are typed in Rust core, persisted in
+`equipment.sqlite` with draft/review/approval lifecycle, audit and outbox
+evidence, exposed through public local-agent API routes, covered by Python
+client helpers, and editable in LAB CONSOLE. Engineering curves support simple
+CSV import/export and deterministic 1D evaluation for frequency-dependent
+artifacts such as antenna factor, cable loss, amplifier gain, and current
+probe transfer. This release still does not perform real DAQ acquisition,
+instrument binding, station wiring, FFT, reporting, RBAC, or central sync.
 
 Version `0.12.1` repairs CI/release parity after the 0.12.0 GitHub Actions
 run exposed a Windows checkout/build mismatch in the versioned LAB CONSOLE
@@ -106,8 +119,8 @@ metadata as a runtime driver. It is still not a physical fleet deployment
 system, certified hardware driver package, acquisition engine, RBAC domain,
 or full sensor/DAQ scaling model.
 
-Recommended next vertical: `0.13.0 - Sensors, DAQ Channels, Scaling And
-Engineering Curves`.
+Recommended next vertical: `0.14.0 - Physical Asset Fleet, Station Connections
+And Measurement Chain Drafting`.
 
 Version `0.11.0` delivers the first Equipment Definition Catalog and Driver
 Script Studio slice. LAB CONSOLE now has an Equipment space with a functional
@@ -276,6 +289,7 @@ Windows launchers are available from any working directory:
 ```powershell
 .\scripts\start-lab.ps1
 .\scripts\start-lab.ps1 -SeedDemo
+.\scripts\start-lab.ps1 -SeedMeasurementDemo
 .\scripts\start-full-demo.ps1
 .\scripts\start-qt-demo.ps1 -Mode Static
 .\scripts\start-qt-demo.ps1 -Mode Auto
@@ -296,10 +310,13 @@ scripts\stop-all.bat
 `start-lab` verifies the versioned LAB CONSOLE build, starts or reuses the Rust
 agent on `127.0.0.1:8765`, waits for `/api/v1/health` and `/lab/`, then opens
 the browser. `-SeedDemo` creates demonstration templates through the public API.
-`-Rebuild` rebuilds the React application when Node/npm is available; normal
-release launch uses the committed `apps/lab-console/dist` bundle and does not
-require Node. `start-full-demo` opens LAB CONSOLE and then launches TEST
-CONSOLE Qt against the same local storage. `start-qt-demo -Mode Static` now uses
+`-SeedMeasurementDemo` creates approved measurement-engineering definitions for
+a current probe, biconical antenna, RF cable, RF amplifier, IEPE accelerometer,
+DAQ analog input, and a logical `current_A` acquisition recipe. `-Rebuild`
+rebuilds the React application when Node/npm is available; normal release launch
+uses the committed `apps/lab-console/dist` bundle and does not require Node.
+`start-full-demo` opens LAB CONSOLE and then launches TEST CONSOLE Qt against
+the same local storage. `start-qt-demo -Mode Static` now uses
 `apps/qt-console/demo/bootstrap.json`, a strict JSON fixture owned by the Qt
 console, not a LAB web bootstrap script.
 
