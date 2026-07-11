@@ -107,6 +107,11 @@ Deliverables:
   client methods; LAB CONSOLE catalog filters, preset creation and port
   topology editing; and public-API demo seed expansion. It is not a new driver
   runtime or acquisition engine.
+- `0.12.1` repairs CI/release parity after the 0.12.0 push: LAB CONSOLE source
+  and generated text artifacts are pinned to LF line endings, npm is the single
+  active frontend validation path, `scripts/validate-ci.ps1` mirrors GitHub
+  Actions, and CI emits tool versions plus failure diagnostics. It adds no
+  product feature.
 
 ## Phase 3: Measurement Runtime
 

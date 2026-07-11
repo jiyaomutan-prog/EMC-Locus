@@ -83,7 +83,16 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.12.0`.
+Current software version: `0.12.1`.
+
+Version `0.12.1` repairs CI/release parity after the 0.12.0 GitHub Actions
+run exposed a Windows checkout/build mismatch in the versioned LAB CONSOLE
+`dist` bundle. The active validation path now uses npm consistently, the LAB
+CONSOLE source and generated text artifacts are pinned to LF line endings, the
+CI workflow prints tool versions and uploads failure diagnostics, and
+`scripts\validate-ci.ps1` mirrors the GitHub Actions command sequence for
+local pre-push validation. No product feature or runtime behavior is added in
+this patch release.
 
 Version `0.12.0` productizes equipment physics classification. The equipment
 catalog now has backend-owned registries for functional role, signal domain,
@@ -287,9 +296,9 @@ scripts\stop-all.bat
 `start-lab` verifies the versioned LAB CONSOLE build, starts or reuses the Rust
 agent on `127.0.0.1:8765`, waits for `/api/v1/health` and `/lab/`, then opens
 the browser. `-SeedDemo` creates demonstration templates through the public API.
-`-Rebuild` rebuilds the React application when Node/npm or pnpm is available;
-normal release launch uses the committed `apps/lab-console/dist` bundle and does
-not require Node. `start-full-demo` opens LAB CONSOLE and then launches TEST
+`-Rebuild` rebuilds the React application when Node/npm is available; normal
+release launch uses the committed `apps/lab-console/dist` bundle and does not
+require Node. `start-full-demo` opens LAB CONSOLE and then launches TEST
 CONSOLE Qt against the same local storage. `start-qt-demo -Mode Static` now uses
 `apps/qt-console/demo/bootstrap.json`, a strict JSON fixture owned by the Qt
 console, not a LAB web bootstrap script.
@@ -311,6 +320,23 @@ Revision tracking uses:
 - `rust-toolchain.toml` and `Cargo.lock` for Rust build reproducibility.
 
 ## Validation
+
+Run the CI-equivalent validation before pushing:
+
+```powershell
+.\scripts\validate-ci.ps1
+```
+
+Useful local shortcuts:
+
+```powershell
+.\scripts\validate-ci.ps1 -SkipE2E
+.\scripts\validate-ci.ps1 -SkipSmoke
+.\scripts\validate-ci.ps1 -NoInstall
+```
+
+The script intentionally uses npm for LAB CONSOLE because the repository
+commits `package-lock.json` and GitHub Actions runs `npm ci`.
 
 ```text
 $env:PYTHONPATH='python'; py -m compileall -q python\emc_locus python\tests

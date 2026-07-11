@@ -1,0 +1,8 @@
+# Keep generated LAB CONSOLE artifacts byte-stable on Windows CI. Vite writes LF
+# output; checkout conversion to CRLF makes `git diff --exit-code -- dist` fail.
+apps/lab-console/**/*.html text eol=lf
+apps/lab-console/**/*.css text eol=lf
+apps/lab-console/**/*.js text eol=lf
+apps/lab-console/**/*.json text eol=lf
+apps/lab-console/**/*.ts text eol=lf
+apps/lab-console/**/*.tsx text eol=lf

@@ -147,7 +147,7 @@ The normal release launcher is:
 
 `start-lab` does not require Node when the committed `apps/lab-console/dist`
 bundle is present. Developers can pass `-Rebuild` or run
-`.\scripts\build-lab.ps1` on a machine with npm or pnpm.
+`.\scripts\build-lab.ps1` on a machine with npm.
 
 The implemented routes are:
 

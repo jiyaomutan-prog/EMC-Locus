@@ -8,6 +8,33 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-07-11
+
+### Added
+
+- Added `scripts/validate-ci.ps1` as the local Windows PowerShell equivalent of
+  the GitHub Actions validation sequence, with `-SkipE2E`, `-SkipSmoke`, and
+  `-NoInstall` options.
+- Added CI tool-version reporting and failure artifact upload for launcher logs
+  and LAB CONSOLE Playwright diagnostics.
+- Added `.gitattributes` rules that keep LAB CONSOLE source and generated text
+  artifacts on LF line endings so the versioned `dist` check remains
+  deterministic on Windows runners.
+
+### Changed
+
+- Bumped synchronized Rust, Python, and frontend versions to `0.12.1`.
+- Standardized release validation on npm for LAB CONSOLE because the repository
+  commits `package-lock.json` and CI runs `npm ci`.
+
+### Fixed
+
+- Fixed the 0.12.0 GitHub Actions failure where `npm run build` regenerated
+  `apps/lab-console/dist/index.html` with LF output from a CRLF Windows
+  checkout, causing `git diff --exit-code -- apps/lab-console/dist` to fail.
+- Removed the active LAB CONSOLE rebuild fallback to pnpm so local rebuilds and
+  CI use the same package-manager path.
+
 ## [0.12.0] - 2026-07-11
 
 ### Added

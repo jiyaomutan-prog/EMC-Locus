@@ -90,7 +90,19 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.12.0` was validated on 2026-07-11 with:
+Version `0.12.1` was validated on 2026-07-11 with the CI-equivalent release
+script:
+
+```text
+.\scripts\validate-ci.ps1
+```
+
+The script runs the same validation path as GitHub Actions: Rust format,
+Clippy, Rust tests, Python compile/tests, SQLite migration validation, npm-based
+LAB CONSOLE install/typecheck/lint/unit/build, versioned `dist` verification,
+Playwright E2E, release consistency, launcher smoke and whitespace checks.
+
+The explicit command sequence is:
 
 ```text
 cargo fmt --check
@@ -101,11 +113,16 @@ py -m py_compile apps\qt-console\main.py
 $env:PYTHONPATH='python'; py -m unittest discover -s python\tests
 $env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrations import validate_sqlite_migrations; print(validate_sqlite_migrations(Path('storage/sqlite')))"
 cd apps\lab-console
-.\node_modules\.bin\tsc.cmd --noEmit
-.\node_modules\.bin\eslint.cmd .
-.\node_modules\.bin\vitest.cmd run
-.\node_modules\.bin\vite.cmd build
-.\node_modules\.bin\playwright.cmd test
+npm ci
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+cd ..\..
+git diff --exit-code -- apps/lab-console/dist
+cd apps\lab-console
+npx playwright install chromium
+npm run test:e2e
 cd ..\..
 $env:PYTHONPATH='python'; py -m unittest python.tests.test_release_consistency
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-launchers.ps1 -SkipQtOffscreen

@@ -1,7 +1,7 @@
 # EMC Locus LAB CONSOLE
 
 LAB CONSOLE is the browser application for laboratory management workflows. In
-0.12.0 it provides Template Studio v1 plus the Equipment workspace with
+0.12.1 it provides Template Studio v1 plus the Equipment workspace with
 revisioned equipment models, driver profiles, communication-provider status,
 backend-owned physical classification registries, preset-backed model creation,
 catalog filters, and structured port topology editing.
@@ -43,8 +43,18 @@ npm run build
 npm run test:e2e
 ```
 
+The release validation path is npm-only. `package-lock.json` is committed and
+GitHub Actions runs `npm ci`; do not use another package manager for release
+evidence unless the workflow and lockfile policy are deliberately migrated.
+
 Vite proxies `/api` to `http://127.0.0.1:8765` during development. Production
 does not use a Node server.
+
+## Scope In 0.12.1
+
+0.12.1 does not add LAB CONSOLE features. It repairs CI parity by keeping LAB
+CONSOLE source and generated text artifacts on LF line endings and by aligning
+local validation with the npm commands used by GitHub Actions.
 
 ## Scope In 0.12.0
 

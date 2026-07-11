@@ -1,6 +1,5 @@
 param(
-    [string]$NpmCommand = "npm",
-    [string]$PnpmCommand = "pnpm"
+    [string]$NpmCommand = "npm"
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,28 +15,18 @@ if (-not (Test-Path (Join-Path $LabRoot "package.json"))) {
 
 Set-Location $LabRoot
 
-if (Get-Command $NpmCommand -ErrorAction SilentlyContinue) {
-    Write-Host "Building LAB CONSOLE with npm..."
-    & $NpmCommand ci
-    if ($LASTEXITCODE -ne 0) {
-        throw "npm ci failed."
-    }
-    & $NpmCommand run build
-    if ($LASTEXITCODE -ne 0) {
-        throw "npm run build failed."
-    }
-} elseif (Get-Command $PnpmCommand -ErrorAction SilentlyContinue) {
-    Write-Host "Building LAB CONSOLE with pnpm..."
-    & $PnpmCommand install --frozen-lockfile
-    if ($LASTEXITCODE -ne 0) {
-        throw "pnpm install --frozen-lockfile failed."
-    }
-    & $PnpmCommand run build
-    if ($LASTEXITCODE -ne 0) {
-        throw "pnpm run build failed."
-    }
-} else {
-    throw "Cannot rebuild LAB CONSOLE: neither '$NpmCommand' nor '$PnpmCommand' is available in PATH. Install Node.js/npm or run the release build already present under apps\lab-console\dist."
+if (-not (Get-Command $NpmCommand -ErrorAction SilentlyContinue)) {
+    throw "Cannot rebuild LAB CONSOLE: '$NpmCommand' is not available in PATH. Install Node.js/npm or run the release build already present under apps\lab-console\dist."
+}
+
+Write-Host "Building LAB CONSOLE with npm..."
+& $NpmCommand ci
+if ($LASTEXITCODE -ne 0) {
+    throw "npm ci failed."
+}
+& $NpmCommand run build
+if ($LASTEXITCODE -ne 0) {
+    throw "npm run build failed."
 }
 
 if (-not (Test-Path $Index)) {
