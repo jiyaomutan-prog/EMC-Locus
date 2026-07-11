@@ -90,7 +90,7 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.11.0` was validated on 2026-07-03 with:
+Version `0.12.0` was validated on 2026-07-11 with:
 
 ```text
 cargo fmt --check
@@ -101,15 +101,21 @@ py -m py_compile apps\qt-console\main.py
 $env:PYTHONPATH='python'; py -m unittest discover -s python\tests
 $env:PYTHONPATH='python'; py -c "from pathlib import Path; from emc_locus.migrations import validate_sqlite_migrations; print(validate_sqlite_migrations(Path('storage/sqlite')))"
 cd apps\lab-console
-npm ci
-npm run typecheck
-npm run lint
-npm run test
-npm run build
-npm run test:e2e
+.\node_modules\.bin\tsc.cmd --noEmit
+.\node_modules\.bin\eslint.cmd .
+.\node_modules\.bin\vitest.cmd run
+.\node_modules\.bin\vite.cmd build
+.\node_modules\.bin\playwright.cmd test
 cd ..\..
 $env:PYTHONPATH='python'; py -m unittest python.tests.test_release_consistency
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-launchers.ps1 -SkipQtOffscreen
 git diff --check
 git diff --cached --check
 ```
+
+The historical `node --check apps\gui-shell\app.js` check is no longer
+applicable to the current product path because `apps/gui-shell` was removed
+from the normal release surface when LAB CONSOLE replaced the static shell in
+0.10.0. JavaScript/TypeScript validation now runs against
+`apps/lab-console/src`, unit tests, Playwright, and the committed production
+build.

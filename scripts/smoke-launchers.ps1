@@ -145,14 +145,14 @@ try {
             & $SeedEquipmentDemo -AgentUrl $agentUrl
             $models = Invoke-RestMethod -Uri "$agentUrl/api/v1/equipment-models" -TimeoutSec 10
             $modelIds = @($models.equipment_models | ForEach-Object { $_.identity.equipment_model_id })
-            foreach ($expected in @("EQM-DEMO-NRP6AN-FWD", "EQM-DEMO-SERIAL-AMP", "EQM-DEMO-CAN-POWER", "EQM-DEMO-MANUAL-ANTENNA")) {
+            foreach ($expected in @("EQM-DEMO-NRP6AN-FWD", "EQM-DEMO-SERIAL-AMP", "EQM-DEMO-CAN-BUS-POWER", "EQM-DEMO-MANUAL-ANTENNA", "EQM-PRESET-ADC-CONVERTER", "EQM-PRESET-DAQ-CARD")) {
                 if ($modelIds -notcontains $expected) {
                     throw "Seeded equipment model missing from API library: $expected"
                 }
             }
             $drivers = Invoke-RestMethod -Uri "$agentUrl/api/v1/driver-profiles" -TimeoutSec 10
             $driverIds = @($drivers.driver_profiles | ForEach-Object { $_.identity.driver_profile_id })
-            foreach ($expected in @("DRV-DEMO-NRP6AN-SCPI", "DRV-DEMO-SERIAL-AMP", "DRV-DEMO-CAN-POWER")) {
+            foreach ($expected in @("DRV-DEMO-NRP6AN-SCPI", "DRV-DEMO-SERIAL-AMP", "DRV-DEMO-CAN-BUS-POWER")) {
                 if ($driverIds -notcontains $expected) {
                     throw "Seeded driver profile missing from API library: $expected"
                 }

@@ -4,10 +4,13 @@ use crate::{
         DriverProfileAggregateDto, DriverProfileEnvelopeDto, DriverProfileIdentityDto,
         DriverProfileListDto, DriverProfileRevisionDto, DriverProfileRevisionEnvelopeDto,
         DriverProfileRevisionListDto, EquipmentAuditEventDto, EquipmentAuditEventsDto,
+        EquipmentClassificationPresetDto, EquipmentClassificationPresetEnvelopeDto,
+        EquipmentClassificationPresetListDto, EquipmentClassificationPresetPortDto,
         EquipmentDefinitionValidationDto, EquipmentDefinitionValidationIssueDto,
         EquipmentModelAggregateDto, EquipmentModelEnvelopeDto, EquipmentModelIdentityDto,
         EquipmentModelListDto, EquipmentModelRevisionDto, EquipmentModelRevisionEnvelopeDto,
-        EquipmentModelRevisionListDto, EquipmentOperationResultDto,
+        EquipmentModelRevisionListDto, EquipmentOperationResultDto, EquipmentRegistriesDto,
+        EquipmentRegistryItemDto,
     },
     equipment_repository::{
         ensure_equipment_operation_replay, equipment_model_class_exists,
@@ -16,37 +19,47 @@ use crate::{
         insert_equipment_model_identity, insert_equipment_model_revision,
         insert_equipment_sync_operation, list_driver_profile_identities,
         list_driver_profile_revisions as load_driver_revision_history,
+        list_equipment_classification_preset_ports, list_equipment_classification_presets,
+        list_equipment_flow_role_registry, list_equipment_functional_role_registry,
         list_equipment_model_identities,
         list_equipment_model_revisions as load_model_revision_history,
-        load_active_draft_driver_profile_revision, load_active_draft_equipment_model_revision,
-        load_current_approved_driver_profile_revision,
+        list_equipment_port_directionality_registry, list_equipment_signal_domain_registry,
+        list_equipment_technology_tag_registry, load_active_draft_driver_profile_revision,
+        load_active_draft_equipment_model_revision, load_current_approved_driver_profile_revision,
         load_current_approved_equipment_model_revision, load_driver_profile_identity,
-        load_driver_profile_revision, load_equipment_audit_events, load_equipment_model_identity,
+        load_driver_profile_revision, load_equipment_audit_events,
+        load_equipment_classification_preset, load_equipment_model_identity,
         load_equipment_model_revision, load_latest_driver_profile_revision,
         load_latest_equipment_model_revision, next_driver_profile_revision_number,
         next_equipment_model_revision_number, open_equipment_connection,
-        open_equipment_connection_with_sync, set_current_approved_driver_profile_revision,
+        open_equipment_connection_with_sync, replace_equipment_model_classification_summary,
+        set_current_approved_driver_profile_revision,
         set_current_approved_equipment_model_revision, supersede_approved_driver_profile_revision,
         supersede_approved_equipment_model_revision, touch_driver_profile_identity,
         touch_equipment_model_identity, update_driver_profile_revision_definition,
         update_driver_profile_revision_status, update_equipment_model_revision_definition,
         update_equipment_model_revision_status, DriverProfileListFilter, EquipmentAuditEventInput,
-        EquipmentModelListFilter, EquipmentOperationFingerprintInput, EquipmentSyncOperationInput,
+        EquipmentClassificationSummaryRecord, EquipmentModelListFilter,
+        EquipmentOperationFingerprintInput, EquipmentSyncOperationInput,
         NewDriverProfileIdentityRecord, NewDriverProfileRevisionRecord,
         NewEquipmentModelIdentityRecord, NewEquipmentModelRevisionRecord,
         StoredDriverProfileIdentity, StoredDriverProfileRevision, StoredEquipmentAuditEvent,
+        StoredEquipmentClassificationPreset, StoredEquipmentClassificationPresetPort,
         StoredEquipmentModelIdentity, StoredEquipmentModelRevision, StoredEquipmentOperation,
-        UpdateDefinitionInput, UpdateDriverDefinitionCounts, UpdateModelDefinitionCounts,
-        UpdateStatusInput,
+        StoredEquipmentRegistryItem, UpdateDefinitionInput, UpdateDriverDefinitionCounts,
+        UpdateModelDefinitionCounts, UpdateStatusInput,
     },
     render_json, AgentError,
 };
 use emc_locus_core::equipment::{
     simulate_driver_action, DefinitionValidationIssue, DriverProfileDefinition,
-    DriverSimulationScenario, EquipmentModelDefinition, EquipmentRevisionStatus,
+    DriverSimulationScenario, EquipmentClass, EquipmentModelDefinition, EquipmentRevisionStatus,
+    FunctionalRole, PhysicalQuantity, SignalDomain, SignalPortDefinition, TechnologyTag,
+    EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION,
 };
+use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,8 +78,25 @@ pub struct ListEquipmentModelsInput {
     pub manufacturer: Option<String>,
     pub equipment_class: Option<String>,
     pub category_code: Option<String>,
+    pub functional_role: Option<String>,
+    pub signal_domain: Option<String>,
+    pub technology_tag: Option<String>,
     pub status: Option<String>,
     pub search: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CreateEquipmentModelFromPresetInput {
+    pub preset_id: String,
+    pub equipment_model_id: String,
+    pub manufacturer: String,
+    pub model_name: String,
+    pub variant: Option<String>,
+    pub actor: String,
+    pub reason: String,
+    pub operation_id: String,
+    pub correlation_id: String,
+    pub device_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -228,6 +258,9 @@ pub fn list_equipment_models(
 ) -> Result<String, AgentError> {
     validate_optional_id(input.equipment_class.as_deref(), "equipment_class")?;
     validate_optional_id(input.category_code.as_deref(), "category_code")?;
+    validate_optional_id(input.functional_role.as_deref(), "functional_role")?;
+    validate_optional_id(input.signal_domain.as_deref(), "signal_domain")?;
+    validate_optional_id(input.technology_tag.as_deref(), "technology_tag")?;
     validate_optional_id(input.status.as_deref(), "status")?;
     let connection = open_equipment_connection(storage_root)?;
     let identities = list_equipment_model_identities(
@@ -236,6 +269,9 @@ pub fn list_equipment_models(
             manufacturer: input.manufacturer.as_deref(),
             equipment_class: input.equipment_class.as_deref(),
             category_code: input.category_code.as_deref(),
+            functional_role: input.functional_role.as_deref(),
+            signal_domain: input.signal_domain.as_deref(),
+            technology_tag: input.technology_tag.as_deref(),
             status: input.status.as_deref(),
             search: input.search.as_deref(),
         },
@@ -250,6 +286,252 @@ pub fn list_equipment_models(
             .map(equipment_model_aggregate_dto)
             .collect(),
     }))
+}
+
+pub fn equipment_registries(storage_root: &Path) -> Result<String, AgentError> {
+    let connection = open_equipment_connection(storage_root)?;
+    Ok(render_json(&EquipmentRegistriesDto {
+        functional_roles: list_equipment_functional_role_registry(&connection)?
+            .iter()
+            .map(registry_item_dto)
+            .collect(),
+        signal_domains: list_equipment_signal_domain_registry(&connection)?
+            .iter()
+            .map(registry_item_dto)
+            .collect(),
+        port_directionalities: list_equipment_port_directionality_registry(&connection)?
+            .iter()
+            .map(registry_item_dto)
+            .collect(),
+        flow_roles: list_equipment_flow_role_registry(&connection)?
+            .iter()
+            .map(registry_item_dto)
+            .collect(),
+        technology_tags: list_equipment_technology_tag_registry(&connection)?
+            .iter()
+            .map(registry_item_dto)
+            .collect(),
+    }))
+}
+
+pub fn list_classification_presets(storage_root: &Path) -> Result<String, AgentError> {
+    let connection = open_equipment_connection(storage_root)?;
+    let presets = list_equipment_classification_presets(&connection)?;
+    let presets = presets
+        .iter()
+        .map(|preset| classification_preset_dto(&connection, preset))
+        .collect::<Result<Vec<_>, AgentError>>()?;
+    Ok(render_json(&EquipmentClassificationPresetListDto {
+        presets,
+    }))
+}
+
+pub fn get_classification_preset(
+    storage_root: &Path,
+    preset_id: &str,
+) -> Result<String, AgentError> {
+    validate_id(preset_id, "preset_id")?;
+    let connection = open_equipment_connection(storage_root)?;
+    let preset =
+        load_equipment_classification_preset(&connection, preset_id)?.ok_or_else(|| {
+            AgentError::new(
+                "equipment_classification_preset_not_found",
+                format!("equipment classification preset not found: {preset_id}"),
+            )
+        })?;
+    Ok(render_json(&EquipmentClassificationPresetEnvelopeDto {
+        preset: classification_preset_dto(&connection, &preset)?,
+    }))
+}
+
+pub fn create_equipment_model_from_preset(
+    storage_root: &Path,
+    input: CreateEquipmentModelFromPresetInput,
+) -> Result<String, AgentError> {
+    validate_common_operation(
+        &input.actor,
+        &input.reason,
+        &input.operation_id,
+        &input.correlation_id,
+        &input.device_id,
+    )?;
+    validate_id(&input.preset_id, "preset_id")?;
+    validate_id(&input.equipment_model_id, "equipment_model_id")?;
+    if input.manufacturer.trim().is_empty() {
+        return Err(AgentError::new(
+            "invalid_manufacturer",
+            "manufacturer is required",
+        ));
+    }
+    if input.model_name.trim().is_empty() {
+        return Err(AgentError::new(
+            "invalid_model_name",
+            "model_name is required",
+        ));
+    }
+
+    let mut connection = open_equipment_connection_with_sync(storage_root)?;
+    let preset =
+        load_equipment_classification_preset(&connection, &input.preset_id)?.ok_or_else(|| {
+            AgentError::new(
+                "equipment_classification_preset_not_found",
+                format!(
+                    "equipment classification preset not found: {}",
+                    input.preset_id
+                ),
+            )
+        })?;
+    if preset.deprecated {
+        return Err(AgentError::new(
+            "equipment_classification_preset_deprecated",
+            "deprecated classification presets cannot create new models",
+        ));
+    }
+    let ports = list_equipment_classification_preset_ports(&connection, &input.preset_id)?;
+    let definition = equipment_model_definition_from_preset(&preset, &ports, &input)?;
+    let canonical = definition
+        .canonicalize()
+        .map_err(|issues| invalid_definition_error("invalid_equipment_model_definition", issues))?;
+    let parsed =
+        EquipmentModelDefinition::from_json_str(&canonical.canonical_json).map_err(|issue| {
+            invalid_definition_error("invalid_equipment_model_definition", vec![issue])
+        })?;
+    let revision_id = model_revision_id_for(&input.equipment_model_id, 1);
+    let payload_json = render_json(&json!({
+        "equipment_model_id": input.equipment_model_id,
+        "preset_id": input.preset_id,
+        "definition_checksum": canonical.definition_checksum
+    }));
+    if let Some(operation) = existing_equipment_operation(&connection, &input.operation_id)? {
+        ensure_equipment_operation_replay(
+            &operation,
+            EquipmentOperationFingerprintInput {
+                aggregate_kind: "equipment_model",
+                entity_id: &input.equipment_model_id,
+                revision_id: Some(&revision_id),
+                action: "equipment_model_created_from_preset",
+                actor: &input.actor,
+                device_id: &input.device_id,
+                correlation_id: &input.correlation_id,
+                old_revision_id: None,
+                new_revision_id: Some(&revision_id),
+                old_definition_checksum: None,
+                new_definition_checksum: Some(&canonical.definition_checksum),
+                payload_json: &payload_json,
+            },
+        )?;
+        return model_operation_replay_result(&connection, &operation);
+    }
+    if load_equipment_model_identity(&connection, &input.equipment_model_id)?.is_some() {
+        return Err(AgentError::new(
+            "equipment_model_already_exists",
+            format!(
+                "equipment model already exists: {}",
+                input.equipment_model_id
+            ),
+        ));
+    }
+    if !equipment_model_class_exists(&connection, equipment_class_text(parsed.equipment_class))? {
+        return Err(AgentError::new(
+            "equipment_model_class_not_found",
+            format!(
+                "unknown equipment class: {}",
+                equipment_class_text(parsed.equipment_class)
+            ),
+        ));
+    }
+
+    let now = utc_timestamp()?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    insert_equipment_model_identity(
+        &transaction,
+        NewEquipmentModelIdentityRecord {
+            equipment_model_id: &input.equipment_model_id,
+            manufacturer: parsed.manufacturer.trim(),
+            model_name: parsed.model_name.trim(),
+            variant: parsed.variant.as_deref(),
+            equipment_class: equipment_class_text(parsed.equipment_class),
+            category_code: &parsed.category_code,
+            created_by: &input.actor,
+            timestamp: &now,
+        },
+    )?;
+    insert_equipment_model_revision(
+        &transaction,
+        NewEquipmentModelRevisionRecord {
+            revision_id: &revision_id,
+            equipment_model_id: &input.equipment_model_id,
+            revision_number: 1,
+            parent_revision_id: None,
+            status: revision_status_text(EquipmentRevisionStatus::Draft),
+            definition_schema_version: &canonical.definition_schema_version,
+            definition_json: &canonical.canonical_json,
+            definition_checksum: &canonical.definition_checksum,
+            created_by: &input.actor,
+            timestamp: &now,
+            capability_count: parsed.capabilities.len() as u32,
+            interface_count: parsed.communication_interfaces.len() as u32,
+            signal_port_count: parsed.signal_ports.len() as u32,
+        },
+    )?;
+    write_equipment_model_classification_summary(
+        &transaction,
+        EquipmentModelClassificationSummaryInput {
+            equipment_model_id: &input.equipment_model_id,
+            revision_id: &revision_id,
+            revision_number: 1,
+            status: revision_status_text(EquipmentRevisionStatus::Draft),
+            definition_checksum: &canonical.definition_checksum,
+            definition: &parsed,
+            timestamp: &now,
+        },
+    )?;
+    write_equipment_audit_and_outbox(
+        &transaction,
+        EquipmentAuditEventInput {
+            aggregate_kind: "equipment_model",
+            entity_id: &input.equipment_model_id,
+            revision_id: Some(&revision_id),
+            action: "equipment_model_created_from_preset",
+            actor: &input.actor,
+            reason: &input.reason,
+            operation_id: &input.operation_id,
+            correlation_id: &input.correlation_id,
+            device_id: &input.device_id,
+            old_revision_id: None,
+            new_revision_id: Some(&revision_id),
+            old_definition_checksum: None,
+            new_definition_checksum: Some(&canonical.definition_checksum),
+            payload_json: &payload_json,
+            timestamp: &now,
+        },
+        EquipmentSyncOperationInput {
+            operation_id: &input.operation_id,
+            entity_type: "equipment_model_revision",
+            entity_id: &revision_id,
+            operation_kind: "equipment_model_created_from_preset",
+            base_revision: "none",
+            resulting_revision: &revision_id,
+            actor_id: &input.actor,
+            device_id: &input.device_id,
+            correlation_id: &input.correlation_id,
+            payload_json: &payload_json,
+            timestamp: &now,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+    model_operation_result_for_revision(
+        &connection,
+        "equipment_model_created_from_preset",
+        &input.operation_id,
+        false,
+        &input.equipment_model_id,
+        &revision_id,
+    )
 }
 
 pub fn create_equipment_model(
@@ -346,6 +628,18 @@ pub fn create_equipment_model(
             capability_count: parsed.capabilities.len() as u32,
             interface_count: parsed.communication_interfaces.len() as u32,
             signal_port_count: parsed.signal_ports.len() as u32,
+        },
+    )?;
+    write_equipment_model_classification_summary(
+        &transaction,
+        EquipmentModelClassificationSummaryInput {
+            equipment_model_id: &input.equipment_model_id,
+            revision_id: &revision_id,
+            revision_number: 1,
+            status: revision_status_text(EquipmentRevisionStatus::Draft),
+            definition_checksum: &definition.definition_checksum,
+            definition: &parsed,
+            timestamp: &now,
         },
     )?;
     write_equipment_audit_and_outbox(
@@ -516,6 +810,18 @@ pub fn clone_equipment_model(
             capability_count: cloned_definition.capabilities.len() as u32,
             interface_count: cloned_definition.communication_interfaces.len() as u32,
             signal_port_count: cloned_definition.signal_ports.len() as u32,
+        },
+    )?;
+    write_equipment_model_classification_summary(
+        &transaction,
+        EquipmentModelClassificationSummaryInput {
+            equipment_model_id: &input.new_equipment_model_id,
+            revision_id: &revision_id,
+            revision_number: 1,
+            status: revision_status_text(EquipmentRevisionStatus::Draft),
+            definition_checksum: &canonical.definition_checksum,
+            definition: &cloned_definition,
+            timestamp: &now,
         },
     )?;
     write_equipment_audit_and_outbox(
@@ -697,6 +1003,18 @@ pub fn replace_equipment_model_revision_definition(
         },
     )?;
     touch_equipment_model_identity(&transaction, &input.equipment_model_id, &now)?;
+    write_equipment_model_classification_summary(
+        &transaction,
+        EquipmentModelClassificationSummaryInput {
+            equipment_model_id: &input.equipment_model_id,
+            revision_id: &input.revision_id,
+            revision_number: existing.revision_number,
+            status: revision_status_text(EquipmentRevisionStatus::Draft),
+            definition_checksum: &definition.definition_checksum,
+            definition: &parsed,
+            timestamp: &now,
+        },
+    )?;
     write_equipment_audit_and_outbox(
         &transaction,
         EquipmentAuditEventInput {
@@ -833,6 +1151,22 @@ pub fn create_equipment_model_revision(
         },
     )?;
     touch_equipment_model_identity(&transaction, &input.equipment_model_id, &now)?;
+    let parsed_source =
+        EquipmentModelDefinition::from_json_str(&source.definition_json).map_err(|issue| {
+            invalid_definition_error("invalid_equipment_model_definition", vec![issue])
+        })?;
+    write_equipment_model_classification_summary(
+        &transaction,
+        EquipmentModelClassificationSummaryInput {
+            equipment_model_id: &input.equipment_model_id,
+            revision_id: &revision_id,
+            revision_number: next_number,
+            status: revision_status_text(EquipmentRevisionStatus::Draft),
+            definition_checksum: &source.definition_checksum,
+            definition: &parsed_source,
+            timestamp: &now,
+        },
+    )?;
     write_equipment_audit_and_outbox(
         &transaction,
         EquipmentAuditEventInput {
@@ -1596,6 +1930,22 @@ fn transition_model_revision(
     } else {
         touch_equipment_model_identity(&transaction, &input.equipment_model_id, &now)?;
     }
+    let parsed_definition = EquipmentModelDefinition::from_json_str(&revision.definition_json)
+        .map_err(|issue| {
+            invalid_definition_error("invalid_equipment_model_definition", vec![issue])
+        })?;
+    write_equipment_model_classification_summary(
+        &transaction,
+        EquipmentModelClassificationSummaryInput {
+            equipment_model_id: &input.equipment_model_id,
+            revision_id: &input.revision_id,
+            revision_number: revision.revision_number,
+            status: revision_status_text(target),
+            definition_checksum: &revision.definition_checksum,
+            definition: &parsed_definition,
+            timestamp: &now,
+        },
+    )?;
     write_equipment_audit_and_outbox(
         &transaction,
         EquipmentAuditEventInput {
@@ -2064,6 +2414,62 @@ fn write_equipment_audit_and_outbox(
     Ok(())
 }
 
+struct EquipmentModelClassificationSummaryInput<'a> {
+    equipment_model_id: &'a str,
+    revision_id: &'a str,
+    revision_number: u32,
+    status: &'a str,
+    definition_checksum: &'a str,
+    definition: &'a EquipmentModelDefinition,
+    timestamp: &'a str,
+}
+
+fn write_equipment_model_classification_summary(
+    transaction: &rusqlite::Transaction<'_>,
+    input: EquipmentModelClassificationSummaryInput<'_>,
+) -> Result<(), AgentError> {
+    let mut signal_domains = input
+        .definition
+        .signal_domains
+        .iter()
+        .copied()
+        .map(signal_domain_text)
+        .collect::<Vec<_>>();
+    signal_domains.sort();
+    signal_domains.dedup();
+    let mut technology_tags = input
+        .definition
+        .technology_tags
+        .iter()
+        .copied()
+        .map(technology_tag_text)
+        .collect::<Vec<_>>();
+    technology_tags.sort();
+    technology_tags.dedup();
+    let signal_domains_json = render_json(&signal_domains);
+    let technology_tags_json = render_json(&technology_tags);
+    let functional_role = functional_role_text(input.definition.functional_role);
+    replace_equipment_model_classification_summary(
+        transaction,
+        EquipmentClassificationSummaryRecord {
+            equipment_model_id: input.equipment_model_id,
+            revision_id: input.revision_id,
+            revision_number: input.revision_number,
+            status: input.status,
+            manufacturer: input.definition.manufacturer.trim(),
+            equipment_class: equipment_class_text(input.definition.equipment_class),
+            category_code: &input.definition.category_code,
+            functional_role: &functional_role,
+            definition_checksum: input.definition_checksum,
+            signal_domains_json: &signal_domains_json,
+            technology_tags_json: &technology_tags_json,
+            signal_domains: &signal_domains,
+            technology_tags: &technology_tags,
+            timestamp: input.timestamp,
+        },
+    )
+}
+
 fn require_model_identity(
     connection: &rusqlite::Connection,
     equipment_model_id: &str,
@@ -2231,6 +2637,170 @@ fn audit_event_dto(event: &StoredEquipmentAuditEvent) -> EquipmentAuditEventDto 
     }
 }
 
+fn registry_item_dto(item: &StoredEquipmentRegistryItem) -> EquipmentRegistryItemDto {
+    EquipmentRegistryItemDto {
+        code: item.code.clone(),
+        label: item.label.clone(),
+        description: item.description.clone(),
+        recommended_equipment_classes: item
+            .recommended_equipment_classes
+            .as_deref()
+            .and_then(|value| parse_json_string_array(value, "recommended_equipment_classes").ok())
+            .unwrap_or_default(),
+        recommended_functional_roles: item
+            .recommended_functional_roles
+            .as_deref()
+            .and_then(|value| parse_json_string_array(value, "recommended_functional_roles").ok())
+            .unwrap_or_default(),
+        compatible_signal_domains: item
+            .compatible_signal_domains
+            .as_deref()
+            .and_then(|value| parse_json_string_array(value, "compatible_signal_domains").ok())
+            .unwrap_or_default(),
+        compatible_directionalities: item
+            .compatible_directionalities
+            .as_deref()
+            .and_then(|value| parse_json_string_array(value, "compatible_directionalities").ok())
+            .unwrap_or_default(),
+        deprecated: item.deprecated,
+    }
+}
+
+fn classification_preset_dto(
+    connection: &rusqlite::Connection,
+    preset: &StoredEquipmentClassificationPreset,
+) -> Result<EquipmentClassificationPresetDto, AgentError> {
+    let ports = list_equipment_classification_preset_ports(connection, &preset.preset_id)?;
+    Ok(EquipmentClassificationPresetDto {
+        preset_id: preset.preset_id.clone(),
+        category_label: preset.category_label.clone(),
+        function_description: preset.function_description.clone(),
+        example_label: preset.example_label.clone(),
+        default_equipment_class: preset.default_equipment_class.clone(),
+        default_functional_role: preset.default_functional_role.clone(),
+        default_signal_domains: parse_json_string_array(
+            &preset.default_signal_domains,
+            "default_signal_domains",
+        )?,
+        default_technology_tags: parse_json_string_array(
+            &preset.default_technology_tags,
+            "default_technology_tags",
+        )?,
+        notes: preset.notes.clone(),
+        deprecated: preset.deprecated,
+        ports: ports.iter().map(classification_preset_port_dto).collect(),
+    })
+}
+
+fn classification_preset_port_dto(
+    port: &StoredEquipmentClassificationPresetPort,
+) -> EquipmentClassificationPresetPortDto {
+    EquipmentClassificationPresetPortDto {
+        port_order: port.port_order,
+        port_id: port.port_id.clone(),
+        label: port.label.clone(),
+        directionality: port.directionality.clone(),
+        flow_role: port.flow_role.clone(),
+        signal_domain: port.signal_domain.clone(),
+        connector_type: port.connector_type.clone(),
+        technology_tags: parse_json_string_array(&port.technology_tags, "technology_tags")
+            .unwrap_or_default(),
+        quantity: port.quantity.clone(),
+        unit: port.unit.clone(),
+        impedance: port.impedance,
+        frequency_min: port.frequency_min,
+        frequency_max: port.frequency_max,
+        voltage_max: port.voltage_max,
+        current_max: port.current_max,
+        power_max: port.power_max,
+        required: port.required,
+        comment: port.comment.clone(),
+    }
+}
+
+fn equipment_model_definition_from_preset(
+    preset: &StoredEquipmentClassificationPreset,
+    ports: &[StoredEquipmentClassificationPresetPort],
+    input: &CreateEquipmentModelFromPresetInput,
+) -> Result<EquipmentModelDefinition, AgentError> {
+    let equipment_class: EquipmentClass =
+        parse_enum_code(&preset.default_equipment_class, "default_equipment_class")?;
+    let functional_role: FunctionalRole =
+        parse_enum_code(&preset.default_functional_role, "default_functional_role")?;
+    let signal_domains =
+        parse_json_enum_array(&preset.default_signal_domains, "default_signal_domains")?;
+    let technology_tags =
+        parse_json_enum_array(&preset.default_technology_tags, "default_technology_tags")?;
+    let signal_ports = ports
+        .iter()
+        .map(signal_port_from_preset_port)
+        .collect::<Result<Vec<_>, AgentError>>()?;
+    let mut metadata = BTreeMap::new();
+    metadata.insert(
+        "classification_preset_id".to_owned(),
+        Value::String(preset.preset_id.clone()),
+    );
+    metadata.insert(
+        "classification_preset_label".to_owned(),
+        Value::String(preset.example_label.clone()),
+    );
+    metadata.insert(
+        "classification_preset_category".to_owned(),
+        Value::String(preset.category_label.clone()),
+    );
+    metadata.insert(
+        "classification_notes".to_owned(),
+        Value::String(preset.notes.clone()),
+    );
+    Ok(EquipmentModelDefinition {
+        definition_schema_version: EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION.to_owned(),
+        manufacturer: input.manufacturer.trim().to_owned(),
+        model_name: input.model_name.trim().to_owned(),
+        variant: input
+            .variant
+            .as_ref()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty()),
+        equipment_class,
+        functional_role,
+        category_code: preset.preset_id.clone(),
+        signal_domains,
+        technology_tags,
+        specifications: Vec::new(),
+        signal_ports,
+        communication_interfaces: Vec::new(),
+        capabilities: Vec::new(),
+        metadata,
+    })
+}
+
+fn signal_port_from_preset_port(
+    port: &StoredEquipmentClassificationPresetPort,
+) -> Result<SignalPortDefinition, AgentError> {
+    Ok(SignalPortDefinition {
+        port_id: port.port_id.clone(),
+        label: port.label.clone(),
+        directionality: parse_enum_code(&port.directionality, "directionality")?,
+        flow_role: parse_enum_code(&port.flow_role, "flow_role")?,
+        signal_domain: parse_enum_code(&port.signal_domain, "signal_domain")?,
+        required: port.required,
+        connector_type: port.connector_type.clone(),
+        technology_tags: parse_json_enum_array(&port.technology_tags, "technology_tags")?,
+        quantity: parse_enum_code::<PhysicalQuantity>(&port.quantity, "quantity")?,
+        unit: port.unit.clone(),
+        impedance: port.impedance,
+        frequency_min: port.frequency_min,
+        frequency_max: port.frequency_max,
+        voltage_max: port.voltage_max,
+        current_max: port.current_max,
+        power_max: port.power_max,
+        channel_index: None,
+        differential: false,
+        isolated: false,
+        comment: port.comment.clone(),
+    })
+}
+
 fn parse_json_value(value: &str) -> Value {
     serde_json::from_str(value).unwrap_or_else(|_| json!({ "raw": value }))
 }
@@ -2263,6 +2833,55 @@ fn equipment_class_text(class: emc_locus_core::equipment::EquipmentClass) -> &'s
         emc_locus_core::equipment::EquipmentClass::SoftwareAdapter => "software_adapter",
         emc_locus_core::equipment::EquipmentClass::ManualEquipment => "manual_equipment",
     }
+}
+
+fn functional_role_text(role: FunctionalRole) -> String {
+    enum_code(role)
+}
+
+fn signal_domain_text(domain: SignalDomain) -> String {
+    enum_code(domain)
+}
+
+fn technology_tag_text(tag: TechnologyTag) -> String {
+    enum_code(tag)
+}
+
+fn enum_code<T: serde::Serialize>(value: T) -> String {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
+fn parse_enum_code<T: DeserializeOwned>(code: &str, field: &'static str) -> Result<T, AgentError> {
+    serde_json::from_value(Value::String(code.to_owned())).map_err(|error| {
+        AgentError::with_details(
+            "invalid_equipment_registry_value",
+            format!("{field} contains a value that is not supported by emc-locus-core"),
+            json!({ "field": field, "value": code, "reason": error.to_string() }),
+        )
+    })
+}
+
+fn parse_json_string_array(value: &str, field: &'static str) -> Result<Vec<String>, AgentError> {
+    serde_json::from_str::<Vec<String>>(value).map_err(|error| {
+        AgentError::with_details(
+            "invalid_equipment_registry_json",
+            format!("{field} must be a JSON array of strings"),
+            json!({ "field": field, "reason": error.to_string() }),
+        )
+    })
+}
+
+fn parse_json_enum_array<T: DeserializeOwned>(
+    value: &str,
+    field: &'static str,
+) -> Result<Vec<T>, AgentError> {
+    parse_json_string_array(value, field)?
+        .iter()
+        .map(|code| parse_enum_code(code, field))
+        .collect()
 }
 
 fn model_revision_id_for(equipment_model_id: &str, revision_number: u32) -> String {

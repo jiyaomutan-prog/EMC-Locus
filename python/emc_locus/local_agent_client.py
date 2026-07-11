@@ -183,8 +183,12 @@ class LocalAgentClient:
         manufacturer: str | None = None,
         equipment_class: str | None = None,
         category_code: str | None = None,
+        functional_role: str | None = None,
+        signal_domain: str | None = None,
+        technology_tag: str | None = None,
         status: str | None = None,
         search: str | None = None,
+        q: str | None = None,
     ) -> dict[str, Any]:
         query = {
             key: value
@@ -192,13 +196,28 @@ class LocalAgentClient:
                 "manufacturer": manufacturer,
                 "equipment_class": equipment_class,
                 "category_code": category_code,
+                "functional_role": functional_role,
+                "signal_domain": signal_domain,
+                "technology_tag": technology_tag,
                 "status": status,
-                "search": search,
+                "q": q or search,
             }.items()
             if value
         }
         suffix = f"?{urlencode(query)}" if query else ""
         return self.request_json("GET", f"/api/v1/equipment-models{suffix}")
+
+    def equipment_registries(self) -> dict[str, Any]:
+        return self.request_json("GET", "/api/v1/equipment/registries")
+
+    def list_equipment_classification_presets(self) -> dict[str, Any]:
+        return self.request_json("GET", "/api/v1/equipment/classification-presets")
+
+    def get_equipment_classification_preset(self, preset_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/equipment/classification-presets/{quote(preset_id)}",
+        )
 
     def get_equipment_model(self, equipment_model_id: str) -> dict[str, Any]:
         return self.request_json(
@@ -257,6 +276,39 @@ class LocalAgentClient:
         _put_optional(payload, "correlation_id", correlation_id)
         _put_optional(payload, "device_id", device_id)
         return self.request_json("POST", "/api/v1/equipment-models", payload)
+
+    def create_equipment_model_from_preset(
+        self,
+        *,
+        preset_id: str,
+        equipment_model_id: str,
+        manufacturer: str,
+        model_name: str,
+        actor: str,
+        reason: str,
+        variant: str | None = None,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "equipment-model-from-preset",
+            preset_id,
+            equipment_model_id,
+        )
+        payload = {
+            "preset_id": preset_id,
+            "equipment_model_id": equipment_model_id,
+            "manufacturer": manufacturer,
+            "model_name": model_name,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "variant", variant)
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json("POST", "/api/v1/equipment-models/from-preset", payload)
 
     def clone_equipment_model(
         self,

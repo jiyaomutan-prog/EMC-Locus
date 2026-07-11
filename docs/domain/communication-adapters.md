@@ -21,10 +21,15 @@ The local agent exposes:
 GET /api/v1/equipment/communication-providers
 ```
 
-`0.11.0` reports simulation, native TCP, native UDP and native serial as
-available in the local runtime contract. CI does not require a physical COM
-port. VISA, vendor CAN bus, USBTMC and HID are modeled and simulated but reported
-as unavailable when no provider is installed.
+`0.12.0` continues to report simulation, native TCP, native UDP and native
+serial as available in the local runtime contract. CI does not require a
+physical COM port. VISA, vendor CAN bus, USBTMC and HID are modeled and
+simulated but reported as unavailable when no provider is installed.
+
+CAN bus wording is deliberately explicit. A model using
+`protocol_kind=can_bus_frames` must also expose `transport_kind=can_bus`, a
+`can_bus` signal domain, and a CAN bus communication port. ADC and DAC
+converters are not inferred as CAN bus devices.
 
 ## Safety Position
 

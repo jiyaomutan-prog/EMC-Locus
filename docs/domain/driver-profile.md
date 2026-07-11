@@ -24,6 +24,11 @@ A driver revision must reference:
 This prevents a driver from silently drifting away from the equipment model it
 claims to implement.
 
+Release `0.12.0` does not change driver execution semantics, but it strengthens
+the equipment model side of that link. Driver authors now select against
+models whose functional role, signal domains, technology tags, and port
+topology are visible through indexed catalog filters and backend presets.
+
 ## Driver Actions
 
 Each action declares:
@@ -44,3 +49,6 @@ together so scripts, actions and compatibility metadata remain coherent.
 a certified real instrument runtime. Real providers can be added later behind
 the communication adapter contract without changing the approved driver
 definition shape.
+
+`0.12.0` remains in that boundary: classification presets do not create driver
+profiles, station bindings, or real hardware sessions.

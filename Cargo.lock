@@ -94,7 +94,7 @@ dependencies = [
 
 [[package]]
 name = "emc-locus-agent"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "emc-locus-core",
  "rusqlite",
@@ -107,7 +107,7 @@ dependencies = [
 
 [[package]]
 name = "emc-locus-core"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "serde",
  "serde_json",

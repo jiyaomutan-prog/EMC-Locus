@@ -100,6 +100,13 @@ Deliverables:
   deterministic simulation, provider status, LAB CONSOLE Equipment workspace,
   API seed, audit/outbox, and Python client coverage. It is not a physical
   fleet redesign or a certified real hardware runtime.
+- `0.12.0` productizes physics-based equipment classification: backend-owned
+  registries for functional roles, signal domains, port directions, flow roles
+  and technology tags; classification presets with port topology; indexed
+  model summaries for catalog filters; `from-preset` API creation; Python
+  client methods; LAB CONSOLE catalog filters, preset creation and port
+  topology editing; and public-API demo seed expansion. It is not a new driver
+  runtime or acquisition engine.
 
 ## Phase 3: Measurement Runtime
 
@@ -415,7 +422,7 @@ Deliverables:
 
 ## Near-Term Next Session
 
-Recommended next vertical: `0.12.0 - Sensors, DAQ Channels, Scaling And
+Recommended next vertical: `0.13.0 - Sensors, DAQ Channels, Scaling And
 Engineering Curves`. It should cover sensors, transducers, DAQ channels,
 two-point scaling, function-based scaling, transfer curves, antenna factors,
 cable losses, gains, uncertainties, frequency-dependent corrections, and

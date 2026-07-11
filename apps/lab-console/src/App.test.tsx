@@ -203,7 +203,11 @@ describe("LAB CONSOLE", () => {
       if (path === "/api/v1/health") return jsonResponse(healthFixture);
       if (path === "/api/v1/storage/status") return jsonResponse(storageFixture);
       if (path === "/api/v1/test-templates") return jsonResponse({ test_templates: [templateFixture()] });
-      if (path === "/api/v1/equipment-models") {
+      if (path === "/api/v1/equipment/registries") return jsonResponse(equipmentRegistriesFixture());
+      if (path === "/api/v1/equipment/classification-presets") {
+        return jsonResponse({ presets: [rfCablePresetFixture(), adcPresetFixture()] });
+      }
+      if (path === "/api/v1/equipment-models" || path.startsWith("/api/v1/equipment-models?")) {
         return jsonResponse({ equipment_models: [equipmentModelFixture()] });
       }
       if (path === "/api/v1/driver-profiles") return jsonResponse({ driver_profiles: [driverProfileFixture()] });
@@ -250,6 +254,96 @@ describe("LAB CONSOLE", () => {
     await user.click(screen.getByRole("button", { name: "Drivers and Actions" }));
     await user.click(await screen.findByRole("button", { name: /NRP6AN SCPI/ }));
     expect(await screen.findByText(/No VISA implementation installed/)).toBeInTheDocument();
+  });
+
+  test("filters equipment catalog and creates a model from a classification preset", async () => {
+    const createdModel = rfCableModelFixture();
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/health") return jsonResponse(healthFixture);
+      if (path === "/api/v1/storage/status") return jsonResponse(storageFixture);
+      if (path === "/api/v1/test-templates") return jsonResponse({ test_templates: [templateFixture()] });
+      if (path === "/api/v1/equipment/registries") return jsonResponse(equipmentRegistriesFixture());
+      if (path === "/api/v1/equipment/classification-presets") {
+        return jsonResponse({ presets: [rfCablePresetFixture(), adcPresetFixture()] });
+      }
+      if (path === "/api/v1/equipment-models" || path.startsWith("/api/v1/equipment-models?")) {
+        return jsonResponse({ equipment_models: [equipmentModelFixture()] });
+      }
+      if (path === "/api/v1/equipment-models/from-preset" && init?.method === "POST") {
+        return jsonResponse({
+          operation: "equipment_model_created_from_preset",
+          operation_id: "op-from-preset",
+          replayed: false,
+          aggregate: createdModel,
+          revision: createdModel.latest_revision
+        });
+      }
+      if (path === "/api/v1/equipment-models/EQM-RF-CABLE-DEMO") {
+        return jsonResponse({ equipment_model: createdModel });
+      }
+      if (path === "/api/v1/equipment-models/EQM-RF-CABLE-DEMO/revisions") {
+        return jsonResponse({
+          equipment_model_id: "EQM-RF-CABLE-DEMO",
+          revisions: [createdModel.latest_revision]
+        });
+      }
+      if (path === "/api/v1/equipment-models/EQM-RF-CABLE-DEMO/audit-events") {
+        return jsonResponse({ aggregate_kind: "equipment_model", entity_id: "EQM-RF-CABLE-DEMO", audit_events: [] });
+      }
+      if (path === "/api/v1/equipment-model-definitions/validate" && init?.method === "POST") {
+        return jsonResponse({ valid: true, issues: [], definition_checksum: "sha256:cccc" });
+      }
+      if (path === "/api/v1/driver-profiles") return jsonResponse({ driver_profiles: [] });
+      if (path === "/api/v1/equipment/communication-providers") {
+        return jsonResponse({ providers: [{ provider: "simulation", available: true }] });
+      }
+      return mockBaseApiResponse(path, init);
+    });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Equipment" }));
+    await screen.findByRole("heading", { name: "Model Catalog" });
+    await user.selectOptions(screen.getByLabelText("Filtre role physique"), "sensor");
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("functional_role=sensor"),
+        expect.any(Object)
+      )
+    );
+
+    await user.click(screen.getByRole("button", { name: /Nouveau modele/ }));
+    expect(await screen.findByText("Nouveau modele catalogue")).toBeInTheDocument();
+    expect(screen.getAllByText("RF Cable").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("RF_A")).toBeInTheDocument();
+    expect(screen.getByText("RF_B")).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Equipment model ID"));
+    await user.type(screen.getByLabelText("Equipment model ID"), "EQM-RF-CABLE-DEMO");
+    await user.clear(screen.getByLabelText("Manufacturer"));
+    await user.type(screen.getByLabelText("Manufacturer"), "Demo");
+    await user.clear(screen.getByLabelText("Model name"));
+    await user.type(screen.getByLabelText("Model name"), "RF Cable");
+    await user.click(screen.getByRole("button", { name: "Creer" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/equipment-models/from-preset",
+        expect.objectContaining({ method: "POST" })
+      )
+    );
+
+    expect(await screen.findByText("Equipment Model Definition")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Classification" }));
+    expect(screen.getByLabelText("Functional role")).toHaveValue("rf_network_element");
+    expect(screen.getByDisplayValue("rf")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("rf_50_ohm")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Port Topology" }));
+    expect(screen.getByDisplayValue("RF_A")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("RF_B")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ajouter CAN bus" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Valider/ }));
+    expect(await screen.findByText("Definition valide")).toBeInTheDocument();
   });
 });
 
@@ -335,6 +429,144 @@ function equipmentModelFixture() {
     current_approved_revision: revision,
     latest_revision: revision,
     active_draft_revision: null
+  };
+}
+
+function rfCableModelFixture() {
+  const revision = {
+    revision_id: "EQM-RF-CABLE-DEMO-rev-0001",
+    equipment_model_id: "EQM-RF-CABLE-DEMO",
+    revision_number: 1,
+    parent_revision_id: null,
+    status: "draft",
+    definition_schema_version: "emc-locus.equipment-model-definition.v2",
+    definition_checksum: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    created_by: "equipment.author",
+    created_at: "2026-07-11T00:00:00Z",
+    updated_at: "2026-07-11T00:00:00Z",
+    submitted_at: null,
+    approved_at: null,
+    capability_count: 0,
+    interface_count: 0,
+    signal_port_count: 2,
+    definition: {
+      definition_schema_version: "emc-locus.equipment-model-definition.v2",
+      manufacturer: "Demo",
+      model_name: "RF Cable",
+      variant: "1m",
+      equipment_class: "passive_component",
+      functional_role: "rf_network_element",
+      category_code: "rf_cable",
+      signal_domains: ["rf"],
+      technology_tags: ["rf_50_ohm"],
+      specifications: [],
+      signal_ports: [
+        {
+          port_id: "RF_A",
+          label: "RF A",
+          directionality: "through",
+          flow_role: "through_port",
+          signal_domain: "rf",
+          required: true,
+          connector_type: "N",
+          technology_tags: ["rf_50_ohm"],
+          quantity: "power",
+          unit: "dBm",
+          impedance: 50
+        },
+        {
+          port_id: "RF_B",
+          label: "RF B",
+          directionality: "through",
+          flow_role: "through_port",
+          signal_domain: "rf",
+          required: true,
+          connector_type: "N",
+          technology_tags: ["rf_50_ohm"],
+          quantity: "power",
+          unit: "dBm",
+          impedance: 50
+        }
+      ],
+      communication_interfaces: [],
+      capabilities: [],
+      metadata: { classification_preset_id: "rf_cable" }
+    }
+  };
+  return {
+    identity: {
+      equipment_model_id: "EQM-RF-CABLE-DEMO",
+      manufacturer: "Demo",
+      model_name: "RF Cable",
+      variant: "1m",
+      equipment_class: "passive_component",
+      category_code: "rf_cable",
+      current_approved_revision_id: null,
+      created_by: "equipment.author",
+      created_at: "2026-07-11T00:00:00Z",
+      updated_at: "2026-07-11T00:00:00Z"
+    },
+    current_approved_revision: null,
+    latest_revision: revision,
+    active_draft_revision: revision
+  };
+}
+
+function equipmentRegistriesFixture() {
+  const item = (code: string, label = code) => ({
+    code,
+    label,
+    description: `${label} registry item`,
+    recommended_equipment_classes: [],
+    recommended_functional_roles: [],
+    compatible_signal_domains: [],
+    compatible_directionalities: [],
+    deprecated: false
+  });
+  return {
+    functional_roles: [item("measurement_instrument", "Measurement instrument"), item("rf_network_element", "RF network element"), item("sensor", "Sensor")],
+    signal_domains: [item("rf", "RF"), item("analog_voltage", "Analog voltage"), item("can_bus", "CAN bus"), item("ethernet", "Ethernet"), item("trigger", "Trigger")],
+    port_directionalities: [item("input"), item("output"), item("through"), item("communication"), item("bidirectional"), item("control")],
+    flow_roles: [item("measurement_port"), item("through_port"), item("source_port"), item("sink_port"), item("communication_port"), item("control_port"), item("field_side_port"), item("transducer_output_port")],
+    technology_tags: [item("rf_50_ohm", "RF 50 ohm"), item("adc_converter", "ADC converter"), item("voltage_input", "Voltage input"), item("can_bus", "CAN bus"), item("ethernet", "Ethernet"), item("trigger", "Trigger")]
+  };
+}
+
+function rfCablePresetFixture() {
+  return {
+    preset_id: "rf_cable",
+    category_label: "RF equipment",
+    function_description: "50 ohm RF through component.",
+    example_label: "RF Cable",
+    default_equipment_class: "passive_component",
+    default_functional_role: "rf_network_element",
+    default_signal_domains: ["rf"],
+    default_technology_tags: ["rf_50_ohm"],
+    notes: "",
+    deprecated: false,
+    ports: [
+      { port_order: 10, port_id: "RF_A", label: "RF A", directionality: "through", flow_role: "through_port", signal_domain: "rf", connector_type: "N", technology_tags: ["rf_50_ohm"], quantity: "power", unit: "dBm", impedance: 50, required: true },
+      { port_order: 20, port_id: "RF_B", label: "RF B", directionality: "through", flow_role: "through_port", signal_domain: "rf", connector_type: "N", technology_tags: ["rf_50_ohm"], quantity: "power", unit: "dBm", impedance: 50, required: true }
+    ]
+  };
+}
+
+function adcPresetFixture() {
+  return {
+    preset_id: "adc_converter",
+    category_label: "Converters and acquisition",
+    function_description: "Analog to digital conversion without implicit CAN bus.",
+    example_label: "ADC Converter",
+    default_equipment_class: "daq_device",
+    default_functional_role: "converter",
+    default_signal_domains: ["analog_voltage", "digital_logic"],
+    default_technology_tags: ["adc_converter", "voltage_input"],
+    notes: "No CAN bus port is created by default.",
+    deprecated: false,
+    ports: [
+      { port_order: 10, port_id: "ANALOG_IN", label: "Analog input", directionality: "input", flow_role: "measurement_port", signal_domain: "analog_voltage", connector_type: "BNC", technology_tags: ["voltage_input"], quantity: "voltage", unit: "V", required: true },
+      { port_order: 20, port_id: "DIGITAL_OUT", label: "Digital output", directionality: "output", flow_role: "transducer_output_port", signal_domain: "digital_logic", technology_tags: ["adc_converter"], quantity: "binary", unit: "dimensionless", required: true }
+    ]
   };
 }
 

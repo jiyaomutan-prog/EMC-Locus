@@ -8,6 +8,8 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-11
+
 ### Added
 
 - Added physics-based equipment classification to the equipment model
@@ -17,12 +19,32 @@ change should remain traceable through Git history, session logs, and this file.
   ports, through-path ports, sensor input/output shape, signal-source outputs,
   measurement-instrument inputs, software-system physical-port exceptions, and
   ADC/DAC/CAN-bus ambiguity.
+- Added SQLite equipment migration `0002_physical_classification.sql` with
+  first-class registries for functional roles, signal domains, port
+  directionality, flow roles, technology tags, classification presets, preset
+  ports, and indexed equipment model classification summaries.
+- Added backend equipment classification preset routes:
+  `/api/v1/equipment/registries`,
+  `/api/v1/equipment/classification-presets`,
+  `/api/v1/equipment/classification-presets/{preset_id}`, and
+  `POST /api/v1/equipment-models/from-preset`.
+- Added indexed catalog filters for `functional_role`, `signal_domain`,
+  `technology_tag`, `equipment_class`, `manufacturer`, `status`, and `q`.
+- Added Python client methods and LAB CONSOLE controls for registries, presets,
+  preset-based model creation, classification editing, and port topology
+  inspection/editing.
+- Expanded the equipment demo seed through the public API with preset-created
+  DC supply, RF source/network, antenna, oscilloscope, ADC, DAQ, and software
+  model examples.
 
 ### Changed
 
 - Renamed the equipment communication schema from bare `can`/`can_frames` and
   driver script `can_*` steps to explicit `can_bus`/`can_bus_frames` and
   `can_bus_*` steps.
+- LAB CONSOLE Equipment Model Catalog now delegates role/domain/tag filters to
+  the backend indexed summaries instead of filtering only in browser memory.
+- Bumped synchronized Rust, Python, and frontend versions to `0.12.0`.
 
 ### Fixed
 

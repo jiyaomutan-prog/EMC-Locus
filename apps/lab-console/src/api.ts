@@ -21,6 +21,8 @@ import type {
   DriverSimulationResult,
   DriverSimulationScenario,
   EquipmentAuditEvent,
+  EquipmentClassificationPreset,
+  EquipmentRegistries,
   EquipmentModelAggregate,
   EquipmentModelDefinition,
   EquipmentModelRevision,
@@ -272,8 +274,21 @@ export const api = {
 };
 
 export const equipmentApi = {
-  listModels: () =>
-    request<{ equipment_models: EquipmentModelAggregate[] }>("/api/v1/equipment-models"),
+  listModels: (filters: Record<string, string> = {}) => {
+    const query = new URLSearchParams(
+      Object.entries(filters).filter(([, value]) => value && value !== "all")
+    );
+    return request<{ equipment_models: EquipmentModelAggregate[] }>(
+      `/api/v1/equipment-models${query.size ? `?${query.toString()}` : ""}`
+    );
+  },
+  registries: () => request<EquipmentRegistries>("/api/v1/equipment/registries"),
+  listClassificationPresets: () =>
+    request<{ presets: EquipmentClassificationPreset[] }>("/api/v1/equipment/classification-presets"),
+  getClassificationPreset: (presetId: string) =>
+    request<{ preset: EquipmentClassificationPreset }>(
+      `/api/v1/equipment/classification-presets/${encodeURIComponent(presetId)}`
+    ),
   getModel: (modelId: string) =>
     request<{ equipment_model: EquipmentModelAggregate }>(
       `/api/v1/equipment-models/${encodeURIComponent(modelId)}`
@@ -297,6 +312,19 @@ export const equipmentApi = {
     post<EquipmentModelOperationResult>("/api/v1/equipment-models", {
       ...input,
       operation_id: operationId("equipment-model-create", input.equipment_model_id)
+    }),
+  createModelFromPreset: (
+    input: {
+      preset_id: string;
+      equipment_model_id: string;
+      manufacturer: string;
+      model_name: string;
+      variant?: string;
+    } & OperationContext
+  ) =>
+    post<EquipmentModelOperationResult>("/api/v1/equipment-models/from-preset", {
+      ...input,
+      operation_id: operationId("equipment-model-from-preset", `${input.preset_id}-${input.equipment_model_id}`)
     }),
   cloneModel: (
     sourceModelId: string,

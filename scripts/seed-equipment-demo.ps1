@@ -147,6 +147,49 @@ function Ensure-ApprovedEquipmentModel {
     return $approved.equipment_model
 }
 
+function Ensure-ApprovedPresetModel {
+    param(
+        [string]$ModelId,
+        [string]$PresetId,
+        [string]$Manufacturer,
+        [string]$ModelName,
+        [string]$Variant = ""
+    )
+    $models = Get-EquipmentModelMap
+    if ($models.ContainsKey($ModelId) -and $models[$ModelId].current_approved_revision) {
+        Write-Host "Preset equipment model already approved: $ModelId"
+        return $models[$ModelId]
+    }
+
+    if (-not $models.ContainsKey($ModelId)) {
+        $body = [ordered]@{
+            preset_id = $PresetId
+            equipment_model_id = $ModelId
+            manufacturer = $Manufacturer
+            model_name = $ModelName
+            actor = "demo.equipment.author"
+            reason = "Seed equipment demo model from classification preset"
+            operation_id = "seed-$ModelId-from-preset"
+        }
+        if ($Variant.Trim()) {
+            $body.variant = $Variant
+        }
+        $created = Invoke-EmcApi -Method POST -Path "/api/v1/equipment-models/from-preset" -Body $body
+        $revision = $created.revision
+        Write-Host "Created preset equipment model: $ModelId ($PresetId)"
+    } else {
+        $revision = $models[$ModelId].active_draft_revision
+        if (-not $revision) {
+            $revision = $models[$ModelId].latest_revision
+        }
+    }
+
+    Approve-EquipmentRevision -ModelId $ModelId -Revision $revision
+    $approved = Invoke-EmcApi -Method GET -Path "/api/v1/equipment-models/$ModelId"
+    Write-Host "Approved preset equipment model: $ModelId"
+    return $approved.equipment_model
+}
+
 function Ensure-ApprovedDriverProfile {
     param(
         [string]$DriverId,
@@ -330,7 +373,8 @@ function New-CanPowerUnitModel {
             [ordered]@{ specification_id = "dc_voltage"; label = "DC bus voltage"; quantity = "voltage"; unit = "V"; nominal = 48.0; maximum = 60.0 }
         )
         signal_ports = @(
-            [ordered]@{ port_id = "dc_output"; label = "DC output"; directionality = "output"; flow_role = "source_port"; signal_domain = "power_dc"; connector_type = "terminal"; quantity = "voltage"; unit = "V"; voltage_max = 60.0 }
+            [ordered]@{ port_id = "dc_output"; label = "DC output"; directionality = "output"; flow_role = "source_port"; signal_domain = "power_dc"; connector_type = "terminal"; quantity = "voltage"; unit = "V"; voltage_max = 60.0 },
+            [ordered]@{ port_id = "can_bus"; label = "CAN bus"; directionality = "communication"; flow_role = "communication_port"; signal_domain = "can_bus"; connector_type = "D-Sub"; required = $true; quantity = "binary"; unit = "dimensionless"; technology_tags = @("can_bus"); comment = "Physical CAN bus control port required by the CAN frame communication profile." }
         )
         communication_interfaces = @(
             [ordered]@{
@@ -450,6 +494,22 @@ $powerMeter = Ensure-ApprovedEquipmentModel -ModelId "EQM-DEMO-NRP6AN-FWD" -Defi
 $amplifier = Ensure-ApprovedEquipmentModel -ModelId "EQM-DEMO-SERIAL-AMP" -Definition (New-SerialAmplifierModel)
 $canUnit = Ensure-ApprovedEquipmentModel -ModelId "EQM-DEMO-CAN-BUS-POWER" -Definition (New-CanPowerUnitModel)
 Ensure-ApprovedEquipmentModel -ModelId "EQM-DEMO-MANUAL-ANTENNA" -Definition (New-ManualAntennaModel) | Out-Null
+
+$presetModels = @(
+    @{ ModelId = "EQM-PRESET-DC-SUPPLY"; PresetId = "dc_power_supply"; Manufacturer = "Demo"; ModelName = "DC supply"; Variant = "60V" },
+    @{ ModelId = "EQM-PRESET-RF-GENERATOR"; PresetId = "rf_generator"; Manufacturer = "Demo"; ModelName = "RF generator"; Variant = "6GHz" },
+    @{ ModelId = "EQM-PRESET-RF-CABLE"; PresetId = "rf_cable"; Manufacturer = "Demo"; ModelName = "RF cable"; Variant = "N-N" },
+    @{ ModelId = "EQM-PRESET-RF-LOAD"; PresetId = "rf_load"; Manufacturer = "Demo"; ModelName = "RF load"; Variant = "50 ohm" },
+    @{ ModelId = "EQM-PRESET-RECEIVING-ANTENNA"; PresetId = "receiving_antenna"; Manufacturer = "Demo"; ModelName = "Receiving antenna"; Variant = "broadband" },
+    @{ ModelId = "EQM-PRESET-TRANSMITTING-ANTENNA"; PresetId = "transmitting_antenna"; Manufacturer = "Demo"; ModelName = "Transmitting antenna"; Variant = "broadband" },
+    @{ ModelId = "EQM-PRESET-OSCILLOSCOPE"; PresetId = "oscilloscope"; Manufacturer = "Demo"; ModelName = "Oscilloscope"; Variant = "4CH" },
+    @{ ModelId = "EQM-PRESET-ADC-CONVERTER"; PresetId = "adc_converter"; Manufacturer = "Demo"; ModelName = "ADC converter"; Variant = "16 bit" },
+    @{ ModelId = "EQM-PRESET-DAQ-CARD"; PresetId = "daq_card"; Manufacturer = "Demo"; ModelName = "DAQ card"; Variant = "USB" },
+    @{ ModelId = "EQM-PRESET-TEST-SOFTWARE"; PresetId = "test_acquisition_software"; Manufacturer = "Demo"; ModelName = "Test acquisition software"; Variant = "local" }
+)
+foreach ($item in $presetModels) {
+    Ensure-ApprovedPresetModel -ModelId $item.ModelId -PresetId $item.PresetId -Manufacturer $item.Manufacturer -ModelName $item.ModelName -Variant $item.Variant | Out-Null
+}
 
 Ensure-ApprovedDriverProfile -DriverId "DRV-DEMO-NRP6AN-SCPI" -Label "R&S NRP6AN SCPI" -Definition (New-ScpiPowerMeterDriver -ModelRevision $powerMeter.current_approved_revision) | Out-Null
 Ensure-ApprovedDriverProfile -DriverId "DRV-DEMO-SERIAL-AMP" -Label "Demo serial amplifier" -Definition (New-SerialAmplifierDriver -ModelRevision $amplifier.current_approved_revision) | Out-Null

@@ -1,8 +1,10 @@
 # Equipment Model Definition
 
-Release `0.11.0` introduces a revisioned equipment model catalog. An equipment
-model describes an engineering type of laboratory equipment, not a physical
-asset in the fleet and not its metrology record.
+Release `0.11.0` introduced a revisioned equipment model catalog. Release
+`0.12.0` productizes its physical classification layer with registries, presets,
+port topology, and indexed summaries. An equipment model describes an
+engineering type of laboratory equipment, not a physical asset in the fleet and
+not its metrology record.
 
 ## Concepts
 
@@ -21,6 +23,10 @@ asset in the fleet and not its metrology record.
   `measurement_instrument`, `acquisition_device`, `converter`,
   `control_system`, `software_system`, `facility` or `manual_accessory`.
   This is distinct from `equipment_class`.
+- `equipment_model_classification_summaries`: agent-maintained indexed summary
+  rows used by catalog filters. They mirror the latest relevant model revision
+  and are replaced in the same transaction as create, draft save, derivation,
+  submission, or approval.
 
 ## Scope Boundary
 
@@ -74,6 +80,12 @@ The core now rejects ambiguous or physically incomplete model definitions:
 
 - bare `can`, `adc` or `dac` category codes are refused; use
   `can_bus`, `adc_converter` or `dac_converter` with explicit context;
+- `category_code=adc_converter` must declare `technology_tags=adc_converter`;
+  `category_code=dac_converter` must declare `technology_tags=dac_converter`;
+  `category_code=can_bus` must declare explicit `signal_domains=can_bus` and
+  `technology_tags=can_bus`;
+- `protocol_kind=can_bus_frames` requires a CAN bus transport, CAN bus domain,
+  and explicit CAN bus communication port;
 - communication domains cannot be used as measurement signal ports;
 - RF connector ports must declare impedance, while field-side antenna ports are
   modeled separately;

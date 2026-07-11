@@ -28,17 +28,19 @@ pub use document_service::{
 use emc_locus_core::{baseline_repository_domains, RepositoryDomain};
 pub use equipment_service::{
     clone_equipment_model, communication_provider_status, create_driver_profile,
-    create_driver_profile_revision, create_equipment_model, create_equipment_model_revision,
+    create_driver_profile_revision, create_equipment_model, create_equipment_model_from_preset,
+    create_equipment_model_revision, equipment_registries, get_classification_preset,
     get_driver_profile, get_driver_profile_revision, get_equipment_model,
-    get_equipment_model_revision, list_driver_profile_revisions, list_driver_profiles,
-    list_equipment_audit_events_for_driver, list_equipment_audit_events_for_model,
-    list_equipment_model_revisions, list_equipment_models,
+    get_equipment_model_revision, list_classification_presets, list_driver_profile_revisions,
+    list_driver_profiles, list_equipment_audit_events_for_driver,
+    list_equipment_audit_events_for_model, list_equipment_model_revisions, list_equipment_models,
     replace_driver_profile_revision_definition, replace_equipment_model_revision_definition,
     simulate_driver_profile, transition_driver_profile_revision,
     transition_equipment_model_revision, validate_driver_profile_definition_json,
     validate_equipment_model_definition_json, CloneEquipmentModelInput, CreateDriverProfileInput,
-    CreateDriverProfileRevisionInput, CreateEquipmentModelInput, CreateEquipmentModelRevisionInput,
-    ListDriverProfilesInput, ListEquipmentModelsInput, ReplaceDriverProfileDefinitionInput,
+    CreateDriverProfileRevisionInput, CreateEquipmentModelFromPresetInput,
+    CreateEquipmentModelInput, CreateEquipmentModelRevisionInput, ListDriverProfilesInput,
+    ListEquipmentModelsInput, ReplaceDriverProfileDefinitionInput,
     ReplaceEquipmentModelDefinitionInput, SimulateDriverProfileInput,
     TransitionDriverProfileRevisionInput, TransitionEquipmentModelRevisionInput,
 };
@@ -888,7 +890,7 @@ mod tests {
                 .find(|domain| domain.domain == "equipment")
                 .unwrap()
                 .schema_version,
-            Some(1)
+            Some(2)
         );
         assert_eq!(
             second_report

@@ -512,8 +512,21 @@ class LocalAgentClientTests(unittest.TestCase):
     def test_reads_equipment_catalog_routes(self) -> None:
         captured: list[tuple[str, str]] = []
         payloads = {
-            "http://127.0.0.1:8765/api/v1/equipment-models?manufacturer=Demo&equipment_class=controllable_instrument&category_code=power_meter&status=approved&search=power": {
+            "http://127.0.0.1:8765/api/v1/equipment-models?manufacturer=Demo&equipment_class=controllable_instrument&category_code=power_meter&functional_role=measurement_instrument&signal_domain=rf&technology_tag=rf_50_ohm&status=approved&q=power": {
                 "equipment_models": []
+            },
+            "http://127.0.0.1:8765/api/v1/equipment/registries": {
+                "functional_roles": [{"code": "measurement_instrument"}],
+                "signal_domains": [{"code": "rf"}],
+                "port_directionalities": [],
+                "flow_roles": [],
+                "technology_tags": [],
+            },
+            "http://127.0.0.1:8765/api/v1/equipment/classification-presets": {
+                "presets": [{"preset_id": "rf_power_meter"}]
+            },
+            "http://127.0.0.1:8765/api/v1/equipment/classification-presets/rf_power_meter": {
+                "preset": {"preset_id": "rf_power_meter"}
             },
             "http://127.0.0.1:8765/api/v1/equipment-models/EQM-PY-POWER": {
                 "equipment_model": {"identity": {"equipment_model_id": "EQM-PY-POWER"}}
@@ -558,10 +571,22 @@ class LocalAgentClientTests(unittest.TestCase):
                     manufacturer="Demo",
                     equipment_class="controllable_instrument",
                     category_code="power_meter",
+                    functional_role="measurement_instrument",
+                    signal_domain="rf",
+                    technology_tag="rf_50_ohm",
                     status="approved",
-                    search="power",
+                    q="power",
                 )["equipment_models"],
                 [],
+            )
+            self.assertEqual(client.equipment_registries()["functional_roles"][0]["code"], "measurement_instrument")
+            self.assertEqual(
+                client.list_equipment_classification_presets()["presets"][0]["preset_id"],
+                "rf_power_meter",
+            )
+            self.assertEqual(
+                client.get_equipment_classification_preset("rf_power_meter")["preset"]["preset_id"],
+                "rf_power_meter",
             )
             self.assertEqual(
                 client.get_equipment_model("EQM-PY-POWER")["equipment_model"]["identity"]["equipment_model_id"],
@@ -599,7 +624,7 @@ class LocalAgentClientTests(unittest.TestCase):
             self.assertEqual(client.driver_profile_audit_events("DRV-PY-POWER")["audit_events"], [])
             self.assertTrue(client.communication_provider_status()["providers"][0]["available"])
 
-        self.assertEqual(len(captured), 11)
+        self.assertEqual(len(captured), 14)
 
     def test_posts_equipment_model_revision_payloads(self) -> None:
         captured: list[tuple[str, str, dict[str, object]]] = []
@@ -629,6 +654,15 @@ class LocalAgentClientTests(unittest.TestCase):
                 actor="catalog.author",
                 reason="create model",
                 operation_id="op-model-create",
+            )
+            client.create_equipment_model_from_preset(
+                preset_id="rf_power_meter",
+                equipment_model_id="EQM-PY-PRESET",
+                manufacturer="Demo",
+                model_name="Preset Power Meter",
+                actor="catalog.author",
+                reason="create model from preset",
+                operation_id="op-model-from-preset",
             )
             client.replace_equipment_model_revision_definition(
                 equipment_model_id="EQM-PY-POWER",
@@ -671,11 +705,13 @@ class LocalAgentClientTests(unittest.TestCase):
 
         self.assertEqual(captured[0][1], "http://127.0.0.1:8765/api/v1/equipment-model-definitions/validate")
         self.assertEqual(captured[1][2]["equipment_model_id"], "EQM-PY-POWER")
-        self.assertEqual(captured[2][2]["expected_definition_checksum"], "sha256:" + "a" * 64)
-        self.assertEqual(captured[3][2]["source_revision_id"], "EQM-PY-POWER-rev-0001")
-        self.assertEqual(captured[4][2]["new_equipment_model_id"], "EQM-PY-POWER-CLONE")
-        self.assertEqual(captured[5][2]["operation_id"], "op-model-submit")
-        self.assertEqual(captured[6][2]["operation_id"], "op-model-approve")
+        self.assertEqual(captured[2][1], "http://127.0.0.1:8765/api/v1/equipment-models/from-preset")
+        self.assertEqual(captured[2][2]["preset_id"], "rf_power_meter")
+        self.assertEqual(captured[3][2]["expected_definition_checksum"], "sha256:" + "a" * 64)
+        self.assertEqual(captured[4][2]["source_revision_id"], "EQM-PY-POWER-rev-0001")
+        self.assertEqual(captured[5][2]["new_equipment_model_id"], "EQM-PY-POWER-CLONE")
+        self.assertEqual(captured[6][2]["operation_id"], "op-model-submit")
+        self.assertEqual(captured[7][2]["operation_id"], "op-model-approve")
 
     def test_posts_driver_profile_revision_and_simulation_payloads(self) -> None:
         captured: list[tuple[str, str, dict[str, object]]] = []

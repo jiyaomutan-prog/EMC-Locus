@@ -65,6 +65,74 @@ pub(crate) struct EquipmentModelRevisionListDto {
 }
 
 #[derive(Serialize)]
+pub(crate) struct EquipmentRegistryItemDto {
+    pub(crate) code: String,
+    pub(crate) label: String,
+    pub(crate) description: String,
+    pub(crate) recommended_equipment_classes: Vec<String>,
+    pub(crate) recommended_functional_roles: Vec<String>,
+    pub(crate) compatible_signal_domains: Vec<String>,
+    pub(crate) compatible_directionalities: Vec<String>,
+    pub(crate) deprecated: bool,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentRegistriesDto {
+    pub(crate) functional_roles: Vec<EquipmentRegistryItemDto>,
+    pub(crate) signal_domains: Vec<EquipmentRegistryItemDto>,
+    pub(crate) port_directionalities: Vec<EquipmentRegistryItemDto>,
+    pub(crate) flow_roles: Vec<EquipmentRegistryItemDto>,
+    pub(crate) technology_tags: Vec<EquipmentRegistryItemDto>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentClassificationPresetPortDto {
+    pub(crate) port_order: u32,
+    pub(crate) port_id: String,
+    pub(crate) label: String,
+    pub(crate) directionality: String,
+    pub(crate) flow_role: String,
+    pub(crate) signal_domain: String,
+    pub(crate) connector_type: Option<String>,
+    pub(crate) technology_tags: Vec<String>,
+    pub(crate) quantity: String,
+    pub(crate) unit: String,
+    pub(crate) impedance: Option<f64>,
+    pub(crate) frequency_min: Option<f64>,
+    pub(crate) frequency_max: Option<f64>,
+    pub(crate) voltage_max: Option<f64>,
+    pub(crate) current_max: Option<f64>,
+    pub(crate) power_max: Option<f64>,
+    pub(crate) required: bool,
+    pub(crate) comment: Option<String>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentClassificationPresetDto {
+    pub(crate) preset_id: String,
+    pub(crate) category_label: String,
+    pub(crate) function_description: String,
+    pub(crate) example_label: String,
+    pub(crate) default_equipment_class: String,
+    pub(crate) default_functional_role: String,
+    pub(crate) default_signal_domains: Vec<String>,
+    pub(crate) default_technology_tags: Vec<String>,
+    pub(crate) notes: String,
+    pub(crate) deprecated: bool,
+    pub(crate) ports: Vec<EquipmentClassificationPresetPortDto>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentClassificationPresetListDto {
+    pub(crate) presets: Vec<EquipmentClassificationPresetDto>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentClassificationPresetEnvelopeDto {
+    pub(crate) preset: EquipmentClassificationPresetDto,
+}
+
+#[derive(Serialize)]
 pub(crate) struct DriverProfileIdentityDto {
     pub(crate) driver_profile_id: String,
     pub(crate) equipment_model_id: String,

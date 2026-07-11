@@ -110,11 +110,62 @@ pub(crate) struct StoredEquipmentOperation {
     pub(crate) payload_checksum: String,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct StoredEquipmentRegistryItem {
+    pub(crate) code: String,
+    pub(crate) label: String,
+    pub(crate) description: String,
+    pub(crate) recommended_equipment_classes: Option<String>,
+    pub(crate) recommended_functional_roles: Option<String>,
+    pub(crate) compatible_signal_domains: Option<String>,
+    pub(crate) compatible_directionalities: Option<String>,
+    pub(crate) deprecated: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct StoredEquipmentClassificationPreset {
+    pub(crate) preset_id: String,
+    pub(crate) category_label: String,
+    pub(crate) function_description: String,
+    pub(crate) example_label: String,
+    pub(crate) default_equipment_class: String,
+    pub(crate) default_functional_role: String,
+    pub(crate) default_signal_domains: String,
+    pub(crate) default_technology_tags: String,
+    pub(crate) notes: String,
+    pub(crate) deprecated: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct StoredEquipmentClassificationPresetPort {
+    pub(crate) port_order: u32,
+    pub(crate) port_id: String,
+    pub(crate) label: String,
+    pub(crate) directionality: String,
+    pub(crate) flow_role: String,
+    pub(crate) signal_domain: String,
+    pub(crate) connector_type: Option<String>,
+    pub(crate) technology_tags: String,
+    pub(crate) quantity: String,
+    pub(crate) unit: String,
+    pub(crate) impedance: Option<f64>,
+    pub(crate) frequency_min: Option<f64>,
+    pub(crate) frequency_max: Option<f64>,
+    pub(crate) voltage_max: Option<f64>,
+    pub(crate) current_max: Option<f64>,
+    pub(crate) power_max: Option<f64>,
+    pub(crate) required: bool,
+    pub(crate) comment: Option<String>,
+}
+
 #[derive(Default)]
 pub(crate) struct EquipmentModelListFilter<'a> {
     pub(crate) manufacturer: Option<&'a str>,
     pub(crate) equipment_class: Option<&'a str>,
     pub(crate) category_code: Option<&'a str>,
+    pub(crate) functional_role: Option<&'a str>,
+    pub(crate) signal_domain: Option<&'a str>,
+    pub(crate) technology_tag: Option<&'a str>,
     pub(crate) status: Option<&'a str>,
     pub(crate) search: Option<&'a str>,
 }
@@ -151,6 +202,23 @@ pub(crate) struct NewEquipmentModelRevisionRecord<'a> {
     pub(crate) capability_count: u32,
     pub(crate) interface_count: u32,
     pub(crate) signal_port_count: u32,
+}
+
+pub(crate) struct EquipmentClassificationSummaryRecord<'a> {
+    pub(crate) equipment_model_id: &'a str,
+    pub(crate) revision_id: &'a str,
+    pub(crate) revision_number: u32,
+    pub(crate) status: &'a str,
+    pub(crate) manufacturer: &'a str,
+    pub(crate) equipment_class: &'a str,
+    pub(crate) category_code: &'a str,
+    pub(crate) functional_role: &'a str,
+    pub(crate) definition_checksum: &'a str,
+    pub(crate) signal_domains_json: &'a str,
+    pub(crate) technology_tags_json: &'a str,
+    pub(crate) signal_domains: &'a [String],
+    pub(crate) technology_tags: &'a [String],
+    pub(crate) timestamp: &'a str,
 }
 
 pub(crate) struct NewDriverProfileIdentityRecord<'a> {
@@ -310,6 +378,16 @@ fn ensure_equipment_tables(connection: &Connection) -> Result<(), AgentError> {
         "equipment_unit_registry",
         "equipment_model_identities",
         "equipment_model_revisions",
+        "equipment_functional_role_registry",
+        "equipment_signal_domain_registry",
+        "equipment_port_directionality_registry",
+        "equipment_flow_role_registry",
+        "equipment_technology_tag_registry",
+        "equipment_classification_presets",
+        "equipment_classification_preset_ports",
+        "equipment_model_classification_summaries",
+        "equipment_model_signal_domain_summaries",
+        "equipment_model_technology_tag_summaries",
         "driver_profile_identities",
         "driver_profile_revisions",
         "equipment_audit_events",
@@ -393,6 +471,82 @@ pub(crate) fn insert_equipment_model_revision(
     Ok(())
 }
 
+pub(crate) fn replace_equipment_model_classification_summary(
+    transaction: &Transaction<'_>,
+    input: EquipmentClassificationSummaryRecord<'_>,
+) -> Result<(), AgentError> {
+    transaction
+        .execute(
+            "DELETE FROM equipment_model_classification_summaries WHERE equipment_model_id = ?1",
+            params![input.equipment_model_id],
+        )
+        .map_err(|error| {
+            AgentError::new(
+                "equipment_model_classification_summary_write_failed",
+                error.to_string(),
+            )
+        })?;
+    transaction
+        .execute(
+            "INSERT INTO equipment_model_classification_summaries (
+                equipment_model_id, revision_id, revision_number, status, manufacturer,
+                equipment_class, category_code, functional_role, definition_checksum,
+                signal_domains_json, technology_tags_json, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                input.equipment_model_id,
+                input.revision_id,
+                input.revision_number,
+                input.status,
+                input.manufacturer,
+                input.equipment_class,
+                input.category_code,
+                input.functional_role,
+                input.definition_checksum,
+                input.signal_domains_json,
+                input.technology_tags_json,
+                input.timestamp
+            ],
+        )
+        .map_err(|error| {
+            AgentError::new(
+                "equipment_model_classification_summary_write_failed",
+                error.to_string(),
+            )
+        })?;
+    for domain in input.signal_domains {
+        transaction
+            .execute(
+                "INSERT INTO equipment_model_signal_domain_summaries (
+                    equipment_model_id, signal_domain, revision_id
+                ) VALUES (?1, ?2, ?3)",
+                params![input.equipment_model_id, domain, input.revision_id],
+            )
+            .map_err(|error| {
+                AgentError::new(
+                    "equipment_model_classification_summary_write_failed",
+                    error.to_string(),
+                )
+            })?;
+    }
+    for tag in input.technology_tags {
+        transaction
+            .execute(
+                "INSERT INTO equipment_model_technology_tag_summaries (
+                    equipment_model_id, technology_tag, revision_id
+                ) VALUES (?1, ?2, ?3)",
+                params![input.equipment_model_id, tag, input.revision_id],
+            )
+            .map_err(|error| {
+                AgentError::new(
+                    "equipment_model_classification_summary_write_failed",
+                    error.to_string(),
+                )
+            })?;
+    }
+    Ok(())
+}
+
 pub(crate) fn insert_driver_profile_identity(
     transaction: &Transaction<'_>,
     input: NewDriverProfileIdentityRecord<'_>,
@@ -458,16 +612,36 @@ pub(crate) fn list_equipment_model_identities(
                 i.equipment_class, i.category_code, i.current_approved_revision_id,
                 i.created_by, i.created_at, i.updated_at
              FROM equipment_model_identities i
-             LEFT JOIN equipment_model_revisions r
-                ON r.equipment_model_id = i.equipment_model_id
+             LEFT JOIN equipment_model_classification_summaries s
+                ON s.equipment_model_id = i.equipment_model_id
              WHERE (?1 IS NULL OR i.manufacturer = ?1)
                AND (?2 IS NULL OR i.equipment_class = ?2)
                AND (?3 IS NULL OR i.category_code = ?3)
-               AND (?4 IS NULL OR r.status = ?4)
+               AND (?4 IS NULL OR s.functional_role = ?4)
                AND (
-                    ?5 IS NULL
-                    OR lower(i.manufacturer || ' ' || i.model_name || ' ' || coalesce(i.variant, ''))
-                        LIKE '%' || lower(?5) || '%'
+                    ?5 IS NULL OR EXISTS (
+                        SELECT 1 FROM equipment_model_signal_domain_summaries sd
+                        WHERE sd.equipment_model_id = i.equipment_model_id
+                          AND sd.signal_domain = ?5
+                    )
+               )
+               AND (
+                    ?6 IS NULL OR EXISTS (
+                        SELECT 1 FROM equipment_model_technology_tag_summaries tt
+                        WHERE tt.equipment_model_id = i.equipment_model_id
+                          AND tt.technology_tag = ?6
+                    )
+               )
+               AND (?7 IS NULL OR s.status = ?7)
+               AND (
+                    ?8 IS NULL
+                    OR lower(
+                        i.manufacturer || ' ' || i.model_name || ' ' ||
+                        coalesce(i.variant, '') || ' ' || i.category_code || ' ' ||
+                        coalesce(s.functional_role, '') || ' ' ||
+                        coalesce(s.signal_domains_json, '') || ' ' ||
+                        coalesce(s.technology_tags_json, '')
+                    ) LIKE '%' || lower(?8) || '%'
                )
              ORDER BY i.manufacturer, i.model_name, i.variant",
         )
@@ -478,6 +652,9 @@ pub(crate) fn list_equipment_model_identities(
                 filter.manufacturer,
                 filter.equipment_class,
                 filter.category_code,
+                filter.functional_role,
+                filter.signal_domain,
+                filter.technology_tag,
                 filter.status,
                 filter.search
             ],
@@ -511,6 +688,149 @@ pub(crate) fn list_driver_profile_identities(
         )
         .map_err(|error| AgentError::new("driver_profile_query_failed", error.to_string()))?;
     collect_rows(rows, "driver_profile_query_failed")
+}
+
+pub(crate) fn list_equipment_functional_role_registry(
+    connection: &Connection,
+) -> Result<Vec<StoredEquipmentRegistryItem>, AgentError> {
+    list_equipment_registry(
+        connection,
+        "SELECT role_code, label, description, recommended_equipment_classes,
+                NULL, NULL, NULL, deprecated
+         FROM equipment_functional_role_registry
+         ORDER BY label",
+    )
+}
+
+pub(crate) fn list_equipment_signal_domain_registry(
+    connection: &Connection,
+) -> Result<Vec<StoredEquipmentRegistryItem>, AgentError> {
+    list_equipment_registry(
+        connection,
+        "SELECT domain_code, label, description, NULL, recommended_functional_roles,
+                NULL, NULL, deprecated
+         FROM equipment_signal_domain_registry
+         ORDER BY label",
+    )
+}
+
+pub(crate) fn list_equipment_port_directionality_registry(
+    connection: &Connection,
+) -> Result<Vec<StoredEquipmentRegistryItem>, AgentError> {
+    list_equipment_registry(
+        connection,
+        "SELECT directionality_code, label, description, NULL, NULL, NULL, NULL, deprecated
+         FROM equipment_port_directionality_registry
+         ORDER BY label",
+    )
+}
+
+pub(crate) fn list_equipment_flow_role_registry(
+    connection: &Connection,
+) -> Result<Vec<StoredEquipmentRegistryItem>, AgentError> {
+    list_equipment_registry(
+        connection,
+        "SELECT flow_role_code, label, description, NULL, NULL,
+                compatible_signal_domains, compatible_directionalities, deprecated
+         FROM equipment_flow_role_registry
+         ORDER BY label",
+    )
+}
+
+pub(crate) fn list_equipment_technology_tag_registry(
+    connection: &Connection,
+) -> Result<Vec<StoredEquipmentRegistryItem>, AgentError> {
+    list_equipment_registry(
+        connection,
+        "SELECT tag_code, label, description, NULL, recommended_functional_roles,
+                compatible_signal_domains, NULL, deprecated
+         FROM equipment_technology_tag_registry
+         ORDER BY label",
+    )
+}
+
+pub(crate) fn list_equipment_classification_presets(
+    connection: &Connection,
+) -> Result<Vec<StoredEquipmentClassificationPreset>, AgentError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT preset_id, category_label, function_description, example_label,
+                default_equipment_class, default_functional_role, default_signal_domains,
+                default_technology_tags, notes, deprecated
+             FROM equipment_classification_presets
+             ORDER BY sort_order, category_label, example_label",
+        )
+        .map_err(|error| {
+            AgentError::new(
+                "equipment_classification_preset_query_failed",
+                error.to_string(),
+            )
+        })?;
+    let rows = statement
+        .query_map([], equipment_classification_preset_from_row)
+        .map_err(|error| {
+            AgentError::new(
+                "equipment_classification_preset_query_failed",
+                error.to_string(),
+            )
+        })?;
+    collect_rows(rows, "equipment_classification_preset_query_failed")
+}
+
+pub(crate) fn load_equipment_classification_preset(
+    connection: &Connection,
+    preset_id: &str,
+) -> Result<Option<StoredEquipmentClassificationPreset>, AgentError> {
+    connection
+        .query_row(
+            "SELECT preset_id, category_label, function_description, example_label,
+                default_equipment_class, default_functional_role, default_signal_domains,
+                default_technology_tags, notes, deprecated
+             FROM equipment_classification_presets
+             WHERE preset_id = ?1",
+            params![preset_id],
+            equipment_classification_preset_from_row,
+        )
+        .optional()
+        .map_err(|error| {
+            AgentError::new(
+                "equipment_classification_preset_query_failed",
+                error.to_string(),
+            )
+        })
+}
+
+pub(crate) fn list_equipment_classification_preset_ports(
+    connection: &Connection,
+    preset_id: &str,
+) -> Result<Vec<StoredEquipmentClassificationPresetPort>, AgentError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT port_order, port_id, label, directionality, flow_role, signal_domain,
+                connector_type, technology_tags, quantity, unit, impedance, frequency_min,
+                frequency_max, voltage_max, current_max, power_max, required, comment
+             FROM equipment_classification_preset_ports
+             WHERE preset_id = ?1
+             ORDER BY port_order",
+        )
+        .map_err(|error| {
+            AgentError::new(
+                "equipment_classification_preset_port_query_failed",
+                error.to_string(),
+            )
+        })?;
+    let rows = statement
+        .query_map(
+            params![preset_id],
+            equipment_classification_preset_port_from_row,
+        )
+        .map_err(|error| {
+            AgentError::new(
+                "equipment_classification_preset_port_query_failed",
+                error.to_string(),
+            )
+        })?;
+    collect_rows(rows, "equipment_classification_preset_port_query_failed")
 }
 
 pub(crate) fn load_equipment_model_identity(
@@ -1331,6 +1651,79 @@ fn driver_profile_revision_from_row(
         submitted_at: row.get(13)?,
         approved_at: row.get(14)?,
         action_count: row.get(15)?,
+    })
+}
+
+fn list_equipment_registry(
+    connection: &Connection,
+    sql: &str,
+) -> Result<Vec<StoredEquipmentRegistryItem>, AgentError> {
+    let mut statement = connection
+        .prepare(sql)
+        .map_err(|error| AgentError::new("equipment_registry_query_failed", error.to_string()))?;
+    let rows = statement
+        .query_map([], equipment_registry_item_from_row)
+        .map_err(|error| AgentError::new("equipment_registry_query_failed", error.to_string()))?;
+    collect_rows(rows, "equipment_registry_query_failed")
+}
+
+fn equipment_registry_item_from_row(
+    row: &Row<'_>,
+) -> rusqlite::Result<StoredEquipmentRegistryItem> {
+    let deprecated: i64 = row.get(7)?;
+    Ok(StoredEquipmentRegistryItem {
+        code: row.get(0)?,
+        label: row.get(1)?,
+        description: row.get(2)?,
+        recommended_equipment_classes: row.get(3)?,
+        recommended_functional_roles: row.get(4)?,
+        compatible_signal_domains: row.get(5)?,
+        compatible_directionalities: row.get(6)?,
+        deprecated: deprecated != 0,
+    })
+}
+
+fn equipment_classification_preset_from_row(
+    row: &Row<'_>,
+) -> rusqlite::Result<StoredEquipmentClassificationPreset> {
+    let deprecated: i64 = row.get(9)?;
+    Ok(StoredEquipmentClassificationPreset {
+        preset_id: row.get(0)?,
+        category_label: row.get(1)?,
+        function_description: row.get(2)?,
+        example_label: row.get(3)?,
+        default_equipment_class: row.get(4)?,
+        default_functional_role: row.get(5)?,
+        default_signal_domains: row.get(6)?,
+        default_technology_tags: row.get(7)?,
+        notes: row.get(8)?,
+        deprecated: deprecated != 0,
+    })
+}
+
+fn equipment_classification_preset_port_from_row(
+    row: &Row<'_>,
+) -> rusqlite::Result<StoredEquipmentClassificationPresetPort> {
+    let required: i64 = row.get(16)?;
+    Ok(StoredEquipmentClassificationPresetPort {
+        port_order: row.get(0)?,
+        port_id: row.get(1)?,
+        label: row.get(2)?,
+        directionality: row.get(3)?,
+        flow_role: row.get(4)?,
+        signal_domain: row.get(5)?,
+        connector_type: row.get(6)?,
+        technology_tags: row.get(7)?,
+        quantity: row.get(8)?,
+        unit: row.get(9)?,
+        impedance: row.get(10)?,
+        frequency_min: row.get(11)?,
+        frequency_max: row.get(12)?,
+        voltage_max: row.get(13)?,
+        current_max: row.get(14)?,
+        power_max: row.get(15)?,
+        required: required != 0,
+        comment: row.get(17)?,
     })
 }
 

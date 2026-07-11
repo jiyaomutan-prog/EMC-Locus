@@ -9,17 +9,19 @@ use crate::document_service::{
 };
 use crate::equipment_service::{
     clone_equipment_model, communication_provider_status, create_driver_profile,
-    create_driver_profile_revision, create_equipment_model, create_equipment_model_revision,
+    create_driver_profile_revision, create_equipment_model, create_equipment_model_from_preset,
+    create_equipment_model_revision, equipment_registries, get_classification_preset,
     get_driver_profile, get_driver_profile_revision, get_equipment_model,
-    get_equipment_model_revision, list_driver_profile_revisions, list_driver_profiles,
-    list_equipment_audit_events_for_driver, list_equipment_audit_events_for_model,
-    list_equipment_model_revisions, list_equipment_models,
+    get_equipment_model_revision, list_classification_presets, list_driver_profile_revisions,
+    list_driver_profiles, list_equipment_audit_events_for_driver,
+    list_equipment_audit_events_for_model, list_equipment_model_revisions, list_equipment_models,
     replace_driver_profile_revision_definition, replace_equipment_model_revision_definition,
     simulate_driver_profile, transition_driver_profile_revision,
     transition_equipment_model_revision, validate_driver_profile_definition_json,
     validate_equipment_model_definition_json, CloneEquipmentModelInput, CreateDriverProfileInput,
-    CreateDriverProfileRevisionInput, CreateEquipmentModelInput, CreateEquipmentModelRevisionInput,
-    ListDriverProfilesInput, ListEquipmentModelsInput, ReplaceDriverProfileDefinitionInput,
+    CreateDriverProfileRevisionInput, CreateEquipmentModelFromPresetInput,
+    CreateEquipmentModelInput, CreateEquipmentModelRevisionInput, ListDriverProfilesInput,
+    ListEquipmentModelsInput, ReplaceDriverProfileDefinitionInput,
     ReplaceEquipmentModelDefinitionInput, SimulateDriverProfileInput,
     TransitionDriverProfileRevisionInput, TransitionEquipmentModelRevisionInput,
 };
@@ -423,6 +425,13 @@ fn route_api_request(
             create_equipment_model_input(&payload)?,
         );
     }
+    if parts.as_slice() == ["api", "v1", "equipment-models", "from-preset"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return create_equipment_model_from_preset(
+            &config.storage_root,
+            create_equipment_model_from_preset_input(&payload)?,
+        );
+    }
     if parts.as_slice() == ["api", "v1", "equipment-model-definitions", "validate"]
         && method == "POST"
     {
@@ -456,6 +465,12 @@ fn route_api_request(
     if parts.as_slice() == ["api", "v1", "equipment", "communication-providers"] && method == "GET"
     {
         return communication_provider_status();
+    }
+    if parts.as_slice() == ["api", "v1", "equipment", "registries"] && method == "GET" {
+        return equipment_registries(&config.storage_root);
+    }
+    if parts.as_slice() == ["api", "v1", "equipment", "classification-presets"] && method == "GET" {
+        return list_classification_presets(&config.storage_root);
     }
     if parts.as_slice() == ["api", "v1", "test-templates"] && method == "GET" {
         return list_test_template_definitions(
@@ -539,6 +554,9 @@ fn route_api_request(
         }
         ["api", "v1", "equipment-models", equipment_model_id] if method == "GET" => {
             get_equipment_model(&config.storage_root, equipment_model_id)
+        }
+        ["api", "v1", "equipment", "classification-presets", preset_id] if method == "GET" => {
+            get_classification_preset(&config.storage_root, preset_id)
         }
         ["api", "v1", "equipment-models", equipment_model_id, "clone"] if method == "POST" => {
             let payload = parse_json_body(body)?;
@@ -1059,9 +1077,32 @@ fn list_equipment_models_input(query: &str) -> ListEquipmentModelsInput {
         manufacturer: optional_query_value(query, "manufacturer"),
         equipment_class: optional_query_value(query, "equipment_class"),
         category_code: optional_query_value(query, "category_code"),
+        functional_role: optional_query_value(query, "functional_role"),
+        signal_domain: optional_query_value(query, "signal_domain"),
+        technology_tag: optional_query_value(query, "technology_tag"),
         status: optional_query_value(query, "status"),
-        search: optional_query_value(query, "search"),
+        search: optional_query_value(query, "q").or_else(|| optional_query_value(query, "search")),
     }
+}
+
+fn create_equipment_model_from_preset_input(
+    payload: &Value,
+) -> Result<CreateEquipmentModelFromPresetInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(CreateEquipmentModelFromPresetInput {
+        preset_id: required_string(payload, "preset_id")?,
+        equipment_model_id: required_string(payload, "equipment_model_id")?,
+        manufacturer: required_string(payload, "manufacturer")?,
+        model_name: required_string(payload, "model_name")?,
+        variant: optional_string(payload, "variant"),
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
 }
 
 fn replace_equipment_model_definition_input(
@@ -1475,6 +1516,7 @@ fn status_for_error(code: &str) -> u16 {
         | "equipment_model_not_found"
         | "equipment_model_revision_not_found"
         | "equipment_model_class_not_found"
+        | "equipment_classification_preset_not_found"
         | "driver_profile_not_found"
         | "driver_profile_revision_not_found"
         | "metrology_instrument_not_found" => 404,
@@ -1499,6 +1541,7 @@ fn status_for_error(code: &str) -> u16 {
         | "equipment_revision_source_not_approved"
         | "equipment_revision_transition_conflict"
         | "equipment_revision_transition_not_allowed"
+        | "equipment_classification_preset_deprecated"
         | "driver_model_revision_not_approved"
         | "driver_model_definition_checksum_mismatch"
         | "driver_simulation_revision_mismatch"
@@ -1526,6 +1569,10 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_test_template_definition"
         | "invalid_test_template_revision_status"
         | "invalid_equipment_identifier"
+        | "invalid_equipment_registry_json"
+        | "invalid_equipment_registry_value"
+        | "invalid_manufacturer"
+        | "invalid_model_name"
         | "invalid_equipment_model_definition"
         | "invalid_driver_profile_definition"
         | "invalid_driver_simulation"
@@ -1855,6 +1902,190 @@ mod tests {
         assert!(outbox
             .body
             .contains("\"operation_kind\":\"driver_profile_approved\""));
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn local_api_creates_equipment_model_from_classification_preset_and_filters_summaries() {
+        let storage_root = temporary_storage_root("agent-api-equipment-presets");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: None,
+        };
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+
+        let registries = handle_api_request("GET", "/api/v1/equipment/registries", "", &config);
+        assert_eq!(registries.status, 200, "{}", registries.body);
+        assert!(registries.body.contains("\"code\":\"acquisition_device\""));
+        assert!(registries.body.contains("\"code\":\"can_bus\""));
+
+        let preset_list = handle_api_request(
+            "GET",
+            "/api/v1/equipment/classification-presets",
+            "",
+            &config,
+        );
+        assert_eq!(preset_list.status, 200, "{}", preset_list.body);
+        assert!(preset_list.body.contains("\"preset_id\":\"adc_converter\""));
+        assert!(preset_list
+            .body
+            .contains("\"preset_id\":\"can_bus_controlled_unit\""));
+
+        let adc_preset = handle_api_request(
+            "GET",
+            "/api/v1/equipment/classification-presets/adc_converter",
+            "",
+            &config,
+        );
+        assert_eq!(adc_preset.status, 200, "{}", adc_preset.body);
+        assert!(adc_preset
+            .body
+            .contains("\"technology_tags\":[\"adc_converter\""));
+        assert!(!adc_preset.body.contains("\"signal_domain\":\"can_bus\""));
+
+        let created = handle_api_request(
+            "POST",
+            "/api/v1/equipment-models/from-preset",
+            &json!({
+                "preset_id": "adc_converter",
+                "equipment_model_id": "EQM-ADC-PRESET",
+                "manufacturer": "Demo",
+                "model_name": "ADC-16",
+                "variant": "portable",
+                "actor": "equipment.author",
+                "reason": "create ADC converter from backend preset",
+                "operation_id": "op-eqm-adc-from-preset"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        assert!(created
+            .body
+            .contains("\"operation\":\"equipment_model_created_from_preset\""));
+        assert!(created
+            .body
+            .contains("\"classification_preset_id\":\"adc_converter\""));
+        let created_json: Value = serde_json::from_str(&created.body).unwrap();
+        let mut edited_definition = created_json["revision"]["definition"].clone();
+        edited_definition["signal_domains"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("usb"));
+        edited_definition["technology_tags"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("usb"));
+
+        let before_draft_save_usb_filter = handle_api_request(
+            "GET",
+            "/api/v1/equipment-models?technology_tag=usb",
+            "",
+            &config,
+        );
+        assert_eq!(
+            before_draft_save_usb_filter.status, 200,
+            "{}",
+            before_draft_save_usb_filter.body
+        );
+        assert!(!before_draft_save_usb_filter.body.contains("EQM-ADC-PRESET"));
+
+        let draft_saved = handle_api_request(
+            "PUT",
+            "/api/v1/equipment-models/EQM-ADC-PRESET/revisions/EQM-ADC-PRESET-rev-0001/definition",
+            &json!({
+                "expected_definition_checksum": created_json["revision"]["definition_checksum"],
+                "definition": edited_definition,
+                "actor": "equipment.author",
+                "reason": "add USB summary tag to draft",
+                "operation_id": "op-eqm-adc-draft-save-usb"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(draft_saved.status, 200, "{}", draft_saved.body);
+
+        let after_draft_save_usb_filter = handle_api_request(
+            "GET",
+            "/api/v1/equipment-models?technology_tag=usb",
+            "",
+            &config,
+        );
+        assert_eq!(
+            after_draft_save_usb_filter.status, 200,
+            "{}",
+            after_draft_save_usb_filter.body
+        );
+        assert!(after_draft_save_usb_filter.body.contains("EQM-ADC-PRESET"));
+
+        let converter_filter = handle_api_request(
+            "GET",
+            "/api/v1/equipment-models?functional_role=converter&signal_domain=analog_voltage&technology_tag=adc_converter&q=ADC",
+            "",
+            &config,
+        );
+        assert_eq!(converter_filter.status, 200, "{}", converter_filter.body);
+        assert!(converter_filter.body.contains("EQM-ADC-PRESET"));
+
+        let can_filter = handle_api_request(
+            "GET",
+            "/api/v1/equipment-models?signal_domain=can_bus",
+            "",
+            &config,
+        );
+        assert_eq!(can_filter.status, 200, "{}", can_filter.body);
+        assert!(!can_filter.body.contains("EQM-ADC-PRESET"));
+
+        let submit = handle_api_request(
+            "POST",
+            "/api/v1/equipment-models/EQM-ADC-PRESET/revisions/EQM-ADC-PRESET-rev-0001/transitions/submit-for-review",
+            &transition_body("equipment.author", "submit ADC preset model", "op-eqm-adc-submit"),
+            &config,
+        );
+        assert_eq!(submit.status, 200, "{}", submit.body);
+        let approve = handle_api_request(
+            "POST",
+            "/api/v1/equipment-models/EQM-ADC-PRESET/revisions/EQM-ADC-PRESET-rev-0001/transitions/approve",
+            &transition_body("quality.approver", "approve ADC preset model", "op-eqm-adc-approve"),
+            &config,
+        );
+        assert_eq!(approve.status, 200, "{}", approve.body);
+
+        let approved_filter = handle_api_request(
+            "GET",
+            "/api/v1/equipment-models?functional_role=converter&technology_tag=adc_converter&status=approved",
+            "",
+            &config,
+        );
+        assert_eq!(approved_filter.status, 200, "{}", approved_filter.body);
+        assert!(approved_filter.body.contains("EQM-ADC-PRESET"));
+
+        let audit = handle_api_request(
+            "GET",
+            "/api/v1/equipment-models/EQM-ADC-PRESET/audit-events",
+            "",
+            &config,
+        );
+        assert_eq!(audit.status, 200, "{}", audit.body);
+        assert!(audit
+            .body
+            .contains("\"action\":\"equipment_model_created_from_preset\""));
+        assert!(audit
+            .body
+            .contains("\"action\":\"equipment_model_approved\""));
+
+        let outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
+        assert_eq!(outbox.status, 200, "{}", outbox.body);
+        assert!(outbox
+            .body
+            .contains("\"operation_kind\":\"equipment_model_created_from_preset\""));
 
         remove_temporary_storage_root(&storage_root);
     }

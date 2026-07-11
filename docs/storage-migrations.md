@@ -85,7 +85,11 @@ equipment class and unit registries, `equipment_model_identities`,
 `driver_profile_revisions`, `equipment_audit_events`, and single-active-draft
 indexes. Complex definitions are stored as canonical JSON with SHA-256
 checksums, while identities, statuses, model links, revision ids and approved
-pointers remain indexed columns.
+pointers remain indexed columns. Version 2 adds first-class physical
+classification registries, backend-owned classification presets with port
+topology, and transactionally maintained model summary tables so catalog
+filters by class, manufacturer, status, functional role, signal domain, and
+technology tag do not scan canonical definition JSON.
 
 ### Measurement Data
 

@@ -83,7 +83,22 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.11.0`.
+Current software version: `0.12.0`.
+
+Version `0.12.0` productizes equipment physics classification. The equipment
+catalog now has backend-owned registries for functional role, signal domain,
+port directionality, flow role, and technology tags; classification presets
+with port topology; indexed model summaries for catalog filters; an API path to
+create draft models from presets; Python client coverage; and LAB CONSOLE
+catalog filters plus preset-based creation. It distinguishes ADC converters,
+DAQ cards, CAN bus controlled units, RF paths, sensors, sources, actuators,
+controllers, software systems, and communication-only ports without treating
+metadata as a runtime driver. It is still not a physical fleet deployment
+system, certified hardware driver package, acquisition engine, RBAC domain,
+or full sensor/DAQ scaling model.
+
+Recommended next vertical: `0.13.0 - Sensors, DAQ Channels, Scaling And
+Engineering Curves`.
 
 Version `0.11.0` delivers the first Equipment Definition Catalog and Driver
 Script Studio slice. LAB CONSOLE now has an Equipment space with a functional
@@ -96,9 +111,6 @@ interfaces honestly: unavailable hardware providers remain reported as not
 installed. It is still not a physical fleet redesign, campaign execution
 engine, certified hardware driver package, acquisition system, reporting tool,
 authentication/RBAC domain, or full sensor/DAQ scaling model.
-
-Recommended next vertical: `0.12.0 - Sensors, DAQ Channels, Scaling And
-Engineering Curves`.
 
 Version `0.10.0` delivered LAB CONSOLE Template Studio v1. The web surface is a
 real React/TypeScript/Vite application served by the Rust local agent under

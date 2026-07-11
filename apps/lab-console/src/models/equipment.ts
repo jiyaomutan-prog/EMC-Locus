@@ -184,7 +184,9 @@ export interface SignalPortDefinition {
   directionality: PortDirectionality;
   flow_role: PortFlowRole;
   signal_domain: SignalDomain;
+  required?: boolean;
   connector_type?: string;
+  technology_tags?: TechnologyTag[];
   quantity: PhysicalQuantity;
   unit: string;
   impedance?: number;
@@ -293,6 +295,60 @@ export interface EquipmentModelAggregate {
   current_approved_revision: EquipmentModelRevision | null;
   latest_revision: EquipmentModelRevision | null;
   active_draft_revision: EquipmentModelRevision | null;
+}
+
+export interface EquipmentRegistryItem {
+  code: string;
+  label: string;
+  description: string;
+  recommended_equipment_classes: string[];
+  recommended_functional_roles: string[];
+  compatible_signal_domains: string[];
+  compatible_directionalities: string[];
+  deprecated: boolean;
+}
+
+export interface EquipmentRegistries {
+  functional_roles: EquipmentRegistryItem[];
+  signal_domains: EquipmentRegistryItem[];
+  port_directionalities: EquipmentRegistryItem[];
+  flow_roles: EquipmentRegistryItem[];
+  technology_tags: EquipmentRegistryItem[];
+}
+
+export interface EquipmentClassificationPresetPort {
+  port_order: number;
+  port_id: string;
+  label: string;
+  directionality: PortDirectionality;
+  flow_role: PortFlowRole;
+  signal_domain: SignalDomain;
+  connector_type?: string | null;
+  technology_tags: TechnologyTag[];
+  quantity: PhysicalQuantity;
+  unit: string;
+  impedance?: number | null;
+  frequency_min?: number | null;
+  frequency_max?: number | null;
+  voltage_max?: number | null;
+  current_max?: number | null;
+  power_max?: number | null;
+  required: boolean;
+  comment?: string | null;
+}
+
+export interface EquipmentClassificationPreset {
+  preset_id: string;
+  category_label: string;
+  function_description: string;
+  example_label: string;
+  default_equipment_class: EquipmentClass;
+  default_functional_role: FunctionalRole;
+  default_signal_domains: SignalDomain[];
+  default_technology_tags: TechnologyTag[];
+  notes: string;
+  deprecated: boolean;
+  ports: EquipmentClassificationPresetPort[];
 }
 
 export interface DriverScriptStep {

@@ -63,6 +63,48 @@ checksum. Equipment audit events reference aggregate kind, entity id, revision
 id, action, actor, reason, old/new revision, old/new checksum, operation id,
 device id and correlation id.
 
+### equipment physical classification registries
+
+Release `0.12.0` adds canonical registry tables in `equipment.sqlite`:
+
+- `equipment_functional_role_registry`;
+- `equipment_signal_domain_registry`;
+- `equipment_port_directionality_registry`;
+- `equipment_flow_role_registry`;
+- `equipment_technology_tag_registry`;
+- `equipment_classification_presets`;
+- `equipment_classification_preset_ports`.
+
+These tables are the backend source of truth for model classification authoring
+and LAB CONSOLE preset creation. Presets include default class, role, domains,
+technology tags, and explicit port topology. They are not driver profiles and
+do not execute hardware operations.
+
+### equipment_model_classification_summaries
+
+```sql
+CREATE TABLE equipment_model_classification_summaries (
+    equipment_model_id TEXT PRIMARY KEY,
+    revision_id TEXT NOT NULL,
+    revision_number INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    manufacturer TEXT NOT NULL,
+    equipment_class TEXT NOT NULL,
+    category_code TEXT NOT NULL,
+    functional_role TEXT NOT NULL,
+    definition_checksum TEXT NOT NULL,
+    signal_domains_json TEXT NOT NULL,
+    technology_tags_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+```
+
+The agent replaces this summary transactionally whenever a model definition is
+created, edited, derived, submitted, or approved. Two normalized companion
+tables, `equipment_model_signal_domain_summaries` and
+`equipment_model_technology_tag_summaries`, support indexed role/domain/tag
+catalog filters without parsing `definition_json`.
+
 ### projects
 
 ```sql

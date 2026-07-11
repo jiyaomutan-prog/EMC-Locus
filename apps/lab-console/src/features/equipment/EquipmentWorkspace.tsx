@@ -10,7 +10,7 @@ import {
   Send,
   ShieldCheck
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, equipmentApi, type OperationContext } from "../../api";
 import type {
   CommunicationProviderStatus,
@@ -21,12 +21,16 @@ import type {
   DriverScriptStep,
   DriverSimulationResult,
   EquipmentAuditEvent,
+  EquipmentClassificationPreset,
   EquipmentClass,
+  EquipmentRegistries,
   EquipmentModelAggregate,
   EquipmentModelDefinition,
   EquipmentModelRevision,
   EquipmentValidationResult,
-  FunctionalRole
+  FunctionalRole,
+  SignalDomain,
+  TechnologyTag
 } from "../../models/equipment";
 
 type EquipmentSpace =
@@ -39,6 +43,7 @@ type EquipmentSpace =
 
 type ModelSection =
   | "general"
+  | "classification"
   | "specifications"
   | "ports"
   | "interfaces"
@@ -67,8 +72,9 @@ const equipmentSpaces: Array<[EquipmentSpace, string]> = [
 
 const modelSections: Array<[ModelSection, string]> = [
   ["general", "General"],
+  ["classification", "Classification"],
   ["specifications", "Specifications"],
-  ["ports", "Physical Ports"],
+  ["ports", "Port Topology"],
   ["interfaces", "Communication"],
   ["capabilities", "Capabilities"],
   ["revisions", "Revisions"],
@@ -126,10 +132,24 @@ export function EquipmentWorkspace() {
   const [models, setModels] = useState<EquipmentModelAggregate[]>([]);
   const [drivers, setDrivers] = useState<DriverProfileAggregate[]>([]);
   const [providers, setProviders] = useState<CommunicationProviderStatus[]>([]);
+  const [registries, setRegistries] = useState<EquipmentRegistries | null>(null);
+  const [presets, setPresets] = useState<EquipmentClassificationPreset[]>([]);
   const [query, setQuery] = useState("");
   const [classFilter, setClassFilter] = useState("all");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [domainFilter, setDomainFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState("all");
+  const [manufacturerFilter, setManufacturerFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [operationError, setOperationError] = useState<string | null>(null);
+  const [creationOpen, setCreationOpen] = useState(false);
+  const [creationMode, setCreationMode] = useState<"blank" | "preset" | "clone">("preset");
+  const [creationPresetId, setCreationPresetId] = useState("");
+  const [creationManufacturer, setCreationManufacturer] = useState("Demo Instruments");
+  const [creationModelName, setCreationModelName] = useState("");
+  const [creationVariant, setCreationVariant] = useState("");
+  const [creationModelId, setCreationModelId] = useState("");
 
   const [selectedModel, setSelectedModel] = useState<EquipmentModelAggregate | null>(null);
   const [selectedModelRevision, setSelectedModelRevision] = useState<EquipmentModelRevision | null>(null);
@@ -152,44 +172,59 @@ export function EquipmentWorkspace() {
   const [simulation, setSimulation] = useState<DriverSimulationResult | null>(null);
   const [driverJsonDraft, setDriverJsonDraft] = useState("");
 
-  useEffect(() => {
-    void refresh();
-  }, []);
-
-  const filteredModels = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    return models.filter((model) => {
-      const definition = model.latest_revision?.definition ?? model.current_approved_revision?.definition;
-      const text = `${model.identity.manufacturer} ${model.identity.model_name} ${model.identity.variant ?? ""} ${model.identity.category_code} ${definition?.functional_role ?? ""} ${definition?.signal_domains?.join(" ") ?? ""} ${definition?.technology_tags?.join(" ") ?? ""}`.toLowerCase();
-      return (
-        (!normalized || text.includes(normalized)) &&
-        (classFilter === "all" || model.identity.equipment_class === classFilter)
-      );
-    });
-  }, [models, query, classFilter]);
-
-  const approvedModels = models.filter((model) => model.current_approved_revision);
-  const modelReadOnly = selectedModelRevision?.status !== "draft";
-  const driverReadOnly = selectedDriverRevision?.status !== "draft";
-
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setLoadState("loading");
     setOperationError(null);
     try {
       const [modelList, driverList, providerList] = await Promise.all([
-        equipmentApi.listModels(),
+        equipmentApi.listModels({
+          q: query.trim(),
+          manufacturer: manufacturerFilter.trim(),
+          equipment_class: classFilter,
+          functional_role: roleFilter,
+          signal_domain: domainFilter,
+          technology_tag: tagFilter,
+          status: statusFilter
+        }),
         equipmentApi.listDrivers(),
         equipmentApi.providers()
+      ]);
+      const [registryList, presetList] = await Promise.all([
+        equipmentApi.registries(),
+        equipmentApi.listClassificationPresets()
       ]);
       setModels(modelList.equipment_models);
       setDrivers(driverList.driver_profiles);
       setProviders(providerList.providers);
+      setRegistries(registryList);
+      setPresets(presetList.presets);
       setLoadState("ready");
     } catch (error) {
       setLoadState("error");
       setOperationError(errorMessage(error));
     }
-  }
+  }, [query, manufacturerFilter, classFilter, roleFilter, domainFilter, tagFilter, statusFilter]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!creationPresetId && presets.length > 0) {
+      setCreationPresetId(presets[0].preset_id);
+    }
+  }, [creationPresetId, presets]);
+
+  const presetCategories = useMemo(
+    () => Array.from(new Set(presets.map((preset) => preset.category_label))).sort(),
+    [presets]
+  );
+  const selectedPreset =
+    presets.find((preset) => preset.preset_id === creationPresetId) ?? presets[0] ?? null;
+
+  const approvedModels = models.filter((model) => model.current_approved_revision);
+  const modelReadOnly = selectedModelRevision?.status !== "draft";
+  const driverReadOnly = selectedDriverRevision?.status !== "draft";
 
   async function openModel(model: EquipmentModelAggregate, revision?: EquipmentModelRevision | null) {
     setOperationError(null);
@@ -246,13 +281,43 @@ export function EquipmentWorkspace() {
   }
 
   async function createModel() {
-    const id = `EQM-DEMO-${Date.now().toString(36).toUpperCase()}`;
+    const id = creationModelId.trim() || generatedModelId(creationManufacturer, creationModelName);
+    const modelName = creationModelName.trim() || id;
     await runOperation(async () => {
+      const definition = {
+        ...defaultEquipmentModelDefinition(id),
+        manufacturer: creationManufacturer.trim() || "Demo Instruments",
+        model_name: modelName,
+        variant: optionalString(creationVariant)
+      };
       const result = await equipmentApi.createModel({
         equipment_model_id: id,
-        definition: defaultEquipmentModelDefinition(id),
+        definition,
         ...context
       });
+      setCreationOpen(false);
+      await refresh();
+      await openModel(result.aggregate, result.revision);
+    });
+  }
+
+  async function createModelFromPreset() {
+    if (!selectedPreset) {
+      setOperationError("Aucun preset de classification disponible.");
+      return;
+    }
+    const id = creationModelId.trim() || generatedModelId(creationManufacturer, creationModelName || selectedPreset.example_label);
+    const modelName = creationModelName.trim() || selectedPreset.example_label;
+    await runOperation(async () => {
+      const result = await equipmentApi.createModelFromPreset({
+        preset_id: selectedPreset.preset_id,
+        equipment_model_id: id,
+        manufacturer: creationManufacturer.trim() || "Demo Instruments",
+        model_name: modelName,
+        variant: optionalString(creationVariant),
+        ...context
+      });
+      setCreationOpen(false);
       await refresh();
       await openModel(result.aggregate, result.revision);
     });
@@ -260,16 +325,31 @@ export function EquipmentWorkspace() {
 
   async function cloneSelectedModel() {
     if (!selectedModel) return;
-    const id = `${selectedModel.identity.equipment_model_id}-COPY-${Date.now().toString(36).toUpperCase()}`;
+    const id = creationModelId.trim() || `${selectedModel.identity.equipment_model_id}-COPY-${Date.now().toString(36).toUpperCase()}`;
     await runOperation(async () => {
       const result = await equipmentApi.cloneModel(selectedModel.identity.equipment_model_id, {
         new_equipment_model_id: id,
-        model_name: `${selectedModel.identity.model_name} copy`,
+        manufacturer: optionalString(creationManufacturer) ?? selectedModel.identity.manufacturer,
+        model_name: creationModelName.trim() || `${selectedModel.identity.model_name} copy`,
+        variant: optionalString(creationVariant),
         ...context
       });
+      setCreationOpen(false);
       await refresh();
       await openModel(result.aggregate, result.revision);
     });
+  }
+
+  async function createFromCurrentMode() {
+    if (creationMode === "blank") {
+      await createModel();
+      return;
+    }
+    if (creationMode === "clone") {
+      await cloneSelectedModel();
+      return;
+    }
+    await createModelFromPreset();
   }
 
   async function validateModel() {
@@ -494,6 +574,12 @@ export function EquipmentWorkspace() {
             placeholder="Recherche modele, fabricant, categorie"
           />
         </label>
+        <input
+          aria-label="Filtre fabricant"
+          value={manufacturerFilter}
+          onChange={(event) => setManufacturerFilter(event.target.value)}
+          placeholder="Fabricant"
+        />
         <select
           aria-label="Filtre classe equipement"
           value={classFilter}
@@ -506,10 +592,35 @@ export function EquipmentWorkspace() {
             </option>
           ))}
         </select>
+        <select aria-label="Filtre role physique" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
+          <option value="all">Tous roles</option>
+          {(registries?.functional_roles ?? functionalRoles.map((code) => ({ code, label: code }))).map((item) => (
+            <option value={item.code} key={item.code}>{item.label}</option>
+          ))}
+        </select>
+        <select aria-label="Filtre domaine signal" value={domainFilter} onChange={(event) => setDomainFilter(event.target.value)}>
+          <option value="all">Tous domaines</option>
+          {(registries?.signal_domains ?? []).map((item) => (
+            <option value={item.code} key={item.code}>{item.label}</option>
+          ))}
+        </select>
+        <select aria-label="Filtre technologie" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
+          <option value="all">Toutes technologies</option>
+          {(registries?.technology_tags ?? []).map((item) => (
+            <option value={item.code} key={item.code}>{item.label}</option>
+          ))}
+        </select>
+        <select aria-label="Filtre statut" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+          <option value="all">Tous statuts</option>
+          <option value="draft">Draft</option>
+          <option value="under_review">Under review</option>
+          <option value="approved">Approved</option>
+          <option value="superseded">Superseded</option>
+        </select>
         <button onClick={() => void refresh()}>
           <RefreshCw size={16} /> Rafraichir
         </button>
-        <button onClick={() => void createModel()}>
+        <button onClick={() => setCreationOpen(true)}>
           <Cpu size={16} /> Nouveau modele
         </button>
         <button onClick={() => void createDriver()} disabled={approvedModels.length === 0}>
@@ -525,6 +636,29 @@ export function EquipmentWorkspace() {
             <p>{operationError}</p>
           </div>
         </div>
+      )}
+
+      {creationOpen && (
+        <CreationPanel
+          mode={creationMode}
+          presets={presets}
+          categories={presetCategories}
+          selectedPreset={selectedPreset}
+          selectedPresetId={creationPresetId}
+          selectedModel={selectedModel}
+          manufacturer={creationManufacturer}
+          modelName={creationModelName}
+          variant={creationVariant}
+          modelId={creationModelId}
+          onMode={setCreationMode}
+          onPreset={setCreationPresetId}
+          onManufacturer={setCreationManufacturer}
+          onModelName={setCreationModelName}
+          onVariant={setCreationVariant}
+          onModelId={setCreationModelId}
+          onCancel={() => setCreationOpen(false)}
+          onCreate={() => void createFromCurrentMode()}
+        />
       )}
 
       <div className="equipmentTabs" role="tablist">
@@ -546,7 +680,7 @@ export function EquipmentWorkspace() {
       {space === "catalog" && loadState === "ready" && (
         <div className="equipmentLayout">
           <ModelCatalog
-            models={filteredModels}
+            models={models}
             selected={selectedModel}
             onOpen={(model) => void openModel(model)}
           />
@@ -555,6 +689,7 @@ export function EquipmentWorkspace() {
             revision={selectedModelRevision}
             definition={modelDefinition}
             readOnly={modelReadOnly}
+            registries={registries}
             section={modelSection}
             revisions={modelRevisions}
             audit={modelAudit}
@@ -612,10 +747,106 @@ export function EquipmentWorkspace() {
 
       {!["catalog", "drivers"].includes(space) && (
         <StateBlock
-          title="Non disponible en 0.11.0"
+          title="Non disponible en 0.12.0"
           detail="Cette sous-section restera liee a la flotte physique, aux connexions station et a la readiness dans une verticale ulterieure."
         />
       )}
+    </section>
+  );
+}
+
+function CreationPanel(props: {
+  mode: "blank" | "preset" | "clone";
+  presets: EquipmentClassificationPreset[];
+  categories: string[];
+  selectedPreset: EquipmentClassificationPreset | null;
+  selectedPresetId: string;
+  selectedModel: EquipmentModelAggregate | null;
+  manufacturer: string;
+  modelName: string;
+  variant: string;
+  modelId: string;
+  onMode: (mode: "blank" | "preset" | "clone") => void;
+  onPreset: (presetId: string) => void;
+  onManufacturer: (value: string) => void;
+  onModelName: (value: string) => void;
+  onVariant: (value: string) => void;
+  onModelId: (value: string) => void;
+  onCancel: () => void;
+  onCreate: () => void;
+}) {
+  const presetsByCategory = props.categories.map((category) => ({
+    category,
+    presets: props.presets.filter((preset) => preset.category_label === category)
+  }));
+  return (
+    <section className="creationPanel">
+      <div className="creationHeader">
+        <div>
+          <p className="eyebrow">Equipment model creation</p>
+          <h2>Nouveau modele catalogue</h2>
+        </div>
+        <div className="segmented">
+          <button className={props.mode === "blank" ? "active" : ""} onClick={() => props.onMode("blank")}>Blank</button>
+          <button className={props.mode === "preset" ? "active" : ""} onClick={() => props.onMode("preset")}>Preset</button>
+          <button className={props.mode === "clone" ? "active" : ""} onClick={() => props.onMode("clone")} disabled={!props.selectedModel}>Clone</button>
+        </div>
+      </div>
+      <div className="creationGrid">
+        <div className="creationFields">
+          {props.mode === "preset" && (
+            <label>
+              Classification preset
+              <select value={props.selectedPresetId} onChange={(event) => props.onPreset(event.target.value)}>
+                {presetsByCategory.map(({ category, presets }) => (
+                  <optgroup label={category} key={category}>
+                    {presets.map((preset) => (
+                      <option value={preset.preset_id} key={preset.preset_id}>{preset.example_label}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+          )}
+          {props.mode === "clone" && props.selectedModel && (
+            <div className="notice">
+              Source: {props.selectedModel.identity.manufacturer} {props.selectedModel.identity.model_name}
+            </div>
+          )}
+          <Field label="Equipment model ID" value={props.modelId} onChange={props.onModelId} />
+          <Field label="Manufacturer" value={props.manufacturer} onChange={props.onManufacturer} />
+          <Field label="Model name" value={props.modelName} onChange={props.onModelName} />
+          <Field label="Variant" value={props.variant} onChange={props.onVariant} />
+          <div className="buttonRow">
+            <button onClick={props.onCreate}><Cpu size={16} /> Creer</button>
+            <button onClick={props.onCancel}>Fermer</button>
+          </div>
+        </div>
+        {props.mode === "preset" && props.selectedPreset && (
+          <div className="presetPreview">
+            <h3>{props.selectedPreset.example_label}</h3>
+            <p>{props.selectedPreset.function_description}</p>
+            <dl>
+              <dt>Class</dt><dd>{props.selectedPreset.default_equipment_class}</dd>
+              <dt>Role</dt><dd>{props.selectedPreset.default_functional_role}</dd>
+              <dt>Domains</dt><dd>{props.selectedPreset.default_signal_domains.join(", ")}</dd>
+              <dt>Tags</dt><dd>{props.selectedPreset.default_technology_tags.join(", ") || "-"}</dd>
+            </dl>
+            <StructuredTable columns={["Port", "Direction", "Flow", "Domain", "Tags", "Req."]}>
+              {props.selectedPreset.ports.map((port) => (
+                <tr key={port.port_id}>
+                  <td>{port.port_id}</td>
+                  <td>{port.directionality}</td>
+                  <td>{port.flow_role}</td>
+                  <td>{port.signal_domain}</td>
+                  <td>{port.technology_tags.join(", ") || "-"}</td>
+                  <td>{port.required ? "yes" : "no"}</td>
+                </tr>
+              ))}
+            </StructuredTable>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -629,19 +860,26 @@ function ModelCatalog(props: {
     <aside className="equipmentList">
       <h2>Model Catalog</h2>
       {props.models.length === 0 && <p>Aucun modele equipement.</p>}
-      {props.models.map((model) => (
-        <button
-          key={model.identity.equipment_model_id}
-          className={props.selected?.identity.equipment_model_id === model.identity.equipment_model_id ? "active" : ""}
-          onClick={() => props.onOpen(model)}
-        >
-          <strong>{model.identity.manufacturer} {model.identity.model_name}</strong>
-          <span>{model.identity.variant ?? model.identity.category_code}</span>
-          <small>
-            {model.identity.equipment_class} | rev {model.latest_revision?.revision_number ?? "-"} | {model.latest_revision?.status ?? "no_revision"}
-          </small>
-        </button>
-      ))}
+      {props.models.map((model) => {
+        const revision = model.latest_revision ?? model.current_approved_revision;
+        const definition = revision?.definition;
+        return (
+          <button
+            key={model.identity.equipment_model_id}
+            className={props.selected?.identity.equipment_model_id === model.identity.equipment_model_id ? "active" : ""}
+            onClick={() => props.onOpen(model)}
+          >
+            <strong>{model.identity.manufacturer} {model.identity.model_name}</strong>
+            <span>{model.identity.variant ?? model.identity.category_code}</span>
+            <small>{model.identity.equipment_class} | {definition?.functional_role ?? "-"} | {revision?.status ?? "no_revision"}</small>
+            <small>{definition?.signal_domains?.join(", ") || "-"}</small>
+            <small>{definition?.technology_tags?.join(", ") || "-"}</small>
+            <small>
+              rev {revision?.revision_number ?? "-"} | ports {revision?.signal_port_count ?? 0} | interfaces {revision?.interface_count ?? 0} | capabilities {revision?.capability_count ?? 0}
+            </small>
+          </button>
+        );
+      })}
     </aside>
   );
 }
@@ -651,6 +889,7 @@ function ModelStudio(props: {
   revision: EquipmentModelRevision | null;
   definition: EquipmentModelDefinition | null;
   readOnly: boolean;
+  registries: EquipmentRegistries | null;
   section: ModelSection;
   revisions: EquipmentModelRevision[];
   audit: EquipmentAuditEvent[];
@@ -710,15 +949,21 @@ function ModelStudio(props: {
                   {equipmentClasses.map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
               </label>
+              <Field label="Category code" value={definition.category_code} disabled={props.readOnly} onChange={(category_code) => props.onDefinition({ ...definition, category_code })} />
+            </EditorCard>
+          )}
+          {props.section === "classification" && (
+            <EditorCard title="Classification">
               <label>
                 Functional role
                 <select disabled={props.readOnly} value={definition.functional_role} onChange={(event) => props.onDefinition({ ...definition, functional_role: event.target.value as FunctionalRole })}>
-                  {functionalRoles.map((item) => <option key={item} value={item}>{item}</option>)}
+                  {(props.registries?.functional_roles ?? functionalRoles.map((code) => ({ code, label: code }))).map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
                 </select>
               </label>
-              <Field label="Category code" value={definition.category_code} disabled={props.readOnly} onChange={(category_code) => props.onDefinition({ ...definition, category_code })} />
-              <Field label="Signal domains" value={definition.signal_domains.join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, signal_domains: splitTokens(value) as EquipmentModelDefinition["signal_domains"] })} />
-              <Field label="Technology tags" value={(definition.technology_tags ?? []).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, technology_tags: splitTokens(value) as EquipmentModelDefinition["technology_tags"] })} />
+              <Field label="Signal domains" value={definition.signal_domains.join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, signal_domains: splitTokens(value) as SignalDomain[] })} />
+              <Field label="Technology tags" value={(definition.technology_tags ?? []).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, technology_tags: splitTokens(value) as TechnologyTag[] })} />
+              <Field label="Preset reference" value={String(definition.metadata?.classification_preset_id ?? "")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, metadata: { ...(definition.metadata ?? {}), classification_preset_id: optionalString(value) } })} />
+              <Field label="Classification notes" value={String(definition.metadata?.classification_notes ?? "")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, metadata: { ...(definition.metadata ?? {}), classification_notes: value } })} />
             </EditorCard>
           )}
           {props.section === "specifications" && (
@@ -739,13 +984,52 @@ function ModelStudio(props: {
             </EditorCard>
           )}
           {props.section === "ports" && (
-            <EditorCard title="Physical Ports">
-              <StructuredTable columns={["ID", "Label", "Directionality", "Flow role", "Domain", "Quantity", "Unit"]}>
-                {definition.signal_ports.map((port) => (
-                  <tr key={port.port_id}><td>{port.port_id}</td><td>{port.label}</td><td>{port.directionality}</td><td>{port.flow_role}</td><td>{port.signal_domain}</td><td>{port.quantity}</td><td>{port.unit}</td></tr>
+            <EditorCard title="Port Topology">
+              <StructuredTable columns={["ID", "Label", "Direction", "Flow", "Domain", "Tags", "Req.", "Connector", "Quantity", "Unit", "Impedance", "Fmin", "Fmax", "Vmax", "Imax", "Pmax", "Comment"]}>
+                {definition.signal_ports.map((port, index) => (
+                  <tr key={port.port_id}>
+                    <td><input disabled={props.readOnly} value={port.port_id} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, port_id: event.target.value }) })} /></td>
+                    <td><input disabled={props.readOnly} value={port.label} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, label: event.target.value }) })} /></td>
+                    <td>
+                      <select disabled={props.readOnly} value={port.directionality} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, directionality: event.target.value as typeof port.directionality }) })}>
+                        {(props.registries?.port_directionalities ?? []).map((item) => <option key={item.code} value={item.code}>{item.code}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <select disabled={props.readOnly} value={port.flow_role} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, flow_role: event.target.value as typeof port.flow_role }) })}>
+                        {(props.registries?.flow_roles ?? []).map((item) => <option key={item.code} value={item.code}>{item.code}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <select disabled={props.readOnly} value={port.signal_domain} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, signal_domain: event.target.value as SignalDomain }) })}>
+                        {(props.registries?.signal_domains ?? []).map((item) => <option key={item.code} value={item.code}>{item.code}</option>)}
+                      </select>
+                    </td>
+                    <td><input disabled={props.readOnly} value={(port.technology_tags ?? []).join(", ")} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, technology_tags: splitTokens(event.target.value) as TechnologyTag[] }) })} /></td>
+                    <td><input type="checkbox" disabled={props.readOnly} checked={port.required ?? true} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, required: event.target.checked }) })} /></td>
+                    <td><input disabled={props.readOnly} value={port.connector_type ?? ""} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, connector_type: optionalString(event.target.value) }) })} /></td>
+                    <td><input disabled={props.readOnly} value={port.quantity} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, quantity: event.target.value as typeof port.quantity }) })} /></td>
+                    <td><input disabled={props.readOnly} value={port.unit} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, unit: event.target.value }) })} /></td>
+                    <td><input disabled={props.readOnly} value={port.impedance ?? ""} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, impedance: optionalNumber(event.target.value) }) })} /></td>
+                    <td><input disabled={props.readOnly} value={port.frequency_min ?? ""} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, frequency_min: optionalNumber(event.target.value) }) })} /></td>
+                    <td><input disabled={props.readOnly} value={port.frequency_max ?? ""} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, frequency_max: optionalNumber(event.target.value) }) })} /></td>
+                    <td><input disabled={props.readOnly} value={port.voltage_max ?? ""} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, voltage_max: optionalNumber(event.target.value) }) })} /></td>
+                    <td><input disabled={props.readOnly} value={port.current_max ?? ""} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, current_max: optionalNumber(event.target.value) }) })} /></td>
+                    <td><input disabled={props.readOnly} value={port.power_max ?? ""} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, power_max: optionalNumber(event.target.value) }) })} /></td>
+                    <td><input disabled={props.readOnly} value={port.comment ?? ""} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, comment: optionalString(event.target.value) }) })} /></td>
+                  </tr>
                 ))}
               </StructuredTable>
-              <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultPort(definition.signal_ports.length + 1)] })}>Ajouter un port RF</button>
+              <div className="buttonRow">
+                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, ...defaultRfThroughPair(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["rf"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["rf_50_ohm"]) as TechnologyTag[] })}>Ajouter RF through pair</button>
+                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultRfSourceOutput(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["rf"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["rf_50_ohm"]) as TechnologyTag[] })}>Ajouter RF source output</button>
+                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultRfSinkInput(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["rf"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["rf_50_ohm"]) as TechnologyTag[] })}>Ajouter RF sink input</button>
+                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultCommunicationPort(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["ethernet"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["ethernet"]) as TechnologyTag[] })}>Ajouter communication port</button>
+                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultAnalogInputPort(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["analog_voltage"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["voltage_input"]) as TechnologyTag[] })}>Ajouter measurement input</button>
+                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultTriggerInput(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["trigger"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["trigger"]) as TechnologyTag[] })}>Ajouter trigger input</button>
+                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultFieldSidePort(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["environmental"]) as SignalDomain[] })}>Ajouter field-side port</button>
+                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultCanBusPort(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["can_bus"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["can_bus"]) as TechnologyTag[] })}>Ajouter CAN bus</button>
+              </div>
             </EditorCard>
           )}
           {props.section === "interfaces" && (
@@ -1025,10 +1309,10 @@ function defaultEquipmentModelDefinition(id: string): EquipmentModelDefinition {
     equipment_class: "controllable_instrument",
     functional_role: "measurement_instrument",
     category_code: "power_meter",
-    signal_domains: ["rf", "ethernet"],
-    technology_tags: ["rf_50_ohm", "ethernet", "raw_tcp", "scpi"],
+    signal_domains: ["analog_voltage", "ethernet"],
+    technology_tags: ["voltage_input", "ethernet", "raw_tcp", "scpi"],
     specifications: [defaultSpecification(1)],
-    signal_ports: [defaultPort(1)],
+    signal_ports: [defaultAnalogInputPort(1)],
     communication_interfaces: [defaultTcpInterface(1)],
     capabilities: [defaultCapability(1)],
     metadata: { created_from: "lab_console" }
@@ -1062,20 +1346,147 @@ function defaultSpecification(index: number) {
   };
 }
 
-function defaultPort(index: number) {
+function defaultRfSinkInput(index: number) {
   return {
     port_id: `rf_input_${index}`,
-    label: `RF Input ${index}`,
+    label: `RF sink input ${index}`,
     directionality: "input" as const,
-    flow_role: "measurement_port" as const,
+    flow_role: "sink_port" as const,
     signal_domain: "rf" as const,
+    required: true,
     connector_type: "N",
+    technology_tags: ["rf_50_ohm" as const],
     quantity: "power" as const,
     unit: "dBm",
     impedance: 50,
     frequency_min: 9000,
     frequency_max: 1000000000,
     power_max: 30
+  };
+}
+
+function defaultRfSourceOutput(index: number) {
+  return {
+    port_id: `rf_out_${index}`,
+    label: `RF source output ${index}`,
+    directionality: "output" as const,
+    flow_role: "source_port" as const,
+    signal_domain: "rf" as const,
+    required: true,
+    connector_type: "N",
+    technology_tags: ["rf_50_ohm" as const],
+    quantity: "power" as const,
+    unit: "dBm",
+    impedance: 50,
+    frequency_min: 9000,
+    frequency_max: 1000000000,
+    power_max: 30
+  };
+}
+
+function defaultRfThroughPair(startIndex: number) {
+  return [
+    {
+      port_id: `rf_a_${startIndex}`,
+      label: `RF A ${startIndex}`,
+      directionality: "through" as const,
+      flow_role: "through_port" as const,
+      signal_domain: "rf" as const,
+      required: true,
+      connector_type: "N",
+      technology_tags: ["rf_50_ohm" as const],
+      quantity: "power" as const,
+      unit: "dBm",
+      impedance: 50
+    },
+    {
+      port_id: `rf_b_${startIndex + 1}`,
+      label: `RF B ${startIndex + 1}`,
+      directionality: "through" as const,
+      flow_role: "through_port" as const,
+      signal_domain: "rf" as const,
+      required: true,
+      connector_type: "N",
+      technology_tags: ["rf_50_ohm" as const],
+      quantity: "power" as const,
+      unit: "dBm",
+      impedance: 50
+    }
+  ];
+}
+
+function defaultAnalogInputPort(index: number) {
+  return {
+    port_id: `ai_${index}`,
+    label: `Measurement input ${index}`,
+    directionality: "input" as const,
+    flow_role: "measurement_port" as const,
+    signal_domain: "analog_voltage" as const,
+    required: true,
+    connector_type: "BNC",
+    technology_tags: ["voltage_input" as const],
+    quantity: "voltage" as const,
+    unit: "V"
+  };
+}
+
+function defaultCommunicationPort(index: number) {
+  return {
+    port_id: `lan_${index}`,
+    label: `Ethernet communication ${index}`,
+    directionality: "communication" as const,
+    flow_role: "communication_port" as const,
+    signal_domain: "ethernet" as const,
+    required: false,
+    connector_type: "RJ45",
+    technology_tags: ["ethernet" as const],
+    quantity: "binary" as const,
+    unit: "dimensionless"
+  };
+}
+
+function defaultTriggerInput(index: number) {
+  return {
+    port_id: `trig_in_${index}`,
+    label: `Trigger input ${index}`,
+    directionality: "input" as const,
+    flow_role: "control_port" as const,
+    signal_domain: "trigger" as const,
+    required: false,
+    connector_type: "BNC",
+    technology_tags: ["trigger" as const],
+    quantity: "voltage" as const,
+    unit: "V"
+  };
+}
+
+function defaultFieldSidePort(index: number) {
+  return {
+    port_id: `field_${index}`,
+    label: `Field-side port ${index}`,
+    directionality: "input" as const,
+    flow_role: "field_side_port" as const,
+    signal_domain: "environmental" as const,
+    required: true,
+    connector_type: undefined,
+    technology_tags: [],
+    quantity: "electric_field" as const,
+    unit: "dBuV_per_m"
+  };
+}
+
+function defaultCanBusPort(index: number) {
+  return {
+    port_id: `can_bus_${index}`,
+    label: `CAN bus ${index}`,
+    directionality: "communication" as const,
+    flow_role: "communication_port" as const,
+    signal_domain: "can_bus" as const,
+    required: true,
+    connector_type: "D-Sub",
+    technology_tags: ["can_bus" as const],
+    quantity: "binary" as const,
+    unit: "dimensionless"
   };
 }
 
@@ -1193,11 +1604,31 @@ function optionalString(value: string) {
   return trimmed ? trimmed : undefined;
 }
 
+function optionalNumber(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function mergeTokens<T extends string>(existing: T[], additions: T[]) {
+  return Array.from(new Set([...existing, ...additions]));
+}
+
 function splitTokens(value: string) {
   return value
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function generatedModelId(manufacturer: string, modelName: string) {
+  const text = `${manufacturer}-${modelName || "model"}`
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 42);
+  return `EQM-${text || "MODEL"}-${Date.now().toString(36).toUpperCase()}`;
 }
 
 function formatDate(value?: string | null) {

@@ -519,6 +519,65 @@ td textarea {
   align-items: stretch;
 }
 
+.equipmentToolbar > input,
+.equipmentToolbar > select {
+  min-width: 150px;
+}
+
+.creationPanel {
+  background: #fff;
+  border: 1px solid #cfd8cf;
+  display: grid;
+  gap: 14px;
+  padding: 12px;
+}
+
+.creationHeader {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.creationHeader h2,
+.presetPreview h3 {
+  margin: 0;
+}
+
+.segmented {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.segmented button {
+  background: #fff;
+  border-color: #c8d0c7;
+}
+
+.segmented button.active {
+  background: #2f6f5e;
+  border-color: #2f6f5e;
+  color: #fff;
+}
+
+.creationGrid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+}
+
+.creationFields,
+.presetPreview {
+  display: grid;
+  gap: 10px;
+}
+
+.presetPreview {
+  border-left: 3px solid #b5d3bf;
+  padding-left: 12px;
+}
+
 .equipmentTabs {
   display: flex;
   flex-wrap: wrap;
@@ -643,6 +702,10 @@ td textarea {
   }
 
   .equipmentLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .creationGrid {
     grid-template-columns: 1fr;
   }
 }
