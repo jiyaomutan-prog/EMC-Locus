@@ -1222,6 +1222,15 @@ pub fn evaluate_engineering_curve(
     let mut result_values = BTreeMap::new();
     for dependent in &definition.dependent_values {
         let value = interpolate_curve_value(definition, &points, x, &dependent.value_id)?;
+        if !value.is_finite() {
+            return Err(vec![issue(
+                "error",
+                "invalid_curve_evaluation_result",
+                format!("values.{}", dependent.value_id),
+                "curve evaluation results must be finite",
+                Some("Use a value inside the curve domain or a stricter extrapolation policy."),
+            )]);
+        }
         result_values.insert(dependent.value_id.clone(), value);
     }
     Ok(EngineeringCurveEvaluation {
@@ -2441,6 +2450,30 @@ mod tests {
         assert!(error
             .iter()
             .any(|issue| issue.code == "log_interpolation_non_positive_x"));
+    }
+
+    #[test]
+    fn rejects_non_finite_curve_evaluation_result() {
+        let mut curve = demo_curve();
+        curve.interpolation = CurveInterpolation::LinearXLogY;
+        curve.extrapolation_policy = ExtrapolationPolicy::Allow;
+        for (index, point) in curve.points.iter_mut().enumerate() {
+            point
+                .values
+                .insert("correction_db".to_owned(), 10f64.powi(index as i32));
+        }
+
+        let error = evaluate_engineering_curve(
+            &curve,
+            BTreeMap::from([("frequency".to_owned(), f64::MAX)]),
+            "curve-rev-0001",
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        )
+        .unwrap_err();
+
+        assert!(error
+            .iter()
+            .any(|issue| issue.code == "invalid_curve_evaluation_result"));
     }
 
     #[test]

@@ -174,7 +174,9 @@ extrapolation flag, optional warning, source revision id, and source checksum.
 Validation rejects logarithmic interpolation inputs that cannot be evaluated:
 `log_x_linear_y` requires positive x values and `linear_x_log_y` requires
 positive dependent values. Evaluation requests for `log_x_linear_y` curves also
-reject non-positive axis values before extrapolation is applied.
+reject non-positive axis values before extrapolation is applied. Interpolated
+and extrapolated dependent results must remain finite; non-finite results are
+returned as controlled validation errors.
 
 Example evaluation request:
 

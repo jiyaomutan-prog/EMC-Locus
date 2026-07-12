@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected engineering-curve evaluations whose interpolated or extrapolated
+  dependent result is non-finite, so permissive extrapolation policies cannot
+  return `inf` or `NaN` correction evidence.
 - Fixed measurement-engineering operation replay so repeated create, draft
   replacement, clone/revision, submit, and approve requests with the same
   `operation_id` match the audit fingerprint written by the original request
