@@ -45,6 +45,10 @@ revisions. Supported interpolation modes are `linear_x_linear_y`,
 `step_next`. Extrapolation policies are `forbidden`, `clamp`, `warn`, and
 `allow`.
 
+Validation rejects `log_x_linear_y` curves with non-positive x values and
+`linear_x_log_y` curves with non-positive dependent values, so logarithmic
+interpolation inputs are controlled before a revision can be submitted.
+
 Evaluation returns the computed values, axis values, interpolation mode,
 whether extrapolation occurred, optional warning, source revision id, and source
 checksum. It does not acquire live spectrum, time-domain, or DAQ data.

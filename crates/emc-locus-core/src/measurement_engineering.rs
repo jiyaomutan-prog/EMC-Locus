@@ -1876,7 +1876,19 @@ fn validate_curve_1d_points(
         }
         for dependent in &definition.dependent_values {
             match point.values.get(&dependent.value_id) {
-                Some(value) if value.is_finite() => {}
+                Some(value) if value.is_finite() => {
+                    if matches!(definition.interpolation, CurveInterpolation::LinearXLogY)
+                        && *value <= 0.0
+                    {
+                        issues.push(issue(
+                            "error",
+                            "log_y_interpolation_non_positive_value",
+                            format!("points[{index}].values.{}", dependent.value_id),
+                            "linear_x_log_y interpolation requires positive dependent values",
+                            None::<String>,
+                        ));
+                    }
+                }
                 Some(_) => issues.push(issue(
                     "error",
                     "invalid_curve_point_value",
@@ -2390,6 +2402,18 @@ mod tests {
         assert!(error
             .iter()
             .any(|issue| issue.code == "curve_extrapolation_forbidden"));
+    }
+
+    #[test]
+    fn rejects_linear_x_log_y_with_non_positive_curve_values() {
+        let mut curve = demo_curve();
+        curve.interpolation = CurveInterpolation::LinearXLogY;
+
+        let issues = validate_engineering_curve_definition(&curve);
+
+        assert!(issues
+            .iter()
+            .any(|issue| issue.code == "log_y_interpolation_non_positive_value"));
     }
 
     #[test]

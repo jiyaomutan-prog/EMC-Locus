@@ -171,6 +171,9 @@ response, phase response, uncertainty, VSWR, S-parameter magnitude, site
 characterization, and generic correction artifacts. Evaluation is deterministic
 for 1D curves and returns values, axis values, interpolation mode,
 extrapolation flag, optional warning, source revision id, and source checksum.
+Validation rejects logarithmic interpolation inputs that cannot be evaluated:
+`log_x_linear_y` requires positive x values and `linear_x_log_y` requires
+positive dependent values.
 
 Example evaluation request:
 

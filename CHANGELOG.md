@@ -14,6 +14,9 @@ change should remain traceable through Git history, session logs, and this file.
   replacement, clone/revision, submit, and approve requests with the same
   `operation_id` match the audit fingerprint written by the original request
   instead of being rejected as replay mismatches.
+- Rejected `linear_x_log_y` engineering curves with non-positive dependent
+  values during definition validation, so invalid log-y curves cannot be
+  submitted and only fail later during evaluation.
 
 ## [0.13.0] - 2026-07-11
 
