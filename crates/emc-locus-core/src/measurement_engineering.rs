@@ -1173,6 +1173,15 @@ pub fn evaluate_engineering_curve(
             None::<String>,
         )]);
     }
+    if matches!(definition.interpolation, CurveInterpolation::LogXLinearY) && requested_x <= 0.0 {
+        return Err(vec![issue(
+            "error",
+            "log_interpolation_non_positive_x",
+            "axis_values",
+            "log-x interpolation requires strictly positive x values",
+            None::<String>,
+        )]);
+    }
     let mut points = definition.points.clone();
     points.sort_by(|left, right| {
         first_axis_value(definition, left)
@@ -2414,6 +2423,24 @@ mod tests {
         assert!(issues
             .iter()
             .any(|issue| issue.code == "log_y_interpolation_non_positive_value"));
+    }
+
+    #[test]
+    fn rejects_log_x_curve_evaluation_with_non_positive_axis_request() {
+        let mut curve = demo_curve();
+        curve.extrapolation_policy = ExtrapolationPolicy::Allow;
+
+        let error = evaluate_engineering_curve(
+            &curve,
+            BTreeMap::from([("frequency".to_owned(), 0.0)]),
+            "curve-rev-0001",
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        )
+        .unwrap_err();
+
+        assert!(error
+            .iter()
+            .any(|issue| issue.code == "log_interpolation_non_positive_x"));
     }
 
     #[test]

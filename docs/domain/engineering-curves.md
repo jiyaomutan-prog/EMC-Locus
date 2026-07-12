@@ -48,6 +48,8 @@ revisions. Supported interpolation modes are `linear_x_linear_y`,
 Validation rejects `log_x_linear_y` curves with non-positive x values and
 `linear_x_log_y` curves with non-positive dependent values, so logarithmic
 interpolation inputs are controlled before a revision can be submitted.
+Evaluation requests for `log_x_linear_y` curves also reject non-positive axis
+values before extrapolation or interpolation is applied.
 
 Evaluation returns the computed values, axis values, interpolation mode,
 whether extrapolation occurred, optional warning, source revision id, and source

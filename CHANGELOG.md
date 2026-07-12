@@ -17,6 +17,9 @@ change should remain traceable through Git history, session logs, and this file.
 - Rejected `linear_x_log_y` engineering curves with non-positive dependent
   values during definition validation, so invalid log-y curves cannot be
   submitted and only fail later during evaluation.
+- Rejected `log_x_linear_y` engineering-curve evaluation requests with
+  non-positive x values before interpolation, so permissive extrapolation
+  policies cannot return non-finite log-domain results.
 
 ## [0.13.0] - 2026-07-11
 

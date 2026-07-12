@@ -173,7 +173,8 @@ for 1D curves and returns values, axis values, interpolation mode,
 extrapolation flag, optional warning, source revision id, and source checksum.
 Validation rejects logarithmic interpolation inputs that cannot be evaluated:
 `log_x_linear_y` requires positive x values and `linear_x_log_y` requires
-positive dependent values.
+positive dependent values. Evaluation requests for `log_x_linear_y` curves also
+reject non-positive axis values before extrapolation is applied.
 
 Example evaluation request:
 
