@@ -8,6 +8,13 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed measurement-engineering operation replay so repeated create, draft
+  replacement, clone/revision, submit, and approve requests with the same
+  `operation_id` match the audit fingerprint written by the original request
+  instead of being rejected as replay mismatches.
+
 ## [0.13.0] - 2026-07-11
 
 ### Added

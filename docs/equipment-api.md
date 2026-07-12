@@ -98,6 +98,11 @@ The following aggregate families share the same operation discipline:
 - approval supersedes the previous approved revision for the same identity;
 - audit and outbox evidence for every mutating operation.
 
+Write requests are idempotent by `operation_id`. Replaying the same
+measurement-engineering create, draft replacement, clone/revision, submit, or
+approve request returns the original operation result with `replayed: true`;
+reusing the same `operation_id` for a different payload remains a conflict.
+
 ### Sensor Definitions
 
 ```text

@@ -2325,6 +2325,22 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
+        let scaling_create_replay = handle_api_request(
+            "POST",
+            "/api/v1/scaling-profiles",
+            &create_measurement_body(
+                "demo-current-probe-10mv-a",
+                initial_scaling_definition.clone(),
+                "op-scaling-create",
+            ),
+            &config,
+        );
+        assert_eq!(
+            scaling_create_replay.status, 200,
+            "{}",
+            scaling_create_replay.body
+        );
+        assert!(scaling_create_replay.body.contains("\"replayed\":true"));
 
         let scaling_updated_definition = scaling_definition("demo-current-probe-10mv-a", 101.0);
         let scaling_edited = handle_api_request(
@@ -2345,6 +2361,24 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
+        let scaling_edit_replay = handle_api_request(
+            "PUT",
+            &format!(
+                "/api/v1/scaling-profiles/demo-current-probe-10mv-a/revisions/{scaling_revision_id}/definition"
+            ),
+            &replace_measurement_body(
+                scaling_updated_definition.clone(),
+                &scaling_initial_checksum,
+                "op-scaling-save",
+            ),
+            &config,
+        );
+        assert_eq!(
+            scaling_edit_replay.status, 200,
+            "{}",
+            scaling_edit_replay.body
+        );
+        assert!(scaling_edit_replay.body.contains("\"replayed\":true"));
 
         let scaling_stale = handle_api_request(
             "PUT",
@@ -2371,6 +2405,42 @@ mod tests {
             "op-scaling-submit",
             "op-scaling-approve",
         );
+        let scaling_submit_replay = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/scaling-profiles/demo-current-probe-10mv-a/revisions/{scaling_revision_id}/transitions/submit-for-review"
+            ),
+            &transition_body(
+                "measurement.author",
+                "submit measurement engineering definition",
+                "op-scaling-submit",
+            ),
+            &config,
+        );
+        assert_eq!(
+            scaling_submit_replay.status, 200,
+            "{}",
+            scaling_submit_replay.body
+        );
+        assert!(scaling_submit_replay.body.contains("\"replayed\":true"));
+        let scaling_approve_replay = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/scaling-profiles/demo-current-probe-10mv-a/revisions/{scaling_revision_id}/transitions/approve"
+            ),
+            &transition_body(
+                "quality.approver",
+                "approve measurement engineering definition",
+                "op-scaling-approve",
+            ),
+            &config,
+        );
+        assert_eq!(
+            scaling_approve_replay.status, 200,
+            "{}",
+            scaling_approve_replay.body
+        );
+        assert!(scaling_approve_replay.body.contains("\"replayed\":true"));
 
         let curve_revision_id = create_and_approve_measurement(
             &config,

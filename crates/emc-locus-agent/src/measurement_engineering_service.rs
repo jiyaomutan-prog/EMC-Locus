@@ -30,6 +30,7 @@ use crate::{
         StoredMeasurementEngineeringOperation, StoredMeasurementEngineeringRevision,
         UpdateMeasurementEngineeringRevisionDefinitionInput,
         UpdateMeasurementEngineeringRevisionStatusInput,
+        MEASUREMENT_ENGINEERING_OPERATION_ENTITY_TYPE,
     },
     render_json, AgentError,
 };
@@ -166,7 +167,7 @@ pub fn create_measurement_engineering_definition(
             &input.operation_id,
             MeasurementEngineeringOperationFingerprintInput {
                 aggregate_kind: input.kind.as_str(),
-                entity_type: kind.entity_type,
+                entity_type: MEASUREMENT_ENGINEERING_OPERATION_ENTITY_TYPE,
                 entity_id: &input.entity_id,
                 revision_id: Some(&revision_id),
                 action: created_action(input.kind),
@@ -363,7 +364,7 @@ pub fn replace_measurement_engineering_revision_definition(
             &input.operation_id,
             MeasurementEngineeringOperationFingerprintInput {
                 aggregate_kind: input.kind.as_str(),
-                entity_type: kind.entity_type,
+                entity_type: MEASUREMENT_ENGINEERING_OPERATION_ENTITY_TYPE,
                 entity_id: &input.entity_id,
                 revision_id: Some(&input.revision_id),
                 action: replaced_action(input.kind),
@@ -518,7 +519,7 @@ pub fn create_measurement_engineering_revision(
             &input.operation_id,
             MeasurementEngineeringOperationFingerprintInput {
                 aggregate_kind: input.kind.as_str(),
-                entity_type: kind.entity_type,
+                entity_type: MEASUREMENT_ENGINEERING_OPERATION_ENTITY_TYPE,
                 entity_id: &input.entity_id,
                 revision_id: Some(replay_revision_id),
                 action: revision_created_action(input.kind),
@@ -670,7 +671,7 @@ pub fn clone_measurement_engineering_definition(
             &input.operation_id,
             MeasurementEngineeringOperationFingerprintInput {
                 aggregate_kind: input.kind.as_str(),
-                entity_type: kind.entity_type,
+                entity_type: MEASUREMENT_ENGINEERING_OPERATION_ENTITY_TYPE,
                 entity_id: &input.new_entity_id,
                 revision_id: Some(&revision_id),
                 action: cloned_action(input.kind),
@@ -783,7 +784,7 @@ pub fn transition_measurement_engineering_revision(
             &input.operation_id,
             MeasurementEngineeringOperationFingerprintInput {
                 aggregate_kind: input.kind.as_str(),
-                entity_type: kind.entity_type,
+                entity_type: MEASUREMENT_ENGINEERING_OPERATION_ENTITY_TYPE,
                 entity_id: &input.entity_id,
                 revision_id: Some(&input.revision_id),
                 action: operation_kind,

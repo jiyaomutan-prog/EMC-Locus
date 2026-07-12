@@ -4,6 +4,9 @@ use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
+pub(crate) const MEASUREMENT_ENGINEERING_OPERATION_ENTITY_TYPE: &str =
+    "measurement_engineering_revision";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct MeasurementEngineeringStorageKind {
     pub(crate) aggregate_kind: MeasurementEngineeringAggregateKind,
@@ -794,7 +797,7 @@ pub(crate) fn insert_measurement_engineering_audit_event(
     let checksum = measurement_engineering_operation_fingerprint(
         &MeasurementEngineeringOperationFingerprintInput {
             aggregate_kind: input.aggregate_kind,
-            entity_type: "measurement_engineering_revision",
+            entity_type: MEASUREMENT_ENGINEERING_OPERATION_ENTITY_TYPE,
             entity_id: input.entity_id,
             revision_id: input.revision_id,
             action: input.action,
