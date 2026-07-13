@@ -342,12 +342,16 @@ fn validate_enum(value: &str, field: &'static str, allowed: &[&str]) -> Result<(
 }
 
 fn validate_sha256(value: &str) -> Result<(), AgentError> {
-    if value.len() == 64 && value.chars().all(|character| character.is_ascii_hexdigit()) {
+    if value.len() == 64
+        && value
+            .chars()
+            .all(|character| character.is_ascii_digit() || matches!(character, 'a'..='f'))
+    {
         return Ok(());
     }
     Err(AgentError::with_details(
         "invalid_attached_document",
-        "sha256 must be 64 hexadecimal characters without prefix",
+        "sha256 must be 64 lowercase hexadecimal characters without prefix",
         json!({ "field": "sha256" }),
     ))
 }

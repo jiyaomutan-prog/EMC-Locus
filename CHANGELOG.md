@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected uppercase hexadecimal characters in attached-document and metrology
+  calibration document-manifest `sha256` evidence, keeping stored document
+  digests canonical before audit and outbox records are written.
 - Rejected uppercase hexadecimal characters in `expected_definition_checksum`
   draft-replacement requests for test templates, equipment models, driver
   profiles, and measurement-engineering definitions, so API CAS evidence uses

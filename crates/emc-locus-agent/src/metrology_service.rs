@@ -843,12 +843,16 @@ fn validate_document_manifest(value: Option<&str>) -> Result<(), AgentError> {
 }
 
 fn validate_sha256(value: &str) -> Result<(), AgentError> {
-    if value.len() == 64 && value.chars().all(|ch| ch.is_ascii_hexdigit()) {
+    if value.len() == 64
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_digit() || matches!(ch, 'a'..='f'))
+    {
         return Ok(());
     }
     Err(AgentError::new(
         "invalid_metrology_calibration",
-        "document_manifest_json.sha256 must be a 64-character hexadecimal SHA-256",
+        "document_manifest_json.sha256 must be a 64-character lowercase hexadecimal SHA-256",
     ))
 }
 

@@ -117,7 +117,9 @@ not_assessed
 ```
 
 The agent stores the document metadata as a manifest only. It does not store the
-PDF, image, or spreadsheet payload in SQLite.
+PDF, image, or spreadsheet payload in SQLite. When a document manifest includes
+`sha256`, it must use the canonical unprefixed 64-character lowercase
+hexadecimal SHA-256 digest.
 
 ## Computed Status
 

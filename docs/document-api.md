@@ -5,10 +5,12 @@ Locus Local Agent. It is intentionally metadata-only: it does not upload,
 download, parse, or store file bytes.
 
 Files and scientific payloads are referenced by storage URI and content
-checksum. The current local slice stores metadata in `projects.sqlite` and
-emits outbox operations under domain `project_records`, entity type
-`attached_document`. A later slice may promote documents to a dedicated local
-repository when central PostgreSQL and object storage contracts are introduced.
+checksum. The document `sha256` field uses the canonical unprefixed
+64-character lowercase hexadecimal SHA-256 digest. The current local slice
+stores metadata in `projects.sqlite` and emits outbox operations under domain
+`project_records`, entity type `attached_document`. A later slice may promote
+documents to a dedicated local repository when central PostgreSQL and object
+storage contracts are introduced.
 
 ## Routes
 

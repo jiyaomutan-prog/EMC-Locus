@@ -3087,6 +3087,41 @@ mod tests {
             }}"#,
             "e".repeat(64)
         );
+
+        let uppercase_checksum = handle_api_request(
+            "POST",
+            "/api/v1/documents",
+            &format!(
+                r#"{{
+                    "document_id": "DOC-CEM-DOC-001-UPPER",
+                    "classification": "client_document",
+                    "title": "Customer EMC requirements uppercase checksum",
+                    "owner_domain": "locus_lab_management",
+                    "owner_entity_type": "project",
+                    "owner_entity_id": "CEM-DOC-001",
+                    "storage_backend": "object_store",
+                    "storage_uri": "objects/projects/CEM-DOC-001/requirements-upper.pdf",
+                    "original_filename": "requirements-upper.pdf",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 12345,
+                    "sha256": "{}",
+                    "revision": "A",
+                    "applicability": "applicable",
+                    "confidentiality": "customer_visible",
+                    "actor": "project.manager",
+                    "reason": "attempt uppercase checksum",
+                    "operation_id": "op-doc-uppercase-checksum"
+                }}"#,
+                "E".repeat(64)
+            ),
+            &config,
+        );
+        assert_eq!(uppercase_checksum.status, 400);
+        assert!(uppercase_checksum
+            .body
+            .contains("invalid_attached_document"));
+        assert!(uppercase_checksum.body.contains("lowercase"));
+
         let registered = handle_api_request("POST", "/api/v1/documents", register_body, &config);
         assert_eq!(registered.status, 200);
         assert!(registered
@@ -4058,6 +4093,42 @@ mod tests {
         );
         assert_eq!(missing.status, 200);
         assert!(missing.body.contains("\"calibration_status\":\"missing\""));
+
+        let uppercase_checksum = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-API-CAL-001/calibrations",
+            &format!(
+                r#"{{
+                    "event_id": "CAL-SA-API-CAL-001-UPPER",
+                    "certificate_reference": "CERT-SA-API-CAL-001-UPPER",
+                    "calibrated_at": "2026-06-30",
+                    "due_at": "2027-06-30",
+                    "provider": "Accredited Lab",
+                    "decision": "conforming",
+                    "uncertainty_summary": {{"level_db": 0.6}},
+                    "document_manifest": {{
+                        "object_id": "obj-cert-api-upper",
+                        "original_filename": "cert-upper.pdf",
+                        "mime_type": "application/pdf",
+                        "size_bytes": 12,
+                        "sha256": "{}",
+                        "storage_key": "metrology/SA-API-CAL-001/cert-upper.pdf",
+                        "revision": "A"
+                    }},
+                    "recorded_by": "metrology.admin",
+                    "actor": "metrology.admin",
+                    "reason": "attempt uppercase checksum",
+                    "operation_id": "op-api-record-CAL-SA-API-CAL-001-UPPER"
+                }}"#,
+                "A".repeat(64)
+            ),
+            &config,
+        );
+        assert_eq!(uppercase_checksum.status, 400);
+        assert!(uppercase_checksum
+            .body
+            .contains("invalid_metrology_calibration"));
+        assert!(uppercase_checksum.body.contains("lowercase"));
 
         let calibration = handle_api_request(
             "POST",
