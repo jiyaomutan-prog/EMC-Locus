@@ -246,12 +246,12 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Equipment" }));
-    expect(await screen.findByRole("heading", { name: "Equipment Repository" })).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Equipements" }));
+    expect(await screen.findByRole("heading", { name: "Equipements" })).toBeInTheDocument();
     const modelButton = await screen.findByRole("button", { name: /R&S\s+NRP6AN/ });
     await user.click(modelButton);
-    expect(await screen.findByText("Equipment Model Definition")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Drivers and Actions" }));
+    expect(await screen.findByText("Fiche modele equipement")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Drivers et actions" }));
     await user.click(await screen.findByRole("button", { name: /NRP6AN SCPI/ }));
     expect(await screen.findByText(/No VISA implementation installed/)).toBeInTheDocument();
   });
@@ -304,8 +304,8 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Equipment" }));
-    await screen.findByRole("heading", { name: "Equipment Repository" });
+    await user.click(await screen.findByRole("button", { name: "Equipements" }));
+    await screen.findByRole("heading", { name: "Equipements" });
     await user.selectOptions(screen.getByLabelText("Filtre categorie racine"), "rf_equipment");
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -318,14 +318,19 @@ describe("LAB CONSOLE", () => {
     const creationPanel = (await screen.findByText("Nouveau modele equipement")).closest(".creationPanel");
     expect(creationPanel).not.toBeNull();
     const wizard = within(creationPanel as HTMLElement);
-    await user.click(wizard.getByRole("button", { name: /Équipements radiofréquences/ }));
+    expect(wizard.queryByRole("button", { name: /radiofr/i })).not.toBeInTheDocument();
+    await user.click(wizard.getByLabelText(/radiofr/i));
+    await user.click(wizard.getByRole("button", { name: "Continuer" }));
+    await user.click(wizard.getByText(/Câbles RF/));
+    await user.click(wizard.getByRole("button", { name: "Continuer" }));
     await waitFor(() => expect(wizard.getByLabelText(/Fabricant/)).toBeInTheDocument());
-    await user.type(wizard.getByLabelText(/ID modele optionnel/), "EQM-RF-CABLE-DEMO");
     await user.type(wizard.getByLabelText(/Fabricant/), "Demo");
     await user.type(wizard.getByLabelText(/Modèle/), "RF Cable");
     await user.type(wizard.getByLabelText(/Variante/), "1m");
     await user.type(wizard.getByLabelText(/Connecteur A/), "N");
     await user.type(wizard.getByLabelText(/Connecteur B/), "N");
+    await user.click(wizard.getByRole("button", { name: "Continuer" }));
+    await user.type(wizard.getByLabelText(/ID modele optionnel/), "EQM-RF-CABLE-DEMO");
     await user.click(wizard.getByRole("button", { name: /Creer brouillon/ }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -334,14 +339,192 @@ describe("LAB CONSOLE", () => {
       )
     );
 
-    expect(await screen.findByText("Equipment Model Definition")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Category & Template" }));
-    expect(screen.getByText("Template checksum")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Ports & Connections" }));
+    expect(await screen.findByText("Fiche modele equipement")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Categorie et formulaire" }));
+    expect(screen.getByText("Formulaire utilise")).toBeInTheDocument();
+    expect(screen.queryByText("Template checksum")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Ports et connexions" }));
     expect(screen.getByDisplayValue("RF_A")).toBeInTheDocument();
     expect(screen.getByDisplayValue("RF_B")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Valider/ }));
     expect(await screen.findByText("Definition valide")).toBeInTheDocument();
+  });
+
+  test("administers nested categories with contextual actions and generated field codes", async () => {
+    let categories = equipmentCategoriesFixture();
+    let fields = equipmentFieldDefinitionsFixture();
+    const rulesByCategory: Record<string, Array<{
+      category_id: string;
+      field_id: string;
+      required: boolean;
+      visible: boolean;
+      display_group: string;
+      display_order: number;
+      default_value?: unknown;
+      help_text_override?: string | null;
+    }>> = {
+      rf_equipment: [
+        { category_id: "rf_equipment", field_id: "field_manufacturer", required: true, visible: true, display_group: "Identification", display_order: 10 },
+        { category_id: "rf_equipment", field_id: "field_model_name", required: true, visible: true, display_group: "Identification", display_order: 20 }
+      ],
+      rf_amplifier: []
+    };
+
+    function categoryPath(categoryId: string) {
+      const path = [];
+      let current = categories.find((category) => category.category_id === categoryId);
+      while (current) {
+        path.unshift(current);
+        current = current.parent_category_id ? categories.find((category) => category.category_id === current?.parent_category_id) : undefined;
+      }
+      return path;
+    }
+
+    function effectiveTemplate(categoryId: string) {
+      const path = categoryPath(categoryId);
+      const effectiveFields = path.flatMap((category) => rulesByCategory[category.category_id] ?? []).map((rule) => {
+        const field = fields.find((candidate) => candidate.field_id === rule.field_id)!;
+        return {
+          field,
+          required: rule.required,
+          visible: rule.visible,
+          display_group: rule.display_group,
+          display_order: rule.display_order,
+          default_value: rule.default_value ?? null,
+          help_text: rule.help_text_override ?? null,
+          inherited_from_category_ids: [rule.category_id]
+        };
+      });
+      return {
+        category: path[path.length - 1],
+        root_category: path[0],
+        category_path: path,
+        fields: effectiveFields,
+        template_checksum: "sha256:admin-template"
+      };
+    }
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/health") return jsonResponse(healthFixture);
+      if (path === "/api/v1/storage/status") return jsonResponse(storageFixture);
+      if (path === "/api/v1/test-templates") return jsonResponse({ test_templates: [templateFixture()] });
+      if (path === "/api/v1/equipment/registries") return jsonResponse(equipmentRegistriesFixture());
+      if (path === "/api/v1/equipment/classification-presets") return jsonResponse({ presets: [] });
+      if (path === "/api/v1/equipment-models" || path.startsWith("/api/v1/equipment-models?")) return jsonResponse({ equipment_models: [] });
+      if (path === "/api/v1/driver-profiles") return jsonResponse({ driver_profiles: [] });
+      if (path === "/api/v1/equipment/communication-providers") return jsonResponse({ providers: [{ provider: "simulation", available: true }] });
+      if (path.startsWith("/api/v1/equipment/categories/tree")) return jsonResponse({ categories: buildCategoryTree(categories) });
+      if (path.includes("/api/v1/equipment/categories/") && path.endsWith("/effective-template")) {
+        const categoryId = decodeURIComponent(path.split("/api/v1/equipment/categories/")[1].split("/")[0]);
+        return jsonResponse({ effective_template: effectiveTemplate(categoryId) });
+      }
+      if (path.includes("/api/v1/equipment/categories/") && path.endsWith("/field-rules")) {
+        const categoryId = decodeURIComponent(path.split("/api/v1/equipment/categories/")[1].split("/")[0]);
+        if (init?.method === "PUT") {
+          const body = JSON.parse(String(init.body));
+          rulesByCategory[categoryId] = body.rules.map((rule: Record<string, unknown>) => ({
+            category_id: categoryId,
+            field_id: String(rule.field_id),
+            required: Boolean(rule.required),
+            visible: Boolean(rule.visible),
+            display_group: String(rule.display_group ?? "Identification"),
+            display_order: Number(rule.display_order ?? 650),
+            default_value: rule.default_value,
+            help_text_override: typeof rule.help_text_override === "string" ? rule.help_text_override : null
+          }));
+        }
+        return jsonResponse({ category_id: categoryId, rules: rulesByCategory[categoryId] ?? [] });
+      }
+      if (path === "/api/v1/equipment/categories" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        const parent = categories.find((category) => category.category_id === body.parent_category_id);
+        const createdAt = "2026-07-13T00:00:00Z";
+        const category = {
+          category_id: String(body.category_id),
+          parent_category_id: String(body.parent_category_id),
+          root_category_id: parent?.root_category_id ?? String(body.category_id),
+          label: String(body.label),
+          description: String(body.description ?? ""),
+          sort_order: Number(body.sort_order ?? 100),
+          active: true,
+          system_defined: false,
+          created_at: createdAt,
+          updated_at: createdAt,
+          children: []
+        };
+        categories = [...categories, category];
+        rulesByCategory[category.category_id] = [];
+        return jsonResponse({ category });
+      }
+      if (path.startsWith("/api/v1/equipment/categories")) return jsonResponse({ categories });
+      if (path === "/api/v1/equipment/field-definitions" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        const createdAt = "2026-07-13T00:00:00Z";
+        const field = {
+          field_id: `field_${body.field_code}`,
+          field_code: String(body.field_code),
+          label: String(body.label),
+          description: String(body.description ?? ""),
+          data_type: String(body.data_type),
+          scope: "equipment_model",
+          required_by_default: false,
+          visible_by_default: true,
+          unique_value: false,
+          unit_quantity: null,
+          allowed_units: body.allowed_units ?? [],
+          option_values: body.option_values ?? [],
+          validation_regex: null,
+          default_value: null,
+          display_group: String(body.display_group ?? "Identification"),
+          display_order: Number(body.display_order ?? 650),
+          active: true,
+          system_defined: false,
+          created_at: createdAt,
+          updated_at: createdAt
+        };
+        fields = [...fields, field];
+        return jsonResponse({ field_definition: field });
+      }
+      if (path.startsWith("/api/v1/equipment/field-definitions")) return jsonResponse({ field_definitions: fields });
+      return mockBaseApiResponse(path, init);
+    });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Equipements" }));
+    await user.click(await screen.findByRole("button", { name: "Administration du referentiel" }));
+    const rfActions = await screen.findByRole("button", { name: /Actions .*radiofr/i });
+    const rfActionMenu = within(rfActions.closest(".treeMenuWrap") as HTMLElement);
+    await user.click(rfActions);
+    expect(rfActionMenu.getByRole("button", { name: "Modifier le formulaire" })).toBeInTheDocument();
+    await user.click(rfActionMenu.getByRole("button", { name: "Modifier le formulaire" }));
+    expect(screen.getByRole("button", { name: "Formulaire" })).toHaveClass("active");
+
+    await user.click(screen.getByText("Amplificateurs"));
+    await user.click(screen.getByRole("button", { name: "Sous-categories" }));
+    await user.type(screen.getByLabelText("Nom de la sous-categorie"), "Amplificateurs faible bruit");
+    expect(screen.getByLabelText("Identifiant interne")).not.toBeVisible();
+    await user.click(screen.getByRole("button", { name: /Creer la sous-categorie/ }));
+    await waitFor(() => expect(document.querySelector('[data-category-id="amplificateurs_faible_bruit"]')).not.toBeNull());
+
+    await user.click(document.querySelector('[data-category-id="amplificateurs_faible_bruit"]') as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "Formulaire" }));
+    await user.type(screen.getByLabelText("Nom du champ"), "Criticite terrain");
+    expect(screen.getByLabelText("Nom technique genere")).not.toBeVisible();
+    await user.type(screen.getByPlaceholderText("Nouvelle valeur"), "Surveillance");
+    await user.click(screen.getByRole("button", { name: "Ajouter une valeur" }));
+    expect(screen.getByText("Surveillance")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Creer le champ/ }));
+    await waitFor(() => expect(fields.some((field) => field.field_code === "criticite_terrain")).toBe(true));
+    await user.click(screen.getByRole("button", { name: /Ajouter au formulaire/ }));
+
+    await user.click(screen.getByRole("button", { name: "Previsualisation" }));
+    expect(await screen.findByText("Criticite terrain")).toBeInTheDocument();
+    expect(screen.queryByText("sha256:admin-template")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Diagnostic avance" }));
+    expect(screen.getAllByText("sha256:admin-template").length).toBeGreaterThanOrEqual(1);
   });
 
   test("opens measurement engineering studios and runs curve CSV evaluation workflow", async () => {
@@ -372,10 +555,10 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Equipment" }));
-    await user.click(await screen.findByRole("button", { name: "Engineering Curves" }));
+    await user.click(await screen.findByRole("button", { name: "Equipements" }));
+    await user.click(await screen.findByRole("button", { name: "Courbes d'ingenierie" }));
     await user.click(await screen.findByRole("button", { name: /Demo RF cable loss/ }));
-    await user.click(screen.getByRole("button", { name: "Curve Table" }));
+    await user.click(screen.getByRole("button", { name: "Table courbe" }));
     expect(await screen.findByRole("img", { name: "1D curve plot" })).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("frequency_hz,correction_db"), {
@@ -417,24 +600,24 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Equipment" }));
-    await user.click(await screen.findByRole("button", { name: "Sensors & Transducers" }));
+    await user.click(await screen.findByRole("button", { name: "Equipements" }));
+    await user.click(await screen.findByRole("button", { name: "Capteurs / transducteurs" }));
     await user.click(await screen.findByRole("button", { name: /Demo Current Probe/ }));
     expect(await screen.findByDisplayValue("current_probe")).toBeInTheDocument();
 
-    await user.click(screen.getAllByRole("button", { name: "Scaling Profiles" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Profils de scaling" })[0]);
     await user.click(await screen.findByRole("button", { name: /Current probe 10 mV/ }));
     await user.click(screen.getByRole("button", { name: "Lookup Table" }));
     expect(screen.getByPlaceholderText("input,output")).toBeInTheDocument();
 
-    await user.click(screen.getAllByRole("button", { name: "DAQ Channels" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Voies DAQ" })[0]);
     await user.click(await screen.findByRole("button", { name: /Demo DAQ AI/ }));
-    await user.click(screen.getByRole("button", { name: "Sampling" }));
+    await user.click(screen.getByRole("button", { name: "Echantillonnage" }));
     expect(screen.getByDisplayValue("1000000")).toBeInTheDocument();
 
-    await user.click(screen.getAllByRole("button", { name: "Acquisition Recipes" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Recettes d'acquisition" })[0]);
     await user.click(await screen.findByRole("button", { name: /current_A through demo current probe/ }));
-    await user.click(screen.getByRole("button", { name: "Measurement Chain" }));
+    await user.click(screen.getByRole("button", { name: "Chaine de mesure" }));
     expect(await screen.findByText("DAQ channel")).toBeInTheDocument();
     expect(screen.getAllByText(/REC-DEMO-CURRENT-A/).length).toBeGreaterThan(0);
   });
@@ -697,7 +880,21 @@ function adcPresetFixture() {
   };
 }
 
-function equipmentCategoriesFixture() {
+type EquipmentCategoryFixture = {
+  category_id: string;
+  parent_category_id: string | null;
+  root_category_id: string;
+  label: string;
+  description: string;
+  sort_order: number;
+  active: boolean;
+  system_defined: boolean;
+  created_at: string;
+  updated_at: string;
+  children: EquipmentCategoryFixture[];
+};
+
+function equipmentCategoriesFixture(): EquipmentCategoryFixture[] {
   const now = "2026-07-13T00:00:00Z";
   return [
     {
@@ -707,6 +904,19 @@ function equipmentCategoriesFixture() {
       label: "Sources d'énergie",
       description: "",
       sort_order: 10,
+      active: true,
+      system_defined: true,
+      created_at: now,
+      updated_at: now,
+      children: []
+    },
+    {
+      category_id: "signal_sources",
+      parent_category_id: null,
+      root_category_id: "signal_sources",
+      label: "Sources de signaux",
+      description: "",
+      sort_order: 20,
       active: true,
       system_defined: true,
       created_at: now,
@@ -727,12 +937,25 @@ function equipmentCategoriesFixture() {
       children: []
     },
     {
-      category_id: "rf_cable",
-      parent_category_id: "rf_equipment",
-      root_category_id: "rf_equipment",
-      label: "Câbles RF",
+      category_id: "sensors_transducers",
+      parent_category_id: null,
+      root_category_id: "sensors_transducers",
+      label: "Capteurs / transducteurs",
       description: "",
-      sort_order: 10,
+      sort_order: 40,
+      active: true,
+      system_defined: true,
+      created_at: now,
+      updated_at: now,
+      children: []
+    },
+    {
+      category_id: "actuators_emitters",
+      parent_category_id: null,
+      root_category_id: "actuators_emitters",
+      label: "Actionneurs / Emetteurs",
+      description: "",
+      sort_order: 50,
       active: true,
       system_defined: true,
       created_at: now,
@@ -751,18 +974,65 @@ function equipmentCategoriesFixture() {
       created_at: now,
       updated_at: now,
       children: []
+    },
+    {
+      category_id: "processing_control_systems",
+      parent_category_id: null,
+      root_category_id: "processing_control_systems",
+      label: "Systèmes de traitement et de contrôle",
+      description: "",
+      sort_order: 70,
+      active: true,
+      system_defined: true,
+      created_at: now,
+      updated_at: now,
+      children: []
+    },
+    {
+      category_id: "rf_cable",
+      parent_category_id: "rf_equipment",
+      root_category_id: "rf_equipment",
+      label: "Câbles RF",
+      description: "",
+      sort_order: 10,
+      active: true,
+      system_defined: true,
+      created_at: now,
+      updated_at: now,
+      children: []
+    },
+    {
+      category_id: "rf_amplifier",
+      parent_category_id: "rf_equipment",
+      root_category_id: "rf_equipment",
+      label: "Amplificateurs",
+      description: "",
+      sort_order: 40,
+      active: true,
+      system_defined: true,
+      created_at: now,
+      updated_at: now,
+      children: []
     }
   ];
 }
 
 function equipmentCategoryTreeFixture() {
-  const categories = equipmentCategoriesFixture();
-  return categories
-    .filter((category) => category.parent_category_id === null)
-    .map((category) => ({
-      ...category,
-      children: categories.filter((child) => child.parent_category_id === category.category_id)
-    }));
+  return buildCategoryTree(equipmentCategoriesFixture());
+}
+
+function buildCategoryTree(categories: EquipmentCategoryFixture[]): EquipmentCategoryFixture[] {
+  const byParent = new Map<string | null, EquipmentCategoryFixture[]>();
+  categories.forEach((category) => {
+    const siblings = byParent.get(category.parent_category_id) ?? [];
+    siblings.push(category);
+    byParent.set(category.parent_category_id, siblings);
+  });
+  const build = (category: EquipmentCategoryFixture): EquipmentCategoryFixture => ({
+    ...category,
+    children: (byParent.get(category.category_id) ?? []).map(build)
+  });
+  return (byParent.get(null) ?? []).map(build);
 }
 
 function equipmentFieldDefinitionsFixture() {

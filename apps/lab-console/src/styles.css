@@ -551,6 +551,10 @@ td textarea {
   padding: 12px;
 }
 
+.wizardPanel {
+  border-left: 4px solid #2f6f5e;
+}
+
 .creationHeader {
   align-items: center;
   display: flex;
@@ -561,6 +565,64 @@ td textarea {
 
 .creationHeader h2,
 .presetPreview h3 {
+  margin: 0;
+}
+
+.wizardStepper {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.wizardStepper li {
+  border-bottom: 3px solid #d9dfd7;
+  color: #68746c;
+  font-weight: 700;
+  padding: 8px 0;
+}
+
+.wizardStepper li.active {
+  border-color: #2f6f5e;
+  color: #17422d;
+}
+
+.wizardStepper li.done {
+  border-color: #80ac97;
+  color: #2f6f5e;
+}
+
+.wizardBody {
+  display: grid;
+  gap: 12px;
+}
+
+.choiceList {
+  border: 1px solid #d9dfd7;
+  display: grid;
+  max-width: 620px;
+}
+
+.choiceRow {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  padding: 9px 10px;
+}
+
+.choiceRow + .choiceRow {
+  border-top: 1px solid #edf1eb;
+}
+
+.choiceRow.selected {
+  background: #e5f2eb;
+}
+
+.selectedPath,
+.hint {
+  color: #68746c;
   margin: 0;
 }
 
@@ -602,6 +664,37 @@ td textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.groupedTabs {
+  align-items: stretch;
+  background: #fff;
+  border: 1px solid #d9dfd7;
+  padding: 10px;
+}
+
+.navGroup {
+  border-right: 1px solid #dfe4dc;
+  display: grid;
+  gap: 6px;
+  padding-right: 10px;
+}
+
+.navGroup:last-child {
+  border-right: 0;
+}
+
+.navGroup h2 {
+  color: #68746c;
+  font-size: 12px;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.navGroup > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .equipmentTabs button {
@@ -650,6 +743,211 @@ td textarea {
 .equipmentList button.active {
   background: #e5f2eb;
   border-color: #80ac97;
+}
+
+.adminWorkbench {
+  grid-template-columns: minmax(310px, 380px) minmax(0, 1fr);
+}
+
+.categoryPanel {
+  min-width: 0;
+}
+
+.categoryTree {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.categoryTreeRow {
+  align-items: center;
+  border: 1px solid transparent;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 22px 18px minmax(0, 1fr) auto;
+  min-height: 30px;
+  position: relative;
+}
+
+.categoryTreeRow:hover {
+  background: #f4f7f2;
+}
+
+.categoryTreeRow.selected {
+  background: #e5f2eb;
+  border-color: #b5d3bf;
+}
+
+.categoryTreeRow.menuOpen {
+  z-index: 30;
+}
+
+.categoryTreeRow span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.categoryTree button,
+.treeActionMenu button,
+.childList button {
+  min-height: 0;
+}
+
+.treeDisclosure,
+.treeMenuButton {
+  align-items: center;
+  background: transparent;
+  border-color: transparent;
+  display: inline-flex;
+  justify-content: center;
+  padding: 2px;
+}
+
+.treeDisclosure span {
+  display: inline-block;
+  width: 14px;
+}
+
+.treeMenuWrap {
+  overflow: visible;
+  position: relative;
+  white-space: normal;
+}
+
+.categoryTreeRow .treeMenuWrap {
+  overflow: visible;
+  position: relative;
+  white-space: normal;
+}
+
+.treeActionMenu {
+  background: #fff;
+  border: 1px solid #c8d0c7;
+  box-shadow: 0 10px 24px rgba(23, 33, 27, 0.12);
+  display: grid;
+  min-width: 210px;
+  padding: 4px;
+  position: absolute;
+  right: 0;
+  top: 24px;
+  z-index: 20;
+}
+
+.treeActionMenu button {
+  background: transparent;
+  border-color: transparent;
+  display: flex;
+  justify-content: flex-start;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.treeActionMenu button:hover {
+  background: #eef1eb;
+}
+
+.adminTabs {
+  background: #fff;
+  border: 1px solid #d9dfd7;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+}
+
+.adminTabs button {
+  background: transparent;
+  border-color: transparent;
+  color: #24312a;
+}
+
+.adminTabs button.active {
+  background: #e5f2eb;
+  border-color: #b5d3bf;
+}
+
+.businessSummary {
+  display: grid;
+  gap: 8px 14px;
+  grid-template-columns: minmax(140px, 220px) minmax(0, 1fr);
+  margin: 0;
+}
+
+.businessSummary dt {
+  color: #68746c;
+  font-weight: 700;
+}
+
+.businessSummary dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.formGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  max-width: 920px;
+}
+
+.advancedOptions {
+  border: 1px solid #d9dfd7;
+  padding: 8px 10px;
+}
+
+.advancedOptions summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.childList {
+  display: grid;
+  gap: 6px;
+  max-width: 520px;
+}
+
+.childList button {
+  align-items: center;
+  background: #fff;
+  border-color: #d9dfd7;
+  display: flex;
+  justify-content: flex-start;
+  padding: 8px;
+}
+
+.choiceEditor {
+  border: 1px solid #d9dfd7;
+  display: grid;
+  gap: 8px;
+  max-width: 560px;
+  padding: 10px;
+}
+
+.choiceEditor ul {
+  display: grid;
+  gap: 5px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.choiceEditor li,
+.inlineEditor {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.choiceEditor li span {
+  background: #eef1eb;
+  flex: 1;
+  padding: 6px 8px;
+}
+
+.inlineEditor input {
+  flex: 1;
 }
 
 .driverGroup {

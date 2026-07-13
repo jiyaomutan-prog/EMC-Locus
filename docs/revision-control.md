@@ -90,7 +90,7 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.13.1` was validated on 2026-07-13 with the CI-equivalent release
+Version `0.13.2` was validated on 2026-07-13 with the CI-equivalent release
 script:
 
 ```text
@@ -101,11 +101,12 @@ The script runs the same validation path as GitHub Actions: Rust format,
 Clippy, Rust tests, Python compile/tests, SQLite migration validation, npm-based
 LAB CONSOLE install/typecheck/lint/unit/build, versioned `dist` verification,
 Playwright E2E, release consistency, launcher smoke and whitespace checks.
-For `0.13.1`, the Playwright path includes the Equipment Repository
-Administration and category-template model creation workflow, plus the
-measurement-engineering workflow for scaling, engineering curves, sensor
-definitions, DAQ channel profiles, and an approved logical acquisition channel
-recipe.
+For `0.13.2`, the Playwright path includes Equipment Repository usability:
+grouped navigation, the administration tree, nested category creation, generated
+field codes, form preview, the non-button category wizard, category-subtree
+filtering, plus the measurement-engineering workflow for scaling, engineering
+curves, sensor definitions, DAQ channel profiles, and an approved logical
+acquisition channel recipe.
 
 The explicit command sequence is:
 

@@ -1,10 +1,14 @@
 import {
   AlertTriangle,
+  ChevronDown,
+  ChevronRight,
   CheckCircle2,
   Copy,
   Cpu,
+  Folder,
+  FolderOpen,
   GitBranch,
-  ListTree,
+  MoreHorizontal,
   Plus,
   Play,
   RefreshCw,
@@ -75,32 +79,50 @@ type DriverSection =
   | "audit"
   | "json";
 
-const equipmentSpaces: Array<[EquipmentSpace, string]> = [
-  ["admin", "Repository Administration"],
-  ["catalog", "Equipment Repository"],
-  ["drivers", "Drivers and Actions"],
-  ["sensors", "Sensors & Transducers"],
-  ["scaling", "Scaling Profiles"],
-  ["curves", "Engineering Curves"],
-  ["daq", "DAQ Channels"],
-  ["recipes", "Acquisition Recipes"],
-  ["metrology", "Metrology"],
-  ["fleet", "Physical Fleet"],
-  ["connections", "Connections"],
-  ["readiness", "Readiness"]
+const equipmentSpaceGroups: Array<{ label: string; items: Array<[EquipmentSpace, string]> }> = [
+  {
+    label: "Referentiel",
+    items: [
+      ["catalog", "Catalogue equipements"],
+      ["admin", "Administration du referentiel"]
+    ]
+  },
+  {
+    label: "Ingenierie de mesure",
+    items: [
+      ["sensors", "Capteurs / transducteurs"],
+      ["scaling", "Profils de scaling"],
+      ["curves", "Courbes d'ingenierie"],
+      ["daq", "Voies DAQ"],
+      ["recipes", "Recettes d'acquisition"]
+    ]
+  },
+  {
+    label: "Pilotage",
+    items: [["drivers", "Drivers et actions"]]
+  },
+  {
+    label: "A venir",
+    items: [
+      ["metrology", "Metrologie"],
+      ["fleet", "Parc physique"],
+      ["connections", "Connexions"],
+      ["readiness", "Readiness"]
+    ]
+  }
 ];
 
 const modelSections: Array<[ModelSection, string]> = [
-  ["summary", "Summary"],
+  ["summary", "Synthese"],
   ["identification", "Identification"],
-  ["category_template", "Category & Template"],
-  ["characteristics", "Characteristics"],
-  ["ports_connections", "Ports & Connections"],
-  ["measurement_corrections", "Measurement / Corrections"],
-  ["control_drivers", "Control / Drivers"],
+  ["category_template", "Categorie et formulaire"],
+  ["characteristics", "Caracteristiques"],
+  ["ports_connections", "Ports et connexions"],
+  ["measurement_corrections", "Mesure / corrections"],
+  ["control_drivers", "Pilotage / drivers"],
   ["documents", "Documents"],
-  ["revisions_audit", "Revisions & Audit"],
-  ["advanced_diagnostics", "Advanced / Diagnostics"]
+  ["revisions_audit", "Revisions et audit"],
+  ["advanced_diagnostics", "Diagnostic avance"]
 ];
 
 const driverSections: Array<[DriverSection, string]> = [
@@ -110,7 +132,7 @@ const driverSections: Array<[DriverSection, string]> = [
   ["simulation", "Simulation"],
   ["revisions", "Revisions"],
   ["audit", "Audit"],
-  ["json", "Advanced JSON"]
+  ["json", "Diagnostic avance"]
 ];
 
 const equipmentClasses: EquipmentClass[] = [
@@ -192,7 +214,7 @@ export function EquipmentWorkspace() {
   const [driverJsonDraft, setDriverJsonDraft] = useState("");
 
   const refresh = useCallback(async () => {
-    setLoadState("loading");
+    setLoadState((current) => current === "ready" ? "ready" : "loading");
     setOperationError(null);
     try {
       const [modelList, driverList, providerList, categoryList, treeList, fieldsList] = await Promise.all([
@@ -652,15 +674,22 @@ export function EquipmentWorkspace() {
         />
       )}
 
-      <div className="equipmentTabs" role="tablist">
-        {equipmentSpaces.map(([key, label]) => (
-          <button
-            key={key}
-            className={space === key ? "active" : ""}
-            onClick={() => setSpace(key)}
-          >
-            {label}
-          </button>
+      <div className="equipmentTabs groupedTabs" role="tablist" aria-label="Navigation equipement">
+        {equipmentSpaceGroups.map((group) => (
+          <section className="navGroup" key={group.label}>
+            <h2>{group.label}</h2>
+            <div>
+              {group.items.map(([key, label]) => (
+                <button
+                  key={key}
+                  className={space === key ? "active" : ""}
+                  onClick={() => setSpace(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </section>
         ))}
       </div>
 
@@ -776,7 +805,7 @@ export function EquipmentWorkspace() {
 
       {["metrology", "fleet", "connections", "readiness"].includes(space) && (
         <StateBlock
-          title="Non disponible en 0.13.1"
+          title="Non disponible en 0.13.2"
           detail="Cette sous-section restera liee a la flotte physique, aux connexions station et a la readiness dans une verticale ulterieure."
         />
       )}
@@ -791,16 +820,46 @@ function EquipmentRepositoryAdmin(props: {
   onRefresh: () => void;
   onError: (message: string | null) => void;
 }) {
+  type AdminTab = "information" | "children" | "form" | "preview" | "diagnostics";
+  type CategoryAction = "add_child" | "rename" | "move" | "archive" | "edit_form" | "preview" | "diagnostics";
   const [selectedCategoryId, setSelectedCategoryId] = useState("rf_equipment");
-  const [newCategoryId, setNewCategoryId] = useState("");
+  const [adminTab, setAdminTab] = useState<AdminTab>("information");
   const [newCategoryLabel, setNewCategoryLabel] = useState("");
-  const [newFieldCode, setNewFieldCode] = useState("custom_criticality");
-  const [newFieldLabel, setNewFieldLabel] = useState("Criticité personnalisée");
+  const [newCategoryDescription, setNewCategoryDescription] = useState("");
+  const [categoryCodeOverride, setCategoryCodeOverride] = useState("");
+  const [editCategoryLabel, setEditCategoryLabel] = useState("");
+  const [editCategoryDescription, setEditCategoryDescription] = useState("");
+  const [moveParentId, setMoveParentId] = useState("");
+  const [newFieldLabel, setNewFieldLabel] = useState("");
+  const [newFieldDescription, setNewFieldDescription] = useState("");
   const [newFieldType, setNewFieldType] = useState<EquipmentFieldDataType>("choice");
-  const [newFieldChoices, setNewFieldChoices] = useState("faible, normale, haute, critique");
+  const [fieldCodeOverride, setFieldCodeOverride] = useState("");
+  const [newFieldChoices, setNewFieldChoices] = useState(["Faible", "Normale", "Haute", "Critique"]);
+  const [newChoiceValue, setNewChoiceValue] = useState("");
+  const [newFieldUnits, setNewFieldUnits] = useState(["Hz", "kHz", "MHz", "GHz"]);
+  const [newUnitValue, setNewUnitValue] = useState("");
+  const [newFieldGroup, setNewFieldGroup] = useState("Identification");
   const [selectedFieldId, setSelectedFieldId] = useState("");
+  const [fieldRequired, setFieldRequired] = useState(false);
+  const [fieldVisible, setFieldVisible] = useState(true);
   const [template, setTemplate] = useState<EquipmentEffectiveTemplate | null>(null);
+  const [directRules, setDirectRules] = useState<string[]>([]);
   const selectedCategory = props.categories.find((category) => category.category_id === selectedCategoryId) ?? props.categories[0];
+  const selectedChildren = props.categories.filter((category) => category.parent_category_id === selectedCategory?.category_id);
+  const generatedCategoryId = uniqueGeneratedCode(
+    categoryCodeOverride || newCategoryLabel,
+    new Set(props.categories.map((category) => category.category_id))
+  );
+  const generatedFieldCode = uniqueGeneratedCode(
+    fieldCodeOverride || newFieldLabel,
+    new Set(props.fieldDefinitions.map((field) => field.field_code))
+  );
+  const selectedCategoryDescendants = selectedCategory ? descendantCategoryIds(props.categories, selectedCategory.category_id) : new Set<string>();
+  const movableParents = props.categories.filter((category) =>
+    selectedCategory
+      && category.category_id !== selectedCategory.category_id
+      && !descendantCategoryIds(props.categories, selectedCategory.category_id).has(category.category_id)
+  );
   const onError = props.onError;
 
   useEffect(() => {
@@ -810,11 +869,23 @@ function EquipmentRepositoryAdmin(props: {
   }, [selectedCategoryId, props.categories]);
 
   useEffect(() => {
+    if (!selectedCategory) return;
+    setEditCategoryLabel(selectedCategory.label);
+    setEditCategoryDescription(selectedCategory.description ?? "");
+    setMoveParentId(selectedCategory.parent_category_id ?? "");
+  }, [selectedCategory]);
+
+  useEffect(() => {
     if (!selectedCategoryId) return;
     let cancelled = false;
-    equipmentApi.effectiveTemplate(selectedCategoryId)
+    Promise.all([
+      equipmentApi.effectiveTemplate(selectedCategoryId),
+      equipmentApi.categoryFieldRules(selectedCategoryId)
+    ])
       .then((result) => {
-        if (!cancelled) setTemplate(result.effective_template);
+        if (cancelled) return;
+        setTemplate(result[0].effective_template);
+        setDirectRules(result[1].rules.map((rule) => rule.field_id));
       })
       .catch((error) => onError(errorMessage(error)));
     return () => {
@@ -822,17 +893,33 @@ function EquipmentRepositoryAdmin(props: {
     };
   }, [selectedCategoryId, onError]);
 
+  function selectCategory(categoryId: string) {
+    setSelectedCategoryId(categoryId);
+    props.onError(null);
+  }
+
+  function handleCategoryAction(categoryId: string, action: CategoryAction) {
+    selectCategory(categoryId);
+    if (action === "add_child") setAdminTab("children");
+    if (action === "rename" || action === "move" || action === "archive") setAdminTab("information");
+    if (action === "edit_form") setAdminTab("form");
+    if (action === "preview") setAdminTab("preview");
+    if (action === "diagnostics") setAdminTab("diagnostics");
+  }
+
   async function createSubcategory() {
-    if (!selectedCategory || !newCategoryId.trim() || !newCategoryLabel.trim()) return;
+    if (!selectedCategory || !newCategoryLabel.trim()) return;
     try {
       await equipmentApi.createCategory({
-        category_id: newCategoryId.trim(),
+        category_id: generatedCategoryId,
         parent_category_id: selectedCategory.category_id,
         label: newCategoryLabel.trim(),
+        description: newCategoryDescription.trim(),
         sort_order: 100
       });
-      setNewCategoryId("");
       setNewCategoryLabel("");
+      setNewCategoryDescription("");
+      setCategoryCodeOverride("");
       props.onRefresh();
     } catch (error) {
       props.onError(errorMessage(error));
@@ -840,23 +927,27 @@ function EquipmentRepositoryAdmin(props: {
   }
 
   async function createField() {
+    if (!newFieldLabel.trim()) return;
     try {
       const result = await equipmentApi.createFieldDefinition({
-        field_code: newFieldCode.trim(),
+        field_code: generatedFieldCode,
         label: newFieldLabel.trim(),
-        description: "",
+        description: newFieldDescription.trim(),
         data_type: newFieldType,
         scope: "equipment_model",
         required_by_default: false,
-        visible_by_default: false,
+        visible_by_default: true,
         unique_value: false,
-        option_values: newFieldType === "choice" || newFieldType === "multi_choice" ? splitTokens(newFieldChoices) : [],
-        allowed_units: newFieldType === "number_with_unit" ? splitTokens(newFieldChoices) : [],
-        display_group: "Gestion",
+        option_values: newFieldType === "choice" || newFieldType === "multi_choice" ? newFieldChoices.filter(Boolean) : [],
+        allowed_units: newFieldType === "number_with_unit" ? newFieldUnits.filter(Boolean) : [],
+        display_group: newFieldGroup,
         display_order: 650,
         active: true
       });
       setSelectedFieldId(result.field_definition.field_id);
+      setNewFieldLabel("");
+      setNewFieldDescription("");
+      setFieldCodeOverride("");
       props.onRefresh();
     } catch (error) {
       props.onError(errorMessage(error));
@@ -873,9 +964,9 @@ function EquipmentRepositoryAdmin(props: {
         {
           category_id: selectedCategory.category_id,
           field_id: selectedFieldId,
-          required: false,
-          visible: true,
-          display_group: "Gestion",
+          required: fieldRequired,
+          visible: fieldVisible,
+          display_group: newFieldGroup,
           display_order: 650
         }
       ]);
@@ -887,52 +978,265 @@ function EquipmentRepositoryAdmin(props: {
     }
   }
 
+  async function updateSelectedCategory() {
+    if (!selectedCategory) return;
+    try {
+      await equipmentApi.updateCategory(selectedCategory.category_id, {
+        label: editCategoryLabel.trim(),
+        description: editCategoryDescription.trim(),
+        active: selectedCategory.active
+      });
+      props.onRefresh();
+    } catch (error) {
+      props.onError(errorMessage(error));
+    }
+  }
+
+  async function moveSelectedCategory() {
+    if (!selectedCategory || !moveParentId) return;
+    try {
+      await equipmentApi.moveCategory(selectedCategory.category_id, { parent_category_id: moveParentId });
+      props.onRefresh();
+    } catch (error) {
+      props.onError(errorMessage(error));
+    }
+  }
+
+  async function archiveSelectedCategory() {
+    if (!selectedCategory) return;
+    try {
+      await equipmentApi.archiveCategory(selectedCategory.category_id);
+      props.onRefresh();
+    } catch (error) {
+      props.onError(errorMessage(error));
+    }
+  }
+
+  async function removeFieldFromTemplate(fieldId: string) {
+    if (!selectedCategory) return;
+    try {
+      const current = await equipmentApi.categoryFieldRules(selectedCategory.category_id);
+      await equipmentApi.replaceCategoryFieldRules(
+        selectedCategory.category_id,
+        current.rules.filter((rule) => rule.field_id !== fieldId)
+      );
+      const preview = await equipmentApi.effectiveTemplate(selectedCategory.category_id);
+      const refreshedRules = await equipmentApi.categoryFieldRules(selectedCategory.category_id);
+      setTemplate(preview.effective_template);
+      setDirectRules(refreshedRules.rules.map((rule) => rule.field_id));
+      props.onRefresh();
+    } catch (error) {
+      props.onError(errorMessage(error));
+    }
+  }
+
+  function addChoiceValue() {
+    if (!newChoiceValue.trim()) return;
+    setNewFieldChoices((current) => [...current, newChoiceValue.trim()]);
+    setNewChoiceValue("");
+  }
+
+  function addUnitValue() {
+    if (!newUnitValue.trim()) return;
+    setNewFieldUnits((current) => [...current, newUnitValue.trim()]);
+    setNewUnitValue("");
+  }
+
   return (
-    <div className="equipmentLayout">
-      <aside className="equipmentList">
+    <div className="equipmentLayout adminWorkbench">
+      <aside className="equipmentList categoryPanel">
         <h2>Categories</h2>
-        <CategoryTree categories={props.categoryTree} selectedId={selectedCategoryId} onSelect={setSelectedCategoryId} />
+        <CategoryTree
+          categories={props.categoryTree}
+          selectedId={selectedCategoryId}
+          onSelect={selectCategory}
+          actions={[
+            ["add_child", "Ajouter une sous-categorie"],
+            ["rename", "Renommer"],
+            ["move", "Deplacer"],
+            ["archive", "Archiver"],
+            ["edit_form", "Modifier le formulaire"],
+            ["preview", "Previsualiser le formulaire"],
+            ["diagnostics", "Diagnostic avance"]
+          ]}
+          onAction={(categoryId, action) => handleCategoryAction(categoryId, action as CategoryAction)}
+        />
       </aside>
       <section className="equipmentStudio">
         <div className="studioHeader">
           <div>
-            <p className="eyebrow">Administration equipement</p>
+            <p className="eyebrow">Administration du referentiel</p>
             <h2>{selectedCategory ? categoryPathLabel(props.categories, selectedCategory.category_id) : "Categorie"}</h2>
           </div>
+          {selectedCategory && (
+            <div className="headerActions">
+              <button onClick={() => setAdminTab("children")}><Plus size={16} /> Ajouter une sous-categorie</button>
+              <button onClick={() => setAdminTab("form")}><Settings size={16} /> Modifier le formulaire</button>
+            </div>
+          )}
         </div>
-        <div className="adminGrid">
-          <EditorCard title="Nouvelle sous-categorie">
-            <Field label="Identifiant stable" value={newCategoryId} onChange={setNewCategoryId} />
-            <Field label="Libelle" value={newCategoryLabel} onChange={setNewCategoryLabel} />
-            <button onClick={() => void createSubcategory()}><Plus size={16} /> Creer sous-categorie</button>
+        <nav className="adminTabs" aria-label="Administration de la categorie">
+          {[
+            ["information", "Informations"],
+            ["children", "Sous-categories"],
+            ["form", "Formulaire"],
+            ["preview", "Previsualisation"],
+            ["diagnostics", "Diagnostic avance"]
+          ].map(([key, label]) => (
+            <button key={key} className={adminTab === key ? "active" : ""} onClick={() => setAdminTab(key as AdminTab)}>
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        {adminTab === "information" && selectedCategory && (
+          <EditorCard title="Informations">
+            <Field label="Nom de la categorie" value={editCategoryLabel} onChange={setEditCategoryLabel} />
+            <Field label="Description" value={editCategoryDescription} onChange={setEditCategoryDescription} />
+            <dl className="businessSummary">
+              <dt>Categorie parente</dt><dd>{selectedCategory.parent_category_id ? categoryPathLabel(props.categories, selectedCategory.parent_category_id) : "Categorie racine systeme"}</dd>
+              <dt>Etat</dt><dd>{selectedCategory.active ? "Active" : "Archivee"}</dd>
+              <dt>Sous-categories</dt><dd>{selectedChildren.length}</dd>
+            </dl>
+            <div className="buttonRow">
+              <button onClick={() => void updateSelectedCategory()}><Save size={16} /> Sauvegarder</button>
+              {!selectedCategory.system_defined && (
+                <>
+                  <label>Nouvelle categorie parente
+                    <select value={moveParentId} onChange={(event) => setMoveParentId(event.target.value)}>
+                      <option value="">Choisir une categorie</option>
+                      {movableParents.map((category) => (
+                        <option key={category.category_id} value={category.category_id}>{categoryPathLabel(props.categories, category.category_id)}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button onClick={() => void moveSelectedCategory()}>Deplacer</button>
+                  <button onClick={() => void archiveSelectedCategory()}>Archiver</button>
+                </>
+              )}
+            </div>
           </EditorCard>
-          <EditorCard title="Field Dictionary">
-            <Field label="Code champ" value={newFieldCode} onChange={setNewFieldCode} />
-            <Field label="Libelle" value={newFieldLabel} onChange={setNewFieldLabel} />
-            <label>Type
-              <select value={newFieldType} onChange={(event) => setNewFieldType(event.target.value as EquipmentFieldDataType)}>
-                {fieldTypes.map((type) => <option key={type} value={type}>{fieldTypeLabel(type)}</option>)}
-              </select>
-            </label>
-            <Field label={newFieldType === "number_with_unit" ? "Unites autorisees" : "Choix autorises"} value={newFieldChoices} onChange={setNewFieldChoices} />
-            <button onClick={() => void createField()}><Plus size={16} /> Creer champ</button>
+        )}
+
+        {adminTab === "children" && selectedCategory && (
+          <EditorCard title="Sous-categories">
+            <div className="childList">
+              {selectedChildren.length === 0 && <p>Aucune sous-categorie directe.</p>}
+              {selectedChildren.map((category) => (
+                <button key={category.category_id} onClick={() => selectCategory(category.category_id)}>
+                  <Folder size={16} /> <span>{category.label}</span>
+                </button>
+              ))}
+            </div>
+            <div className="formGrid">
+              <Field label="Nom de la sous-categorie" value={newCategoryLabel} onChange={setNewCategoryLabel} />
+              <Field label="Description" value={newCategoryDescription} onChange={setNewCategoryDescription} />
+            </div>
+            <details className="advancedOptions">
+              <summary>Options avancees</summary>
+              <Field label="Identifiant interne" value={categoryCodeOverride || generatedCategoryId} onChange={setCategoryCodeOverride} />
+            </details>
+            <button onClick={() => void createSubcategory()} disabled={!newCategoryLabel.trim()}>
+              <Plus size={16} /> Creer la sous-categorie
+            </button>
           </EditorCard>
-          <EditorCard title="Entry Template">
-            <label>Champ a ajouter
-              <select value={selectedFieldId} onChange={(event) => setSelectedFieldId(event.target.value)}>
-                <option value="">Choisir un champ</option>
-                {props.fieldDefinitions.filter((field) => field.active).map((field) => (
-                  <option value={field.field_id} key={field.field_id}>{field.label}</option>
-                ))}
-              </select>
-            </label>
-            <button onClick={() => void addFieldToTemplate()}><Settings size={16} /> Ajouter au template</button>
+        )}
+
+        {adminTab === "form" && selectedCategory && (
+          <>
+            <EditorCard title="Champs disponibles">
+              <div className="formGrid">
+                <Field label="Nom du champ" value={newFieldLabel} onChange={setNewFieldLabel} />
+                <Field label="Description / aide" value={newFieldDescription} onChange={setNewFieldDescription} />
+                <label>Type de champ
+                  <select value={newFieldType} onChange={(event) => setNewFieldType(event.target.value as EquipmentFieldDataType)}>
+                    {fieldTypes.map((type) => <option key={type} value={type}>{fieldTypeLabel(type)}</option>)}
+                  </select>
+                </label>
+                <Field label="Groupe d'affichage" value={newFieldGroup} onChange={setNewFieldGroup} />
+              </div>
+              {(newFieldType === "choice" || newFieldType === "multi_choice") && (
+                <ChoiceListEditor
+                  title="Valeurs proposees"
+                  values={newFieldChoices}
+                  draft={newChoiceValue}
+                  onDraft={setNewChoiceValue}
+                  onAdd={addChoiceValue}
+                  onRemove={(index) => setNewFieldChoices((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                />
+              )}
+              {newFieldType === "number_with_unit" && (
+                <ChoiceListEditor
+                  title="Unites autorisees"
+                  values={newFieldUnits}
+                  draft={newUnitValue}
+                  onDraft={setNewUnitValue}
+                  onAdd={addUnitValue}
+                  onRemove={(index) => setNewFieldUnits((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                />
+              )}
+              <details className="advancedOptions">
+                <summary>Options avancees</summary>
+                <Field label="Nom technique genere" value={fieldCodeOverride || generatedFieldCode} onChange={setFieldCodeOverride} />
+                <p className="hint">Le nom technique reste reserve au diagnostic, aux exports et aux API.</p>
+              </details>
+              <button onClick={() => void createField()} disabled={!newFieldLabel.trim()}><Plus size={16} /> Creer le champ</button>
+            </EditorCard>
+            <EditorCard title="Formulaire de la categorie">
+              <div className="formGrid">
+                <label>Champ du formulaire
+                  <select value={selectedFieldId} onChange={(event) => setSelectedFieldId(event.target.value)}>
+                    <option value="">Choisir un champ</option>
+                    {props.fieldDefinitions.filter((field) => field.active).map((field) => (
+                      <option value={field.field_id} key={field.field_id}>{field.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>Groupe
+                  <input value={newFieldGroup} onChange={(event) => setNewFieldGroup(event.target.value)} />
+                </label>
+                <label className="checkboxLine"><input type="checkbox" checked={fieldRequired} onChange={(event) => setFieldRequired(event.target.checked)} />Champ obligatoire</label>
+                <label className="checkboxLine"><input type="checkbox" checked={fieldVisible} onChange={(event) => setFieldVisible(event.target.checked)} />Visible dans le formulaire</label>
+              </div>
+              <button onClick={() => void addFieldToTemplate()} disabled={!selectedFieldId}><Settings size={16} /> Ajouter au formulaire</button>
+              <StructuredTable columns={["Champ", "Type", "Obligatoire", "Visible", "Groupe", "Origine", "Action"]}>
+                {(template?.fields ?? []).map((field) => {
+                  const direct = directRules.includes(field.field.field_id);
+                  return (
+                    <tr key={field.field.field_id}>
+                      <td>{field.field.label}</td>
+                      <td>{fieldTypeLabel(field.field.data_type)}</td>
+                      <td>{field.required ? "Oui" : "Non"}</td>
+                      <td>{field.visible ? "Oui" : "Non"}</td>
+                      <td>{field.display_group}</td>
+                      <td>{direct ? "Cette categorie" : "Herite"}</td>
+                      <td>{direct && <button onClick={() => void removeFieldFromTemplate(field.field.field_id)}>Retirer</button>}</td>
+                    </tr>
+                  );
+                })}
+              </StructuredTable>
+            </EditorCard>
+          </>
+        )}
+
+        {adminTab === "preview" && (
+          <EditorCard title="Previsualisation du formulaire">
+            <p>Voici le formulaire que verra un technicien pour cette categorie.</p>
             <TemplatePreview template={template} />
           </EditorCard>
-          <EditorCard title="Defaults">
-            <p>La base neuve charge les categories racines, les sous-categories structurelles et le dictionnaire minimal. Les donnees demo restent chargees uniquement via action explicite.</p>
+        )}
+
+        {adminTab === "diagnostics" && selectedCategory && (
+          <EditorCard title="Diagnostic avance">
+            <dl className="businessSummary">
+              <dt>Identifiant interne</dt><dd className="mono">{selectedCategory.category_id}</dd>
+              <dt>Racine interne</dt><dd className="mono">{selectedCategory.root_category_id}</dd>
+              <dt>Descendants</dt><dd>{selectedCategoryDescendants.size}</dd>
+              <dt>Checksum du formulaire</dt><dd className="mono">{template?.template_checksum ?? "-"}</dd>
+            </dl>
+            <TemplatePreview template={template} showDiagnostics />
           </EditorCard>
-        </div>
+        )}
       </section>
     </div>
   );
@@ -944,23 +1248,24 @@ function EquipmentModelWizard(props: {
   onCancel: () => void;
   onCreate: (categoryId: string, values: Record<string, unknown>, modelId?: string) => void;
 }) {
-  const [rootId, setRootId] = useState(props.roots[0]?.category_id ?? "");
-  const root = props.roots.find((item) => item.category_id === rootId) ?? props.roots[0];
-  const childCategories = props.categories.filter((category) => category.parent_category_id === root?.category_id);
-  const [categoryId, setCategoryId] = useState(childCategories[0]?.category_id ?? root?.category_id ?? "");
+  const [step, setStep] = useState(1);
+  const [rootId, setRootId] = useState("");
+  const root = props.roots.find((item) => item.category_id === rootId);
+  const [categoryId, setCategoryId] = useState("");
   const [template, setTemplate] = useState<EquipmentEffectiveTemplate | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [modelId, setModelId] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const nextRoot = props.roots.find((item) => item.category_id === rootId) ?? props.roots[0];
-    const nextChild = props.categories.find((category) => category.parent_category_id === nextRoot?.category_id);
-    setCategoryId(nextChild?.category_id ?? nextRoot?.category_id ?? "");
-  }, [rootId, props.roots, props.categories]);
+    if (!rootId && props.roots.length > 0) setRootId(props.roots[0].category_id);
+  }, [rootId, props.roots]);
 
   useEffect(() => {
-    if (!categoryId) return;
+    if (!categoryId) {
+      setTemplate(null);
+      return;
+    }
     let cancelled = false;
     equipmentApi.effectiveTemplate(categoryId)
       .then((result) => {
@@ -972,7 +1277,7 @@ function EquipmentModelWizard(props: {
             defaults[field.field.field_code] = field.default_value;
           }
         });
-        setValues((current) => ({ ...defaults, ...current }));
+        setValues(defaults);
       })
       .catch((reason) => setError(errorMessage(reason)));
     return () => {
@@ -990,27 +1295,81 @@ function EquipmentModelWizard(props: {
     props.onCreate(categoryId, values, optionalString(modelId));
   }
 
+  function continueFromStep() {
+    setError(null);
+    if (step === 1 && !rootId) {
+      setError("Choisissez une famille d'equipement.");
+      return;
+    }
+    if (step === 2 && !categoryId) {
+      setError("Choisissez une sous-categorie.");
+      return;
+    }
+    if (step === 3) {
+      const missing = template?.fields.find((field) => field.visible && field.required && isEmptyField(values[field.field.field_code]));
+      if (missing) {
+        setError(`Le champ "${missing.field.label}" est obligatoire pour cette categorie.`);
+        return;
+      }
+    }
+    setStep((current) => Math.min(4, current + 1));
+  }
+
+  const rootSubtree = root ? [root] : [];
+  const visibleFields = template?.fields.filter((field) => field.visible) ?? [];
+  const optionalFilled = visibleFields.filter((field) => !field.required && !isEmptyField(values[field.field.field_code])).length;
+  const requiredComplete = visibleFields.every((field) => !field.required || !isEmptyField(values[field.field.field_code]));
+
   return (
-    <div className="creationPanel">
-      <h2>Nouveau modele equipement</h2>
+    <div className="creationPanel wizardPanel">
+      <div className="creationHeader">
+        <div>
+          <p className="eyebrow">Assistant de creation</p>
+          <h2>Nouveau modele equipement</h2>
+        </div>
+        <button onClick={props.onCancel}>Annuler</button>
+      </div>
+      <ol className="wizardStepper">
+        {["Categorie", "Sous-categorie", "Identification", "Verification"].map((label, index) => {
+          const number = index + 1;
+          return <li key={label} className={step === number ? "active" : step > number ? "done" : ""}>Etape {number} - {label}</li>;
+        })}
+      </ol>
       {error && <p className="errorText">{error}</p>}
-      <div className="wizardGrid">
-        <EditorCard title="1. Categorie racine">
-          {props.roots.map((category) => (
-            <button key={category.category_id} className={rootId === category.category_id ? "active" : ""} onClick={() => setRootId(category.category_id)}>
-              {category.label}
-            </button>
-          ))}
-        </EditorCard>
-        <EditorCard title="2. Sous-categorie">
-          <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
-            {(childCategories.length > 0 ? childCategories : [root]).filter(Boolean).map((category) => (
-              <option value={category.category_id} key={category.category_id}>{category.label}</option>
-            ))}
-          </select>
-          <small>{categoryId ? categoryPathLabel(props.categories, categoryId) : ""}</small>
-        </EditorCard>
-        <EditorCard title="3. Identification">
+      <div className="wizardBody">
+        {step === 1 && (
+          <EditorCard title="Famille d'equipement">
+            <div className="choiceList" role="radiogroup" aria-label="Famille d'equipement">
+              {props.roots.map((category) => (
+                <label key={category.category_id} className={rootId === category.category_id ? "choiceRow selected" : "choiceRow"}>
+                  <input
+                    type="radio"
+                    name="equipment-root-category"
+                    value={category.category_id}
+                    checked={rootId === category.category_id}
+                    onChange={() => {
+                      setRootId(category.category_id);
+                      setCategoryId("");
+                      setTemplate(null);
+                    }}
+                  />
+                  <span>{category.label}</span>
+                </label>
+              ))}
+            </div>
+          </EditorCard>
+        )}
+        {step === 2 && (
+          <EditorCard title="Sous-categorie">
+            <p>{root ? root.label : "Choisissez d'abord une famille d'equipement."}</p>
+            {!categoryId && <p className="hint">Choisissez une sous-categorie.</p>}
+            <CategoryTree categories={rootSubtree} selectedId={categoryId} onSelect={(id) => setCategoryId(id)} />
+            {categoryId && <p className="selectedPath">Categorie : {categoryPathLabel(props.categories, categoryId)}</p>}
+          </EditorCard>
+        )}
+        {step === 3 && (
+          <EditorCard title="Identification">
+            <p className="selectedPath">{categoryId ? categoryPathLabel(props.categories, categoryId) : ""}</p>
           {template?.fields.filter((field) => field.visible).map((field) => (
             <TemplateFieldInput
               key={field.field.field_id}
@@ -1019,16 +1378,25 @@ function EquipmentModelWizard(props: {
               onChange={(value) => setValues((current) => ({ ...current, [field.field.field_code]: value }))}
             />
           ))}
-        </EditorCard>
-        <EditorCard title="4. Revue">
-          <Field label="ID modele optionnel" value={modelId} onChange={setModelId} />
-          <TemplatePreview template={template} values={values} />
-          <div className="buttonRow">
-            <button onClick={props.onCancel}>Annuler</button>
-            <button onClick={create}><Cpu size={16} /> Creer brouillon</button>
-          </div>
-        </EditorCard>
+          </EditorCard>
+        )}
+        {step === 4 && (
+          <EditorCard title="Verification">
+            <Field label="ID modele optionnel" value={modelId} onChange={setModelId} />
+            <dl className="businessSummary">
+              <dt>Categorie</dt><dd>{categoryId ? categoryPathLabel(props.categories, categoryId) : "-"}</dd>
+              <dt>Champs obligatoires</dt><dd>{requiredComplete ? "Complets" : "Incomplets"}</dd>
+              <dt>Champs optionnels renseignes</dt><dd>{optionalFilled}</dd>
+            </dl>
+            <TemplatePreview template={template} values={values} />
+          </EditorCard>
+        )}
       </div>
+          <div className="buttonRow">
+        <button onClick={() => setStep((current) => Math.max(1, current - 1))} disabled={step === 1}>Retour</button>
+        {step < 4 && <button onClick={continueFromStep}>Continuer</button>}
+        {step === 4 && <button onClick={create}><Cpu size={16} /> Creer brouillon</button>}
+          </div>
     </div>
   );
 }
@@ -1059,42 +1427,137 @@ function TemplateFieldInput(props: {
   return <Field label={`${field.label}${required}`} value={String(props.value ?? "")} onChange={props.onChange} />;
 }
 
-function TemplatePreview(props: { template: EquipmentEffectiveTemplate | null; values?: Record<string, unknown> }) {
+function ChoiceListEditor(props: {
+  title: string;
+  values: string[];
+  draft: string;
+  onDraft: (value: string) => void;
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+}) {
+  return (
+    <div className="choiceEditor">
+      <strong>{props.title}</strong>
+      <ul>
+        {props.values.map((value, index) => (
+          <li key={`${value}-${index}`}>
+            <span>{value}</span>
+            <button type="button" onClick={() => props.onRemove(index)}>Retirer</button>
+          </li>
+        ))}
+      </ul>
+      <div className="inlineEditor">
+        <input value={props.draft} onChange={(event) => props.onDraft(event.target.value)} placeholder="Nouvelle valeur" />
+        <button type="button" onClick={props.onAdd}>Ajouter une valeur</button>
+      </div>
+    </div>
+  );
+}
+
+function TemplatePreview(props: { template: EquipmentEffectiveTemplate | null; values?: Record<string, unknown>; showDiagnostics?: boolean }) {
   if (!props.template) return <p>Aucun template charge.</p>;
   return (
     <div className="templatePreview">
       <strong>{props.template.category_path.map((category) => category.label).join(" > ")}</strong>
-      <small>{props.template.fields.filter((field) => field.visible).length} champs visibles | checksum {props.template.template_checksum.slice(0, 18)}...</small>
+      <small>{props.template.fields.filter((field) => field.visible).length} champs visibles</small>
       {props.template.fields.filter((field) => field.visible).map((field) => (
         <span key={field.field.field_id}>
           {field.field.label}{field.required ? " *" : ""}
           {props.values ? `: ${displayTemplateValue(props.values[field.field.field_code]) || "-"}` : ""}
         </span>
       ))}
+      {props.showDiagnostics && <code>{props.template.template_checksum}</code>}
     </div>
   );
 }
 
-function CategoryTree(props: { categories: EquipmentCategory[]; selectedId: string; onSelect: (categoryId: string) => void }) {
-  return (
-    <div className="categoryTree">
-      {props.categories.map((category) => (
-        <div key={category.category_id}>
-          <button
-            className={props.selectedId === category.category_id ? "active" : ""}
-            data-category-id={category.category_id}
-            aria-current={props.selectedId === category.category_id ? "true" : undefined}
-            onClick={() => props.onSelect(category.category_id)}
-          >
-            <ListTree size={14} /> {category.label}
+function CategoryTree(props: {
+  categories: EquipmentCategory[];
+  selectedId: string;
+  onSelect: (categoryId: string) => void;
+  actions?: Array<[string, string]>;
+  onAction?: (categoryId: string, action: string) => void;
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(flattenCategories(props.categories).filter((category) => category.children.length > 0).map((category) => category.category_id)));
+  const [menuCategoryId, setMenuCategoryId] = useState<string | null>(null);
+  useEffect(() => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      flattenCategories(props.categories).forEach((category) => {
+        if (category.children.length > 0) next.add(category.category_id);
+      });
+      return next;
+    });
+  }, [props.categories]);
+  function toggle(categoryId: string) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(categoryId)) next.delete(categoryId); else next.add(categoryId);
+      return next;
+    });
+  }
+  function renderNode(category: EquipmentCategory, depth: number): React.ReactNode {
+    const hasChildren = category.children.length > 0;
+    const isExpanded = expanded.has(category.category_id);
+    const isSelected = props.selectedId === category.category_id;
+    return (
+      <div key={category.category_id} role="treeitem" aria-expanded={hasChildren ? isExpanded : undefined} aria-selected={isSelected}>
+        <div
+          className={[
+            "categoryTreeRow",
+            isSelected ? "selected" : "",
+            menuCategoryId === category.category_id ? "menuOpen" : ""
+          ].filter(Boolean).join(" ")}
+          style={{ paddingLeft: `${depth * 18 + 6}px` }}
+          data-category-id={category.category_id}
+          tabIndex={0}
+          onClick={() => props.onSelect(category.category_id)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              props.onSelect(category.category_id);
+            }
+            if (event.key === "ArrowRight" && hasChildren) toggle(category.category_id);
+            if (event.key === "ArrowLeft" && hasChildren) toggle(category.category_id);
+          }}
+        >
+          <button className="treeDisclosure" type="button" aria-label={isExpanded ? "Replier" : "Deplier"} onClick={(event) => { event.stopPropagation(); if (hasChildren) toggle(category.category_id); }}>
+            {hasChildren ? (isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : <span />}
           </button>
-          {category.children.length > 0 && (
-            <div className="categoryChildren">
-              <CategoryTree categories={category.children} selectedId={props.selectedId} onSelect={props.onSelect} />
-            </div>
+          {hasChildren && isExpanded ? <FolderOpen size={15} /> : <Folder size={15} />}
+          <span>{category.label}</span>
+          {props.actions && props.onAction && (
+            <span className="treeMenuWrap">
+              <button
+                className="treeMenuButton"
+                type="button"
+                aria-label={`Actions ${category.label}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setMenuCategoryId((current) => current === category.category_id ? null : category.category_id);
+                }}
+              >
+                <MoreHorizontal size={15} />
+              </button>
+              {menuCategoryId === category.category_id && (
+                <div className="treeActionMenu">
+                  {props.actions.map(([action, label]) => (
+                    <button key={action} type="button" onClick={(event) => { event.stopPropagation(); setMenuCategoryId(null); props.onAction?.(category.category_id, action); }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </span>
           )}
         </div>
-      ))}
+        {hasChildren && isExpanded && category.children.map((child) => renderNode(child, depth + 1))}
+      </div>
+    );
+  }
+  return (
+    <div className="categoryTree" role="tree">
+      {props.categories.map((category) => renderNode(category, 0))}
     </div>
   );
 }
@@ -1111,7 +1574,7 @@ function ModelCatalog(props: {
   const demoCount = props.models.filter((model) => model.identity.is_demo || model.latest_revision?.definition.is_demo).length;
   return (
     <aside className="equipmentList">
-      <h2>Equipment Repository</h2>
+      <h2>Catalogue equipements</h2>
       <CategoryTree categories={props.categoryTree} selectedId="" onSelect={props.onCategory} />
       {demoCount > 0 && <div className="demoBanner">Donnees de demonstration visibles ({props.demoMode})</div>}
       {props.models.length === 0 && <p>Aucun modele equipement.</p>}
@@ -1170,7 +1633,7 @@ function ModelStudio(props: {
     <section className="equipmentStudio">
       <div className="studioHeader">
         <div>
-          <p className="eyebrow">Equipment Model Definition</p>
+          <p className="eyebrow">Fiche modele equipement</p>
           <h2>{props.model.identity.manufacturer} {props.model.identity.model_name}</h2>
           <p className="mono">{props.revision.revision_id} | {props.revision.status}</p>
         </div>
@@ -1194,14 +1657,14 @@ function ModelStudio(props: {
         </nav>
         <div className="editorPane">
           {props.section === "summary" && (
-            <EditorCard title="Summary">
-              <Field label="Manufacturer" value={definition.manufacturer} disabled={props.readOnly} onChange={(manufacturer) => props.onDefinition({ ...definition, manufacturer })} />
-              <Field label="Model name" value={definition.model_name} disabled={props.readOnly} onChange={(model_name) => props.onDefinition({ ...definition, model_name })} />
-              <Field label="Variant" value={definition.variant ?? ""} disabled={props.readOnly} onChange={(variant) => props.onDefinition({ ...definition, variant: optionalString(variant) })} />
+            <EditorCard title="Synthese">
+              <Field label="Fabricant" value={definition.manufacturer} disabled={props.readOnly} onChange={(manufacturer) => props.onDefinition({ ...definition, manufacturer })} />
+              <Field label="Modele" value={definition.model_name} disabled={props.readOnly} onChange={(model_name) => props.onDefinition({ ...definition, model_name })} />
+              <Field label="Variante" value={definition.variant ?? ""} disabled={props.readOnly} onChange={(variant) => props.onDefinition({ ...definition, variant: optionalString(variant) })} />
               <dl>
-                <dt>Category</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || humanLabel(definition.category_code)}</dd>
-                <dt>Status</dt><dd>{humanStatus(props.revision.status)}</dd>
-                <dt>Configured fields</dt><dd>{Object.keys(definition.custom_field_values ?? {}).length}</dd>
+                <dt>Categorie</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || humanLabel(definition.category_code)}</dd>
+                <dt>Statut</dt><dd>{humanStatus(props.revision.status)}</dd>
+                <dt>Champs renseignes</dt><dd>{Object.keys(definition.custom_field_values ?? {}).length}</dd>
                 <dt>Ports</dt><dd>{props.revision.signal_port_count}</dd>
                 <dt>Interfaces</dt><dd>{props.revision.interface_count}</dd>
               </dl>
@@ -1221,16 +1684,16 @@ function ModelStudio(props: {
             </EditorCard>
           )}
           {props.section === "category_template" && (
-            <EditorCard title="Category & Template">
+            <EditorCard title="Categorie et formulaire">
               <dl>
-                <dt>Root category</dt><dd>{humanLabel(definition.template_snapshot?.root_category_id ?? props.model.identity.root_category_id ?? "")}</dd>
-                <dt>Category path</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || humanLabel(definition.category_code)}</dd>
-                <dt>Template checksum</dt><dd className="mono">{definition.template_snapshot?.template_checksum ?? "-"}</dd>
+                <dt>Famille</dt><dd>{humanLabel(definition.template_snapshot?.root_category_id ?? props.model.identity.root_category_id ?? "")}</dd>
+                <dt>Categorie</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || humanLabel(definition.category_code)}</dd>
+                <dt>Formulaire utilise</dt><dd>{(definition.template_snapshot?.fields ?? []).filter((field) => field.visible).length} champs visibles</dd>
               </dl>
             </EditorCard>
           )}
           {props.section === "advanced_diagnostics" && (
-            <EditorCard title="Classification diagnostics">
+            <EditorCard title="Diagnostic classification">
               <label>
                 Functional role
                 <select disabled={props.readOnly} value={definition.functional_role} onChange={(event) => props.onDefinition({ ...definition, functional_role: event.target.value as FunctionalRole })}>
@@ -1241,6 +1704,10 @@ function ModelStudio(props: {
               <Field label="Technology tags" value={(definition.technology_tags ?? []).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, technology_tags: splitTokens(value) as TechnologyTag[] })} />
               <Field label="Preset reference" value={String(definition.metadata?.classification_preset_id ?? "")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, metadata: { ...(definition.metadata ?? {}), classification_preset_id: optionalString(value) } })} />
               <Field label="Classification notes" value={String(definition.metadata?.classification_notes ?? "")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, metadata: { ...(definition.metadata ?? {}), classification_notes: value } })} />
+              <dl className="businessSummary">
+                <dt>Checksum du formulaire</dt><dd className="mono">{definition.template_snapshot?.template_checksum ?? "-"}</dd>
+                <dt>Categorie interne</dt><dd className="mono">{definition.category_code}</dd>
+              </dl>
             </EditorCard>
           )}
           {props.section === "characteristics" && (
@@ -1331,8 +1798,8 @@ function ModelStudio(props: {
             </EditorCard>
           )}
           {props.section === "measurement_corrections" && (
-            <EditorCard title="Measurement / Corrections">
-              <p>Les capteurs, profils de scaling et courbes d'ingenierie restent geres dans les espaces Sensors, Scaling et Engineering Curves.</p>
+            <EditorCard title="Mesure / corrections">
+              <p>Les capteurs, profils de scaling et courbes d'ingenierie restent geres dans les espaces Capteurs, Profils de scaling et Courbes d'ingenierie.</p>
             </EditorCard>
           )}
           {props.section === "documents" && (
@@ -1343,7 +1810,7 @@ function ModelStudio(props: {
           {props.section === "revisions_audit" && <RevisionTable revisions={props.revisions} onOpen={props.onOpenRevision} />}
           {props.section === "revisions_audit" && <AuditTable audit={props.audit} />}
           {props.section === "advanced_diagnostics" && (
-            <EditorCard title="Advanced JSON">
+            <EditorCard title="JSON de diagnostic">
               <textarea className="jsonPreview" value={props.jsonDraft} disabled={props.readOnly} onChange={(event) => props.onJsonDraft(event.target.value)} />
               <button disabled={props.readOnly} onClick={props.onApplyJson}>Appliquer JSON</button>
             </EditorCard>
@@ -1363,7 +1830,7 @@ function DriverTree(props: {
 }) {
   return (
     <aside className="equipmentList">
-      <h2>Drivers and Actions</h2>
+      <h2>Drivers et actions</h2>
       {props.models.map((model) => {
         const modelDrivers = props.drivers.filter((driver) => driver.identity.equipment_model_id === model.identity.equipment_model_id);
         return (
@@ -1490,7 +1957,7 @@ function DriverStudio(props: {
           {props.section === "revisions" && <RevisionTable revisions={props.revisions} onOpen={props.onOpenRevision} />}
           {props.section === "audit" && <AuditTable audit={props.audit} />}
           {props.section === "json" && (
-            <EditorCard title="Advanced JSON">
+            <EditorCard title="Diagnostic JSON">
               <textarea className="jsonPreview" value={props.jsonDraft} disabled={props.readOnly} onChange={(event) => props.onJsonDraft(event.target.value)} />
               <button disabled={props.readOnly} onClick={props.onApplyJson}>Appliquer JSON</button>
             </EditorCard>
@@ -1691,6 +2158,50 @@ function categoryPathLabel(categories: EquipmentCategory[], categoryId: string) 
     guard += 1;
   }
   return path.join(" > ") || humanLabel(categoryId);
+}
+
+function flattenCategories(categories: EquipmentCategory[]): EquipmentCategory[] {
+  return categories.flatMap((category) => [category, ...flattenCategories(category.children)]);
+}
+
+function descendantCategoryIds(categories: EquipmentCategory[], categoryId: string): Set<string> {
+  const byParent = new Map<string, EquipmentCategory[]>();
+  categories.forEach((category) => {
+    if (!category.parent_category_id) return;
+    const children = byParent.get(category.parent_category_id) ?? [];
+    children.push(category);
+    byParent.set(category.parent_category_id, children);
+  });
+  const output = new Set<string>();
+  const visit = (id: string) => {
+    for (const child of byParent.get(id) ?? []) {
+      output.add(child.category_id);
+      visit(child.category_id);
+    }
+  };
+  visit(categoryId);
+  return output;
+}
+
+function slugifyLabel(label: string): string {
+  const normalized = label
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized || "element";
+}
+
+function uniqueGeneratedCode(label: string, existing: Set<string>): string {
+  const base = slugifyLabel(label);
+  let candidate = base;
+  let index = 2;
+  while (existing.has(candidate)) {
+    candidate = `${base}_${index}`;
+    index += 1;
+  }
+  return candidate;
 }
 
 function displayTemplateValue(value: unknown): string {
@@ -2003,7 +2514,18 @@ function formatDate(value?: string | null) {
 
 function errorMessage(error: unknown) {
   if (error instanceof ApiError) {
-    return `${error.code}: ${error.message}`;
+    const issues = Array.isArray(error.details?.issues) ? error.details.issues as Array<{ message?: string }> : [];
+    const firstIssue = issues.find((issue) => issue.message)?.message;
+    if (firstIssue) return firstIssue;
+    const readable: Record<string, string> = {
+      invalid_equipment_field_definition: "Le champ n'est pas valide. Verifiez son nom, son type et ses valeurs possibles.",
+      invalid_equipment_model_definition: "Le modele equipement n'est pas valide. Verifiez les champs obligatoires et les valeurs saisies.",
+      equipment_template_required_field_missing: "Un champ obligatoire du formulaire n'est pas renseigne.",
+      invalid_id: "Le nom technique genere existe deja ou contient un caractere non autorise. Modifiez le libelle ou l'identifiant avance.",
+      equipment_category_in_use: "Cette categorie est utilisee par des modeles. Archivez-la plutot que de la supprimer.",
+      equipment_category_system_root_immutable: "Les familles racines systeme ne peuvent pas etre archivees."
+    };
+    return readable[error.code] ?? error.message;
   }
   if (error instanceof Error) {
     return error.message;

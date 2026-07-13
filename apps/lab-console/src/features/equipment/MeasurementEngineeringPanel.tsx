@@ -79,20 +79,20 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     collection: "sensor-definitions",
     validationCollection: "sensor-definition-definitions",
     operationPrefix: "sensor-definition",
-    title: "Sensors & Transducers",
-    listTitle: "Sensor definitions",
+    title: "Capteurs / transducteurs",
+    listTitle: "Definitions capteurs",
     createLabel: "Creer capteur",
     emptyDetail: "Selectionnez ou creez une definition de capteur/transducteur.",
     sections: [
       ["general", "General"],
-      ["physical", "Physical Input"],
-      ["electrical", "Electrical Output"],
+      ["physical", "Entree physique"],
+      ["electrical", "Sortie electrique"],
       ["excitation", "Excitation"],
       ["scaling", "Scaling"],
-      ["corrections", "Correction Curves"],
+      ["corrections", "Courbes de correction"],
       ["revisions", "Revisions"],
       ["audit", "Audit"],
-      ["json", "Advanced JSON"]
+      ["json", "Diagnostic JSON"]
     ]
   },
   scaling: {
@@ -100,19 +100,19 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     collection: "scaling-profiles",
     validationCollection: "scaling-profile-definitions",
     operationPrefix: "scaling-profile",
-    title: "Scaling Profiles",
-    listTitle: "Scaling profiles",
+    title: "Profils de scaling",
+    listTitle: "Profils de scaling",
     createLabel: "Creer scaling",
     emptyDetail: "Selectionnez ou creez un profil de mise a l'echelle.",
     sections: [
       ["general", "General"],
-      ["physical", "Input / Output"],
-      ["method", "Scaling Method"],
+      ["physical", "Entree / sortie"],
+      ["method", "Methode de scaling"],
       ["lookup", "Lookup Table"],
       ["expression", "Expression"],
       ["revisions", "Revisions"],
       ["audit", "Audit"],
-      ["json", "Advanced JSON"]
+      ["json", "Diagnostic JSON"]
     ]
   },
   curves: {
@@ -120,18 +120,18 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     collection: "engineering-curves",
     validationCollection: "engineering-curve-definitions",
     operationPrefix: "engineering-curve",
-    title: "Engineering Curves",
-    listTitle: "Engineering curves",
+    title: "Courbes d'ingenierie",
+    listTitle: "Courbes d'ingenierie",
     createLabel: "Creer courbe",
     emptyDetail: "Selectionnez ou creez une courbe de correction.",
     sections: [
       ["general", "General"],
       ["axes", "Axes"],
-      ["table", "Curve Table"],
+      ["table", "Table courbe"],
       ["evaluation", "Evaluation"],
       ["revisions", "Revisions"],
       ["audit", "Audit"],
-      ["json", "Advanced JSON"]
+      ["json", "Diagnostic JSON"]
     ]
   },
   daq: {
@@ -139,19 +139,19 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     collection: "daq-channel-profiles",
     validationCollection: "daq-channel-profile-definitions",
     operationPrefix: "daq-channel-profile",
-    title: "DAQ Channels",
-    listTitle: "DAQ channel profiles",
+    title: "Voies DAQ",
+    listTitle: "Profils de voies DAQ",
     createLabel: "Creer profil DAQ",
     emptyDetail: "Selectionnez ou creez un profil de voie DAQ.",
     sections: [
       ["general", "General"],
-      ["daq", "Channel Type"],
-      ["physical", "Ranges"],
-      ["sampling", "Sampling"],
+      ["daq", "Type de voie"],
+      ["physical", "Plages"],
+      ["sampling", "Echantillonnage"],
       ["excitation", "Excitation"],
       ["revisions", "Revisions"],
       ["audit", "Audit"],
-      ["json", "Advanced JSON"]
+      ["json", "Diagnostic JSON"]
     ]
   },
   recipes: {
@@ -159,17 +159,17 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     collection: "acquisition-channel-recipes",
     validationCollection: "acquisition-channel-recipe-definitions",
     operationPrefix: "acquisition-channel-recipe",
-    title: "Acquisition Recipes",
-    listTitle: "Acquisition recipes",
+    title: "Recettes d'acquisition",
+    listTitle: "Recettes d'acquisition",
     createLabel: "Creer recette",
     emptyDetail: "Selectionnez ou creez une recette de voie logique.",
     sections: [
       ["general", "General"],
-      ["chain", "Measurement Chain"],
-      ["sampling", "Sampling / Range"],
+      ["chain", "Chaine de mesure"],
+      ["sampling", "Echantillonnage / plage"],
       ["revisions", "Revisions"],
       ["audit", "Audit"],
-      ["json", "Advanced JSON"]
+      ["json", "Diagnostic JSON"]
     ]
   }
 };
@@ -705,7 +705,7 @@ function StudioSectionRenderer(props: {
   }
   if (props.section === "json") {
     return (
-      <EditorCard title="Advanced JSON">
+      <EditorCard title="Diagnostic JSON">
         <textarea
           className="jsonPreview"
           value={props.jsonDraft}

@@ -9,7 +9,7 @@ import type {
 
 export const healthFixture: HealthReport = {
   agent: "emc-locus-agent",
-  version: "0.13.1",
+  version: "0.13.2",
   storage_root: "data\\local-agent",
   storage_root_exists: true,
   domains: ["metrology", "project_records", "test_definitions"]

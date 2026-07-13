@@ -8,27 +8,27 @@ type MeasurementSpace = {
 
 const spaces = {
   scaling: {
-    tab: "Scaling Profiles",
+    tab: "Profils de scaling",
     collection: "scaling-profiles",
     createButton: "Creer scaling"
   },
   curves: {
-    tab: "Engineering Curves",
+    tab: "Courbes d'ingenierie",
     collection: "engineering-curves",
     createButton: "Creer courbe"
   },
   sensors: {
-    tab: "Sensors & Transducers",
+    tab: "Capteurs / transducteurs",
     collection: "sensor-definitions",
     createButton: "Creer capteur"
   },
   daq: {
-    tab: "DAQ Channels",
+    tab: "Voies DAQ",
     collection: "daq-channel-profiles",
     createButton: "Creer profil DAQ"
   },
   recipes: {
-    tab: "Acquisition Recipes",
+    tab: "Recettes d'acquisition",
     collection: "acquisition-channel-recipes",
     createButton: "Creer recette"
   }
@@ -44,7 +44,7 @@ test("measurement engineering workflow creates approved channel recipe", async (
   const recipeId = `E2E-REC-CURRENT-${suffix}`;
 
   await page.goto("/lab/");
-  await page.getByRole("button", { name: "Equipment" }).click();
+  await page.getByRole("button", { name: "Equipements" }).click();
 
   await createMeasurementDraft(page, spaces.scaling, scalingId, "E2E 10 mV/A scaling");
   await approveCurrentDraft(page, spaces.scaling, scalingId);
@@ -81,7 +81,7 @@ test("measurement engineering workflow creates approved channel recipe", async (
   await createMeasurementDraft(page, spaces.sensors, sensorId, "E2E current probe 10mV/A");
   await sectionButton(page, "Scaling").click();
   await expect(page.getByRole("cell", { name: scalingId, exact: true })).toBeVisible();
-  await sectionButton(page, "Correction Curves").click();
+  await sectionButton(page, "Courbes de correction").click();
   await expect(page.getByRole("cell", { name: currentCurveId, exact: true })).toBeVisible();
   await approveCurrentDraft(page, spaces.sensors, sensorId);
 
@@ -89,7 +89,7 @@ test("measurement engineering workflow creates approved channel recipe", async (
   await approveCurrentDraft(page, spaces.daq, daqId);
 
   await createMeasurementDraft(page, spaces.recipes, recipeId, "E2E current_A logical channel");
-  await sectionButton(page, "Measurement Chain").click();
+  await sectionButton(page, "Chaine de mesure").click();
   const chain = page.locator(".chainSummary");
   await expect(chain).toContainText(daqId);
   await expect(chain).toContainText(sensorId);
@@ -188,7 +188,7 @@ async function saveCurrentDraft(page: Page, space: MeasurementSpace, entityId: s
 }
 
 async function importCurveCsv(page: Page, csv: string) {
-  await sectionButton(page, "Curve Table").click();
+  await sectionButton(page, "Table courbe").click();
   const editor = page.locator(".editorPane");
   const firstDataRow = csv.trim().split(/\r?\n/)[1].split(",");
   await editor.locator('textarea[placeholder="frequency_hz,correction_db"]').fill(csv);

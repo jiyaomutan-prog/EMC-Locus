@@ -15,6 +15,32 @@ change should remain traceable through Git history, session logs, and this file.
   longer present direct `in_progress` or `completed` jumps that the repository
   would reject.
 
+## [0.13.2] - 2026-07-13
+
+### Changed
+
+- Polished LAB CONSOLE Equipment navigation into grouped business sections:
+  Referentiel, Ingenierie de mesure, Pilotage, and A venir.
+- Reworked the Equipment Repository administration screen around the selected
+  category with Informations, Sous-categories, Formulaire, Previsualisation,
+  and Diagnostic avance tabs.
+- Replaced action-looking root category buttons in the model creation wizard
+  with choice rows and an explicit tree-based subcategory step.
+- Replaced the category stack rendering with a real tree: indentation,
+  expand/collapse controls, folder icons, selected row state, hover styling,
+  keyboard selection, and `...` contextual actions.
+- Changed category and field creation to label-first workflows with generated
+  internal codes hidden behind advanced options.
+
+### Fixed
+
+- Made multi-level subcategories usable throughout the UI and added catalog
+  filtering by any category subtree, not only exact category matches.
+- Added regression coverage for category choice controls, nested category
+  administration, generated field codes, choice-list editing, hidden
+  diagnostics, form preview, and Playwright Equipment Repository usability.
+- Bumped synchronized Rust, Python, and frontend versions to `0.13.2`.
+
 ## [0.13.1] - 2026-07-13
 
 ### Added

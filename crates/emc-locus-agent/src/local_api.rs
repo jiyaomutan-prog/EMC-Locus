@@ -3144,6 +3144,24 @@ mod tests {
         assert_eq!(custom_category.status, 200, "{}", custom_category.body);
         assert!(custom_category.body.contains("\"system_defined\":false"));
 
+        let nested_category = handle_api_request(
+            "POST",
+            "/api/v1/equipment/categories",
+            &json!({
+                "category_id": "rf_switch_matrix_low_noise",
+                "parent_category_id": "rf_switch_matrix",
+                "label": "Amplificateurs faible bruit",
+                "description": "Categorie de troisieme niveau pour verifier la navigation",
+                "sort_order": 10
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(nested_category.status, 200, "{}", nested_category.body);
+        assert!(nested_category
+            .body
+            .contains("\"parent_category_id\":\"rf_switch_matrix\""));
+
         let custom_field = handle_api_request(
             "POST",
             "/api/v1/equipment/field-definitions",
@@ -3262,6 +3280,35 @@ mod tests {
             .contains("\"operation\":\"equipment_model_created_from_category_template\""));
         assert!(created.body.contains("\"template_snapshot\""));
         assert!(created.body.contains("\"custom_field_values\""));
+
+        let nested_created = handle_api_request(
+            "POST",
+            "/api/v1/equipment-models/from-category-template",
+            &json!({
+                "category_id": "rf_switch_matrix_low_noise",
+                "equipment_model_id": "EQM-RF-LNA-UX",
+                "field_values": {
+                    "manufacturer": "Acme RF",
+                    "model_name": "Low Noise Amp",
+                    "variant": "40 dB"
+                },
+                "actor": "equipment.author",
+                "reason": "create nested category model",
+                "operation_id": "op-template-nested-create"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(nested_created.status, 200, "{}", nested_created.body);
+
+        let subtree_filter = handle_api_request(
+            "GET",
+            "/api/v1/equipment-models?category_code=rf_switch_matrix&demo_mode=hide",
+            "",
+            &config,
+        );
+        assert_eq!(subtree_filter.status, 200, "{}", subtree_filter.body);
+        assert!(subtree_filter.body.contains("EQM-RF-LNA-UX"));
 
         let demo_created = handle_api_request(
             "POST",

@@ -56,7 +56,7 @@ const sidebarItems = [
   "Templates et methodes",
   "Documents",
   "Personnel et competences",
-  "Equipment",
+  "Equipements",
   "Metrologie",
   "Planification",
   "Rapports",
@@ -442,7 +442,7 @@ export function App() {
               key={item}
               className={
                 (item === "Templates et methodes" && (activeView === "library" || activeView === "studio")) ||
-                (item === "Equipment" && activeView === "equipment")
+                (item === "Equipements" && activeView === "equipment")
                   ? "active"
                   : ""
               }
@@ -450,14 +450,14 @@ export function App() {
                 setActiveView(
                   item === "Templates et methodes"
                     ? "library"
-                    : item === "Equipment"
+                    : item === "Equipements"
                       ? "equipment"
                       : "system"
                 )
               }
             >
               <span>{item}</span>
-              {item !== "Templates et methodes" && item !== "Equipment" && (
+              {item !== "Templates et methodes" && item !== "Equipements" && (
                 <small>Non disponible dans cette version</small>
               )}
             </button>
@@ -469,13 +469,13 @@ export function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">
-              {activeView === "equipment" ? "Equipment Definition Catalog" : "Templates et methodes"}
+              {activeView === "equipment" ? "Referentiel equipements" : "Templates et methodes"}
             </p>
             <h1>
               {activeView === "studio"
                 ? "Template Studio"
                 : activeView === "equipment"
-                  ? "Equipment"
+                  ? "Equipements"
                   : activeView === "system"
                     ? "Systeme local"
                     : "Templates d'essai"}

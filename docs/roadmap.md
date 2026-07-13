@@ -126,6 +126,13 @@ Deliverables:
   routes, tests, and docs. It preserves the 0.11-0.13 technical domains under
   the hood and does not implement physical assets, station wiring, acquisition,
   FFT, reporting, RBAC, or synchronization.
+- `0.13.2` polishes that Equipment Repository experience: grouped navigation,
+  a real expandable tree with contextual actions, explicit wizard choices,
+  label-first category and field creation with generated internal codes, form
+  preview separated from advanced diagnostics, multi-level subcategory use,
+  and category-subtree filtering. It remains a usability patch and does not
+  implement physical assets, station wiring, acquisition, FFT, reporting,
+  RBAC, or synchronization.
 
 ## Phase 3: Measurement Runtime
 

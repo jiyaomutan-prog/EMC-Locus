@@ -1,67 +1,97 @@
 import { expect, test } from "@playwright/test";
 
-test("equipment repository UX creates a model from category template without demo pollution", async ({ page, request }) => {
+test("equipment repository UX manages nested categories, fields and model creation without demo pollution", async ({ page, request }) => {
+  const suffix = Date.now().toString(36).toUpperCase();
+  const nestedLabel = `Amplificateurs faible bruit ${suffix}`;
+  const fieldLabel = `Criticite UX ${suffix}`;
+  const generatedCategoryId = `amplificateurs_faible_bruit_${suffix.toLowerCase()}`;
+  const generatedFieldCode = `criticite_ux_${suffix.toLowerCase()}`;
+  const modelId = `E2E-RF-LNA-${suffix}`;
+
   await page.goto("/lab/");
-  await page.getByRole("button", { name: "Equipment" }).click();
-  await expect(page.getByRole("heading", { name: "Equipment Repository" })).toBeVisible();
+  await page.getByRole("button", { name: "Equipements" }).click();
+  await expect(page.getByRole("heading", { name: "Equipements" })).toBeVisible();
   await expect(page.getByText("[DEMO]")).toHaveCount(0);
-  await expect(page.locator(".categoryTree").getByRole("button", { name: "Équipements radiofréquences" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Administration du referentiel" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Repository Administration" }).click();
-  await expect(page.getByRole("heading", { name: "Categories" })).toBeVisible();
-  const admin = page.locator(".equipmentLayout").filter({ has: page.getByRole("heading", { name: "Categories" }) });
-  const rfRootButton = admin.locator('button[data-category-id="rf_equipment"]');
-  await rfRootButton.click();
-  await expect(rfRootButton).toHaveClass(/active/);
-  await page.getByLabel("Identifiant stable").fill("rf_switch_matrix_e2e");
-  await page.getByLabel("Libelle").first().fill("Matrices RF E2E");
-  await page.getByRole("button", { name: /Creer sous-categorie/ }).click();
-  await expect(page.locator(".categoryTree").getByRole("button", { name: /Matrices RF E2E/ })).toBeVisible();
-  await rfRootButton.click();
-  await expect(rfRootButton).toHaveClass(/active/);
+  await page.getByRole("button", { name: "Administration du referentiel" }).click();
+  await expect(page.locator(".equipmentStudio .eyebrow", { hasText: "Administration du referentiel" })).toBeVisible();
+  const categoryTree = page.locator(".categoryPanel .categoryTree");
+  for (const categoryId of [
+    "energy_sources",
+    "signal_sources",
+    "rf_equipment",
+    "sensors_transducers",
+    "actuators_emitters",
+    "measurement_instruments_digitizers",
+    "processing_control_systems"
+  ]) {
+    await expect(categoryTree.locator(`[data-category-id="${categoryId}"]`)).toBeVisible();
+  }
 
-  await page.getByLabel("Code champ").fill("e2e_criticality");
-  await page.getByLabel("Libelle").nth(1).fill("Criticité E2E");
-  await page.getByLabel("Choix autorises").fill("faible, moyenne, forte");
-  const fieldCreateResponse = page.waitForResponse((response) =>
+  const rfRow = categoryTree.locator('[data-category-id="rf_equipment"]');
+  await rfRow.locator(".treeMenuButton").click();
+  const menu = rfRow.locator(".treeActionMenu");
+  await expect(menu.getByRole("button", { name: "Ajouter une sous-categorie" })).toBeVisible();
+  await expect(menu.getByRole("button", { name: "Modifier le formulaire" })).toBeVisible();
+  await menu.getByRole("button", { name: "Modifier le formulaire" }).click();
+  await expect(page.locator(".adminTabs").getByRole("button", { name: "Formulaire", exact: true })).toHaveClass(/active/);
+
+  await categoryTree.locator('[data-category-id="rf_amplifier"]').click();
+  await page.getByRole("button", { name: "Sous-categories" }).click();
+  await page.getByLabel("Nom de la sous-categorie").fill(nestedLabel);
+  await expect(page.getByLabel("Identifiant interne")).toBeHidden();
+  const categoryResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/api/v1/equipment/categories") &&
+    response.request().method() === "POST"
+  );
+  await page.getByRole("button", { name: /Creer la sous-categorie/ }).click();
+  expect((await categoryResponse).ok()).toBeTruthy();
+  await expect(categoryTree.locator(`[data-category-id="${generatedCategoryId}"]`)).toBeVisible();
+
+  await categoryTree.locator(`[data-category-id="${generatedCategoryId}"]`).click();
+  await page.locator(".adminTabs").getByRole("button", { name: "Formulaire", exact: true }).click();
+  await page.getByLabel("Nom du champ").fill(fieldLabel);
+  await page.getByLabel("Description / aide").fill("Niveau de criticite propre a cette categorie.");
+  await expect(page.getByLabel("Nom technique genere")).toBeHidden();
+  await page.getByPlaceholder("Nouvelle valeur").fill("Observation");
+  await page.getByRole("button", { name: "Ajouter une valeur" }).click();
+  await expect(page.getByText("Observation")).toBeVisible();
+  const fieldResponse = page.waitForResponse((response) =>
     response.url().endsWith("/api/v1/equipment/field-definitions") &&
     response.request().method() === "POST"
   );
-  await page.getByRole("button", { name: /Creer champ/ }).click();
-  expect((await fieldCreateResponse).ok()).toBeTruthy();
-  await expect(page.getByLabel("Champ a ajouter").locator("option", { hasText: "Criticité E2E" })).toHaveCount(1);
-  await page.getByLabel("Champ a ajouter").selectOption("field_e2e_criticality");
-  const fieldSelect = page.getByLabel("Champ a ajouter");
-  await expect(fieldSelect).toHaveValue("field_e2e_criticality");
+  await page.getByRole("button", { name: /Creer le champ/ }).click();
+  expect((await fieldResponse).ok()).toBeTruthy();
+
   const ruleResponse = page.waitForResponse((response) =>
-    response.url().endsWith("/api/v1/equipment/categories/rf_equipment/field-rules") &&
+    response.url().endsWith(`/api/v1/equipment/categories/${generatedCategoryId}/field-rules`) &&
     response.request().method() === "PUT"
   );
-  await page.getByRole("button", { name: /Ajouter au template/ }).click();
+  await page.getByRole("button", { name: /Ajouter au formulaire/ }).click();
   expect((await ruleResponse).ok()).toBeTruthy();
-  await expect.poll(async () => {
-    const response = await request.get("/api/v1/equipment/categories/rf_equipment/effective-template");
-    const body = await response.json();
-    return body.effective_template.fields.some(
-      (field: { field: { field_code: string } }) => field.field.field_code === "e2e_criticality"
-    );
-  }).toBeTruthy();
 
-  await page.getByRole("button", { name: "Equipment Repository" }).click();
+  await page.getByRole("button", { name: "Previsualisation" }).click();
+  await expect(page.getByText("Previsualisation du formulaire")).toBeVisible();
+  await expect(page.getByText(fieldLabel)).toBeVisible();
+  await expect(page.getByText("template_checksum")).toHaveCount(0);
+  await expect(page.getByText(generatedFieldCode)).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Catalogue equipements" }).click();
   await page.getByRole("button", { name: /Nouveau modele/ }).click();
   const wizard = page.locator(".creationPanel");
   await expect(wizard.getByText("Nouveau modele equipement")).toBeVisible();
-  await wizard.getByRole("button", { name: /Équipements radiofréquences/ }).click();
-  await wizard.getByRole("combobox").first().selectOption("rf_cable");
-  await expect(wizard.getByLabel(/Fabricant/)).toBeVisible();
-  await wizard.getByLabel("ID modele optionnel").fill("E2E-RF-CABLE-TEMPLATE");
+  await expect(wizard.getByRole("button", { name: /radiofr/i })).toHaveCount(0);
+  await wizard.getByLabel(/radiofr/i).check();
+  await wizard.getByRole("button", { name: "Continuer" }).click();
+  await wizard.locator(`[data-category-id="${generatedCategoryId}"]`).click();
+  await wizard.getByRole("button", { name: "Continuer" }).click();
   await wizard.getByLabel(/Fabricant/).fill("E2E Demo");
-  await wizard.getByLabel(/Modèle/).fill("RF Cable Template");
-  await wizard.getByLabel(/Variante/).fill("1m N-N");
-  await wizard.getByLabel(/Connecteur A/).fill("N");
-  await wizard.getByLabel(/Connecteur B/).fill("N");
-  await wizard.getByLabel(/Criticité E2E/).selectOption("moyenne");
-
+  await wizard.getByLabel(/Mod.le/).fill("LNA UX");
+  await wizard.getByLabel(/Variante/).fill("40 dB");
+  await wizard.getByLabel(fieldLabel).selectOption("Normale");
+  await wizard.getByRole("button", { name: "Continuer" }).click();
+  await wizard.getByLabel("ID modele optionnel").fill(modelId);
   const createResponse = page.waitForResponse((response) =>
     response.url().endsWith("/api/v1/equipment-models/from-category-template") &&
     response.request().method() === "POST"
@@ -69,38 +99,48 @@ test("equipment repository UX creates a model from category template without dem
   await wizard.getByRole("button", { name: /Creer brouillon/ }).click();
   expect((await createResponse).ok()).toBeTruthy();
 
-  await expect(page.getByText("Equipment Model Definition")).toBeVisible();
-  await page.getByRole("button", { name: "Summary" }).click();
-  await expect(page.locator("dd").filter({ hasText: "Équipements radiofréquences > Câbles RF" }).first()).toBeVisible();
-  await expect(page.getByText("rf_network_element")).toHaveCount(0);
+  await expect(page.getByText("Fiche modele equipement")).toBeVisible();
+  await page.getByRole("button", { name: "Synthese" }).click();
+  await expect(page.locator("dd").filter({ hasText: nestedLabel }).first()).toBeVisible();
+  await expect(page.getByText(generatedCategoryId)).toHaveCount(0);
+  await expect(page.getByText(generatedFieldCode)).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Category & Template" }).click();
-  await expect(page.getByText("Template checksum")).toBeVisible();
-  await page.getByRole("button", { name: "Ports & Connections" }).click();
-  await expect(page.locator('input[value="rf_a"]')).toBeVisible();
-  await expect(page.locator('input[value="rf_b"]')).toBeVisible();
+  await page.getByRole("button", { name: "Categorie et formulaire" }).click();
+  await expect(page.getByText("Formulaire utilise")).toBeVisible();
+  await expect(page.getByText("Template checksum")).toHaveCount(0);
 
-  await page.getByRole("button", { name: /Valider/ }).click();
-  await expect(page.getByText("Definition valide")).toBeVisible();
-
-  const submitResponse = page.waitForResponse((response) =>
-    response.url().includes("/transitions/submit-for-review") &&
-    response.request().method() === "POST"
-  );
-  await page.getByRole("button", { name: /Soumettre/ }).click();
-  expect((await submitResponse).ok()).toBeTruthy();
-
-  const approveResponse = page.waitForResponse((response) =>
-    response.url().includes("/transitions/approve") && response.request().method() === "POST"
-  );
-  await page.getByRole("button", { name: /Approuver/ }).click();
-  expect((await approveResponse).ok()).toBeTruthy();
-
-  const model = await request.get("/api/v1/equipment-models/E2E-RF-CABLE-TEMPLATE");
+  const model = await request.get(`/api/v1/equipment-models/${modelId}`);
   expect(model.ok()).toBeTruthy();
   const body = await model.json();
   expect(body.equipment_model.identity.root_category_id).toBe("rf_equipment");
+  expect(body.equipment_model.identity.category_code).toBe(generatedCategoryId);
   expect(body.equipment_model.identity.is_demo).toBe(false);
-  expect(body.equipment_model.current_approved_revision.definition.template_snapshot.category_id).toBe("rf_cable");
-  expect(body.equipment_model.current_approved_revision.definition.custom_field_values.e2e_criticality).toBe("moyenne");
+  expect(body.equipment_model.latest_revision.definition.template_snapshot.category_id).toBe(generatedCategoryId);
+  expect(body.equipment_model.latest_revision.definition.custom_field_values[generatedFieldCode]).toBe("Normale");
+
+  const subtree = await request.get(`/api/v1/equipment-models?category_code=rf_amplifier&demo_mode=hide`);
+  expect(subtree.ok()).toBeTruthy();
+  expect(await subtree.text()).toContain(modelId);
+});
+
+test("new equipment model wizard uses category choices instead of primary action buttons", async ({ page }) => {
+  await page.goto("/lab/");
+  await page.getByRole("button", { name: "Equipements" }).click();
+  await page.getByRole("button", { name: /Nouveau modele/ }).click();
+  const wizard = page.locator(".creationPanel");
+
+  await expect(wizard.locator(".choiceList")).toBeVisible();
+  await expect(wizard.locator('input[type="radio"][name="equipment-root-category"]')).toHaveCount(7);
+  await expect(wizard.getByRole("button", { name: /Sources d'energie/ })).toHaveCount(0);
+  await expect(wizard.getByRole("button", { name: /radiofr/i })).toHaveCount(0);
+
+  await wizard.getByLabel(/radiofr/i).check();
+  await wizard.getByRole("button", { name: "Continuer" }).click();
+  await expect(wizard.locator(".categoryTree")).toBeVisible();
+  const rfRow = wizard.locator('[data-category-id="rf_equipment"]');
+  await expect(rfRow).toBeVisible();
+  await rfRow.locator(".treeDisclosure").click();
+  await expect(wizard.locator('[data-category-id="rf_cable"]')).toHaveCount(0);
+  await rfRow.locator(".treeDisclosure").click();
+  await expect(wizard.locator('[data-category-id="rf_cable"]')).toBeVisible();
 });

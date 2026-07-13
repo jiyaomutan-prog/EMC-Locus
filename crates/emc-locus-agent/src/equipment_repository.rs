@@ -1246,7 +1246,23 @@ pub(crate) fn list_equipment_model_identities(
                 ON s.equipment_model_id = i.equipment_model_id
              WHERE (?1 IS NULL OR i.manufacturer = ?1)
                AND (?2 IS NULL OR i.equipment_class = ?2)
-               AND (?3 IS NULL OR i.category_code = ?3)
+               AND (
+                    ?3 IS NULL
+                    OR i.category_code = ?3
+                    OR i.category_code IN (
+                        WITH RECURSIVE category_descendants(category_id) AS (
+                            SELECT category_id
+                            FROM equipment_categories
+                            WHERE category_id = ?3
+                            UNION ALL
+                            SELECT child.category_id
+                            FROM equipment_categories child
+                            JOIN category_descendants parent
+                              ON child.parent_category_id = parent.category_id
+                        )
+                        SELECT category_id FROM category_descendants
+                    )
+               )
                AND (?4 IS NULL OR s.root_category_id = ?4)
                AND (?5 IS NULL OR s.is_demo = ?5)
                AND (?6 IS NULL OR s.functional_role = ?6)

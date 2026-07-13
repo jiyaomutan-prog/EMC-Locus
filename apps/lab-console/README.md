@@ -1,12 +1,13 @@
 # EMC Locus LAB CONSOLE
 
 LAB CONSOLE is the browser application for laboratory management workflows. In
-0.13.1 it provides Template Studio v1 plus the Equipment workspace with
-Repository Administration, category trees, a field dictionary, entry-template
-preview, a category-driven model creation wizard, revisioned equipment models,
-driver profiles, communication-provider status, and measurement-engineering
-editors for sensors, scaling profiles, engineering curves, DAQ channel
-profiles, and acquisition channel recipes.
+0.13.2 it provides Template Studio v1 plus the Equipment workspace with
+grouped navigation, Catalogue equipements, Administration du referentiel,
+expandable category trees, category-centered form administration, form preview,
+a category-driven model creation wizard, revisioned equipment models, driver
+profiles, communication-provider status, and measurement-engineering editors
+for capteurs/transducteurs, profils de scaling, courbes d'ingenierie, voies
+DAQ, and acquisition recipes.
 
 ## Runtime
 
@@ -53,6 +54,37 @@ evidence unless the workflow and lockfile policy are deliberately migrated.
 Vite proxies `/api` to `http://127.0.0.1:8765` during development. Production
 does not use a Node server.
 
+## Scope In 0.13.2
+
+Functional:
+
+- grouped Equipment navigation for Referentiel, Ingenierie de mesure, Pilotage,
+  and A venir;
+- category tree rows with indentation, expand/collapse, folder icons,
+  selection state, hover state, keyboard selection, and contextual `...`
+  actions;
+- Repository Administration centered on the selected category with
+  Informations, Sous-categories, Formulaire, Previsualisation, and Diagnostic
+  avance tabs;
+- label-first category and field creation with generated internal codes hidden
+  in advanced options;
+- choice field list editor for visible option editing without comma-separated
+  text as the primary UI;
+- explicit wizard steps for Categorie, Sous-categorie, Identification, and
+  Verification;
+- catalog filtering by arbitrary-depth category subtrees.
+
+Normal user mode hides internal category IDs, field codes, checksums, revision
+IDs, schema versions, and raw JSON. Diagnostic avancé remains available for
+method engineers and developers when technical evidence is needed.
+
+Still not implemented:
+
+- physical serial-numbered asset fleet;
+- station connection mapping;
+- graphical measurement-chain builder;
+- real acquisition, FFT, reporting, authentication/RBAC, and central sync.
+
 ## Scope In 0.13.1
 
 Functional:
@@ -76,17 +108,17 @@ Still not implemented:
 
 Functional:
 
-- Sensors & Transducers studio with structured physical input, electrical
+- Capteurs / transducteurs studio with structured physical input, electrical
   output, excitation, scaling references, correction references, revision
   history, audit, and advanced JSON sections;
-- Scaling Profiles studio with linear, two-point, polynomial, lookup-table,
+- Profils de scaling studio with linear, two-point, polynomial, lookup-table,
   piecewise, and expression definitions, including lookup CSV paste/export;
-- Engineering Curves studio with curve type, axes, table editor, CSV
+- Courbes d'ingenierie studio with curve type, axes, table editor, CSV
   paste/import/export, simple 1D SVG plot, validation, and deterministic
   evaluation through the agent;
-- DAQ Channels studio with channel kind, signal domain, input modes, ranges,
+- Voies DAQ studio with channel kind, signal domain, input modes, ranges,
   sampling, coupling, triggering, synchronization, and excitation fields;
-- Acquisition Recipes studio with a readable DAQ -> sensor electrical signal
+- Recettes d'acquisition studio with a readable DAQ -> sensor electrical signal
   -> scaling -> correction -> engineering output chain summary;
 - public-API demo seed support through `-SeedMeasurementDemo`.
 
