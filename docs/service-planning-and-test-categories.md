@@ -60,7 +60,9 @@ insert.
 Repository inserts also reject overlapping active planning blocks when the new
 row would reserve the same operator or the same location. Adjacent blocks are
 allowed, and a completed or cancelled block no longer reserves that operator or
-location for conflict checks.
+location for conflict checks. The overlap check compares persisted block
+windows after trimming surrounding whitespace, so constraint-bypassed imports
+reserve resources the same way they appear through normalized list reads.
 Repository list reads also reject imported planning rows whose item codes
 normalize to the same value, so operator views do not expose ambiguous planning
 identifiers that later status updates would refuse.

@@ -446,6 +446,9 @@ Deliverables:
 - service-schedule inserts now reject overlapping active planning blocks for
   the same operator or the same location, while adjacent blocks and reuse after
   completion or cancellation remain allowed.
+- service-schedule inserts now compare overlap windows against normalized
+  persisted timestamps, so whitespace-padded imported rows still reserve their
+  operator and location consistently with list-read normalization.
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

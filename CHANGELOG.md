@@ -13,6 +13,9 @@ change should remain traceable through Git history, session logs, and this file.
 - Rejected overlapping active service-schedule planning blocks for the same
   operator or the same location, while still allowing adjacent blocks and reuse
   after a block is completed or cancelled.
+- Rejected overlaps against imported service-schedule rows whose planned
+  start/end timestamps contain surrounding whitespace, keeping conflict checks
+  aligned with normalized list reads.
 - Limited the Qt service-schedule status form to status targets that are valid
   for the currently available non-terminal planning blocks, so planned blocks no
   longer present direct `in_progress` or `completed` jumps that the repository

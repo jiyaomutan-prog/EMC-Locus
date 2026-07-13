@@ -1430,8 +1430,8 @@ class ProjectRepository(SQLiteDomainRepository):
               AND TRIM(status) NOT IN ('completed', 'cancelled')
               AND typeof(planned_start_at) = 'text'
               AND typeof(planned_end_at) = 'text'
-              AND planned_start_at < ?
-              AND planned_end_at > ?
+              AND TRIM(planned_start_at) < ?
+              AND TRIM(planned_end_at) > ?
               AND (
                   TRIM(assigned_operator) = ?
                   OR TRIM(location) = ?

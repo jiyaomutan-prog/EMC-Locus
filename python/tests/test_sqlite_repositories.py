@@ -1572,6 +1572,54 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             )
             self.assertEqual(len(schedule), 1)
 
+    def test_repository_rejects_overlapping_service_schedule_with_padded_imported_window(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-OVERLAP-PADDED-WINDOW",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            self._insert_corrupted_service_schedule_item(
+                projects,
+                item_code="PLAN-REPO-OVERLAP-PADDED-WINDOW-1",
+                project_code="CEM-REPO-OVERLAP-PADDED-WINDOW",
+                status="planned",
+                planned_start_at=" 2026-07-01T09:00 ",
+                planned_end_at=" 2026-07-01T12:00 ",
+                assigned_operator=" operator.one ",
+                location=" Lab A ",
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "operator already has an overlapping item",
+            ):
+                projects.add_service_schedule_item(
+                    item_code="PLAN-REPO-OVERLAP-PADDED-WINDOW-2",
+                    project_code="CEM-REPO-OVERLAP-PADDED-WINDOW",
+                    title="Second operator slot",
+                    planned_start_at="2026-07-01T11:00",
+                    planned_end_at="2026-07-01T13:00",
+                    assigned_operator="operator.one",
+                    location="Lab B",
+                    equipment_under_test="EUT rail",
+                )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-OVERLAP-PADDED-WINDOW",
+            )
+            self.assertEqual(len(schedule), 1)
+            self.assertEqual(schedule[0]["planned_start_at"], "2026-07-01T09:00")
+            self.assertEqual(schedule[0]["planned_end_at"], "2026-07-01T12:00")
+
     def test_repository_allows_adjacent_or_closed_service_schedule_blocks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
