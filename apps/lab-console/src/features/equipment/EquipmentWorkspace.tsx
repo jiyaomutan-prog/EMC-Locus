@@ -4,13 +4,16 @@ import {
   Copy,
   Cpu,
   GitBranch,
+  ListTree,
+  Plus,
   Play,
   RefreshCw,
   Save,
   Send,
+  Settings,
   ShieldCheck
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ApiError, equipmentApi, type OperationContext } from "../../api";
 import type {
   CommunicationProviderStatus,
@@ -21,7 +24,10 @@ import type {
   DriverScriptStep,
   DriverSimulationResult,
   EquipmentAuditEvent,
-  EquipmentClassificationPreset,
+  EquipmentCategory,
+  EquipmentEffectiveTemplate,
+  EquipmentFieldDataType,
+  EquipmentFieldDefinition,
   EquipmentClass,
   EquipmentRegistries,
   EquipmentModelAggregate,
@@ -35,6 +41,7 @@ import type {
 import { MeasurementEngineeringPanel } from "./MeasurementEngineeringPanel";
 
 type EquipmentSpace =
+  | "admin"
   | "catalog"
   | "drivers"
   | "sensors"
@@ -48,15 +55,16 @@ type EquipmentSpace =
   | "readiness";
 
 type ModelSection =
-  | "general"
-  | "classification"
-  | "specifications"
-  | "ports"
-  | "interfaces"
-  | "capabilities"
-  | "revisions"
-  | "audit"
-  | "json";
+  | "summary"
+  | "identification"
+  | "category_template"
+  | "characteristics"
+  | "ports_connections"
+  | "measurement_corrections"
+  | "control_drivers"
+  | "documents"
+  | "revisions_audit"
+  | "advanced_diagnostics";
 
 type DriverSection =
   | "general"
@@ -68,7 +76,8 @@ type DriverSection =
   | "json";
 
 const equipmentSpaces: Array<[EquipmentSpace, string]> = [
-  ["catalog", "Model Catalog"],
+  ["admin", "Repository Administration"],
+  ["catalog", "Equipment Repository"],
   ["drivers", "Drivers and Actions"],
   ["sensors", "Sensors & Transducers"],
   ["scaling", "Scaling Profiles"],
@@ -82,15 +91,16 @@ const equipmentSpaces: Array<[EquipmentSpace, string]> = [
 ];
 
 const modelSections: Array<[ModelSection, string]> = [
-  ["general", "General"],
-  ["classification", "Classification"],
-  ["specifications", "Specifications"],
-  ["ports", "Port Topology"],
-  ["interfaces", "Communication"],
-  ["capabilities", "Capabilities"],
-  ["revisions", "Revisions"],
-  ["audit", "Audit"],
-  ["json", "Advanced JSON"]
+  ["summary", "Summary"],
+  ["identification", "Identification"],
+  ["category_template", "Category & Template"],
+  ["characteristics", "Characteristics"],
+  ["ports_connections", "Ports & Connections"],
+  ["measurement_corrections", "Measurement / Corrections"],
+  ["control_drivers", "Control / Drivers"],
+  ["documents", "Documents"],
+  ["revisions_audit", "Revisions & Audit"],
+  ["advanced_diagnostics", "Advanced / Diagnostics"]
 ];
 
 const driverSections: Array<[DriverSection, string]> = [
@@ -144,8 +154,13 @@ export function EquipmentWorkspace() {
   const [drivers, setDrivers] = useState<DriverProfileAggregate[]>([]);
   const [providers, setProviders] = useState<CommunicationProviderStatus[]>([]);
   const [registries, setRegistries] = useState<EquipmentRegistries | null>(null);
-  const [presets, setPresets] = useState<EquipmentClassificationPreset[]>([]);
+  const [categories, setCategories] = useState<EquipmentCategory[]>([]);
+  const [categoryTree, setCategoryTree] = useState<EquipmentCategory[]>([]);
+  const [fieldDefinitions, setFieldDefinitions] = useState<EquipmentFieldDefinition[]>([]);
   const [query, setQuery] = useState("");
+  const [rootFilter, setRootFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [demoMode, setDemoMode] = useState<"hide" | "show" | "only">("hide");
   const [classFilter, setClassFilter] = useState("all");
   const [roleFilter, setRoleFilter] = useState("all");
   const [domainFilter, setDomainFilter] = useState("all");
@@ -155,18 +170,11 @@ export function EquipmentWorkspace() {
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [operationError, setOperationError] = useState<string | null>(null);
   const [creationOpen, setCreationOpen] = useState(false);
-  const [creationMode, setCreationMode] = useState<"blank" | "preset" | "clone">("preset");
-  const [creationPresetId, setCreationPresetId] = useState("");
-  const [creationManufacturer, setCreationManufacturer] = useState("Demo Instruments");
-  const [creationModelName, setCreationModelName] = useState("");
-  const [creationVariant, setCreationVariant] = useState("");
-  const [creationModelId, setCreationModelId] = useState("");
-
   const [selectedModel, setSelectedModel] = useState<EquipmentModelAggregate | null>(null);
   const [selectedModelRevision, setSelectedModelRevision] = useState<EquipmentModelRevision | null>(null);
   const [modelDefinition, setModelDefinition] = useState<EquipmentModelDefinition | null>(null);
   const [modelChecksum, setModelChecksum] = useState("");
-  const [modelSection, setModelSection] = useState<ModelSection>("general");
+  const [modelSection, setModelSection] = useState<ModelSection>("summary");
   const [modelValidation, setModelValidation] = useState<EquipmentValidationResult | null>(null);
   const [modelRevisions, setModelRevisions] = useState<EquipmentModelRevision[]>([]);
   const [modelAudit, setModelAudit] = useState<EquipmentAuditEvent[]>([]);
@@ -187,10 +195,13 @@ export function EquipmentWorkspace() {
     setLoadState("loading");
     setOperationError(null);
     try {
-      const [modelList, driverList, providerList] = await Promise.all([
+      const [modelList, driverList, providerList, categoryList, treeList, fieldsList] = await Promise.all([
         equipmentApi.listModels({
           q: query.trim(),
           manufacturer: manufacturerFilter.trim(),
+          root_category_id: rootFilter,
+          category_code: categoryFilter,
+          demo_mode: demoMode,
           equipment_class: classFilter,
           functional_role: roleFilter,
           signal_domain: domainFilter,
@@ -198,40 +209,40 @@ export function EquipmentWorkspace() {
           status: statusFilter
         }),
         equipmentApi.listDrivers(),
-        equipmentApi.providers()
+        equipmentApi.providers(),
+        equipmentApi.listCategories(true),
+        equipmentApi.categoryTree(true),
+        equipmentApi.listFieldDefinitions("equipment_model", true)
       ]);
-      const [registryList, presetList] = await Promise.all([
-        equipmentApi.registries(),
-        equipmentApi.listClassificationPresets()
-      ]);
+      const registryList = await equipmentApi.registries();
       setModels(modelList.equipment_models);
       setDrivers(driverList.driver_profiles);
       setProviders(providerList.providers);
+      setCategories(categoryList.categories);
+      setCategoryTree(treeList.categories);
+      setFieldDefinitions(fieldsList.field_definitions);
       setRegistries(registryList);
-      setPresets(presetList.presets);
       setLoadState("ready");
     } catch (error) {
       setLoadState("error");
       setOperationError(errorMessage(error));
     }
-  }, [query, manufacturerFilter, classFilter, roleFilter, domainFilter, tagFilter, statusFilter]);
+  }, [
+    query,
+    manufacturerFilter,
+    rootFilter,
+    categoryFilter,
+    demoMode,
+    classFilter,
+    roleFilter,
+    domainFilter,
+    tagFilter,
+    statusFilter
+  ]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  useEffect(() => {
-    if (!creationPresetId && presets.length > 0) {
-      setCreationPresetId(presets[0].preset_id);
-    }
-  }, [creationPresetId, presets]);
-
-  const presetCategories = useMemo(
-    () => Array.from(new Set(presets.map((preset) => preset.category_label))).sort(),
-    [presets]
-  );
-  const selectedPreset =
-    presets.find((preset) => preset.preset_id === creationPresetId) ?? presets[0] ?? null;
 
   const approvedModels = models.filter((model) => model.current_approved_revision);
   const modelReadOnly = selectedModelRevision?.status !== "draft";
@@ -257,7 +268,7 @@ export function EquipmentWorkspace() {
       setModelRevisions(revisions.revisions);
       setModelAudit(audit.audit_events);
       setModelValidation(null);
-      setModelSection("general");
+      setModelSection("summary");
       setSpace("catalog");
     } catch (error) {
       setOperationError(errorMessage(error));
@@ -291,41 +302,16 @@ export function EquipmentWorkspace() {
     }
   }
 
-  async function createModel() {
-    const id = creationModelId.trim() || generatedModelId(creationManufacturer, creationModelName);
-    const modelName = creationModelName.trim() || id;
+  async function createModelFromTemplate(
+    categoryId: string,
+    fieldValues: Record<string, unknown>,
+    equipmentModelId?: string
+  ) {
     await runOperation(async () => {
-      const definition = {
-        ...defaultEquipmentModelDefinition(id),
-        manufacturer: creationManufacturer.trim() || "Demo Instruments",
-        model_name: modelName,
-        variant: optionalString(creationVariant)
-      };
-      const result = await equipmentApi.createModel({
-        equipment_model_id: id,
-        definition,
-        ...context
-      });
-      setCreationOpen(false);
-      await refresh();
-      await openModel(result.aggregate, result.revision);
-    });
-  }
-
-  async function createModelFromPreset() {
-    if (!selectedPreset) {
-      setOperationError("Aucun preset de classification disponible.");
-      return;
-    }
-    const id = creationModelId.trim() || generatedModelId(creationManufacturer, creationModelName || selectedPreset.example_label);
-    const modelName = creationModelName.trim() || selectedPreset.example_label;
-    await runOperation(async () => {
-      const result = await equipmentApi.createModelFromPreset({
-        preset_id: selectedPreset.preset_id,
-        equipment_model_id: id,
-        manufacturer: creationManufacturer.trim() || "Demo Instruments",
-        model_name: modelName,
-        variant: optionalString(creationVariant),
+      const result = await equipmentApi.createModelFromCategoryTemplate({
+        category_id: categoryId,
+        equipment_model_id: optionalString(equipmentModelId ?? ""),
+        field_values: fieldValues,
         ...context
       });
       setCreationOpen(false);
@@ -336,31 +322,19 @@ export function EquipmentWorkspace() {
 
   async function cloneSelectedModel() {
     if (!selectedModel) return;
-    const id = creationModelId.trim() || `${selectedModel.identity.equipment_model_id}-COPY-${Date.now().toString(36).toUpperCase()}`;
+    const id = `${selectedModel.identity.equipment_model_id}-COPY-${Date.now().toString(36).toUpperCase()}`;
     await runOperation(async () => {
       const result = await equipmentApi.cloneModel(selectedModel.identity.equipment_model_id, {
         new_equipment_model_id: id,
-        manufacturer: optionalString(creationManufacturer) ?? selectedModel.identity.manufacturer,
-        model_name: creationModelName.trim() || `${selectedModel.identity.model_name} copy`,
-        variant: optionalString(creationVariant),
+        manufacturer: selectedModel.identity.manufacturer,
+        model_name: `${selectedModel.identity.model_name} copy`,
+        variant: selectedModel.identity.variant ?? undefined,
         ...context
       });
       setCreationOpen(false);
       await refresh();
       await openModel(result.aggregate, result.revision);
     });
-  }
-
-  async function createFromCurrentMode() {
-    if (creationMode === "blank") {
-      await createModel();
-      return;
-    }
-    if (creationMode === "clone") {
-      await cloneSelectedModel();
-      return;
-    }
-    await createModelFromPreset();
   }
 
   async function validateModel() {
@@ -591,43 +565,63 @@ export function EquipmentWorkspace() {
           onChange={(event) => setManufacturerFilter(event.target.value)}
           placeholder="Fabricant"
         />
-        <select
-          aria-label="Filtre classe equipement"
-          value={classFilter}
-          onChange={(event) => setClassFilter(event.target.value)}
-        >
-          <option value="all">Toutes classes</option>
-          {equipmentClasses.map((item) => (
-            <option value={item} key={item}>
-              {item}
-            </option>
+        <select aria-label="Filtre categorie racine" value={rootFilter} onChange={(event) => setRootFilter(event.target.value)}>
+          <option value="all">Toutes categories</option>
+          {categoryTree.map((category) => (
+            <option key={category.category_id} value={category.category_id}>{category.label}</option>
           ))}
         </select>
-        <select aria-label="Filtre role physique" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
-          <option value="all">Tous roles</option>
-          {(registries?.functional_roles ?? functionalRoles.map((code) => ({ code, label: code }))).map((item) => (
-            <option value={item.code} key={item.code}>{item.label}</option>
+        <select aria-label="Filtre sous categorie" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+          <option value="all">Toutes sous-categories</option>
+          {categories.filter((category) => category.parent_category_id).map((category) => (
+            <option key={category.category_id} value={category.category_id}>{categoryPathLabel(categories, category.category_id)}</option>
           ))}
         </select>
-        <select aria-label="Filtre domaine signal" value={domainFilter} onChange={(event) => setDomainFilter(event.target.value)}>
-          <option value="all">Tous domaines</option>
-          {(registries?.signal_domains ?? []).map((item) => (
-            <option value={item.code} key={item.code}>{item.label}</option>
-          ))}
-        </select>
-        <select aria-label="Filtre technologie" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
-          <option value="all">Toutes technologies</option>
-          {(registries?.technology_tags ?? []).map((item) => (
-            <option value={item.code} key={item.code}>{item.label}</option>
-          ))}
+        <select aria-label="Filtre donnees demo" value={demoMode} onChange={(event) => setDemoMode(event.target.value as typeof demoMode)}>
+          <option value="hide">Masquer demo</option>
+          <option value="show">Afficher demo</option>
+          <option value="only">Demo uniquement</option>
         </select>
         <select aria-label="Filtre statut" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
           <option value="all">Tous statuts</option>
-          <option value="draft">Draft</option>
-          <option value="under_review">Under review</option>
-          <option value="approved">Approved</option>
-          <option value="superseded">Superseded</option>
+          <option value="draft">{humanStatus("draft")}</option>
+          <option value="under_review">{humanStatus("under_review")}</option>
+          <option value="approved">{humanStatus("approved")}</option>
+          <option value="superseded">{humanStatus("superseded")}</option>
         </select>
+        <details className="advancedFilters">
+          <summary>Filtres techniques</summary>
+          <select
+            aria-label="Filtre classe equipement"
+            value={classFilter}
+            onChange={(event) => setClassFilter(event.target.value)}
+          >
+            <option value="all">Toutes classes</option>
+            {equipmentClasses.map((item) => (
+              <option value={item} key={item}>
+                {humanLabel(item)}
+              </option>
+            ))}
+          </select>
+          <select aria-label="Filtre role physique" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
+            <option value="all">Tous roles</option>
+            {(registries?.functional_roles ?? functionalRoles.map((code) => ({ code, label: humanLabel(code) }))).map((item) => (
+              <option value={item.code} key={item.code}>{item.label || humanLabel(item.code)}</option>
+            ))}
+          </select>
+          <select aria-label="Filtre domaine signal" value={domainFilter} onChange={(event) => setDomainFilter(event.target.value)}>
+            <option value="all">Tous domaines</option>
+            {(registries?.signal_domains ?? []).map((item) => (
+              <option value={item.code} key={item.code}>{item.label || humanLabel(item.code)}</option>
+            ))}
+          </select>
+          <select aria-label="Filtre technologie" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
+            <option value="all">Toutes technologies</option>
+            {(registries?.technology_tags ?? []).map((item) => (
+              <option value={item.code} key={item.code}>{item.label || humanLabel(item.code)}</option>
+            ))}
+          </select>
+        </details>
         <button onClick={() => void refresh()}>
           <RefreshCw size={16} /> Rafraichir
         </button>
@@ -650,25 +644,11 @@ export function EquipmentWorkspace() {
       )}
 
       {creationOpen && (
-        <CreationPanel
-          mode={creationMode}
-          presets={presets}
-          categories={presetCategories}
-          selectedPreset={selectedPreset}
-          selectedPresetId={creationPresetId}
-          selectedModel={selectedModel}
-          manufacturer={creationManufacturer}
-          modelName={creationModelName}
-          variant={creationVariant}
-          modelId={creationModelId}
-          onMode={setCreationMode}
-          onPreset={setCreationPresetId}
-          onManufacturer={setCreationManufacturer}
-          onModelName={setCreationModelName}
-          onVariant={setCreationVariant}
-          onModelId={setCreationModelId}
+        <EquipmentModelWizard
+          roots={categoryTree}
+          categories={categories}
           onCancel={() => setCreationOpen(false)}
-          onCreate={() => void createFromCurrentMode()}
+          onCreate={(categoryId, values, modelId) => void createModelFromTemplate(categoryId, values, modelId)}
         />
       )}
 
@@ -687,11 +667,34 @@ export function EquipmentWorkspace() {
       {loadState === "loading" && <StateBlock title="Chargement" detail="Lecture du catalogue equipement." />}
       {loadState === "error" && <StateBlock title="Erreur" detail={operationError ?? "Catalogue indisponible."} />}
 
+      {space === "admin" && loadState === "ready" && (
+        <EquipmentRepositoryAdmin
+          categories={categories}
+          categoryTree={categoryTree}
+          fieldDefinitions={fieldDefinitions}
+          onRefresh={() => void refresh()}
+          onError={setOperationError}
+        />
+      )}
+
       {space === "catalog" && loadState === "ready" && (
         <div className="equipmentLayout">
           <ModelCatalog
             models={models}
             selected={selectedModel}
+            categories={categories}
+            categoryTree={categoryTree}
+            demoMode={demoMode}
+            onCategory={(categoryId) => {
+              const category = categories.find((item) => item.category_id === categoryId);
+              if (category?.parent_category_id) {
+                setCategoryFilter(categoryId);
+                setRootFilter("all");
+              } else {
+                setRootFilter(categoryId);
+                setCategoryFilter("all");
+              }
+            }}
             onOpen={(model) => void openModel(model)}
           />
           <ModelStudio
@@ -773,7 +776,7 @@ export function EquipmentWorkspace() {
 
       {["metrology", "fleet", "connections", "readiness"].includes(space) && (
         <StateBlock
-          title="Non disponible en 0.13.0"
+          title="Non disponible en 0.13.1"
           detail="Cette sous-section restera liee a la flotte physique, aux connexions station et a la readiness dans une verticale ulterieure."
         />
       )}
@@ -781,114 +784,342 @@ export function EquipmentWorkspace() {
   );
 }
 
-function CreationPanel(props: {
-  mode: "blank" | "preset" | "clone";
-  presets: EquipmentClassificationPreset[];
-  categories: string[];
-  selectedPreset: EquipmentClassificationPreset | null;
-  selectedPresetId: string;
-  selectedModel: EquipmentModelAggregate | null;
-  manufacturer: string;
-  modelName: string;
-  variant: string;
-  modelId: string;
-  onMode: (mode: "blank" | "preset" | "clone") => void;
-  onPreset: (presetId: string) => void;
-  onManufacturer: (value: string) => void;
-  onModelName: (value: string) => void;
-  onVariant: (value: string) => void;
-  onModelId: (value: string) => void;
-  onCancel: () => void;
-  onCreate: () => void;
+function EquipmentRepositoryAdmin(props: {
+  categories: EquipmentCategory[];
+  categoryTree: EquipmentCategory[];
+  fieldDefinitions: EquipmentFieldDefinition[];
+  onRefresh: () => void;
+  onError: (message: string | null) => void;
 }) {
-  const presetsByCategory = props.categories.map((category) => ({
-    category,
-    presets: props.presets.filter((preset) => preset.category_label === category)
-  }));
+  const [selectedCategoryId, setSelectedCategoryId] = useState("rf_equipment");
+  const [newCategoryId, setNewCategoryId] = useState("");
+  const [newCategoryLabel, setNewCategoryLabel] = useState("");
+  const [newFieldCode, setNewFieldCode] = useState("custom_criticality");
+  const [newFieldLabel, setNewFieldLabel] = useState("Criticité personnalisée");
+  const [newFieldType, setNewFieldType] = useState<EquipmentFieldDataType>("choice");
+  const [newFieldChoices, setNewFieldChoices] = useState("faible, normale, haute, critique");
+  const [selectedFieldId, setSelectedFieldId] = useState("");
+  const [template, setTemplate] = useState<EquipmentEffectiveTemplate | null>(null);
+  const selectedCategory = props.categories.find((category) => category.category_id === selectedCategoryId) ?? props.categories[0];
+  const onError = props.onError;
+
+  useEffect(() => {
+    if (!selectedCategoryId && props.categories.length > 0) {
+      setSelectedCategoryId(props.categories[0].category_id);
+    }
+  }, [selectedCategoryId, props.categories]);
+
+  useEffect(() => {
+    if (!selectedCategoryId) return;
+    let cancelled = false;
+    equipmentApi.effectiveTemplate(selectedCategoryId)
+      .then((result) => {
+        if (!cancelled) setTemplate(result.effective_template);
+      })
+      .catch((error) => onError(errorMessage(error)));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCategoryId, onError]);
+
+  async function createSubcategory() {
+    if (!selectedCategory || !newCategoryId.trim() || !newCategoryLabel.trim()) return;
+    try {
+      await equipmentApi.createCategory({
+        category_id: newCategoryId.trim(),
+        parent_category_id: selectedCategory.category_id,
+        label: newCategoryLabel.trim(),
+        sort_order: 100
+      });
+      setNewCategoryId("");
+      setNewCategoryLabel("");
+      props.onRefresh();
+    } catch (error) {
+      props.onError(errorMessage(error));
+    }
+  }
+
+  async function createField() {
+    try {
+      const result = await equipmentApi.createFieldDefinition({
+        field_code: newFieldCode.trim(),
+        label: newFieldLabel.trim(),
+        description: "",
+        data_type: newFieldType,
+        scope: "equipment_model",
+        required_by_default: false,
+        visible_by_default: false,
+        unique_value: false,
+        option_values: newFieldType === "choice" || newFieldType === "multi_choice" ? splitTokens(newFieldChoices) : [],
+        allowed_units: newFieldType === "number_with_unit" ? splitTokens(newFieldChoices) : [],
+        display_group: "Gestion",
+        display_order: 650,
+        active: true
+      });
+      setSelectedFieldId(result.field_definition.field_id);
+      props.onRefresh();
+    } catch (error) {
+      props.onError(errorMessage(error));
+    }
+  }
+
+  async function addFieldToTemplate() {
+    if (!selectedCategory || !selectedFieldId) return;
+    try {
+      const current = await equipmentApi.categoryFieldRules(selectedCategory.category_id);
+      const existing = current.rules.filter((rule) => rule.field_id !== selectedFieldId);
+      await equipmentApi.replaceCategoryFieldRules(selectedCategory.category_id, [
+        ...existing,
+        {
+          category_id: selectedCategory.category_id,
+          field_id: selectedFieldId,
+          required: false,
+          visible: true,
+          display_group: "Gestion",
+          display_order: 650
+        }
+      ]);
+      const preview = await equipmentApi.effectiveTemplate(selectedCategory.category_id);
+      setTemplate(preview.effective_template);
+      props.onRefresh();
+    } catch (error) {
+      props.onError(errorMessage(error));
+    }
+  }
+
   return (
-    <section className="creationPanel">
-      <div className="creationHeader">
-        <div>
-          <p className="eyebrow">Equipment model creation</p>
-          <h2>Nouveau modele catalogue</h2>
+    <div className="equipmentLayout">
+      <aside className="equipmentList">
+        <h2>Categories</h2>
+        <CategoryTree categories={props.categoryTree} selectedId={selectedCategoryId} onSelect={setSelectedCategoryId} />
+      </aside>
+      <section className="equipmentStudio">
+        <div className="studioHeader">
+          <div>
+            <p className="eyebrow">Administration equipement</p>
+            <h2>{selectedCategory ? categoryPathLabel(props.categories, selectedCategory.category_id) : "Categorie"}</h2>
+          </div>
         </div>
-        <div className="segmented">
-          <button className={props.mode === "blank" ? "active" : ""} onClick={() => props.onMode("blank")}>Blank</button>
-          <button className={props.mode === "preset" ? "active" : ""} onClick={() => props.onMode("preset")}>Preset</button>
-          <button className={props.mode === "clone" ? "active" : ""} onClick={() => props.onMode("clone")} disabled={!props.selectedModel}>Clone</button>
-        </div>
-      </div>
-      <div className="creationGrid">
-        <div className="creationFields">
-          {props.mode === "preset" && (
-            <label>
-              Classification preset
-              <select value={props.selectedPresetId} onChange={(event) => props.onPreset(event.target.value)}>
-                {presetsByCategory.map(({ category, presets }) => (
-                  <optgroup label={category} key={category}>
-                    {presets.map((preset) => (
-                      <option value={preset.preset_id} key={preset.preset_id}>{preset.example_label}</option>
-                    ))}
-                  </optgroup>
+        <div className="adminGrid">
+          <EditorCard title="Nouvelle sous-categorie">
+            <Field label="Identifiant stable" value={newCategoryId} onChange={setNewCategoryId} />
+            <Field label="Libelle" value={newCategoryLabel} onChange={setNewCategoryLabel} />
+            <button onClick={() => void createSubcategory()}><Plus size={16} /> Creer sous-categorie</button>
+          </EditorCard>
+          <EditorCard title="Field Dictionary">
+            <Field label="Code champ" value={newFieldCode} onChange={setNewFieldCode} />
+            <Field label="Libelle" value={newFieldLabel} onChange={setNewFieldLabel} />
+            <label>Type
+              <select value={newFieldType} onChange={(event) => setNewFieldType(event.target.value as EquipmentFieldDataType)}>
+                {fieldTypes.map((type) => <option key={type} value={type}>{fieldTypeLabel(type)}</option>)}
+              </select>
+            </label>
+            <Field label={newFieldType === "number_with_unit" ? "Unites autorisees" : "Choix autorises"} value={newFieldChoices} onChange={setNewFieldChoices} />
+            <button onClick={() => void createField()}><Plus size={16} /> Creer champ</button>
+          </EditorCard>
+          <EditorCard title="Entry Template">
+            <label>Champ a ajouter
+              <select value={selectedFieldId} onChange={(event) => setSelectedFieldId(event.target.value)}>
+                <option value="">Choisir un champ</option>
+                {props.fieldDefinitions.filter((field) => field.active).map((field) => (
+                  <option value={field.field_id} key={field.field_id}>{field.label}</option>
                 ))}
               </select>
             </label>
-          )}
-          {props.mode === "clone" && props.selectedModel && (
-            <div className="notice">
-              Source: {props.selectedModel.identity.manufacturer} {props.selectedModel.identity.model_name}
+            <button onClick={() => void addFieldToTemplate()}><Settings size={16} /> Ajouter au template</button>
+            <TemplatePreview template={template} />
+          </EditorCard>
+          <EditorCard title="Defaults">
+            <p>La base neuve charge les categories racines, les sous-categories structurelles et le dictionnaire minimal. Les donnees demo restent chargees uniquement via action explicite.</p>
+          </EditorCard>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function EquipmentModelWizard(props: {
+  roots: EquipmentCategory[];
+  categories: EquipmentCategory[];
+  onCancel: () => void;
+  onCreate: (categoryId: string, values: Record<string, unknown>, modelId?: string) => void;
+}) {
+  const [rootId, setRootId] = useState(props.roots[0]?.category_id ?? "");
+  const root = props.roots.find((item) => item.category_id === rootId) ?? props.roots[0];
+  const childCategories = props.categories.filter((category) => category.parent_category_id === root?.category_id);
+  const [categoryId, setCategoryId] = useState(childCategories[0]?.category_id ?? root?.category_id ?? "");
+  const [template, setTemplate] = useState<EquipmentEffectiveTemplate | null>(null);
+  const [values, setValues] = useState<Record<string, unknown>>({});
+  const [modelId, setModelId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextRoot = props.roots.find((item) => item.category_id === rootId) ?? props.roots[0];
+    const nextChild = props.categories.find((category) => category.parent_category_id === nextRoot?.category_id);
+    setCategoryId(nextChild?.category_id ?? nextRoot?.category_id ?? "");
+  }, [rootId, props.roots, props.categories]);
+
+  useEffect(() => {
+    if (!categoryId) return;
+    let cancelled = false;
+    equipmentApi.effectiveTemplate(categoryId)
+      .then((result) => {
+        if (cancelled) return;
+        setTemplate(result.effective_template);
+        const defaults: Record<string, unknown> = {};
+        result.effective_template.fields.forEach((field) => {
+          if (field.default_value !== undefined && field.default_value !== null) {
+            defaults[field.field.field_code] = field.default_value;
+          }
+        });
+        setValues((current) => ({ ...defaults, ...current }));
+      })
+      .catch((reason) => setError(errorMessage(reason)));
+    return () => {
+      cancelled = true;
+    };
+  }, [categoryId]);
+
+  function create() {
+    if (!template) return;
+    const missing = template.fields.find((field) => field.visible && field.required && isEmptyField(values[field.field.field_code]));
+    if (missing) {
+      setError(`Le champ "${missing.field.label}" est obligatoire pour cette categorie.`);
+      return;
+    }
+    props.onCreate(categoryId, values, optionalString(modelId));
+  }
+
+  return (
+    <div className="creationPanel">
+      <h2>Nouveau modele equipement</h2>
+      {error && <p className="errorText">{error}</p>}
+      <div className="wizardGrid">
+        <EditorCard title="1. Categorie racine">
+          {props.roots.map((category) => (
+            <button key={category.category_id} className={rootId === category.category_id ? "active" : ""} onClick={() => setRootId(category.category_id)}>
+              {category.label}
+            </button>
+          ))}
+        </EditorCard>
+        <EditorCard title="2. Sous-categorie">
+          <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+            {(childCategories.length > 0 ? childCategories : [root]).filter(Boolean).map((category) => (
+              <option value={category.category_id} key={category.category_id}>{category.label}</option>
+            ))}
+          </select>
+          <small>{categoryId ? categoryPathLabel(props.categories, categoryId) : ""}</small>
+        </EditorCard>
+        <EditorCard title="3. Identification">
+          {template?.fields.filter((field) => field.visible).map((field) => (
+            <TemplateFieldInput
+              key={field.field.field_id}
+              field={field}
+              value={values[field.field.field_code]}
+              onChange={(value) => setValues((current) => ({ ...current, [field.field.field_code]: value }))}
+            />
+          ))}
+        </EditorCard>
+        <EditorCard title="4. Revue">
+          <Field label="ID modele optionnel" value={modelId} onChange={setModelId} />
+          <TemplatePreview template={template} values={values} />
+          <div className="buttonRow">
+            <button onClick={props.onCancel}>Annuler</button>
+            <button onClick={create}><Cpu size={16} /> Creer brouillon</button>
+          </div>
+        </EditorCard>
+      </div>
+    </div>
+  );
+}
+
+function TemplateFieldInput(props: {
+  field: EquipmentEffectiveTemplate["fields"][number];
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  const field = props.field.field;
+  const required = props.field.required ? " *" : "";
+  if (field.data_type === "choice") {
+    return <label>{field.label}{required}<select value={String(props.value ?? "")} onChange={(event) => props.onChange(event.target.value)}><option value="">-</option>{field.option_values.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>;
+  }
+  if (field.data_type === "multi_choice") {
+    return <label>{field.label}{required}<input value={Array.isArray(props.value) ? props.value.join(", ") : ""} onChange={(event) => props.onChange(splitTokens(event.target.value))} /></label>;
+  }
+  if (field.data_type === "number") {
+    return <label>{field.label}{required}<input type="number" value={String(props.value ?? "")} onChange={(event) => props.onChange(optionalNumber(event.target.value) ?? 0)} /></label>;
+  }
+  if (field.data_type === "number_with_unit") {
+    const current = typeof props.value === "object" && props.value ? props.value as { value?: number; unit?: string } : {};
+    return <label>{field.label}{required}<span className="unitField"><input type="number" value={String(current.value ?? "")} onChange={(event) => props.onChange({ value: optionalNumber(event.target.value) ?? 0, unit: current.unit ?? field.allowed_units[0] ?? "" })} /><select value={current.unit ?? field.allowed_units[0] ?? ""} onChange={(event) => props.onChange({ value: current.value ?? 0, unit: event.target.value })}>{field.allowed_units.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></span></label>;
+  }
+  if (field.data_type === "boolean") {
+    return <label className="checkboxLine"><input type="checkbox" checked={Boolean(props.value)} onChange={(event) => props.onChange(event.target.checked)} />{field.label}{required}</label>;
+  }
+  return <Field label={`${field.label}${required}`} value={String(props.value ?? "")} onChange={props.onChange} />;
+}
+
+function TemplatePreview(props: { template: EquipmentEffectiveTemplate | null; values?: Record<string, unknown> }) {
+  if (!props.template) return <p>Aucun template charge.</p>;
+  return (
+    <div className="templatePreview">
+      <strong>{props.template.category_path.map((category) => category.label).join(" > ")}</strong>
+      <small>{props.template.fields.filter((field) => field.visible).length} champs visibles | checksum {props.template.template_checksum.slice(0, 18)}...</small>
+      {props.template.fields.filter((field) => field.visible).map((field) => (
+        <span key={field.field.field_id}>
+          {field.field.label}{field.required ? " *" : ""}
+          {props.values ? `: ${displayTemplateValue(props.values[field.field.field_code]) || "-"}` : ""}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function CategoryTree(props: { categories: EquipmentCategory[]; selectedId: string; onSelect: (categoryId: string) => void }) {
+  return (
+    <div className="categoryTree">
+      {props.categories.map((category) => (
+        <div key={category.category_id}>
+          <button
+            className={props.selectedId === category.category_id ? "active" : ""}
+            data-category-id={category.category_id}
+            aria-current={props.selectedId === category.category_id ? "true" : undefined}
+            onClick={() => props.onSelect(category.category_id)}
+          >
+            <ListTree size={14} /> {category.label}
+          </button>
+          {category.children.length > 0 && (
+            <div className="categoryChildren">
+              <CategoryTree categories={category.children} selectedId={props.selectedId} onSelect={props.onSelect} />
             </div>
           )}
-          <Field label="Equipment model ID" value={props.modelId} onChange={props.onModelId} />
-          <Field label="Manufacturer" value={props.manufacturer} onChange={props.onManufacturer} />
-          <Field label="Model name" value={props.modelName} onChange={props.onModelName} />
-          <Field label="Variant" value={props.variant} onChange={props.onVariant} />
-          <div className="buttonRow">
-            <button onClick={props.onCreate}><Cpu size={16} /> Creer</button>
-            <button onClick={props.onCancel}>Fermer</button>
-          </div>
         </div>
-        {props.mode === "preset" && props.selectedPreset && (
-          <div className="presetPreview">
-            <h3>{props.selectedPreset.example_label}</h3>
-            <p>{props.selectedPreset.function_description}</p>
-            <dl>
-              <dt>Class</dt><dd>{props.selectedPreset.default_equipment_class}</dd>
-              <dt>Role</dt><dd>{props.selectedPreset.default_functional_role}</dd>
-              <dt>Domains</dt><dd>{props.selectedPreset.default_signal_domains.join(", ")}</dd>
-              <dt>Tags</dt><dd>{props.selectedPreset.default_technology_tags.join(", ") || "-"}</dd>
-            </dl>
-            <StructuredTable columns={["Port", "Direction", "Flow", "Domain", "Tags", "Req."]}>
-              {props.selectedPreset.ports.map((port) => (
-                <tr key={port.port_id}>
-                  <td>{port.port_id}</td>
-                  <td>{port.directionality}</td>
-                  <td>{port.flow_role}</td>
-                  <td>{port.signal_domain}</td>
-                  <td>{port.technology_tags.join(", ") || "-"}</td>
-                  <td>{port.required ? "yes" : "no"}</td>
-                </tr>
-              ))}
-            </StructuredTable>
-          </div>
-        )}
-      </div>
-    </section>
+      ))}
+    </div>
   );
 }
 
 function ModelCatalog(props: {
   models: EquipmentModelAggregate[];
   selected: EquipmentModelAggregate | null;
+  categories: EquipmentCategory[];
+  categoryTree: EquipmentCategory[];
+  demoMode: "hide" | "show" | "only";
+  onCategory: (categoryId: string) => void;
   onOpen: (model: EquipmentModelAggregate) => void;
 }) {
+  const demoCount = props.models.filter((model) => model.identity.is_demo || model.latest_revision?.definition.is_demo).length;
   return (
     <aside className="equipmentList">
-      <h2>Model Catalog</h2>
+      <h2>Equipment Repository</h2>
+      <CategoryTree categories={props.categoryTree} selectedId="" onSelect={props.onCategory} />
+      {demoCount > 0 && <div className="demoBanner">Donnees de demonstration visibles ({props.demoMode})</div>}
       {props.models.length === 0 && <p>Aucun modele equipement.</p>}
       {props.models.map((model) => {
         const revision = model.latest_revision ?? model.current_approved_revision;
         const definition = revision?.definition;
+        const categoryLabel = categoryPathLabel(props.categories, model.identity.category_code);
+        const isDemo = model.identity.is_demo || definition?.is_demo;
         return (
           <button
             key={model.identity.equipment_model_id}
@@ -896,10 +1127,8 @@ function ModelCatalog(props: {
             onClick={() => props.onOpen(model)}
           >
             <strong>{model.identity.manufacturer} {model.identity.model_name}</strong>
-            <span>{model.identity.variant ?? model.identity.category_code}</span>
-            <small>{model.identity.equipment_class} | {definition?.functional_role ?? "-"} | {revision?.status ?? "no_revision"}</small>
-            <small>{definition?.signal_domains?.join(", ") || "-"}</small>
-            <small>{definition?.technology_tags?.join(", ") || "-"}</small>
+            <span>{isDemo ? "[DEMO] " : ""}{model.identity.variant ?? categoryLabel}</span>
+            <small>{categoryLabel || humanLabel(model.identity.root_category_id ?? model.identity.category_code)} | {humanStatus(revision?.status)}</small>
             <small>
               rev {revision?.revision_number ?? "-"} | ports {revision?.signal_port_count ?? 0} | interfaces {revision?.interface_count ?? 0} | capabilities {revision?.capability_count ?? 0}
             </small>
@@ -964,22 +1193,44 @@ function ModelStudio(props: {
           ))}
         </nav>
         <div className="editorPane">
-          {props.section === "general" && (
-            <EditorCard title="General">
+          {props.section === "summary" && (
+            <EditorCard title="Summary">
               <Field label="Manufacturer" value={definition.manufacturer} disabled={props.readOnly} onChange={(manufacturer) => props.onDefinition({ ...definition, manufacturer })} />
               <Field label="Model name" value={definition.model_name} disabled={props.readOnly} onChange={(model_name) => props.onDefinition({ ...definition, model_name })} />
               <Field label="Variant" value={definition.variant ?? ""} disabled={props.readOnly} onChange={(variant) => props.onDefinition({ ...definition, variant: optionalString(variant) })} />
-              <label>
-                Equipment class
-                <select disabled={props.readOnly} value={definition.equipment_class} onChange={(event) => props.onDefinition({ ...definition, equipment_class: event.target.value as EquipmentClass })}>
-                  {equipmentClasses.map((item) => <option key={item} value={item}>{item}</option>)}
-                </select>
-              </label>
-              <Field label="Category code" value={definition.category_code} disabled={props.readOnly} onChange={(category_code) => props.onDefinition({ ...definition, category_code })} />
+              <dl>
+                <dt>Category</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || humanLabel(definition.category_code)}</dd>
+                <dt>Status</dt><dd>{humanStatus(props.revision.status)}</dd>
+                <dt>Configured fields</dt><dd>{Object.keys(definition.custom_field_values ?? {}).length}</dd>
+                <dt>Ports</dt><dd>{props.revision.signal_port_count}</dd>
+                <dt>Interfaces</dt><dd>{props.revision.interface_count}</dd>
+              </dl>
             </EditorCard>
           )}
-          {props.section === "classification" && (
-            <EditorCard title="Classification">
+          {props.section === "identification" && (
+            <EditorCard title="Identification">
+              {(definition.template_snapshot?.fields ?? []).filter((field) => field.visible).map((field) => (
+                <TemplateFieldInput
+                  key={field.field.field_id}
+                  field={field}
+                  value={definition.custom_field_values?.[field.field.field_code]}
+                  onChange={(value) => props.onDefinition({ ...definition, custom_field_values: { ...(definition.custom_field_values ?? {}), [field.field.field_code]: value } })}
+                />
+              ))}
+              {!definition.template_snapshot && <p>Ce modele n'a pas encore ete cree depuis un template de categorie.</p>}
+            </EditorCard>
+          )}
+          {props.section === "category_template" && (
+            <EditorCard title="Category & Template">
+              <dl>
+                <dt>Root category</dt><dd>{humanLabel(definition.template_snapshot?.root_category_id ?? props.model.identity.root_category_id ?? "")}</dd>
+                <dt>Category path</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || humanLabel(definition.category_code)}</dd>
+                <dt>Template checksum</dt><dd className="mono">{definition.template_snapshot?.template_checksum ?? "-"}</dd>
+              </dl>
+            </EditorCard>
+          )}
+          {props.section === "advanced_diagnostics" && (
+            <EditorCard title="Classification diagnostics">
               <label>
                 Functional role
                 <select disabled={props.readOnly} value={definition.functional_role} onChange={(event) => props.onDefinition({ ...definition, functional_role: event.target.value as FunctionalRole })}>
@@ -992,7 +1243,7 @@ function ModelStudio(props: {
               <Field label="Classification notes" value={String(definition.metadata?.classification_notes ?? "")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, metadata: { ...(definition.metadata ?? {}), classification_notes: value } })} />
             </EditorCard>
           )}
-          {props.section === "specifications" && (
+          {props.section === "characteristics" && (
             <EditorCard title="Specifications typées">
               <StructuredTable columns={["ID", "Label", "Quantity", "Unit", "Min", "Max"]}>
                 {definition.specifications.map((spec, index) => (
@@ -1009,7 +1260,7 @@ function ModelStudio(props: {
               <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, specifications: [...definition.specifications, defaultSpecification(definition.specifications.length + 1)] })}>Ajouter une specification</button>
             </EditorCard>
           )}
-          {props.section === "ports" && (
+          {props.section === "ports_connections" && (
             <EditorCard title="Port Topology">
               <StructuredTable columns={["ID", "Label", "Direction", "Flow", "Domain", "Tags", "Req.", "Connector", "Quantity", "Unit", "Impedance", "Fmin", "Fmax", "Vmax", "Imax", "Pmax", "Comment"]}>
                 {definition.signal_ports.map((port, index) => (
@@ -1058,7 +1309,7 @@ function ModelStudio(props: {
               </div>
             </EditorCard>
           )}
-          {props.section === "interfaces" && (
+          {props.section === "control_drivers" && (
             <EditorCard title="Communication Interfaces">
               <StructuredTable columns={["ID", "Transport", "Provider", "Protocol", "Default"]}>
                 {definition.communication_interfaces.map((item) => (
@@ -1069,7 +1320,7 @@ function ModelStudio(props: {
               <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, communication_interfaces: [...definition.communication_interfaces, defaultCanInterface(definition.communication_interfaces.length + 1)] })}>Ajouter CAN bus simule</button>
             </EditorCard>
           )}
-          {props.section === "capabilities" && (
+          {props.section === "control_drivers" && (
             <EditorCard title="Capabilities">
               <StructuredTable columns={["ID", "Kind", "Safety", "Inputs", "Outputs"]}>
                 {definition.capabilities.map((capability) => (
@@ -1079,9 +1330,19 @@ function ModelStudio(props: {
               <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, capabilities: [...definition.capabilities, defaultCapability(definition.capabilities.length + 1)] })}>Ajouter capability mesure</button>
             </EditorCard>
           )}
-          {props.section === "revisions" && <RevisionTable revisions={props.revisions} onOpen={props.onOpenRevision} />}
-          {props.section === "audit" && <AuditTable audit={props.audit} />}
-          {props.section === "json" && (
+          {props.section === "measurement_corrections" && (
+            <EditorCard title="Measurement / Corrections">
+              <p>Les capteurs, profils de scaling et courbes d'ingenierie restent geres dans les espaces Sensors, Scaling et Engineering Curves.</p>
+            </EditorCard>
+          )}
+          {props.section === "documents" && (
+            <EditorCard title="Documents">
+              <p>Les certificats, datasheets et scripts lies au modele seront attaches via le domaine documents. Cette release prepare l'emplacement sans upload fichier.</p>
+            </EditorCard>
+          )}
+          {props.section === "revisions_audit" && <RevisionTable revisions={props.revisions} onOpen={props.onOpenRevision} />}
+          {props.section === "revisions_audit" && <AuditTable audit={props.audit} />}
+          {props.section === "advanced_diagnostics" && (
             <EditorCard title="Advanced JSON">
               <textarea className="jsonPreview" value={props.jsonDraft} disabled={props.readOnly} onChange={(event) => props.onJsonDraft(event.target.value)} />
               <button disabled={props.readOnly} onClick={props.onApplyJson}>Appliquer JSON</button>
@@ -1327,24 +1588,6 @@ export function StateBlock(props: { title: string; detail: string }) {
   return <div className="stateBlock"><h2>{props.title}</h2><p>{props.detail}</p></div>;
 }
 
-function defaultEquipmentModelDefinition(id: string): EquipmentModelDefinition {
-  return {
-    definition_schema_version: "emc-locus.equipment-model-definition.v2",
-    manufacturer: "Demo Instruments",
-    model_name: id,
-    equipment_class: "controllable_instrument",
-    functional_role: "measurement_instrument",
-    category_code: "power_meter",
-    signal_domains: ["analog_voltage", "ethernet"],
-    technology_tags: ["voltage_input", "ethernet", "raw_tcp", "scpi"],
-    specifications: [defaultSpecification(1)],
-    signal_ports: [defaultAnalogInputPort(1)],
-    communication_interfaces: [defaultTcpInterface(1)],
-    capabilities: [defaultCapability(1)],
-    metadata: { created_from: "lab_console" }
-  };
-}
-
 function defaultDriverProfileDefinition(model: EquipmentModelAggregate): DriverProfileDefinition {
   const revision = model.current_approved_revision!;
   const interfaceId = revision.definition.communication_interfaces[0]?.interface_id ?? "tcp";
@@ -1359,6 +1602,112 @@ function defaultDriverProfileDefinition(model: EquipmentModelAggregate): DriverP
     actions: [defaultAction(1, interfaceId, capability)],
     metadata: { created_from: "lab_console" }
   };
+}
+
+const fieldTypes: EquipmentFieldDataType[] = [
+  "short_text",
+  "long_text",
+  "number",
+  "number_with_unit",
+  "date",
+  "boolean",
+  "choice",
+  "multi_choice",
+  "url",
+  "file_reference",
+  "object_reference"
+];
+
+const humanLabels: Record<string, string> = {
+  energy_sources: "Sources d'énergie",
+  signal_sources: "Sources de signaux",
+  rf_equipment: "Équipements radiofréquences",
+  sensors_transducers: "Capteurs / transducteurs",
+  actuators_emitters: "Actionneurs / Émetteurs",
+  measurement_instruments_digitizers: "Instruments de mesure / numériseurs",
+  processing_control_systems: "Systèmes de traitement et de contrôle",
+  controllable_instrument: "Instrument pilotable",
+  daq_device: "DAQ / numériseur",
+  acquisition_device: "Système d'acquisition",
+  converter: "Convertisseur",
+  sensor: "Capteur",
+  transducer: "Transducteur",
+  passive_component: "Composant passif",
+  switching_device: "Commutation",
+  motion_system: "Système de mouvement",
+  facility: "Infrastructure",
+  software_adapter: "Adaptateur logiciel",
+  manual_equipment: "Équipement manuel",
+  energy_source: "Source d'énergie",
+  signal_source: "Source de signal",
+  measurement_instrument: "Instrument de mesure",
+  acquisition_device_role: "Acquisition",
+  rf_network_element: "Élément RF",
+  actuator: "Actionneur",
+  control_system: "Système de contrôle",
+  software_system: "Système logiciel",
+  manual_accessory: "Accessoire manuel",
+  draft: "Brouillon",
+  under_review: "En revue",
+  approved: "Approuvé",
+  superseded: "Remplacé",
+  no_revision: "Sans révision",
+  short_text: "Texte court",
+  long_text: "Texte long",
+  number: "Nombre",
+  number_with_unit: "Nombre avec unité",
+  date: "Date",
+  boolean: "Oui / non",
+  choice: "Choix",
+  multi_choice: "Choix multiples",
+  url: "URL",
+  file_reference: "Référence fichier",
+  object_reference: "Référence objet",
+  rf_50_ohm: "RF 50 ohm",
+  can_bus: "CAN bus"
+};
+
+function humanLabel(value: string | null | undefined) {
+  if (!value) return "-";
+  return humanLabels[value] ?? value.replace(/_/g, " ");
+}
+
+function humanStatus(value: string | undefined) {
+  return humanLabel(value ?? "no_revision");
+}
+
+function fieldTypeLabel(type: EquipmentFieldDataType) {
+  return humanLabel(type);
+}
+
+function categoryPathLabel(categories: EquipmentCategory[], categoryId: string) {
+  const byId = new Map(categories.map((category) => [category.category_id, category]));
+  const path: string[] = [];
+  let current = byId.get(categoryId);
+  let guard = 0;
+  while (current && guard < categories.length + 1) {
+    path.unshift(current.label);
+    current = current.parent_category_id ? byId.get(current.parent_category_id) : undefined;
+    guard += 1;
+  }
+  return path.join(" > ") || humanLabel(categoryId);
+}
+
+function displayTemplateValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(displayTemplateValue).join(", ");
+  if (typeof value === "object") {
+    const maybeUnit = value as { value?: unknown; unit?: unknown };
+    if (maybeUnit.value !== undefined && maybeUnit.unit !== undefined) {
+      return `${displayTemplateValue(maybeUnit.value)} ${displayTemplateValue(maybeUnit.unit)}`;
+    }
+  }
+  return JSON.stringify(value);
+}
+
+function isEmptyField(value: unknown) {
+  return value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
 }
 
 function defaultSpecification(index: number) {
@@ -1646,15 +1995,6 @@ function splitTokens(value: string) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-}
-
-function generatedModelId(manufacturer: string, modelName: string) {
-  const text = `${manufacturer}-${modelName || "model"}`
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 42);
-  return `EQM-${text || "MODEL"}-${Date.now().toString(36).toUpperCase()}`;
 }
 
 function formatDate(value?: string | null) {

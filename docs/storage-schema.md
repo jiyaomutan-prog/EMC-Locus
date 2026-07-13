@@ -105,6 +105,34 @@ tables, `equipment_model_signal_domain_summaries` and
 `equipment_model_technology_tag_summaries`, support indexed role/domain/tag
 catalog filters without parsing `definition_json`.
 
+Release `0.13.1` extends this summary with `root_category_id` and `is_demo`
+so LAB CONSOLE can browse by business taxonomy and hide demonstration records
+without parsing revision JSON.
+
+### equipment taxonomy and field templates
+
+Migration `storage/sqlite/equipment/0004_equipment_taxonomy_field_templates.sql`
+adds the equipment repository administration schema:
+
+- `equipment_categories` stores root categories and subcategories with
+  parent/root references, label, sort order, active flag, and system-defined
+  flag.
+- `equipment_field_definitions` stores the field dictionary for equipment
+  forms, including data type, scope, defaults, choices, units, uniqueness and
+  activation metadata.
+- `equipment_category_field_rules` stores visibility, required state, display
+  group/order, default values and help overrides for a category.
+- `equipment_model_field_values` stores searchable revision-aware field values
+  for a model revision.
+- `equipment_model_template_snapshots` stores the effective entry-template
+  snapshot captured with a model revision.
+
+Fresh initialization seeds only structural defaults: seven root categories,
+basic subcategories, a minimal field dictionary, and default field rules. No
+demo models, sensors, drivers, or recipes are inserted by this migration.
+Demo records are created only by explicit seed commands and must be marked as
+demo data.
+
 ### measurement engineering definitions
 
 Release `0.13.0` keeps reusable measurement-chain engineering definitions in

@@ -4,22 +4,30 @@ use crate::{
         DriverProfileAggregateDto, DriverProfileEnvelopeDto, DriverProfileIdentityDto,
         DriverProfileListDto, DriverProfileRevisionDto, DriverProfileRevisionEnvelopeDto,
         DriverProfileRevisionListDto, EquipmentAuditEventDto, EquipmentAuditEventsDto,
+        EquipmentCategoryDto, EquipmentCategoryEnvelopeDto, EquipmentCategoryFieldRuleDto,
+        EquipmentCategoryFieldRuleListDto, EquipmentCategoryListDto,
         EquipmentClassificationPresetDto, EquipmentClassificationPresetEnvelopeDto,
         EquipmentClassificationPresetListDto, EquipmentClassificationPresetPortDto,
         EquipmentDefinitionValidationDto, EquipmentDefinitionValidationIssueDto,
+        EquipmentEffectiveFieldDto, EquipmentEffectiveTemplateDto,
+        EquipmentEffectiveTemplateEnvelopeDto, EquipmentFieldDefinitionDto,
+        EquipmentFieldDefinitionEnvelopeDto, EquipmentFieldDefinitionListDto,
         EquipmentModelAggregateDto, EquipmentModelEnvelopeDto, EquipmentModelIdentityDto,
         EquipmentModelListDto, EquipmentModelRevisionDto, EquipmentModelRevisionEnvelopeDto,
         EquipmentModelRevisionListDto, EquipmentOperationResultDto, EquipmentRegistriesDto,
         EquipmentRegistryItemDto,
     },
     equipment_repository::{
-        ensure_equipment_operation_replay, equipment_model_class_exists,
-        existing_equipment_operation, insert_driver_profile_identity,
-        insert_driver_profile_revision, insert_equipment_audit_event,
-        insert_equipment_model_identity, insert_equipment_model_revision,
-        insert_equipment_sync_operation, list_driver_profile_identities,
-        list_driver_profile_revisions as load_driver_revision_history,
-        list_equipment_classification_preset_ports, list_equipment_classification_presets,
+        archive_equipment_category, archive_equipment_field_definition,
+        count_equipment_models_in_category, ensure_equipment_operation_replay,
+        equipment_model_class_exists, existing_equipment_operation, insert_driver_profile_identity,
+        insert_driver_profile_revision, insert_equipment_audit_event, insert_equipment_category,
+        insert_equipment_field_definition, insert_equipment_model_identity,
+        insert_equipment_model_revision, insert_equipment_sync_operation,
+        list_driver_profile_identities,
+        list_driver_profile_revisions as load_driver_revision_history, list_equipment_categories,
+        list_equipment_category_field_rules, list_equipment_classification_preset_ports,
+        list_equipment_classification_presets, list_equipment_field_definitions,
         list_equipment_flow_role_registry, list_equipment_functional_role_registry,
         list_equipment_model_identities,
         list_equipment_model_revisions as load_model_revision_history,
@@ -27,39 +35,54 @@ use crate::{
         list_equipment_technology_tag_registry, load_active_draft_driver_profile_revision,
         load_active_draft_equipment_model_revision, load_current_approved_driver_profile_revision,
         load_current_approved_equipment_model_revision, load_driver_profile_identity,
-        load_driver_profile_revision, load_equipment_audit_events,
-        load_equipment_classification_preset, load_equipment_model_identity,
+        load_driver_profile_revision, load_equipment_audit_events, load_equipment_category,
+        load_equipment_classification_preset, load_equipment_field_definition,
+        load_equipment_field_definition_by_code, load_equipment_model_identity,
         load_equipment_model_revision, load_latest_driver_profile_revision,
-        load_latest_equipment_model_revision, next_driver_profile_revision_number,
-        next_equipment_model_revision_number, open_equipment_connection,
-        open_equipment_connection_with_sync, replace_equipment_model_classification_summary,
-        set_current_approved_driver_profile_revision,
+        load_latest_equipment_model_revision, move_equipment_category,
+        next_driver_profile_revision_number, next_equipment_model_revision_number,
+        open_equipment_connection, open_equipment_connection_with_sync,
+        replace_equipment_category_field_rules, replace_equipment_model_classification_summary,
+        replace_equipment_model_template_snapshot, set_current_approved_driver_profile_revision,
         set_current_approved_equipment_model_revision, supersede_approved_driver_profile_revision,
         supersede_approved_equipment_model_revision, touch_driver_profile_identity,
         touch_equipment_model_identity, update_driver_profile_revision_definition,
-        update_driver_profile_revision_status, update_equipment_model_revision_definition,
+        update_driver_profile_revision_status, update_equipment_category,
+        update_equipment_field_definition, update_equipment_model_revision_definition,
         update_equipment_model_revision_status, DriverProfileListFilter, EquipmentAuditEventInput,
-        EquipmentClassificationSummaryRecord, EquipmentModelListFilter,
+        EquipmentClassificationSummaryRecord, EquipmentModelFieldValueRecord,
+        EquipmentModelListFilter, EquipmentModelTemplateSnapshotRecord,
         EquipmentOperationFingerprintInput, EquipmentSyncOperationInput,
-        NewDriverProfileIdentityRecord, NewDriverProfileRevisionRecord,
+        MoveEquipmentCategoryRecord, NewDriverProfileIdentityRecord,
+        NewDriverProfileRevisionRecord, NewEquipmentCategoryFieldRuleRecord,
+        NewEquipmentCategoryRecord, NewEquipmentFieldDefinitionRecord,
         NewEquipmentModelIdentityRecord, NewEquipmentModelRevisionRecord,
         StoredDriverProfileIdentity, StoredDriverProfileRevision, StoredEquipmentAuditEvent,
+        StoredEquipmentCategory, StoredEquipmentCategoryFieldRule,
         StoredEquipmentClassificationPreset, StoredEquipmentClassificationPresetPort,
-        StoredEquipmentModelIdentity, StoredEquipmentModelRevision, StoredEquipmentOperation,
-        StoredEquipmentRegistryItem, UpdateDefinitionInput, UpdateDriverDefinitionCounts,
-        UpdateModelDefinitionCounts, UpdateStatusInput,
+        StoredEquipmentFieldDefinition, StoredEquipmentModelIdentity, StoredEquipmentModelRevision,
+        StoredEquipmentOperation, StoredEquipmentRegistryItem, UpdateDefinitionInput,
+        UpdateDriverDefinitionCounts, UpdateEquipmentCategoryRecord,
+        UpdateEquipmentFieldDefinitionRecord, UpdateModelDefinitionCounts, UpdateStatusInput,
     },
     render_json, AgentError,
 };
 use emc_locus_core::equipment::{
-    simulate_driver_action, DefinitionValidationIssue, DriverProfileDefinition,
-    DriverSimulationScenario, EquipmentClass, EquipmentModelDefinition, EquipmentRevisionStatus,
-    FunctionalRole, PhysicalQuantity, SignalDomain, SignalPortDefinition, TechnologyTag,
+    simulate_driver_action, AccessProviderKind, CommunicationInterfaceDefinition,
+    DefinitionValidationIssue, DriverProfileDefinition, DriverSimulationScenario, EquipmentClass,
+    EquipmentEffectiveFieldRule, EquipmentFieldDataType, EquipmentFieldDefinition,
+    EquipmentFieldScope, EquipmentModelDefinition, EquipmentModelTemplateSnapshot,
+    EquipmentRevisionStatus, FunctionalRole, PhysicalQuantity, PortDirectionality, PortFlowRole,
+    ProtocolKind, SignalDomain, SignalPortDefinition, TechnologyTag, TransportKind,
     EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
-use std::{collections::BTreeMap, path::Path};
+use sha2::{Digest, Sha256};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -78,11 +101,100 @@ pub struct ListEquipmentModelsInput {
     pub manufacturer: Option<String>,
     pub equipment_class: Option<String>,
     pub category_code: Option<String>,
+    pub root_category_id: Option<String>,
+    pub demo_mode: Option<String>,
     pub functional_role: Option<String>,
     pub signal_domain: Option<String>,
     pub technology_tag: Option<String>,
     pub status: Option<String>,
     pub search: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ListEquipmentCategoriesInput {
+    pub include_inactive: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CreateEquipmentCategoryInput {
+    pub category_id: String,
+    pub parent_category_id: String,
+    pub label: String,
+    pub description: String,
+    pub sort_order: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UpdateEquipmentCategoryInput {
+    pub category_id: String,
+    pub label: String,
+    pub description: String,
+    pub sort_order: i64,
+    pub active: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MoveEquipmentCategoryInput {
+    pub category_id: String,
+    pub parent_category_id: String,
+    pub sort_order: i64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ListEquipmentFieldDefinitionsInput {
+    pub scope: Option<String>,
+    pub include_inactive: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct UpsertEquipmentFieldDefinitionInput {
+    pub field_id: Option<String>,
+    pub field_code: Option<String>,
+    pub label: String,
+    pub description: String,
+    pub data_type: String,
+    pub scope: String,
+    pub required_by_default: bool,
+    pub visible_by_default: bool,
+    pub unique_value: bool,
+    pub unit_quantity: Option<String>,
+    pub allowed_units: Vec<String>,
+    pub option_values: Vec<String>,
+    pub validation_regex: Option<String>,
+    pub default_value: Option<Value>,
+    pub display_group: String,
+    pub display_order: i64,
+    pub active: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReplaceEquipmentCategoryFieldRulesInput {
+    pub category_id: String,
+    pub rules: Vec<EquipmentCategoryFieldRuleInput>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct EquipmentCategoryFieldRuleInput {
+    pub field_id: String,
+    pub required: Option<bool>,
+    pub visible: Option<bool>,
+    pub display_group: Option<String>,
+    pub display_order: Option<i64>,
+    pub default_value: Option<Value>,
+    pub help_text_override: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CreateEquipmentModelFromCategoryTemplateInput {
+    pub category_id: String,
+    pub equipment_model_id: Option<String>,
+    pub field_values: BTreeMap<String, Value>,
+    pub is_demo: bool,
+    pub actor: String,
+    pub reason: String,
+    pub operation_id: String,
+    pub correlation_id: String,
+    pub device_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -92,6 +204,7 @@ pub struct CreateEquipmentModelFromPresetInput {
     pub manufacturer: String,
     pub model_name: String,
     pub variant: Option<String>,
+    pub is_demo: bool,
     pub actor: String,
     pub reason: String,
     pub operation_id: String,
@@ -258,10 +371,12 @@ pub fn list_equipment_models(
 ) -> Result<String, AgentError> {
     validate_optional_id(input.equipment_class.as_deref(), "equipment_class")?;
     validate_optional_id(input.category_code.as_deref(), "category_code")?;
+    validate_optional_id(input.root_category_id.as_deref(), "root_category_id")?;
     validate_optional_id(input.functional_role.as_deref(), "functional_role")?;
     validate_optional_id(input.signal_domain.as_deref(), "signal_domain")?;
     validate_optional_id(input.technology_tag.as_deref(), "technology_tag")?;
     validate_optional_id(input.status.as_deref(), "status")?;
+    let is_demo = demo_mode_filter(input.demo_mode.as_deref())?;
     let connection = open_equipment_connection(storage_root)?;
     let identities = list_equipment_model_identities(
         &connection,
@@ -269,6 +384,8 @@ pub fn list_equipment_models(
             manufacturer: input.manufacturer.as_deref(),
             equipment_class: input.equipment_class.as_deref(),
             category_code: input.category_code.as_deref(),
+            root_category_id: input.root_category_id.as_deref(),
+            is_demo,
             functional_role: input.functional_role.as_deref(),
             signal_domain: input.signal_domain.as_deref(),
             technology_tag: input.technology_tag.as_deref(),
@@ -285,6 +402,441 @@ pub fn list_equipment_models(
             .iter()
             .map(equipment_model_aggregate_dto)
             .collect(),
+    }))
+}
+
+pub fn list_equipment_categories_json(
+    storage_root: &Path,
+    input: ListEquipmentCategoriesInput,
+) -> Result<String, AgentError> {
+    let connection = open_equipment_connection(storage_root)?;
+    let categories = list_equipment_categories(&connection, input.include_inactive)?;
+    Ok(render_json(&EquipmentCategoryListDto {
+        categories: categories
+            .iter()
+            .map(|category| equipment_category_dto(category, Vec::new()))
+            .collect(),
+    }))
+}
+
+pub fn equipment_category_tree_json(
+    storage_root: &Path,
+    input: ListEquipmentCategoriesInput,
+) -> Result<String, AgentError> {
+    let connection = open_equipment_connection(storage_root)?;
+    let categories = list_equipment_categories(&connection, input.include_inactive)?;
+    Ok(render_json(&EquipmentCategoryListDto {
+        categories: category_tree_dtos(&categories, None),
+    }))
+}
+
+pub fn create_equipment_category_json(
+    storage_root: &Path,
+    input: CreateEquipmentCategoryInput,
+) -> Result<String, AgentError> {
+    validate_id(&input.category_id, "category_id")?;
+    validate_id(&input.parent_category_id, "parent_category_id")?;
+    if input.label.trim().is_empty() {
+        return Err(AgentError::new(
+            "invalid_equipment_category",
+            "category label is required",
+        ));
+    }
+    let mut connection = open_equipment_connection_with_sync(storage_root)?;
+    if load_equipment_category(&connection, &input.category_id)?.is_some() {
+        return Err(AgentError::new(
+            "equipment_category_already_exists",
+            "equipment category already exists",
+        ));
+    }
+    let parent =
+        load_equipment_category(&connection, &input.parent_category_id)?.ok_or_else(|| {
+            AgentError::new(
+                "equipment_category_not_found",
+                "parent equipment category not found",
+            )
+        })?;
+    let now = utc_timestamp()?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    insert_equipment_category(
+        &transaction,
+        NewEquipmentCategoryRecord {
+            category_id: &input.category_id,
+            parent_category_id: Some(&input.parent_category_id),
+            root_category_id: &parent.root_category_id,
+            label: input.label.trim(),
+            description: input.description.trim(),
+            sort_order: input.sort_order,
+            active: true,
+            system_defined: false,
+            timestamp: &now,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+    let category = load_equipment_category(&connection, &input.category_id)?.ok_or_else(|| {
+        AgentError::new(
+            "equipment_category_not_found",
+            "created equipment category not found",
+        )
+    })?;
+    Ok(render_json(&EquipmentCategoryEnvelopeDto {
+        category: equipment_category_dto(&category, Vec::new()),
+    }))
+}
+
+pub fn update_equipment_category_json(
+    storage_root: &Path,
+    input: UpdateEquipmentCategoryInput,
+) -> Result<String, AgentError> {
+    validate_id(&input.category_id, "category_id")?;
+    if input.label.trim().is_empty() {
+        return Err(AgentError::new(
+            "invalid_equipment_category",
+            "category label is required",
+        ));
+    }
+    let mut connection = open_equipment_connection_with_sync(storage_root)?;
+    require_equipment_category(&connection, &input.category_id)?;
+    let now = utc_timestamp()?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    update_equipment_category(
+        &transaction,
+        UpdateEquipmentCategoryRecord {
+            category_id: &input.category_id,
+            label: input.label.trim(),
+            description: input.description.trim(),
+            sort_order: input.sort_order,
+            active: input.active,
+            timestamp: &now,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+    let category = require_equipment_category(&connection, &input.category_id)?;
+    Ok(render_json(&EquipmentCategoryEnvelopeDto {
+        category: equipment_category_dto(&category, Vec::new()),
+    }))
+}
+
+pub fn archive_equipment_category_json(
+    storage_root: &Path,
+    category_id: &str,
+) -> Result<String, AgentError> {
+    validate_id(category_id, "category_id")?;
+    let mut connection = open_equipment_connection_with_sync(storage_root)?;
+    let category = require_equipment_category(&connection, category_id)?;
+    if category.parent_category_id.is_none() || category.system_defined {
+        return Err(AgentError::new(
+            "equipment_category_system_root_immutable",
+            "system root categories cannot be archived",
+        ));
+    }
+    let in_use = count_equipment_models_in_category(&connection, category_id)?;
+    if in_use > 0 {
+        return Err(AgentError::with_details(
+            "equipment_category_in_use",
+            "equipment category is used by equipment models and cannot be archived",
+            json!({ "category_id": category_id, "equipment_model_count": in_use }),
+        ));
+    }
+    let now = utc_timestamp()?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    archive_equipment_category(&transaction, category_id, &now)?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+    let category = require_equipment_category(&connection, category_id)?;
+    Ok(render_json(&EquipmentCategoryEnvelopeDto {
+        category: equipment_category_dto(&category, Vec::new()),
+    }))
+}
+
+pub fn move_equipment_category_json(
+    storage_root: &Path,
+    input: MoveEquipmentCategoryInput,
+) -> Result<String, AgentError> {
+    validate_id(&input.category_id, "category_id")?;
+    validate_id(&input.parent_category_id, "parent_category_id")?;
+    let mut connection = open_equipment_connection_with_sync(storage_root)?;
+    let category = require_equipment_category(&connection, &input.category_id)?;
+    if category.parent_category_id.is_none() || category.system_defined {
+        return Err(AgentError::new(
+            "equipment_category_system_root_immutable",
+            "system root categories cannot be moved",
+        ));
+    }
+    let parent = require_equipment_category(&connection, &input.parent_category_id)?;
+    if parent.category_id == input.category_id {
+        return Err(AgentError::new(
+            "equipment_category_cycle",
+            "category cannot be moved under itself",
+        ));
+    }
+    let categories = list_equipment_categories(&connection, true)?;
+    if is_descendant_category(&categories, &parent.category_id, &category.category_id) {
+        return Err(AgentError::new(
+            "equipment_category_cycle",
+            "category cannot be moved under one of its descendants",
+        ));
+    }
+    let now = utc_timestamp()?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    move_equipment_category(
+        &transaction,
+        MoveEquipmentCategoryRecord {
+            category_id: &input.category_id,
+            parent_category_id: Some(&input.parent_category_id),
+            root_category_id: &parent.root_category_id,
+            sort_order: input.sort_order,
+            timestamp: &now,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+    let category = require_equipment_category(&connection, &input.category_id)?;
+    Ok(render_json(&EquipmentCategoryEnvelopeDto {
+        category: equipment_category_dto(&category, Vec::new()),
+    }))
+}
+
+pub fn list_equipment_field_definitions_json(
+    storage_root: &Path,
+    input: ListEquipmentFieldDefinitionsInput,
+) -> Result<String, AgentError> {
+    validate_optional_id(input.scope.as_deref(), "scope")?;
+    let connection = open_equipment_connection(storage_root)?;
+    let fields = list_equipment_field_definitions(
+        &connection,
+        input.scope.as_deref(),
+        input.include_inactive,
+    )?;
+    Ok(render_json(&EquipmentFieldDefinitionListDto {
+        field_definitions: fields.iter().map(field_definition_dto).collect(),
+    }))
+}
+
+pub fn create_equipment_field_definition_json(
+    storage_root: &Path,
+    input: UpsertEquipmentFieldDefinitionInput,
+) -> Result<String, AgentError> {
+    let field_code = input.field_code.as_deref().ok_or_else(|| {
+        AgentError::new(
+            "invalid_equipment_field",
+            "field_code is required when creating a field",
+        )
+    })?;
+    validate_id(field_code, "field_code")?;
+    let field_id = input
+        .field_id
+        .clone()
+        .unwrap_or_else(|| format!("field_{field_code}"));
+    validate_id(&field_id, "field_id")?;
+    let field = core_field_definition_from_input(&field_id, field_code, &input)?;
+    validate_field_contract(&field)?;
+    let mut connection = open_equipment_connection_with_sync(storage_root)?;
+    if load_equipment_field_definition(&connection, &field_id)?.is_some()
+        || load_equipment_field_definition_by_code(&connection, field_code)?.is_some()
+    {
+        return Err(AgentError::new(
+            "equipment_field_already_exists",
+            "equipment field definition already exists",
+        ));
+    }
+    let now = utc_timestamp()?;
+    let allowed_units_json = render_json(&input.allowed_units);
+    let option_values_json = render_json(&input.option_values);
+    let default_value_json = input.default_value.as_ref().map(render_json);
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    insert_equipment_field_definition(
+        &transaction,
+        NewEquipmentFieldDefinitionRecord {
+            field_id: &field_id,
+            field_code,
+            label: input.label.trim(),
+            description: input.description.trim(),
+            data_type: &input.data_type,
+            scope: &input.scope,
+            required_by_default: input.required_by_default,
+            visible_by_default: input.visible_by_default,
+            unique_value: input.unique_value,
+            unit_quantity: input.unit_quantity.as_deref(),
+            allowed_units_json: &allowed_units_json,
+            option_values_json: &option_values_json,
+            validation_regex: input.validation_regex.as_deref(),
+            default_value_json: default_value_json.as_deref(),
+            display_group: input.display_group.trim(),
+            display_order: input.display_order,
+            active: input.active,
+            system_defined: false,
+            timestamp: &now,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+    let stored = require_equipment_field_definition(&connection, &field_id)?;
+    Ok(render_json(&EquipmentFieldDefinitionEnvelopeDto {
+        field_definition: field_definition_dto(&stored),
+    }))
+}
+
+pub fn update_equipment_field_definition_json(
+    storage_root: &Path,
+    field_id: &str,
+    input: UpsertEquipmentFieldDefinitionInput,
+) -> Result<String, AgentError> {
+    validate_id(field_id, "field_id")?;
+    let existing = {
+        let connection = open_equipment_connection(storage_root)?;
+        require_equipment_field_definition(&connection, field_id)?
+    };
+    let field = core_field_definition_from_input(field_id, &existing.field_code, &input)?;
+    validate_field_contract(&field)?;
+    let mut connection = open_equipment_connection_with_sync(storage_root)?;
+    let now = utc_timestamp()?;
+    let allowed_units_json = render_json(&input.allowed_units);
+    let option_values_json = render_json(&input.option_values);
+    let default_value_json = input.default_value.as_ref().map(render_json);
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    update_equipment_field_definition(
+        &transaction,
+        UpdateEquipmentFieldDefinitionRecord {
+            field_id,
+            label: input.label.trim(),
+            description: input.description.trim(),
+            data_type: &input.data_type,
+            required_by_default: input.required_by_default,
+            visible_by_default: input.visible_by_default,
+            unique_value: input.unique_value,
+            unit_quantity: input.unit_quantity.as_deref(),
+            allowed_units_json: &allowed_units_json,
+            option_values_json: &option_values_json,
+            validation_regex: input.validation_regex.as_deref(),
+            default_value_json: default_value_json.as_deref(),
+            display_group: input.display_group.trim(),
+            display_order: input.display_order,
+            active: input.active,
+            timestamp: &now,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+    let stored = require_equipment_field_definition(&connection, field_id)?;
+    Ok(render_json(&EquipmentFieldDefinitionEnvelopeDto {
+        field_definition: field_definition_dto(&stored),
+    }))
+}
+
+pub fn archive_equipment_field_definition_json(
+    storage_root: &Path,
+    field_id: &str,
+) -> Result<String, AgentError> {
+    validate_id(field_id, "field_id")?;
+    let mut connection = open_equipment_connection_with_sync(storage_root)?;
+    require_equipment_field_definition(&connection, field_id)?;
+    let now = utc_timestamp()?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    archive_equipment_field_definition(&transaction, field_id, &now)?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+    let stored = require_equipment_field_definition(&connection, field_id)?;
+    Ok(render_json(&EquipmentFieldDefinitionEnvelopeDto {
+        field_definition: field_definition_dto(&stored),
+    }))
+}
+
+pub fn list_equipment_category_field_rules_json(
+    storage_root: &Path,
+    category_id: &str,
+) -> Result<String, AgentError> {
+    validate_id(category_id, "category_id")?;
+    let connection = open_equipment_connection(storage_root)?;
+    require_equipment_category(&connection, category_id)?;
+    let rules = list_equipment_category_field_rules(&connection, category_id)?;
+    Ok(render_json(&EquipmentCategoryFieldRuleListDto {
+        category_id: category_id.to_owned(),
+        rules: rules.iter().map(category_field_rule_dto).collect(),
+    }))
+}
+
+pub fn replace_equipment_category_field_rules_json(
+    storage_root: &Path,
+    input: ReplaceEquipmentCategoryFieldRulesInput,
+) -> Result<String, AgentError> {
+    validate_id(&input.category_id, "category_id")?;
+    let mut connection = open_equipment_connection_with_sync(storage_root)?;
+    require_equipment_category(&connection, &input.category_id)?;
+    let mut default_value_json = Vec::new();
+    for rule in &input.rules {
+        validate_id(&rule.field_id, "field_id")?;
+        let field = require_equipment_field_definition(&connection, &rule.field_id)?;
+        if let Some(default_value) = rule.default_value.as_ref() {
+            validate_equipment_template_value(&field, default_value)?;
+        }
+        default_value_json.push(rule.default_value.as_ref().map(render_json));
+    }
+    let now = utc_timestamp()?;
+    let records = input
+        .rules
+        .iter()
+        .zip(default_value_json.iter())
+        .map(
+            |(rule, default_value_json)| NewEquipmentCategoryFieldRuleRecord {
+                category_id: &input.category_id,
+                field_id: &rule.field_id,
+                required: rule.required,
+                visible: rule.visible,
+                display_group: rule.display_group.as_deref(),
+                display_order: rule.display_order,
+                default_value_json: default_value_json.as_deref(),
+                help_text_override: rule.help_text_override.as_deref(),
+                timestamp: &now,
+            },
+        )
+        .collect::<Vec<_>>();
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    replace_equipment_category_field_rules(&transaction, &input.category_id, &records)?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+    let rules = list_equipment_category_field_rules(&connection, &input.category_id)?;
+    Ok(render_json(&EquipmentCategoryFieldRuleListDto {
+        category_id: input.category_id,
+        rules: rules.iter().map(category_field_rule_dto).collect(),
+    }))
+}
+
+pub fn equipment_effective_template_json(
+    storage_root: &Path,
+    category_id: &str,
+) -> Result<String, AgentError> {
+    validate_id(category_id, "category_id")?;
+    let connection = open_equipment_connection(storage_root)?;
+    let template = effective_template_for_category(&connection, category_id)?;
+    Ok(render_json(&EquipmentEffectiveTemplateEnvelopeDto {
+        effective_template: effective_template_dto(&template),
     }))
 }
 
@@ -488,6 +1040,13 @@ pub fn create_equipment_model_from_preset(
             timestamp: &now,
         },
     )?;
+    write_equipment_model_template_snapshot(
+        &transaction,
+        &input.equipment_model_id,
+        &revision_id,
+        &parsed,
+        &now,
+    )?;
     write_equipment_audit_and_outbox(
         &transaction,
         EquipmentAuditEventInput {
@@ -530,6 +1089,190 @@ pub fn create_equipment_model_from_preset(
         &input.operation_id,
         false,
         &input.equipment_model_id,
+        &revision_id,
+    )
+}
+
+pub fn create_equipment_model_from_category_template(
+    storage_root: &Path,
+    input: CreateEquipmentModelFromCategoryTemplateInput,
+) -> Result<String, AgentError> {
+    validate_common_operation(
+        &input.actor,
+        &input.reason,
+        &input.operation_id,
+        &input.correlation_id,
+        &input.device_id,
+    )?;
+    validate_id(&input.category_id, "category_id")?;
+    if let Some(equipment_model_id) = input.equipment_model_id.as_deref() {
+        validate_id(equipment_model_id, "equipment_model_id")?;
+    }
+    let mut connection = open_equipment_connection_with_sync(storage_root)?;
+    let template = effective_template_for_category(&connection, &input.category_id)?;
+    let manufacturer = required_form_text(&input.field_values, "manufacturer", "Fabricant")?;
+    let model_name = required_form_text(&input.field_values, "model_name", "Modèle")?;
+    let variant = input
+        .field_values
+        .get("variant")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let equipment_model_id = input.equipment_model_id.clone().unwrap_or_else(|| {
+        generated_equipment_model_id(
+            &input.category_id,
+            manufacturer,
+            model_name,
+            variant.as_deref(),
+        )
+    });
+    validate_id(&equipment_model_id, "equipment_model_id")?;
+    if load_equipment_model_identity(&connection, &equipment_model_id)?.is_some() {
+        return Err(AgentError::new(
+            "equipment_model_already_exists",
+            format!("equipment model already exists: {equipment_model_id}"),
+        ));
+    }
+    let now = utc_timestamp()?;
+    let definition = equipment_model_definition_from_category_template(&template, &input, &now)?;
+    let canonical = definition
+        .canonicalize()
+        .map_err(|issues| invalid_definition_error("invalid_equipment_model_definition", issues))?;
+    let parsed =
+        EquipmentModelDefinition::from_json_str(&canonical.canonical_json).map_err(|issue| {
+            invalid_definition_error("invalid_equipment_model_definition", vec![issue])
+        })?;
+    if !equipment_model_class_exists(&connection, equipment_class_text(parsed.equipment_class))? {
+        return Err(AgentError::new(
+            "equipment_model_class_not_found",
+            format!(
+                "unknown equipment class: {}",
+                equipment_class_text(parsed.equipment_class)
+            ),
+        ));
+    }
+    let revision_id = model_revision_id_for(&equipment_model_id, 1);
+    let payload_json = render_json(&json!({
+        "equipment_model_id": equipment_model_id,
+        "category_id": input.category_id,
+        "definition_checksum": canonical.definition_checksum
+    }));
+    if let Some(operation) = existing_equipment_operation(&connection, &input.operation_id)? {
+        ensure_equipment_operation_replay(
+            &operation,
+            EquipmentOperationFingerprintInput {
+                aggregate_kind: "equipment_model",
+                entity_id: &equipment_model_id,
+                revision_id: Some(&revision_id),
+                action: "equipment_model_created_from_category_template",
+                actor: &input.actor,
+                device_id: &input.device_id,
+                correlation_id: &input.correlation_id,
+                old_revision_id: None,
+                new_revision_id: Some(&revision_id),
+                old_definition_checksum: None,
+                new_definition_checksum: Some(&canonical.definition_checksum),
+                payload_json: &payload_json,
+            },
+        )?;
+        return model_operation_replay_result(&connection, &operation);
+    }
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    insert_equipment_model_identity(
+        &transaction,
+        NewEquipmentModelIdentityRecord {
+            equipment_model_id: &equipment_model_id,
+            manufacturer: parsed.manufacturer.trim(),
+            model_name: parsed.model_name.trim(),
+            variant: parsed.variant.as_deref(),
+            equipment_class: equipment_class_text(parsed.equipment_class),
+            category_code: &parsed.category_code,
+            created_by: &input.actor,
+            timestamp: &now,
+        },
+    )?;
+    insert_equipment_model_revision(
+        &transaction,
+        NewEquipmentModelRevisionRecord {
+            revision_id: &revision_id,
+            equipment_model_id: &equipment_model_id,
+            revision_number: 1,
+            parent_revision_id: None,
+            status: revision_status_text(EquipmentRevisionStatus::Draft),
+            definition_schema_version: &canonical.definition_schema_version,
+            definition_json: &canonical.canonical_json,
+            definition_checksum: &canonical.definition_checksum,
+            created_by: &input.actor,
+            timestamp: &now,
+            capability_count: parsed.capabilities.len() as u32,
+            interface_count: parsed.communication_interfaces.len() as u32,
+            signal_port_count: parsed.signal_ports.len() as u32,
+        },
+    )?;
+    write_equipment_model_classification_summary(
+        &transaction,
+        EquipmentModelClassificationSummaryInput {
+            equipment_model_id: &equipment_model_id,
+            revision_id: &revision_id,
+            revision_number: 1,
+            status: revision_status_text(EquipmentRevisionStatus::Draft),
+            definition_checksum: &canonical.definition_checksum,
+            definition: &parsed,
+            timestamp: &now,
+        },
+    )?;
+    write_equipment_model_template_snapshot(
+        &transaction,
+        &equipment_model_id,
+        &revision_id,
+        &parsed,
+        &now,
+    )?;
+    write_equipment_audit_and_outbox(
+        &transaction,
+        EquipmentAuditEventInput {
+            aggregate_kind: "equipment_model",
+            entity_id: &equipment_model_id,
+            revision_id: Some(&revision_id),
+            action: "equipment_model_created_from_category_template",
+            actor: &input.actor,
+            reason: &input.reason,
+            operation_id: &input.operation_id,
+            correlation_id: &input.correlation_id,
+            device_id: &input.device_id,
+            old_revision_id: None,
+            new_revision_id: Some(&revision_id),
+            old_definition_checksum: None,
+            new_definition_checksum: Some(&canonical.definition_checksum),
+            payload_json: &payload_json,
+            timestamp: &now,
+        },
+        EquipmentSyncOperationInput {
+            operation_id: &input.operation_id,
+            entity_type: "equipment_model_revision",
+            entity_id: &revision_id,
+            operation_kind: "equipment_model_created_from_category_template",
+            base_revision: "none",
+            resulting_revision: &revision_id,
+            actor_id: &input.actor,
+            device_id: &input.device_id,
+            correlation_id: &input.correlation_id,
+            payload_json: &payload_json,
+            timestamp: &now,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+    model_operation_result_for_revision(
+        &connection,
+        "equipment_model_created_from_category_template",
+        &input.operation_id,
+        false,
+        &equipment_model_id,
         &revision_id,
     )
 }
@@ -641,6 +1384,13 @@ pub fn create_equipment_model(
             definition: &parsed,
             timestamp: &now,
         },
+    )?;
+    write_equipment_model_template_snapshot(
+        &transaction,
+        &input.equipment_model_id,
+        &revision_id,
+        &parsed,
+        &now,
     )?;
     write_equipment_audit_and_outbox(
         &transaction,
@@ -823,6 +1573,13 @@ pub fn clone_equipment_model(
             definition: &cloned_definition,
             timestamp: &now,
         },
+    )?;
+    write_equipment_model_template_snapshot(
+        &transaction,
+        &input.new_equipment_model_id,
+        &revision_id,
+        &cloned_definition,
+        &now,
     )?;
     write_equipment_audit_and_outbox(
         &transaction,
@@ -1019,6 +1776,13 @@ pub fn replace_equipment_model_revision_definition(
             timestamp: &now,
         },
     )?;
+    write_equipment_model_template_snapshot(
+        &transaction,
+        &input.equipment_model_id,
+        &input.revision_id,
+        &parsed,
+        &now,
+    )?;
     write_equipment_audit_and_outbox(
         &transaction,
         EquipmentAuditEventInput {
@@ -1170,6 +1934,13 @@ pub fn create_equipment_model_revision(
             definition: &parsed_source,
             timestamp: &now,
         },
+    )?;
+    write_equipment_model_template_snapshot(
+        &transaction,
+        &input.equipment_model_id,
+        &revision_id,
+        &parsed_source,
+        &now,
     )?;
     write_equipment_audit_and_outbox(
         &transaction,
@@ -2322,6 +3093,981 @@ fn driver_aggregate_for_identity(
     })
 }
 
+#[derive(Clone, Debug)]
+struct EquipmentEffectiveTemplateInternal {
+    category: StoredEquipmentCategory,
+    root_category: StoredEquipmentCategory,
+    category_path: Vec<StoredEquipmentCategory>,
+    fields: Vec<EquipmentEffectiveFieldRule>,
+    template_checksum: String,
+}
+
+fn require_equipment_category(
+    connection: &rusqlite::Connection,
+    category_id: &str,
+) -> Result<StoredEquipmentCategory, AgentError> {
+    load_equipment_category(connection, category_id)?.ok_or_else(|| {
+        AgentError::new(
+            "equipment_category_not_found",
+            format!("equipment category not found: {category_id}"),
+        )
+    })
+}
+
+fn require_equipment_field_definition(
+    connection: &rusqlite::Connection,
+    field_id: &str,
+) -> Result<StoredEquipmentFieldDefinition, AgentError> {
+    load_equipment_field_definition(connection, field_id)?.ok_or_else(|| {
+        AgentError::new(
+            "equipment_field_not_found",
+            format!("equipment field definition not found: {field_id}"),
+        )
+    })
+}
+
+fn category_tree_dtos(
+    categories: &[StoredEquipmentCategory],
+    parent_category_id: Option<&str>,
+) -> Vec<EquipmentCategoryDto> {
+    let mut children = categories
+        .iter()
+        .filter(|category| category.parent_category_id.as_deref() == parent_category_id)
+        .collect::<Vec<_>>();
+    children.sort_by(|left, right| {
+        left.sort_order
+            .cmp(&right.sort_order)
+            .then_with(|| left.label.cmp(&right.label))
+    });
+    children
+        .into_iter()
+        .map(|category| {
+            let child_dtos = category_tree_dtos(categories, Some(&category.category_id));
+            equipment_category_dto(category, child_dtos)
+        })
+        .collect()
+}
+
+fn equipment_category_dto(
+    category: &StoredEquipmentCategory,
+    children: Vec<EquipmentCategoryDto>,
+) -> EquipmentCategoryDto {
+    EquipmentCategoryDto {
+        category_id: category.category_id.clone(),
+        parent_category_id: category.parent_category_id.clone(),
+        root_category_id: category.root_category_id.clone(),
+        label: category.label.clone(),
+        description: category.description.clone(),
+        sort_order: category.sort_order,
+        active: category.active,
+        system_defined: category.system_defined,
+        created_at: category.created_at.clone(),
+        updated_at: category.updated_at.clone(),
+        children,
+    }
+}
+
+fn field_definition_dto(field: &StoredEquipmentFieldDefinition) -> EquipmentFieldDefinitionDto {
+    EquipmentFieldDefinitionDto {
+        field_id: field.field_id.clone(),
+        field_code: field.field_code.clone(),
+        label: field.label.clone(),
+        description: field.description.clone(),
+        data_type: field.data_type.clone(),
+        scope: field.scope.clone(),
+        required_by_default: field.required_by_default,
+        visible_by_default: field.visible_by_default,
+        unique_value: field.unique_value,
+        unit_quantity: field.unit_quantity.clone(),
+        allowed_units: parse_json_string_array(&field.allowed_units_json, "allowed_units_json")
+            .unwrap_or_default(),
+        option_values: parse_json_string_array(&field.option_values_json, "option_values_json")
+            .unwrap_or_default(),
+        validation_regex: field.validation_regex.clone(),
+        default_value: field.default_value_json.as_deref().map(parse_json_value),
+        display_group: field.display_group.clone(),
+        display_order: field.display_order,
+        active: field.active,
+        system_defined: field.system_defined,
+        created_at: field.created_at.clone(),
+        updated_at: field.updated_at.clone(),
+    }
+}
+
+fn category_field_rule_dto(
+    rule: &StoredEquipmentCategoryFieldRule,
+) -> EquipmentCategoryFieldRuleDto {
+    EquipmentCategoryFieldRuleDto {
+        category_id: rule.category_id.clone(),
+        field_id: rule.field_id.clone(),
+        required: rule.required,
+        visible: rule.visible,
+        display_group: rule.display_group.clone(),
+        display_order: rule.display_order,
+        default_value: rule.default_value_json.as_deref().map(parse_json_value),
+        help_text_override: rule.help_text_override.clone(),
+        updated_at: rule.updated_at.clone(),
+    }
+}
+
+fn effective_template_for_category(
+    connection: &rusqlite::Connection,
+    category_id: &str,
+) -> Result<EquipmentEffectiveTemplateInternal, AgentError> {
+    let categories = list_equipment_categories(connection, true)?;
+    let category = categories
+        .iter()
+        .find(|item| item.category_id == category_id)
+        .cloned()
+        .ok_or_else(|| {
+            AgentError::new(
+                "equipment_category_not_found",
+                format!("equipment category not found: {category_id}"),
+            )
+        })?;
+    if !category.active {
+        return Err(AgentError::new(
+            "equipment_category_inactive",
+            "inactive equipment categories cannot create new model templates",
+        ));
+    }
+    let root_category = categories
+        .iter()
+        .find(|item| item.category_id == category.root_category_id)
+        .cloned()
+        .ok_or_else(|| {
+            AgentError::new(
+                "equipment_category_not_found",
+                "root equipment category not found",
+            )
+        })?;
+    let category_path = category_path_for(&categories, &category.category_id)?;
+    let stored_fields =
+        list_equipment_field_definitions(connection, Some("equipment_model"), false)?;
+    let fields_by_id = stored_fields
+        .iter()
+        .map(|field| (field.field_id.clone(), field))
+        .collect::<BTreeMap<_, _>>();
+    let mut effective = BTreeMap::<String, EquipmentEffectiveFieldRule>::new();
+    for category in &category_path {
+        for rule in list_equipment_category_field_rules(connection, &category.category_id)? {
+            let Some(stored_field) = fields_by_id.get(&rule.field_id) else {
+                continue;
+            };
+            let field = core_field_definition_from_stored(stored_field)?;
+            let entry = effective
+                .entry(field.field_code.clone())
+                .or_insert_with(|| EquipmentEffectiveFieldRule {
+                    field: field.clone(),
+                    required: field.required_by_default,
+                    visible: field.visible_by_default,
+                    display_group: stored_field.display_group.clone(),
+                    display_order: stored_field.display_order,
+                    default_value: field.default_value.clone(),
+                    help_text: None,
+                    inherited_from_category_ids: Vec::new(),
+                });
+            entry.field = field;
+            if let Some(required) = rule.required {
+                entry.required = required;
+            }
+            if let Some(visible) = rule.visible {
+                entry.visible = visible;
+            }
+            if let Some(display_group) = rule.display_group.as_ref() {
+                entry.display_group = display_group.clone();
+            }
+            if let Some(display_order) = rule.display_order {
+                entry.display_order = display_order;
+            }
+            if let Some(default_value) = rule.default_value_json.as_deref() {
+                entry.default_value = Some(parse_json_value(default_value));
+            }
+            if let Some(help) = rule.help_text_override.as_ref() {
+                entry.help_text = Some(help.clone());
+            }
+            entry
+                .inherited_from_category_ids
+                .push(category.category_id.clone());
+        }
+    }
+    let mut fields = effective.into_values().collect::<Vec<_>>();
+    fields.sort_by(|left, right| {
+        left.display_order
+            .cmp(&right.display_order)
+            .then_with(|| left.field.label.cmp(&right.field.label))
+    });
+    let template_value = json!({
+        "category_id": &category.category_id,
+        "root_category_id": &root_category.category_id,
+        "path": category_path.iter().map(|item| &item.category_id).collect::<Vec<_>>(),
+        "fields": &fields,
+    });
+    let template_checksum = sha256_rendered(&render_json(&template_value));
+    Ok(EquipmentEffectiveTemplateInternal {
+        category,
+        root_category,
+        category_path,
+        fields,
+        template_checksum,
+    })
+}
+
+fn effective_template_dto(
+    template: &EquipmentEffectiveTemplateInternal,
+) -> EquipmentEffectiveTemplateDto {
+    EquipmentEffectiveTemplateDto {
+        category: equipment_category_dto(&template.category, Vec::new()),
+        root_category: equipment_category_dto(&template.root_category, Vec::new()),
+        category_path: template
+            .category_path
+            .iter()
+            .map(|category| equipment_category_dto(category, Vec::new()))
+            .collect(),
+        fields: template
+            .fields
+            .iter()
+            .map(|field| EquipmentEffectiveFieldDto {
+                field: core_field_definition_dto(&field.field),
+                required: field.required,
+                visible: field.visible,
+                display_group: field.display_group.clone(),
+                display_order: field.display_order,
+                default_value: field.default_value.clone(),
+                help_text: field.help_text.clone(),
+                inherited_from_category_ids: field.inherited_from_category_ids.clone(),
+            })
+            .collect(),
+        template_checksum: template.template_checksum.clone(),
+    }
+}
+
+fn core_field_definition_dto(field: &EquipmentFieldDefinition) -> EquipmentFieldDefinitionDto {
+    EquipmentFieldDefinitionDto {
+        field_id: field.field_id.clone(),
+        field_code: field.field_code.clone(),
+        label: field.label.clone(),
+        description: field.description.clone(),
+        data_type: enum_code(field.data_type),
+        scope: enum_code(field.scope),
+        required_by_default: field.required_by_default,
+        visible_by_default: field.visible_by_default,
+        unique_value: field.unique_value,
+        unit_quantity: field.unit_quantity.clone(),
+        allowed_units: field.allowed_units.clone(),
+        option_values: field.option_values.clone(),
+        validation_regex: field.validation_regex.clone(),
+        default_value: field.default_value.clone(),
+        display_group: "Identification".to_owned(),
+        display_order: 0,
+        active: field.active,
+        system_defined: field.system_defined,
+        created_at: String::new(),
+        updated_at: String::new(),
+    }
+}
+
+fn category_path_for(
+    categories: &[StoredEquipmentCategory],
+    category_id: &str,
+) -> Result<Vec<StoredEquipmentCategory>, AgentError> {
+    let mut path = Vec::new();
+    let mut current = categories
+        .iter()
+        .find(|category| category.category_id == category_id)
+        .cloned()
+        .ok_or_else(|| AgentError::new("equipment_category_not_found", "category not found"))?;
+    loop {
+        path.push(current.clone());
+        let Some(parent_id) = current.parent_category_id.as_deref() else {
+            break;
+        };
+        current = categories
+            .iter()
+            .find(|category| category.category_id == parent_id)
+            .cloned()
+            .ok_or_else(|| {
+                AgentError::new("equipment_category_not_found", "category parent not found")
+            })?;
+        if path.len() > categories.len() {
+            return Err(AgentError::new(
+                "equipment_category_cycle",
+                "category hierarchy contains a cycle",
+            ));
+        }
+    }
+    path.reverse();
+    Ok(path)
+}
+
+fn is_descendant_category(
+    categories: &[StoredEquipmentCategory],
+    candidate_category_id: &str,
+    ancestor_category_id: &str,
+) -> bool {
+    let mut current = categories
+        .iter()
+        .find(|category| category.category_id == candidate_category_id);
+    while let Some(category) = current {
+        if category.parent_category_id.as_deref() == Some(ancestor_category_id) {
+            return true;
+        }
+        current = category
+            .parent_category_id
+            .as_deref()
+            .and_then(|parent_id| categories.iter().find(|item| item.category_id == parent_id));
+    }
+    false
+}
+
+fn core_field_definition_from_stored(
+    field: &StoredEquipmentFieldDefinition,
+) -> Result<EquipmentFieldDefinition, AgentError> {
+    Ok(EquipmentFieldDefinition {
+        field_id: field.field_id.clone(),
+        field_code: field.field_code.clone(),
+        label: field.label.clone(),
+        description: field.description.clone(),
+        data_type: parse_enum_code(&field.data_type, "data_type")?,
+        scope: parse_enum_code(&field.scope, "scope")?,
+        required_by_default: field.required_by_default,
+        visible_by_default: field.visible_by_default,
+        unique_value: field.unique_value,
+        unit_quantity: field.unit_quantity.clone(),
+        allowed_units: parse_json_string_array(&field.allowed_units_json, "allowed_units_json")?,
+        option_values: parse_json_string_array(&field.option_values_json, "option_values_json")?,
+        validation_regex: field.validation_regex.clone(),
+        default_value: field.default_value_json.as_deref().map(parse_json_value),
+        active: field.active,
+        system_defined: field.system_defined,
+    })
+}
+
+fn core_field_definition_from_input(
+    field_id: &str,
+    field_code: &str,
+    input: &UpsertEquipmentFieldDefinitionInput,
+) -> Result<EquipmentFieldDefinition, AgentError> {
+    Ok(EquipmentFieldDefinition {
+        field_id: field_id.to_owned(),
+        field_code: field_code.to_owned(),
+        label: input.label.trim().to_owned(),
+        description: input.description.trim().to_owned(),
+        data_type: parse_enum_code::<EquipmentFieldDataType>(&input.data_type, "data_type")?,
+        scope: parse_enum_code::<EquipmentFieldScope>(&input.scope, "scope")?,
+        required_by_default: input.required_by_default,
+        visible_by_default: input.visible_by_default,
+        unique_value: input.unique_value,
+        unit_quantity: input.unit_quantity.clone(),
+        allowed_units: input.allowed_units.clone(),
+        option_values: input.option_values.clone(),
+        validation_regex: input.validation_regex.clone(),
+        default_value: input.default_value.clone(),
+        active: input.active,
+        system_defined: false,
+    })
+}
+
+fn validate_field_contract(field: &EquipmentFieldDefinition) -> Result<(), AgentError> {
+    let issues = emc_locus_core::equipment::validate_equipment_field_definition(field);
+    if issues.iter().any(|issue| issue.severity == "error") {
+        return Err(invalid_definition_error(
+            "invalid_equipment_field_definition",
+            issues,
+        ));
+    }
+    Ok(())
+}
+
+fn validate_equipment_template_value(
+    field: &StoredEquipmentFieldDefinition,
+    value: &Value,
+) -> Result<(), AgentError> {
+    let mut core_field = core_field_definition_from_stored(field)?;
+    core_field.default_value = Some(value.clone());
+    validate_field_contract(&core_field)
+}
+
+fn required_form_text<'a>(
+    values: &'a BTreeMap<String, Value>,
+    field_code: &str,
+    label: &str,
+) -> Result<&'a str, AgentError> {
+    values
+        .get(field_code)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            AgentError::with_details(
+                "equipment_template_required_field_missing",
+                format!("Le champ \"{label}\" est obligatoire."),
+                json!({ "field_code": field_code, "label": label }),
+            )
+        })
+}
+
+fn equipment_model_definition_from_category_template(
+    template: &EquipmentEffectiveTemplateInternal,
+    input: &CreateEquipmentModelFromCategoryTemplateInput,
+    captured_at: &str,
+) -> Result<EquipmentModelDefinition, AgentError> {
+    let manufacturer = required_form_text(&input.field_values, "manufacturer", "Fabricant")?;
+    let model_name = required_form_text(&input.field_values, "model_name", "Modèle")?;
+    let variant = input
+        .field_values
+        .get("variant")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let technical = technical_defaults_for_category(
+        &template.category.category_id,
+        &template.root_category.category_id,
+    );
+    let mut metadata = BTreeMap::new();
+    metadata.insert(
+        "entry_template_category_id".to_owned(),
+        Value::String(template.category.category_id.clone()),
+    );
+    metadata.insert(
+        "entry_template_category_label".to_owned(),
+        Value::String(template.category.label.clone()),
+    );
+    metadata.insert(
+        "entry_template_path".to_owned(),
+        Value::Array(
+            template
+                .category_path
+                .iter()
+                .map(|category| Value::String(category.label.clone()))
+                .collect(),
+        ),
+    );
+    metadata.insert("is_demo".to_owned(), Value::Bool(input.is_demo));
+    let custom_field_values = normalized_template_field_values(template, &input.field_values);
+    Ok(EquipmentModelDefinition {
+        definition_schema_version: EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION.to_owned(),
+        manufacturer: manufacturer.to_owned(),
+        model_name: model_name.to_owned(),
+        variant,
+        equipment_class: technical.equipment_class,
+        functional_role: technical.functional_role,
+        category_code: template.category.category_id.clone(),
+        signal_domains: technical.signal_domains,
+        technology_tags: technical.technology_tags,
+        specifications: Vec::new(),
+        signal_ports: technical.signal_ports,
+        communication_interfaces: technical.communication_interfaces,
+        capabilities: Vec::new(),
+        custom_field_values,
+        template_snapshot: Some(EquipmentModelTemplateSnapshot {
+            category_id: template.category.category_id.clone(),
+            root_category_id: template.root_category.category_id.clone(),
+            category_path: template
+                .category_path
+                .iter()
+                .map(|category| category.label.clone())
+                .collect(),
+            captured_at: captured_at.to_owned(),
+            template_checksum: template.template_checksum.clone(),
+            fields: template.fields.clone(),
+        }),
+        is_demo: input.is_demo,
+        metadata,
+    })
+}
+
+fn normalized_template_field_values(
+    template: &EquipmentEffectiveTemplateInternal,
+    values: &BTreeMap<String, Value>,
+) -> BTreeMap<String, Value> {
+    let visible_field_codes = template
+        .fields
+        .iter()
+        .filter(|field| field.visible)
+        .map(|field| field.field.field_code.as_str())
+        .collect::<BTreeSet<_>>();
+    values
+        .iter()
+        .filter(|(field_code, value)| {
+            visible_field_codes.contains(field_code.as_str()) && !is_blank_template_value(value)
+        })
+        .map(|(field_code, value)| (field_code.clone(), value.clone()))
+        .collect()
+}
+
+fn is_blank_template_value(value: &Value) -> bool {
+    if value.is_null() {
+        return true;
+    }
+    if value.as_str().is_some_and(|text| text.trim().is_empty()) {
+        return true;
+    }
+    if value.as_array().is_some_and(Vec::is_empty) {
+        return true;
+    }
+    if let Some(object) = value.as_object() {
+        let number_missing = object
+            .get("value")
+            .is_none_or(|candidate| candidate.as_f64().is_none());
+        let unit_missing = object
+            .get("unit")
+            .and_then(Value::as_str)
+            .is_none_or(|unit| unit.trim().is_empty());
+        return number_missing && unit_missing;
+    }
+    false
+}
+
+struct TechnicalCategoryDefaults {
+    equipment_class: EquipmentClass,
+    functional_role: FunctionalRole,
+    signal_domains: Vec<SignalDomain>,
+    technology_tags: Vec<TechnologyTag>,
+    signal_ports: Vec<SignalPortDefinition>,
+    communication_interfaces: Vec<CommunicationInterfaceDefinition>,
+}
+
+fn technical_defaults_for_category(
+    category_id: &str,
+    root_category_id: &str,
+) -> TechnicalCategoryDefaults {
+    match category_id {
+        "rf_cable" | "rf_attenuator" | "rf_coupler" | "rf_filter" | "rf_load" => {
+            TechnicalCategoryDefaults {
+                equipment_class: EquipmentClass::PassiveComponent,
+                functional_role: FunctionalRole::RfNetworkElement,
+                signal_domains: vec![SignalDomain::Rf],
+                technology_tags: vec![TechnologyTag::Rf50Ohm],
+                signal_ports: vec![
+                    template_rf_port("rf_a", "RF A", PortDirectionality::Through),
+                    template_rf_port("rf_b", "RF B", PortDirectionality::Through),
+                ],
+                communication_interfaces: Vec::new(),
+            }
+        }
+        "receiving_antenna" | "field_probe" | "current_probe" => TechnicalCategoryDefaults {
+            equipment_class: EquipmentClass::Sensor,
+            functional_role: FunctionalRole::Sensor,
+            signal_domains: vec![SignalDomain::Environmental, SignalDomain::Rf],
+            technology_tags: vec![TechnologyTag::Rf50Ohm],
+            signal_ports: vec![
+                SignalPortDefinition {
+                    port_id: "field".to_owned(),
+                    label: "Champ".to_owned(),
+                    directionality: PortDirectionality::Input,
+                    flow_role: PortFlowRole::FieldSidePort,
+                    signal_domain: SignalDomain::Environmental,
+                    required: true,
+                    connector_type: None,
+                    technology_tags: Vec::new(),
+                    quantity: PhysicalQuantity::ElectricField,
+                    unit: "dBuV_per_m".to_owned(),
+                    impedance: None,
+                    frequency_min: None,
+                    frequency_max: None,
+                    voltage_max: None,
+                    current_max: None,
+                    power_max: None,
+                    channel_index: None,
+                    differential: false,
+                    isolated: false,
+                    comment: None,
+                },
+                template_rf_port("rf_out", "Sortie RF", PortDirectionality::Output),
+            ],
+            communication_interfaces: Vec::new(),
+        },
+        "oscilloscope" | "daq" => TechnicalCategoryDefaults {
+            equipment_class: EquipmentClass::DaqDevice,
+            functional_role: FunctionalRole::AcquisitionDevice,
+            signal_domains: vec![
+                SignalDomain::AnalogVoltage,
+                SignalDomain::Trigger,
+                SignalDomain::Ethernet,
+            ],
+            technology_tags: vec![
+                TechnologyTag::VoltageInput,
+                TechnologyTag::Trigger,
+                TechnologyTag::Ethernet,
+            ],
+            signal_ports: vec![
+                SignalPortDefinition {
+                    port_id: "ch1".to_owned(),
+                    label: "CH1".to_owned(),
+                    directionality: PortDirectionality::Input,
+                    flow_role: PortFlowRole::MeasurementPort,
+                    signal_domain: SignalDomain::AnalogVoltage,
+                    required: true,
+                    connector_type: Some("BNC".to_owned()),
+                    technology_tags: vec![TechnologyTag::VoltageInput],
+                    quantity: PhysicalQuantity::Voltage,
+                    unit: "V".to_owned(),
+                    impedance: None,
+                    frequency_min: None,
+                    frequency_max: None,
+                    voltage_max: None,
+                    current_max: None,
+                    power_max: None,
+                    channel_index: Some(1),
+                    differential: false,
+                    isolated: false,
+                    comment: None,
+                },
+                template_communication_port(),
+            ],
+            communication_interfaces: vec![template_simulated_scpi_interface()],
+        },
+        "emc_receiver" | "spectrum_analyzer" | "rf_power_meter" => TechnicalCategoryDefaults {
+            equipment_class: EquipmentClass::ControllableInstrument,
+            functional_role: FunctionalRole::MeasurementInstrument,
+            signal_domains: vec![SignalDomain::Rf, SignalDomain::Ethernet],
+            technology_tags: vec![
+                TechnologyTag::Rf50Ohm,
+                TechnologyTag::Ethernet,
+                TechnologyTag::Scpi,
+            ],
+            signal_ports: vec![
+                SignalPortDefinition {
+                    port_id: "rf_input".to_owned(),
+                    label: "Entrée RF".to_owned(),
+                    directionality: PortDirectionality::Input,
+                    flow_role: PortFlowRole::MeasurementPort,
+                    signal_domain: SignalDomain::Rf,
+                    required: true,
+                    connector_type: Some("N".to_owned()),
+                    technology_tags: vec![TechnologyTag::Rf50Ohm],
+                    quantity: PhysicalQuantity::Power,
+                    unit: "dBm".to_owned(),
+                    impedance: Some(50.0),
+                    frequency_min: None,
+                    frequency_max: None,
+                    voltage_max: None,
+                    current_max: None,
+                    power_max: None,
+                    channel_index: None,
+                    differential: false,
+                    isolated: false,
+                    comment: None,
+                },
+                template_communication_port(),
+            ],
+            communication_interfaces: vec![template_simulated_scpi_interface()],
+        },
+        _ => match root_category_id {
+            "energy_sources" => TechnicalCategoryDefaults {
+                equipment_class: EquipmentClass::ControllableInstrument,
+                functional_role: FunctionalRole::EnergySource,
+                signal_domains: vec![
+                    SignalDomain::PowerAc,
+                    SignalDomain::PowerDc,
+                    SignalDomain::Ethernet,
+                ],
+                technology_tags: vec![TechnologyTag::Ethernet],
+                signal_ports: vec![
+                    SignalPortDefinition {
+                        port_id: "output".to_owned(),
+                        label: "Sortie".to_owned(),
+                        directionality: PortDirectionality::Output,
+                        flow_role: PortFlowRole::SourcePort,
+                        signal_domain: SignalDomain::PowerAc,
+                        required: true,
+                        connector_type: None,
+                        technology_tags: Vec::new(),
+                        quantity: PhysicalQuantity::Voltage,
+                        unit: "V".to_owned(),
+                        impedance: None,
+                        frequency_min: None,
+                        frequency_max: None,
+                        voltage_max: None,
+                        current_max: None,
+                        power_max: None,
+                        channel_index: None,
+                        differential: false,
+                        isolated: false,
+                        comment: None,
+                    },
+                    template_communication_port(),
+                ],
+                communication_interfaces: vec![template_simulated_scpi_interface()],
+            },
+            "signal_sources" | "actuators_emitters" => TechnicalCategoryDefaults {
+                equipment_class: EquipmentClass::ControllableInstrument,
+                functional_role: if root_category_id == "signal_sources" {
+                    FunctionalRole::SignalSource
+                } else {
+                    FunctionalRole::Actuator
+                },
+                signal_domains: vec![SignalDomain::Rf, SignalDomain::Ethernet],
+                technology_tags: vec![TechnologyTag::Rf50Ohm, TechnologyTag::Ethernet],
+                signal_ports: vec![
+                    template_rf_port("rf_output", "Sortie RF", PortDirectionality::Output),
+                    template_communication_port(),
+                ],
+                communication_interfaces: vec![template_simulated_scpi_interface()],
+            },
+            "processing_control_systems" => TechnicalCategoryDefaults {
+                equipment_class: EquipmentClass::SoftwareAdapter,
+                functional_role: FunctionalRole::SoftwareSystem,
+                signal_domains: vec![SignalDomain::Software],
+                technology_tags: Vec::new(),
+                signal_ports: Vec::new(),
+                communication_interfaces: Vec::new(),
+            },
+            _ => TechnicalCategoryDefaults {
+                equipment_class: EquipmentClass::ManualEquipment,
+                functional_role: FunctionalRole::ManualAccessory,
+                signal_domains: Vec::new(),
+                technology_tags: Vec::new(),
+                signal_ports: Vec::new(),
+                communication_interfaces: Vec::new(),
+            },
+        },
+    }
+}
+
+fn template_rf_port(
+    port_id: &str,
+    label: &str,
+    directionality: PortDirectionality,
+) -> SignalPortDefinition {
+    SignalPortDefinition {
+        port_id: port_id.to_owned(),
+        label: label.to_owned(),
+        directionality,
+        flow_role: match directionality {
+            PortDirectionality::Output => PortFlowRole::SourcePort,
+            PortDirectionality::Input => PortFlowRole::MeasurementPort,
+            _ => PortFlowRole::ThroughPort,
+        },
+        signal_domain: SignalDomain::Rf,
+        required: true,
+        connector_type: Some("N".to_owned()),
+        technology_tags: vec![TechnologyTag::Rf50Ohm],
+        quantity: PhysicalQuantity::Power,
+        unit: "dBm".to_owned(),
+        impedance: Some(50.0),
+        frequency_min: None,
+        frequency_max: None,
+        voltage_max: None,
+        current_max: None,
+        power_max: None,
+        channel_index: None,
+        differential: false,
+        isolated: false,
+        comment: None,
+    }
+}
+
+fn template_communication_port() -> SignalPortDefinition {
+    SignalPortDefinition {
+        port_id: "lan".to_owned(),
+        label: "LAN".to_owned(),
+        directionality: PortDirectionality::Communication,
+        flow_role: PortFlowRole::CommunicationPort,
+        signal_domain: SignalDomain::Ethernet,
+        required: false,
+        connector_type: Some("RJ45".to_owned()),
+        technology_tags: vec![TechnologyTag::Ethernet],
+        quantity: PhysicalQuantity::Binary,
+        unit: "dimensionless".to_owned(),
+        impedance: None,
+        frequency_min: None,
+        frequency_max: None,
+        voltage_max: None,
+        current_max: None,
+        power_max: None,
+        channel_index: None,
+        differential: false,
+        isolated: false,
+        comment: None,
+    }
+}
+
+fn template_simulated_scpi_interface() -> CommunicationInterfaceDefinition {
+    CommunicationInterfaceDefinition {
+        interface_id: "simulation".to_owned(),
+        label: "Simulation SCPI".to_owned(),
+        transport_kind: TransportKind::EthernetTcp,
+        access_provider_kind: AccessProviderKind::Simulation,
+        protocol_kind: ProtocolKind::Scpi,
+        required: false,
+        default_interface: true,
+        configuration_schema: BTreeMap::new(),
+        default_configuration: BTreeMap::new(),
+        framing: Some("lf".to_owned()),
+        identification_strategy: None,
+        firmware_compatibility: Vec::new(),
+    }
+}
+
+fn write_equipment_model_template_snapshot(
+    transaction: &rusqlite::Transaction<'_>,
+    equipment_model_id: &str,
+    revision_id: &str,
+    definition: &EquipmentModelDefinition,
+    timestamp: &str,
+) -> Result<(), AgentError> {
+    let snapshot = definition.template_snapshot.as_ref().map(|snapshot| {
+        let snapshot_json = render_json(snapshot);
+        (
+            snapshot_json,
+            EquipmentModelTemplateSnapshotRecord {
+                equipment_model_id,
+                revision_id,
+                category_id: &snapshot.category_id,
+                root_category_id: &snapshot.root_category_id,
+                snapshot_json: "",
+                snapshot_checksum: &snapshot.template_checksum,
+                timestamp,
+            },
+        )
+    });
+    let mut snapshot_record = None;
+    let snapshot_json_storage;
+    if let Some((snapshot_json, mut record)) = snapshot {
+        snapshot_json_storage = snapshot_json;
+        record.snapshot_json = &snapshot_json_storage;
+        snapshot_record = Some(record);
+    }
+    let fields_by_code = definition
+        .template_snapshot
+        .as_ref()
+        .map(|snapshot| {
+            snapshot
+                .fields
+                .iter()
+                .map(|field| (field.field.field_code.clone(), field.field.field_id.clone()))
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+    let value_jsons = definition
+        .custom_field_values
+        .iter()
+        .filter_map(|(field_code, value)| {
+            fields_by_code.get(field_code).map(|field_id| {
+                (
+                    field_id.clone(),
+                    render_json(value),
+                    display_value_for(value),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    let field_values = value_jsons
+        .iter()
+        .map(
+            |(field_id, value_json, display_value)| EquipmentModelFieldValueRecord {
+                equipment_model_id,
+                revision_id,
+                field_id,
+                value_json,
+                display_value,
+            },
+        )
+        .collect::<Vec<_>>();
+    replace_equipment_model_template_snapshot(
+        transaction,
+        equipment_model_id,
+        revision_id,
+        snapshot_record,
+        &field_values,
+    )
+}
+
+fn display_value_for(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Number(number) => number.to_string(),
+        Value::Bool(flag) => flag.to_string(),
+        Value::Array(items) => items
+            .iter()
+            .map(display_value_for)
+            .collect::<Vec<_>>()
+            .join(", "),
+        Value::Object(object) => {
+            if let (Some(value), Some(unit)) = (object.get("value"), object.get("unit")) {
+                format!("{} {}", display_value_for(value), display_value_for(unit))
+            } else {
+                render_json(value)
+            }
+        }
+        Value::Null => String::new(),
+    }
+}
+
+fn generated_equipment_model_id(
+    category_id: &str,
+    manufacturer: &str,
+    model_name: &str,
+    variant: Option<&str>,
+) -> String {
+    let mut raw = format!("{category_id}-{manufacturer}-{model_name}");
+    if let Some(variant) = variant {
+        raw.push('-');
+        raw.push_str(variant);
+    }
+    let slug = raw
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_uppercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    format!("EQM-{slug}")
+}
+
+fn demo_mode_filter(value: Option<&str>) -> Result<Option<bool>, AgentError> {
+    match value.unwrap_or("hide") {
+        "hide" => Ok(Some(false)),
+        "show" | "all" => Ok(None),
+        "only" => Ok(Some(true)),
+        other => Err(AgentError::with_details(
+            "invalid_demo_mode",
+            "demo_mode must be hide, show, or only",
+            json!({ "demo_mode": other }),
+        )),
+    }
+}
+
+fn root_category_for_category_code(category_code: &str) -> &'static str {
+    match category_code {
+        "energy_sources" => "energy_sources",
+        "signal_sources" => "signal_sources",
+        "rf_equipment" | "rf_cable" | "rf_attenuator" | "rf_coupler" | "rf_amplifier"
+        | "rf_filter" | "rf_load" => "rf_equipment",
+        "sensors_transducers"
+        | "receiving_antenna"
+        | "field_probe"
+        | "current_probe"
+        | "accelerometer"
+        | "microphone" => "sensors_transducers",
+        "actuators_emitters" => "actuators_emitters",
+        "measurement_instruments_digitizers"
+        | "emc_receiver"
+        | "spectrum_analyzer"
+        | "oscilloscope"
+        | "rf_power_meter"
+        | "multimeter"
+        | "daq" => "measurement_instruments_digitizers",
+        "processing_control_systems" => "processing_control_systems",
+        _ => "",
+    }
+}
+
+fn sha256_rendered(text: &str) -> String {
+    let digest = Sha256::digest(text.as_bytes());
+    format!("sha256:{digest:x}")
+}
+
 fn model_operation_result_for_revision(
     connection: &rusqlite::Connection,
     operation: &str,
@@ -2459,6 +4205,12 @@ fn write_equipment_model_classification_summary(
     let signal_domains_json = render_json(&signal_domains);
     let technology_tags_json = render_json(&technology_tags);
     let functional_role = functional_role_text(input.definition.functional_role);
+    let root_category_id = input
+        .definition
+        .template_snapshot
+        .as_ref()
+        .map(|snapshot| snapshot.root_category_id.as_str())
+        .unwrap_or_else(|| root_category_for_category_code(&input.definition.category_code));
     replace_equipment_model_classification_summary(
         transaction,
         EquipmentClassificationSummaryRecord {
@@ -2469,6 +4221,14 @@ fn write_equipment_model_classification_summary(
             manufacturer: input.definition.manufacturer.trim(),
             equipment_class: equipment_class_text(input.definition.equipment_class),
             category_code: &input.definition.category_code,
+            root_category_id,
+            is_demo: input.definition.is_demo
+                || input
+                    .definition
+                    .metadata
+                    .get("is_demo")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
             functional_role: &functional_role,
             definition_checksum: input.definition_checksum,
             signal_domains_json: &signal_domains_json,
@@ -2545,6 +4305,8 @@ fn equipment_model_identity_dto(
         variant: identity.variant.clone(),
         equipment_class: identity.equipment_class.clone(),
         category_code: identity.category_code.clone(),
+        root_category_id: identity.root_category_id.clone(),
+        is_demo: identity.is_demo,
         current_approved_revision_id: identity.current_approved_revision_id.clone(),
         created_by: identity.created_by.clone(),
         created_at: identity.created_at.clone(),
@@ -2780,6 +4542,9 @@ fn equipment_model_definition_from_preset(
         signal_ports,
         communication_interfaces: Vec::new(),
         capabilities: Vec::new(),
+        custom_field_values: BTreeMap::new(),
+        template_snapshot: None,
+        is_demo: input.is_demo,
         metadata,
     })
 }

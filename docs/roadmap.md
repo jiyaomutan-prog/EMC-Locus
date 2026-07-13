@@ -119,6 +119,13 @@ Deliverables:
   helpers; seed/demo data; and LAB CONSOLE editors with CSV curve/table support
   and deterministic 1D curve evaluation. It is not real acquisition, station
   wiring, physical fleet deployment, FFT, reporting, RBAC, or synchronization.
+- `0.13.1` refounds the Equipment Repository UX around a business taxonomy and
+  configurable field templates: seven system root categories, subcategories,
+  field dictionary, inherited category field rules, effective templates,
+  model field snapshots, category-driven creation wizard, demo filtering, API
+  routes, tests, and docs. It preserves the 0.11-0.13 technical domains under
+  the hood and does not implement physical assets, station wiring, acquisition,
+  FFT, reporting, RBAC, or synchronization.
 
 ## Phase 3: Measurement Runtime
 

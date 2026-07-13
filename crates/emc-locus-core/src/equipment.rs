@@ -391,8 +391,174 @@ pub struct EquipmentModelDefinition {
     pub communication_interfaces: Vec<CommunicationInterfaceDefinition>,
     #[serde(default)]
     pub capabilities: Vec<MeasurementCapabilityDefinition>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub custom_field_values: BTreeMap<String, Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_snapshot: Option<EquipmentModelTemplateSnapshot>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_demo: bool,
     #[serde(default)]
     pub metadata: BTreeMap<String, Value>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EquipmentRootCategoryDefinition {
+    pub root_category_id: String,
+    pub label: String,
+    pub description: String,
+    pub sort_order: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EquipmentFieldDataType {
+    ShortText,
+    LongText,
+    Number,
+    NumberWithUnit,
+    Date,
+    Boolean,
+    Choice,
+    MultiChoice,
+    Url,
+    FileReference,
+    ObjectReference,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EquipmentFieldScope {
+    EquipmentModel,
+    PhysicalAsset,
+    MetrologyRecord,
+    StationConnection,
+    DriverProfile,
+    SensorDefinition,
+    DaqChannelProfile,
+    AcquisitionRecipe,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EquipmentFieldDefinition {
+    pub field_id: String,
+    pub field_code: String,
+    pub label: String,
+    #[serde(default)]
+    pub description: String,
+    pub data_type: EquipmentFieldDataType,
+    pub scope: EquipmentFieldScope,
+    #[serde(default)]
+    pub required_by_default: bool,
+    #[serde(default = "default_true")]
+    pub visible_by_default: bool,
+    #[serde(default)]
+    pub unique_value: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit_quantity: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_units: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub option_values: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation_regex: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<Value>,
+    #[serde(default = "default_true")]
+    pub active: bool,
+    #[serde(default)]
+    pub system_defined: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EquipmentCategoryFieldRule {
+    pub category_id: String,
+    pub field_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visible: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_group: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_order: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help_text_override: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EquipmentEffectiveFieldRule {
+    pub field: EquipmentFieldDefinition,
+    pub required: bool,
+    pub visible: bool,
+    pub display_group: String,
+    pub display_order: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inherited_from_category_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EquipmentModelTemplateSnapshot {
+    pub category_id: String,
+    pub root_category_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub category_path: Vec<String>,
+    pub captured_at: String,
+    pub template_checksum: String,
+    #[serde(default)]
+    pub fields: Vec<EquipmentEffectiveFieldRule>,
+}
+
+pub fn default_equipment_root_categories() -> Vec<EquipmentRootCategoryDefinition> {
+    vec![
+        EquipmentRootCategoryDefinition {
+            root_category_id: "energy_sources".to_owned(),
+            label: "Sources d'énergie".to_owned(),
+            description: "Sources électriques, RF, thermiques ou autres utilisées pour alimenter ou solliciter un essai.".to_owned(),
+            sort_order: 10,
+        },
+        EquipmentRootCategoryDefinition {
+            root_category_id: "signal_sources".to_owned(),
+            label: "Sources de signaux".to_owned(),
+            description: "Générateurs et sources produisant des signaux contrôlés.".to_owned(),
+            sort_order: 20,
+        },
+        EquipmentRootCategoryDefinition {
+            root_category_id: "rf_equipment".to_owned(),
+            label: "Équipements radiofréquences".to_owned(),
+            description: "Éléments RF passifs ou actifs utilisés dans les chaînes CEM.".to_owned(),
+            sort_order: 30,
+        },
+        EquipmentRootCategoryDefinition {
+            root_category_id: "sensors_transducers".to_owned(),
+            label: "Capteurs / transducteurs".to_owned(),
+            description: "Capteurs et transducteurs convertissant une grandeur physique en signal mesurable.".to_owned(),
+            sort_order: 40,
+        },
+        EquipmentRootCategoryDefinition {
+            root_category_id: "actuators_emitters".to_owned(),
+            label: "Actionneurs / Émetteurs".to_owned(),
+            description: "Émetteurs, actionneurs et équipements appliquant une sollicitation.".to_owned(),
+            sort_order: 50,
+        },
+        EquipmentRootCategoryDefinition {
+            root_category_id: "measurement_instruments_digitizers".to_owned(),
+            label: "Instruments de mesure / numériseurs".to_owned(),
+            description: "Récepteurs, analyseurs, oscilloscopes, multimètres, wattmètres et DAQ.".to_owned(),
+            sort_order: 60,
+        },
+        EquipmentRootCategoryDefinition {
+            root_category_id: "processing_control_systems".to_owned(),
+            label: "Systèmes de traitement et de contrôle".to_owned(),
+            description: "Contrôleurs, logiciels, automates et systèmes de pilotage ou de traitement.".to_owned(),
+            sort_order: 70,
+        },
+    ]
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -499,6 +665,14 @@ pub struct DriverScriptStep {
 
 fn default_enabled() -> bool {
     true
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -720,6 +894,7 @@ pub fn validate_equipment_model_definition(
         &port_ids,
         &port_map_for(&definition.signal_ports),
     );
+    validate_equipment_model_template_fields(&mut issues, definition);
 
     if definition.equipment_class == EquipmentClass::ManualEquipment
         && definition
@@ -747,6 +922,275 @@ pub fn validate_equipment_model_definition(
         ));
     }
     issues
+}
+
+pub fn validate_equipment_field_definition(
+    field: &EquipmentFieldDefinition,
+) -> Vec<DefinitionValidationIssue> {
+    let mut issues = Vec::new();
+    require_token(&mut issues, &field.field_id, "field_id");
+    require_token(&mut issues, &field.field_code, "field_code");
+    require_text(&mut issues, &field.label, "label");
+    if matches!(
+        field.data_type,
+        EquipmentFieldDataType::Choice | EquipmentFieldDataType::MultiChoice
+    ) && field.option_values.is_empty()
+    {
+        issues.push(issue(
+            "error",
+            "equipment_field_choices_empty",
+            "option_values",
+            format!(
+                "Le champ \"{}\" doit proposer au moins un choix.",
+                field.label
+            ),
+            Some("Ajoutez les valeurs autorisées ou utilisez un type texte."),
+        ));
+    }
+    if field.data_type == EquipmentFieldDataType::NumberWithUnit && field.allowed_units.is_empty() {
+        issues.push(issue(
+            "error",
+            "equipment_field_units_empty",
+            "allowed_units",
+            format!(
+                "Le champ \"{}\" doit déclarer au moins une unité.",
+                field.label
+            ),
+            Some("Ajoutez les unités autorisées pour ce champ."),
+        ));
+    }
+    if let Some(default_value) = field.default_value.as_ref() {
+        validate_equipment_custom_value(&mut issues, field, default_value, "default_value");
+    }
+    issues
+}
+
+fn validate_equipment_model_template_fields(
+    issues: &mut Vec<DefinitionValidationIssue>,
+    definition: &EquipmentModelDefinition,
+) {
+    for field_code in definition.custom_field_values.keys() {
+        require_token(
+            issues,
+            field_code,
+            &format!("custom_field_values.{field_code}"),
+        );
+    }
+    let Some(snapshot) = definition.template_snapshot.as_ref() else {
+        return;
+    };
+    require_token(
+        issues,
+        &snapshot.category_id,
+        "template_snapshot.category_id",
+    );
+    require_token(
+        issues,
+        &snapshot.root_category_id,
+        "template_snapshot.root_category_id",
+    );
+    require_text(
+        issues,
+        &snapshot.captured_at,
+        "template_snapshot.captured_at",
+    );
+    require_checksum(
+        issues,
+        &snapshot.template_checksum,
+        "template_snapshot.template_checksum",
+    );
+
+    let mut seen_field_codes = BTreeSet::new();
+    let mut known_field_codes = BTreeSet::new();
+    for (index, field_rule) in snapshot.fields.iter().enumerate() {
+        let field_path = format!("template_snapshot.fields[{index}].field");
+        for field_issue in validate_equipment_field_definition(&field_rule.field) {
+            issues.push(issue(
+                field_issue.severity,
+                field_issue.code,
+                format!("{field_path}.{}", field_issue.path),
+                field_issue.message,
+                field_issue.suggestion,
+            ));
+        }
+        if !seen_field_codes.insert(field_rule.field.field_code.clone()) {
+            issues.push(issue(
+                "error",
+                "equipment_template_field_duplicated",
+                format!("{field_path}.field_code"),
+                format!(
+                    "Le champ \"{}\" est présent plusieurs fois dans le template.",
+                    field_rule.field.label
+                ),
+                Some("Conservez une seule règle effective par champ."),
+            ));
+        }
+        if field_rule.visible {
+            known_field_codes.insert(field_rule.field.field_code.clone());
+        }
+        if let Some(default_value) = field_rule.default_value.as_ref() {
+            validate_equipment_custom_value(
+                issues,
+                &field_rule.field,
+                default_value,
+                &format!("template_snapshot.fields[{index}].default_value"),
+            );
+        }
+        match definition
+            .custom_field_values
+            .get(field_rule.field.field_code.as_str())
+        {
+            Some(value) => validate_equipment_custom_value(
+                issues,
+                &field_rule.field,
+                value,
+                &format!("custom_field_values.{}", field_rule.field.field_code),
+            ),
+            None if field_rule.required && field_rule.visible => issues.push(issue(
+                "error",
+                "required_equipment_field_missing",
+                format!("custom_field_values.{}", field_rule.field.field_code),
+                format!(
+                    "Le champ \"{}\" est obligatoire pour cette catégorie.",
+                    field_rule.field.label
+                ),
+                Some("Renseignez ce champ avant de créer ou d'approuver le modèle."),
+            )),
+            None => {}
+        }
+    }
+    for field_code in definition.custom_field_values.keys() {
+        if !known_field_codes.contains(field_code) {
+            issues.push(issue(
+                "warning",
+                "equipment_field_outside_template",
+                format!("custom_field_values.{field_code}"),
+                format!("Le champ \"{field_code}\" n'est pas visible dans le template courant."),
+                Some("Vérifiez la catégorie ou archivez la valeur si elle n'est plus utilisée."),
+            ));
+        }
+    }
+}
+
+fn validate_equipment_custom_value(
+    issues: &mut Vec<DefinitionValidationIssue>,
+    field: &EquipmentFieldDefinition,
+    value: &Value,
+    path: &str,
+) {
+    let invalid_type = |issues: &mut Vec<DefinitionValidationIssue>, expected: &str| {
+        issues.push(issue(
+            "error",
+            "equipment_field_value_type_invalid",
+            path,
+            format!("Le champ \"{}\" doit être de type {expected}.", field.label),
+            Option::<String>::None,
+        ));
+    };
+    match field.data_type {
+        EquipmentFieldDataType::ShortText
+        | EquipmentFieldDataType::LongText
+        | EquipmentFieldDataType::Url
+        | EquipmentFieldDataType::FileReference
+        | EquipmentFieldDataType::ObjectReference
+        | EquipmentFieldDataType::Date => {
+            if value.as_str().is_none_or(|text| text.trim().is_empty()) {
+                invalid_type(issues, "texte non vide");
+            }
+        }
+        EquipmentFieldDataType::Number => {
+            if value.as_f64().is_none() {
+                invalid_type(issues, "nombre");
+            }
+        }
+        EquipmentFieldDataType::NumberWithUnit => {
+            let Some(object) = value.as_object() else {
+                invalid_type(issues, "objet { value, unit }");
+                return;
+            };
+            if object.get("value").and_then(Value::as_f64).is_none() {
+                invalid_type(issues, "nombre avec unité");
+            }
+            let Some(unit) = object.get("unit").and_then(Value::as_str) else {
+                invalid_type(issues, "nombre avec unité");
+                return;
+            };
+            if !field.allowed_units.is_empty()
+                && !field.allowed_units.iter().any(|item| item == unit)
+            {
+                issues.push(issue(
+                    "error",
+                    "equipment_field_unit_not_allowed",
+                    path,
+                    format!(
+                        "L'unité \"{unit}\" n'est pas autorisée pour le champ \"{}\".",
+                        field.label
+                    ),
+                    Some(format!(
+                        "Unités autorisées: {}.",
+                        field.allowed_units.join(", ")
+                    )),
+                ));
+            }
+        }
+        EquipmentFieldDataType::Boolean => {
+            if value.as_bool().is_none() {
+                invalid_type(issues, "booléen");
+            }
+        }
+        EquipmentFieldDataType::Choice => {
+            let Some(choice) = value.as_str() else {
+                invalid_type(issues, "choix");
+                return;
+            };
+            if !field.option_values.is_empty()
+                && !field.option_values.iter().any(|item| item == choice)
+            {
+                issues.push(issue(
+                    "error",
+                    "equipment_field_choice_not_allowed",
+                    path,
+                    format!(
+                        "La valeur \"{choice}\" n'est pas autorisée pour le champ \"{}\".",
+                        field.label
+                    ),
+                    Some(format!(
+                        "Choix autorisés: {}.",
+                        field.option_values.join(", ")
+                    )),
+                ));
+            }
+        }
+        EquipmentFieldDataType::MultiChoice => {
+            let Some(values) = value.as_array() else {
+                invalid_type(issues, "liste de choix");
+                return;
+            };
+            for selected in values {
+                let Some(choice) = selected.as_str() else {
+                    invalid_type(issues, "liste de choix texte");
+                    return;
+                };
+                if !field.option_values.is_empty()
+                    && !field.option_values.iter().any(|item| item == choice)
+                {
+                    issues.push(issue(
+                        "error",
+                        "equipment_field_choice_not_allowed",
+                        path,
+                        format!(
+                            "La valeur \"{choice}\" n'est pas autorisée pour le champ \"{}\".",
+                            field.label
+                        ),
+                        Some(format!(
+                            "Choix autorisés: {}.",
+                            field.option_values.join(", ")
+                        )),
+                    ));
+                }
+            }
+        }
+    }
 }
 
 fn validate_equipment_classification(
@@ -2714,6 +3158,128 @@ mod tests {
     }
 
     #[test]
+    fn default_equipment_root_categories_are_stable_and_user_facing() {
+        let roots = default_equipment_root_categories();
+
+        assert_eq!(roots.len(), 7);
+        assert_eq!(roots[0].root_category_id, "energy_sources");
+        assert_eq!(roots[2].root_category_id, "rf_equipment");
+        assert_eq!(roots[6].root_category_id, "processing_control_systems");
+        assert!(roots.iter().all(|root| !root.label.contains('_')));
+        assert!(roots
+            .windows(2)
+            .all(|pair| pair[0].sort_order < pair[1].sort_order));
+    }
+
+    #[test]
+    fn rejects_invalid_equipment_field_dictionary_contracts() {
+        let choice = EquipmentFieldDefinition {
+            field_id: "field_criticality".to_owned(),
+            field_code: "criticality".to_owned(),
+            label: "Criticite".to_owned(),
+            description: String::new(),
+            data_type: EquipmentFieldDataType::Choice,
+            scope: EquipmentFieldScope::EquipmentModel,
+            required_by_default: false,
+            visible_by_default: true,
+            unique_value: false,
+            unit_quantity: None,
+            allowed_units: Vec::new(),
+            option_values: Vec::new(),
+            validation_regex: None,
+            default_value: None,
+            active: true,
+            system_defined: false,
+        };
+        let with_unit = EquipmentFieldDefinition {
+            field_id: "field_length".to_owned(),
+            field_code: "length".to_owned(),
+            label: "Longueur".to_owned(),
+            description: String::new(),
+            data_type: EquipmentFieldDataType::NumberWithUnit,
+            scope: EquipmentFieldScope::EquipmentModel,
+            required_by_default: false,
+            visible_by_default: true,
+            unique_value: false,
+            unit_quantity: Some("length".to_owned()),
+            allowed_units: Vec::new(),
+            option_values: Vec::new(),
+            validation_regex: None,
+            default_value: None,
+            active: true,
+            system_defined: false,
+        };
+
+        let choice_issues = validate_equipment_field_definition(&choice);
+        let unit_issues = validate_equipment_field_definition(&with_unit);
+
+        assert!(choice_issues
+            .iter()
+            .any(|issue| issue.code == "equipment_field_choices_empty"));
+        assert!(unit_issues
+            .iter()
+            .any(|issue| issue.code == "equipment_field_units_empty"));
+    }
+
+    #[test]
+    fn validates_equipment_model_template_snapshot_required_fields() {
+        let required_reference_field = EquipmentEffectiveFieldRule {
+            field: EquipmentFieldDefinition {
+                field_id: "field_internal_reference".to_owned(),
+                field_code: "internal_reference".to_owned(),
+                label: "Reference interne".to_owned(),
+                description: String::new(),
+                data_type: EquipmentFieldDataType::ShortText,
+                scope: EquipmentFieldScope::EquipmentModel,
+                required_by_default: true,
+                visible_by_default: true,
+                unique_value: true,
+                unit_quantity: None,
+                allowed_units: Vec::new(),
+                option_values: Vec::new(),
+                validation_regex: None,
+                default_value: None,
+                active: true,
+                system_defined: true,
+            },
+            required: true,
+            visible: true,
+            display_group: "Identification".to_owned(),
+            display_order: 10,
+            default_value: None,
+            help_text: None,
+            inherited_from_category_ids: vec!["rf_equipment".to_owned()],
+        };
+        let mut definition = minimal_model();
+        definition.template_snapshot = Some(EquipmentModelTemplateSnapshot {
+            category_id: "rf_cable".to_owned(),
+            root_category_id: "rf_equipment".to_owned(),
+            category_path: vec![
+                "Equipements radiofrequences".to_owned(),
+                "Cables RF".to_owned(),
+            ],
+            captured_at: "2026-07-13T00:00:00Z".to_owned(),
+            template_checksum:
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
+            fields: vec![required_reference_field],
+        });
+
+        let missing = definition.validate_all();
+        assert!(missing
+            .iter()
+            .any(|issue| issue.code == "required_equipment_field_missing"));
+
+        definition.custom_field_values.insert(
+            "internal_reference".to_owned(),
+            Value::String("EQ-RF-CABLE-001".to_owned()),
+        );
+        let present = definition.validate_all();
+        assert!(!present
+            .iter()
+            .any(|issue| issue.code == "required_equipment_field_missing"));
+    }
+
+    #[test]
     fn accepts_valid_rf_cable_preset_topology() {
         let definition = rf_cable_model();
 
@@ -3471,6 +4037,9 @@ mod tests {
                 required_signal_ports: vec!["rf_input".to_owned()],
                 safety_class: SafetyClass::ConfigurationChange,
             }],
+            custom_field_values: BTreeMap::new(),
+            template_snapshot: None,
+            is_demo: false,
             metadata: BTreeMap::new(),
         }
     }

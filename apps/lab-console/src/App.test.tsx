@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { App } from "./App";
@@ -247,7 +247,7 @@ describe("LAB CONSOLE", () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Equipment" }));
-    expect(await screen.findByRole("heading", { name: "Model Catalog" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Equipment Repository" })).toBeInTheDocument();
     const modelButton = await screen.findByRole("button", { name: /R&S\s+NRP6AN/ });
     await user.click(modelButton);
     expect(await screen.findByText("Equipment Model Definition")).toBeInTheDocument();
@@ -256,7 +256,7 @@ describe("LAB CONSOLE", () => {
     expect(await screen.findByText(/No VISA implementation installed/)).toBeInTheDocument();
   });
 
-  test("filters equipment catalog and creates a model from a classification preset", async () => {
+  test("filters equipment catalog and creates a model from a category template", async () => {
     const createdModel = rfCableModelFixture();
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
@@ -270,10 +270,10 @@ describe("LAB CONSOLE", () => {
       if (path === "/api/v1/equipment-models" || path.startsWith("/api/v1/equipment-models?")) {
         return jsonResponse({ equipment_models: [equipmentModelFixture()] });
       }
-      if (path === "/api/v1/equipment-models/from-preset" && init?.method === "POST") {
+      if (path === "/api/v1/equipment-models/from-category-template" && init?.method === "POST") {
         return jsonResponse({
-          operation: "equipment_model_created_from_preset",
-          operation_id: "op-from-preset",
+          operation: "equipment_model_created_from_category_template",
+          operation_id: "op-from-category-template",
           replayed: false,
           aggregate: createdModel,
           revision: createdModel.latest_revision
@@ -305,43 +305,41 @@ describe("LAB CONSOLE", () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Equipment" }));
-    await screen.findByRole("heading", { name: "Model Catalog" });
-    await user.selectOptions(screen.getByLabelText("Filtre role physique"), "sensor");
+    await screen.findByRole("heading", { name: "Equipment Repository" });
+    await user.selectOptions(screen.getByLabelText("Filtre categorie racine"), "rf_equipment");
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("functional_role=sensor"),
+        expect.stringContaining("root_category_id=rf_equipment"),
         expect.any(Object)
       )
     );
 
     await user.click(screen.getByRole("button", { name: /Nouveau modele/ }));
-    expect(await screen.findByText("Nouveau modele catalogue")).toBeInTheDocument();
-    expect(screen.getAllByText("RF Cable").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("RF_A")).toBeInTheDocument();
-    expect(screen.getByText("RF_B")).toBeInTheDocument();
-    await user.clear(screen.getByLabelText("Equipment model ID"));
-    await user.type(screen.getByLabelText("Equipment model ID"), "EQM-RF-CABLE-DEMO");
-    await user.clear(screen.getByLabelText("Manufacturer"));
-    await user.type(screen.getByLabelText("Manufacturer"), "Demo");
-    await user.clear(screen.getByLabelText("Model name"));
-    await user.type(screen.getByLabelText("Model name"), "RF Cable");
-    await user.click(screen.getByRole("button", { name: "Creer" }));
+    const creationPanel = (await screen.findByText("Nouveau modele equipement")).closest(".creationPanel");
+    expect(creationPanel).not.toBeNull();
+    const wizard = within(creationPanel as HTMLElement);
+    await user.click(wizard.getByRole("button", { name: /Équipements radiofréquences/ }));
+    await waitFor(() => expect(wizard.getByLabelText(/Fabricant/)).toBeInTheDocument());
+    await user.type(wizard.getByLabelText(/ID modele optionnel/), "EQM-RF-CABLE-DEMO");
+    await user.type(wizard.getByLabelText(/Fabricant/), "Demo");
+    await user.type(wizard.getByLabelText(/Modèle/), "RF Cable");
+    await user.type(wizard.getByLabelText(/Variante/), "1m");
+    await user.type(wizard.getByLabelText(/Connecteur A/), "N");
+    await user.type(wizard.getByLabelText(/Connecteur B/), "N");
+    await user.click(wizard.getByRole("button", { name: /Creer brouillon/ }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/v1/equipment-models/from-preset",
+        "/api/v1/equipment-models/from-category-template",
         expect.objectContaining({ method: "POST" })
       )
     );
 
     expect(await screen.findByText("Equipment Model Definition")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Classification" }));
-    expect(screen.getByLabelText("Functional role")).toHaveValue("rf_network_element");
-    expect(screen.getByDisplayValue("rf")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("rf_50_ohm")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Port Topology" }));
+    await user.click(screen.getByRole("button", { name: "Category & Template" }));
+    expect(screen.getByText("Template checksum")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Ports & Connections" }));
     expect(screen.getByDisplayValue("RF_A")).toBeInTheDocument();
     expect(screen.getByDisplayValue("RF_B")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ajouter CAN bus" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Valider/ }));
     expect(await screen.findByText("Definition valide")).toBeInTheDocument();
   });
@@ -505,6 +503,20 @@ function equipmentModelFixture() {
           safety_class: "read_only"
         }
       ],
+      custom_field_values: {
+        manufacturer: "R&S",
+        model_name: "NRP6AN",
+        variant: "FWD"
+      },
+      template_snapshot: {
+        category_id: "measurement_instruments_digitizers",
+        root_category_id: "measurement_instruments_digitizers",
+        category_path: ["Instruments de mesure / numériseurs"],
+        captured_at: "2026-07-13T00:00:00Z",
+        template_checksum: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        fields: []
+      },
+      is_demo: false,
       metadata: {}
     }
   };
@@ -516,6 +528,8 @@ function equipmentModelFixture() {
       variant: "FWD",
       equipment_class: "controllable_instrument",
       category_code: "power_meter",
+      root_category_id: "measurement_instruments_digitizers",
+      is_demo: false,
       current_approved_revision_id: revision.revision_id,
       created_by: "equipment.author",
       created_at: "2026-07-03T00:00:00Z",
@@ -585,7 +599,23 @@ function rfCableModelFixture() {
       ],
       communication_interfaces: [],
       capabilities: [],
-      metadata: { classification_preset_id: "rf_cable" }
+      custom_field_values: {
+        manufacturer: "Demo",
+        model_name: "RF Cable",
+        variant: "1m",
+        connector_a: "N",
+        connector_b: "N"
+      },
+      template_snapshot: {
+        category_id: "rf_cable",
+        root_category_id: "rf_equipment",
+        category_path: ["Équipements radiofréquences", "Câbles RF"],
+        captured_at: "2026-07-13T00:00:00Z",
+        template_checksum: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        fields: effectiveTemplateFixture().fields
+      },
+      is_demo: false,
+      metadata: { entry_template_category_id: "rf_cable" }
     }
   };
   return {
@@ -596,6 +626,8 @@ function rfCableModelFixture() {
       variant: "1m",
       equipment_class: "passive_component",
       category_code: "rf_cable",
+      root_category_id: "rf_equipment",
+      is_demo: false,
       current_approved_revision_id: null,
       created_by: "equipment.author",
       created_at: "2026-07-11T00:00:00Z",
@@ -665,6 +697,131 @@ function adcPresetFixture() {
   };
 }
 
+function equipmentCategoriesFixture() {
+  const now = "2026-07-13T00:00:00Z";
+  return [
+    {
+      category_id: "energy_sources",
+      parent_category_id: null,
+      root_category_id: "energy_sources",
+      label: "Sources d'énergie",
+      description: "",
+      sort_order: 10,
+      active: true,
+      system_defined: true,
+      created_at: now,
+      updated_at: now,
+      children: []
+    },
+    {
+      category_id: "rf_equipment",
+      parent_category_id: null,
+      root_category_id: "rf_equipment",
+      label: "Équipements radiofréquences",
+      description: "",
+      sort_order: 30,
+      active: true,
+      system_defined: true,
+      created_at: now,
+      updated_at: now,
+      children: []
+    },
+    {
+      category_id: "rf_cable",
+      parent_category_id: "rf_equipment",
+      root_category_id: "rf_equipment",
+      label: "Câbles RF",
+      description: "",
+      sort_order: 10,
+      active: true,
+      system_defined: true,
+      created_at: now,
+      updated_at: now,
+      children: []
+    },
+    {
+      category_id: "measurement_instruments_digitizers",
+      parent_category_id: null,
+      root_category_id: "measurement_instruments_digitizers",
+      label: "Instruments de mesure / numériseurs",
+      description: "",
+      sort_order: 60,
+      active: true,
+      system_defined: true,
+      created_at: now,
+      updated_at: now,
+      children: []
+    }
+  ];
+}
+
+function equipmentCategoryTreeFixture() {
+  const categories = equipmentCategoriesFixture();
+  return categories
+    .filter((category) => category.parent_category_id === null)
+    .map((category) => ({
+      ...category,
+      children: categories.filter((child) => child.parent_category_id === category.category_id)
+    }));
+}
+
+function equipmentFieldDefinitionsFixture() {
+  const now = "2026-07-13T00:00:00Z";
+  const field = (field_id: string, field_code: string, label: string, required = false) => ({
+    field_id,
+    field_code,
+    label,
+    description: "",
+    data_type: "short_text",
+    scope: "equipment_model",
+    required_by_default: required,
+    visible_by_default: true,
+    unique_value: false,
+    unit_quantity: null,
+    allowed_units: [],
+    option_values: [],
+    validation_regex: null,
+    default_value: null,
+    display_group: "Identification",
+    display_order: 10,
+    active: true,
+    system_defined: true,
+    created_at: now,
+    updated_at: now
+  });
+  return [
+    field("field_manufacturer", "manufacturer", "Fabricant", true),
+    field("field_model_name", "model_name", "Modèle", true),
+    field("field_variant", "variant", "Variante"),
+    field("field_connector_a", "connector_a", "Connecteur A"),
+    field("field_connector_b", "connector_b", "Connecteur B")
+  ];
+}
+
+function effectiveTemplateFixture() {
+  const categories = equipmentCategoriesFixture();
+  const fields = equipmentFieldDefinitionsFixture();
+  return {
+    category: categories.find((category) => category.category_id === "rf_cable"),
+    root_category: categories.find((category) => category.category_id === "rf_equipment"),
+    category_path: [
+      categories.find((category) => category.category_id === "rf_equipment"),
+      categories.find((category) => category.category_id === "rf_cable")
+    ].filter(Boolean),
+    fields: fields.map((field, index) => ({
+      field,
+      required: field.field_code === "manufacturer" || field.field_code === "model_name",
+      visible: true,
+      display_group: "Identification",
+      display_order: (index + 1) * 10,
+      default_value: null,
+      help_text: null,
+      inherited_from_category_ids: field.field_code.startsWith("connector") ? ["rf_cable"] : ["rf_equipment"]
+    })),
+    template_checksum: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  };
+}
+
 function driverProfileFixture() {
   const revision = {
     revision_id: "DRV-NRP6AN-SCPI-rev-0001",
@@ -725,6 +882,11 @@ function mockBaseApiResponse(path: string, init?: RequestInit) {
   if (path === "/api/v1/health") return jsonResponse(healthFixture);
   if (path === "/api/v1/storage/status") return jsonResponse(storageFixture);
   if (path === "/api/v1/test-templates") return jsonResponse({ test_templates: [templateFixture()] });
+  if (path.startsWith("/api/v1/equipment/categories/tree")) return jsonResponse({ categories: equipmentCategoryTreeFixture() });
+  if (path.includes("/api/v1/equipment/categories/") && path.endsWith("/effective-template")) return jsonResponse({ effective_template: effectiveTemplateFixture() });
+  if (path.startsWith("/api/v1/equipment/categories/rf_cable/field-rules")) return jsonResponse({ category_id: "rf_cable", rules: [] });
+  if (path.startsWith("/api/v1/equipment/categories")) return jsonResponse({ categories: equipmentCategoriesFixture() });
+  if (path.startsWith("/api/v1/equipment/field-definitions")) return jsonResponse({ field_definitions: equipmentFieldDefinitionsFixture() });
   if (path === "/api/v1/test-templates/TT-LAB-001") return jsonResponse({ test_template: templateFixture() });
   if (path.includes("/revisions/TT-LAB-001-rev-0001") && !path.endsWith("/definition") && !path.includes("/transitions/")) return jsonResponse({ revision: revisionFixture() });
   if (path === "/api/v1/test-templates/TT-LAB-001/revisions") return jsonResponse({ template_id: "TT-LAB-001", revisions: [revisionFixture()] });

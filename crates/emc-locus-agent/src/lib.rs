@@ -30,22 +30,34 @@ pub use document_service::{
 };
 use emc_locus_core::{baseline_repository_domains, RepositoryDomain};
 pub use equipment_service::{
+    archive_equipment_category_json, archive_equipment_field_definition_json,
     clone_equipment_model, communication_provider_status, create_driver_profile,
-    create_driver_profile_revision, create_equipment_model, create_equipment_model_from_preset,
-    create_equipment_model_revision, equipment_registries, get_classification_preset,
+    create_driver_profile_revision, create_equipment_category_json,
+    create_equipment_field_definition_json, create_equipment_model,
+    create_equipment_model_from_category_template, create_equipment_model_from_preset,
+    create_equipment_model_revision, equipment_category_tree_json,
+    equipment_effective_template_json, equipment_registries, get_classification_preset,
     get_driver_profile, get_driver_profile_revision, get_equipment_model,
     get_equipment_model_revision, list_classification_presets, list_driver_profile_revisions,
     list_driver_profiles, list_equipment_audit_events_for_driver,
-    list_equipment_audit_events_for_model, list_equipment_model_revisions, list_equipment_models,
-    replace_driver_profile_revision_definition, replace_equipment_model_revision_definition,
-    simulate_driver_profile, transition_driver_profile_revision,
-    transition_equipment_model_revision, validate_driver_profile_definition_json,
-    validate_equipment_model_definition_json, CloneEquipmentModelInput, CreateDriverProfileInput,
-    CreateDriverProfileRevisionInput, CreateEquipmentModelFromPresetInput,
-    CreateEquipmentModelInput, CreateEquipmentModelRevisionInput, ListDriverProfilesInput,
-    ListEquipmentModelsInput, ReplaceDriverProfileDefinitionInput,
-    ReplaceEquipmentModelDefinitionInput, SimulateDriverProfileInput,
-    TransitionDriverProfileRevisionInput, TransitionEquipmentModelRevisionInput,
+    list_equipment_audit_events_for_model, list_equipment_categories_json,
+    list_equipment_category_field_rules_json, list_equipment_field_definitions_json,
+    list_equipment_model_revisions, list_equipment_models, move_equipment_category_json,
+    replace_driver_profile_revision_definition, replace_equipment_category_field_rules_json,
+    replace_equipment_model_revision_definition, simulate_driver_profile,
+    transition_driver_profile_revision, transition_equipment_model_revision,
+    update_equipment_category_json, update_equipment_field_definition_json,
+    validate_driver_profile_definition_json, validate_equipment_model_definition_json,
+    CloneEquipmentModelInput, CreateDriverProfileInput, CreateDriverProfileRevisionInput,
+    CreateEquipmentCategoryInput, CreateEquipmentModelFromCategoryTemplateInput,
+    CreateEquipmentModelFromPresetInput, CreateEquipmentModelInput,
+    CreateEquipmentModelRevisionInput, EquipmentCategoryFieldRuleInput, ListDriverProfilesInput,
+    ListEquipmentCategoriesInput, ListEquipmentFieldDefinitionsInput, ListEquipmentModelsInput,
+    MoveEquipmentCategoryInput, ReplaceDriverProfileDefinitionInput,
+    ReplaceEquipmentCategoryFieldRulesInput, ReplaceEquipmentModelDefinitionInput,
+    SimulateDriverProfileInput, TransitionDriverProfileRevisionInput,
+    TransitionEquipmentModelRevisionInput, UpdateEquipmentCategoryInput,
+    UpsertEquipmentFieldDefinitionInput,
 };
 pub use local_api::{run_local_api_server, ApiServerConfig};
 pub use measurement_engineering_service::{
@@ -905,7 +917,7 @@ mod tests {
                 .find(|domain| domain.domain == "equipment")
                 .unwrap()
                 .schema_version,
-            Some(3)
+            Some(4)
         );
         assert_eq!(
             second_report

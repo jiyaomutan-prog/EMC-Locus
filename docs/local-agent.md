@@ -141,12 +141,14 @@ The normal release launcher is:
 .\scripts\start-lab.ps1
 .\scripts\start-lab.ps1 -SeedDemo
 .\scripts\start-lab.ps1 -SeedEquipmentDemo
+.\scripts\start-lab.ps1 -SeedMeasurementDemo
 .\scripts\start-equipment-demo.ps1
 .\scripts\start-full-demo.ps1
 ```
 
 `start-lab` does not require Node when the committed `apps/lab-console/dist`
-bundle is present. Developers can pass `-Rebuild` or run
+bundle is present. A normal launch initializes structural repository defaults
+only; demo data is loaded only by explicit seed switches. Developers can pass `-Rebuild` or run
 `.\scripts\build-lab.ps1` on a machine with npm.
 
 The implemented routes are:
@@ -186,6 +188,7 @@ GET  /api/v1/test-templates/{template_id}/audit-events
 GET  /api/v1/equipment-models
 POST /api/v1/equipment-models
 POST /api/v1/equipment-models/from-preset
+POST /api/v1/equipment-models/from-category-template
 POST /api/v1/equipment-model-definitions/validate
 GET  /api/v1/equipment-models/{equipment_model_id}
 POST /api/v1/equipment-models/{equipment_model_id}/clone
@@ -196,6 +199,19 @@ POST /api/v1/equipment-models/{equipment_model_id}/revisions
 POST /api/v1/equipment-models/{equipment_model_id}/revisions/{revision_id}/transitions/submit-for-review
 POST /api/v1/equipment-models/{equipment_model_id}/revisions/{revision_id}/transitions/approve
 GET  /api/v1/equipment-models/{equipment_model_id}/audit-events
+GET  /api/v1/equipment/categories
+POST /api/v1/equipment/categories
+PUT  /api/v1/equipment/categories/{category_id}
+POST /api/v1/equipment/categories/{category_id}/archive
+POST /api/v1/equipment/categories/{category_id}/move
+GET  /api/v1/equipment/categories/tree
+GET  /api/v1/equipment/field-definitions
+POST /api/v1/equipment/field-definitions
+PUT  /api/v1/equipment/field-definitions/{field_id}
+POST /api/v1/equipment/field-definitions/{field_id}/archive
+GET  /api/v1/equipment/categories/{category_id}/field-rules
+PUT  /api/v1/equipment/categories/{category_id}/field-rules
+GET  /api/v1/equipment/categories/{category_id}/effective-template
 GET  /api/v1/driver-profiles
 POST /api/v1/driver-profiles
 POST /api/v1/driver-profile-definitions/validate

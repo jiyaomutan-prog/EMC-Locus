@@ -9,6 +9,8 @@ pub(crate) struct EquipmentModelIdentityDto {
     pub(crate) variant: Option<String>,
     pub(crate) equipment_class: String,
     pub(crate) category_code: String,
+    pub(crate) root_category_id: Option<String>,
+    pub(crate) is_demo: bool,
     pub(crate) current_approved_revision_id: Option<String>,
     pub(crate) created_by: String,
     pub(crate) created_at: String,
@@ -130,6 +132,110 @@ pub(crate) struct EquipmentClassificationPresetListDto {
 #[derive(Serialize)]
 pub(crate) struct EquipmentClassificationPresetEnvelopeDto {
     pub(crate) preset: EquipmentClassificationPresetDto,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentCategoryDto {
+    pub(crate) category_id: String,
+    pub(crate) parent_category_id: Option<String>,
+    pub(crate) root_category_id: String,
+    pub(crate) label: String,
+    pub(crate) description: String,
+    pub(crate) sort_order: i64,
+    pub(crate) active: bool,
+    pub(crate) system_defined: bool,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+    pub(crate) children: Vec<EquipmentCategoryDto>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentCategoryListDto {
+    pub(crate) categories: Vec<EquipmentCategoryDto>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentCategoryEnvelopeDto {
+    pub(crate) category: EquipmentCategoryDto,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentFieldDefinitionDto {
+    pub(crate) field_id: String,
+    pub(crate) field_code: String,
+    pub(crate) label: String,
+    pub(crate) description: String,
+    pub(crate) data_type: String,
+    pub(crate) scope: String,
+    pub(crate) required_by_default: bool,
+    pub(crate) visible_by_default: bool,
+    pub(crate) unique_value: bool,
+    pub(crate) unit_quantity: Option<String>,
+    pub(crate) allowed_units: Vec<String>,
+    pub(crate) option_values: Vec<String>,
+    pub(crate) validation_regex: Option<String>,
+    pub(crate) default_value: Option<Value>,
+    pub(crate) display_group: String,
+    pub(crate) display_order: i64,
+    pub(crate) active: bool,
+    pub(crate) system_defined: bool,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentFieldDefinitionListDto {
+    pub(crate) field_definitions: Vec<EquipmentFieldDefinitionDto>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentFieldDefinitionEnvelopeDto {
+    pub(crate) field_definition: EquipmentFieldDefinitionDto,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentCategoryFieldRuleDto {
+    pub(crate) category_id: String,
+    pub(crate) field_id: String,
+    pub(crate) required: Option<bool>,
+    pub(crate) visible: Option<bool>,
+    pub(crate) display_group: Option<String>,
+    pub(crate) display_order: Option<i64>,
+    pub(crate) default_value: Option<Value>,
+    pub(crate) help_text_override: Option<String>,
+    pub(crate) updated_at: String,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentCategoryFieldRuleListDto {
+    pub(crate) category_id: String,
+    pub(crate) rules: Vec<EquipmentCategoryFieldRuleDto>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentEffectiveFieldDto {
+    pub(crate) field: EquipmentFieldDefinitionDto,
+    pub(crate) required: bool,
+    pub(crate) visible: bool,
+    pub(crate) display_group: String,
+    pub(crate) display_order: i64,
+    pub(crate) default_value: Option<Value>,
+    pub(crate) help_text: Option<String>,
+    pub(crate) inherited_from_category_ids: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentEffectiveTemplateDto {
+    pub(crate) category: EquipmentCategoryDto,
+    pub(crate) root_category: EquipmentCategoryDto,
+    pub(crate) category_path: Vec<EquipmentCategoryDto>,
+    pub(crate) fields: Vec<EquipmentEffectiveFieldDto>,
+    pub(crate) template_checksum: String,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EquipmentEffectiveTemplateEnvelopeDto {
+    pub(crate) effective_template: EquipmentEffectiveTemplateDto,
 }
 
 #[derive(Serialize)]

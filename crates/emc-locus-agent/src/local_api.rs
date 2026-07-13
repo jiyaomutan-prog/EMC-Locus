@@ -8,22 +8,34 @@ use crate::document_service::{
     ListAttachedDocumentsInput, RegisterAttachedDocumentInput,
 };
 use crate::equipment_service::{
+    archive_equipment_category_json, archive_equipment_field_definition_json,
     clone_equipment_model, communication_provider_status, create_driver_profile,
-    create_driver_profile_revision, create_equipment_model, create_equipment_model_from_preset,
-    create_equipment_model_revision, equipment_registries, get_classification_preset,
+    create_driver_profile_revision, create_equipment_category_json,
+    create_equipment_field_definition_json, create_equipment_model,
+    create_equipment_model_from_category_template, create_equipment_model_from_preset,
+    create_equipment_model_revision, equipment_category_tree_json,
+    equipment_effective_template_json, equipment_registries, get_classification_preset,
     get_driver_profile, get_driver_profile_revision, get_equipment_model,
     get_equipment_model_revision, list_classification_presets, list_driver_profile_revisions,
     list_driver_profiles, list_equipment_audit_events_for_driver,
-    list_equipment_audit_events_for_model, list_equipment_model_revisions, list_equipment_models,
-    replace_driver_profile_revision_definition, replace_equipment_model_revision_definition,
-    simulate_driver_profile, transition_driver_profile_revision,
-    transition_equipment_model_revision, validate_driver_profile_definition_json,
-    validate_equipment_model_definition_json, CloneEquipmentModelInput, CreateDriverProfileInput,
-    CreateDriverProfileRevisionInput, CreateEquipmentModelFromPresetInput,
-    CreateEquipmentModelInput, CreateEquipmentModelRevisionInput, ListDriverProfilesInput,
-    ListEquipmentModelsInput, ReplaceDriverProfileDefinitionInput,
-    ReplaceEquipmentModelDefinitionInput, SimulateDriverProfileInput,
-    TransitionDriverProfileRevisionInput, TransitionEquipmentModelRevisionInput,
+    list_equipment_audit_events_for_model, list_equipment_categories_json,
+    list_equipment_category_field_rules_json, list_equipment_field_definitions_json,
+    list_equipment_model_revisions, list_equipment_models, move_equipment_category_json,
+    replace_driver_profile_revision_definition, replace_equipment_category_field_rules_json,
+    replace_equipment_model_revision_definition, simulate_driver_profile,
+    transition_driver_profile_revision, transition_equipment_model_revision,
+    update_equipment_category_json, update_equipment_field_definition_json,
+    validate_driver_profile_definition_json, validate_equipment_model_definition_json,
+    CloneEquipmentModelInput, CreateDriverProfileInput, CreateDriverProfileRevisionInput,
+    CreateEquipmentCategoryInput, CreateEquipmentModelFromCategoryTemplateInput,
+    CreateEquipmentModelFromPresetInput, CreateEquipmentModelInput,
+    CreateEquipmentModelRevisionInput, EquipmentCategoryFieldRuleInput, ListDriverProfilesInput,
+    ListEquipmentCategoriesInput, ListEquipmentFieldDefinitionsInput, ListEquipmentModelsInput,
+    MoveEquipmentCategoryInput, ReplaceDriverProfileDefinitionInput,
+    ReplaceEquipmentCategoryFieldRulesInput, ReplaceEquipmentModelDefinitionInput,
+    SimulateDriverProfileInput, TransitionDriverProfileRevisionInput,
+    TransitionEquipmentModelRevisionInput, UpdateEquipmentCategoryInput,
+    UpsertEquipmentFieldDefinitionInput,
 };
 use crate::measurement_engineering_service::{
     clone_measurement_engineering_definition, create_measurement_engineering_definition,
@@ -431,6 +443,110 @@ fn route_api_request(
             register_document_input(&payload)?,
         );
     }
+    if parts.as_slice() == ["api", "v1", "equipment", "categories"] && method == "GET" {
+        return list_equipment_categories_json(
+            &config.storage_root,
+            list_equipment_categories_input(query),
+        );
+    }
+    if parts.as_slice() == ["api", "v1", "equipment", "categories"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return create_equipment_category_json(
+            &config.storage_root,
+            create_equipment_category_input(&payload)?,
+        );
+    }
+    if parts.as_slice() == ["api", "v1", "equipment", "categories", "tree"] && method == "GET" {
+        return equipment_category_tree_json(
+            &config.storage_root,
+            list_equipment_categories_input(query),
+        );
+    }
+    if parts.len() == 5
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "equipment"
+        && parts[3] == "categories"
+    {
+        let category_id = parts[4];
+        if method == "PUT" {
+            let payload = parse_json_body(body)?;
+            return update_equipment_category_json(
+                &config.storage_root,
+                update_equipment_category_input(category_id, &payload)?,
+            );
+        }
+    }
+    if parts.len() == 6
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "equipment"
+        && parts[3] == "categories"
+    {
+        let category_id = parts[4];
+        if parts[5] == "archive" && method == "POST" {
+            return archive_equipment_category_json(&config.storage_root, category_id);
+        }
+        if parts[5] == "move" && method == "POST" {
+            let payload = parse_json_body(body)?;
+            return move_equipment_category_json(
+                &config.storage_root,
+                move_equipment_category_input(category_id, &payload)?,
+            );
+        }
+        if parts[5] == "field-rules" && method == "GET" {
+            return list_equipment_category_field_rules_json(&config.storage_root, category_id);
+        }
+        if parts[5] == "field-rules" && method == "PUT" {
+            let payload = parse_json_body(body)?;
+            return replace_equipment_category_field_rules_json(
+                &config.storage_root,
+                replace_equipment_category_field_rules_input(category_id, &payload)?,
+            );
+        }
+        if parts[5] == "effective-template" && method == "GET" {
+            return equipment_effective_template_json(&config.storage_root, category_id);
+        }
+    }
+    if parts.as_slice() == ["api", "v1", "equipment", "field-definitions"] && method == "GET" {
+        return list_equipment_field_definitions_json(
+            &config.storage_root,
+            list_equipment_field_definitions_input(query),
+        );
+    }
+    if parts.as_slice() == ["api", "v1", "equipment", "field-definitions"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return create_equipment_field_definition_json(
+            &config.storage_root,
+            equipment_field_definition_input(&payload)?,
+        );
+    }
+    if parts.len() == 5
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "equipment"
+        && parts[3] == "field-definitions"
+    {
+        let field_id = parts[4];
+        if method == "PUT" {
+            let payload = parse_json_body(body)?;
+            return update_equipment_field_definition_json(
+                &config.storage_root,
+                field_id,
+                equipment_field_definition_input(&payload)?,
+            );
+        }
+    }
+    if parts.len() == 6
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "equipment"
+        && parts[3] == "field-definitions"
+        && parts[5] == "archive"
+        && method == "POST"
+    {
+        return archive_equipment_field_definition_json(&config.storage_root, parts[4]);
+    }
     if parts.as_slice() == ["api", "v1", "equipment-models"] && method == "GET" {
         return list_equipment_models(&config.storage_root, list_equipment_models_input(query));
     }
@@ -446,6 +562,15 @@ fn route_api_request(
         return create_equipment_model_from_preset(
             &config.storage_root,
             create_equipment_model_from_preset_input(&payload)?,
+        );
+    }
+    if parts.as_slice() == ["api", "v1", "equipment-models", "from-category-template"]
+        && method == "POST"
+    {
+        let payload = parse_json_body(body)?;
+        return create_equipment_model_from_category_template(
+            &config.storage_root,
+            create_equipment_model_from_category_template_input(&payload)?,
         );
     }
     if parts.as_slice() == ["api", "v1", "equipment-model-definitions", "validate"]
@@ -1244,12 +1369,127 @@ fn list_equipment_models_input(query: &str) -> ListEquipmentModelsInput {
         manufacturer: optional_query_value(query, "manufacturer"),
         equipment_class: optional_query_value(query, "equipment_class"),
         category_code: optional_query_value(query, "category_code"),
+        root_category_id: optional_query_value(query, "root_category_id"),
+        demo_mode: optional_query_value(query, "demo_mode"),
         functional_role: optional_query_value(query, "functional_role"),
         signal_domain: optional_query_value(query, "signal_domain"),
         technology_tag: optional_query_value(query, "technology_tag"),
         status: optional_query_value(query, "status"),
         search: optional_query_value(query, "q").or_else(|| optional_query_value(query, "search")),
     }
+}
+
+fn list_equipment_categories_input(query: &str) -> ListEquipmentCategoriesInput {
+    ListEquipmentCategoriesInput {
+        include_inactive: optional_query_value(query, "include_inactive")
+            .as_deref()
+            .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+            .unwrap_or(false),
+    }
+}
+
+fn create_equipment_category_input(
+    payload: &Value,
+) -> Result<CreateEquipmentCategoryInput, AgentError> {
+    Ok(CreateEquipmentCategoryInput {
+        category_id: required_string(payload, "category_id")?,
+        parent_category_id: required_string(payload, "parent_category_id")?,
+        label: required_string(payload, "label")?,
+        description: optional_string(payload, "description").unwrap_or_default(),
+        sort_order: optional_i64(payload, "sort_order")?.unwrap_or(100),
+    })
+}
+
+fn update_equipment_category_input(
+    category_id: &str,
+    payload: &Value,
+) -> Result<UpdateEquipmentCategoryInput, AgentError> {
+    Ok(UpdateEquipmentCategoryInput {
+        category_id: category_id.to_owned(),
+        label: required_string(payload, "label")?,
+        description: optional_string(payload, "description").unwrap_or_default(),
+        sort_order: optional_i64(payload, "sort_order")?.unwrap_or(100),
+        active: optional_bool(payload, "active")?.unwrap_or(true),
+    })
+}
+
+fn move_equipment_category_input(
+    category_id: &str,
+    payload: &Value,
+) -> Result<MoveEquipmentCategoryInput, AgentError> {
+    Ok(MoveEquipmentCategoryInput {
+        category_id: category_id.to_owned(),
+        parent_category_id: required_string(payload, "parent_category_id")?,
+        sort_order: optional_i64(payload, "sort_order")?.unwrap_or(100),
+    })
+}
+
+fn list_equipment_field_definitions_input(query: &str) -> ListEquipmentFieldDefinitionsInput {
+    ListEquipmentFieldDefinitionsInput {
+        scope: optional_query_value(query, "scope"),
+        include_inactive: optional_query_value(query, "include_inactive")
+            .as_deref()
+            .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+            .unwrap_or(false),
+    }
+}
+
+fn equipment_field_definition_input(
+    payload: &Value,
+) -> Result<UpsertEquipmentFieldDefinitionInput, AgentError> {
+    Ok(UpsertEquipmentFieldDefinitionInput {
+        field_id: optional_string(payload, "field_id"),
+        field_code: optional_string(payload, "field_code"),
+        label: required_string(payload, "label")?,
+        description: optional_string(payload, "description").unwrap_or_default(),
+        data_type: required_string(payload, "data_type")?,
+        scope: optional_string(payload, "scope").unwrap_or_else(|| "equipment_model".to_owned()),
+        required_by_default: optional_bool(payload, "required_by_default")?.unwrap_or(false),
+        visible_by_default: optional_bool(payload, "visible_by_default")?.unwrap_or(true),
+        unique_value: optional_bool(payload, "unique_value")?.unwrap_or(false),
+        unit_quantity: optional_string(payload, "unit_quantity"),
+        allowed_units: optional_string_array(payload, "allowed_units")?.unwrap_or_default(),
+        option_values: optional_string_array(payload, "option_values")?.unwrap_or_default(),
+        validation_regex: optional_string(payload, "validation_regex"),
+        default_value: optional_json_value(payload, "default_value"),
+        display_group: optional_string(payload, "display_group")
+            .unwrap_or_else(|| "Identification".to_owned()),
+        display_order: optional_i64(payload, "display_order")?.unwrap_or(100),
+        active: optional_bool(payload, "active")?.unwrap_or(true),
+    })
+}
+
+fn replace_equipment_category_field_rules_input(
+    category_id: &str,
+    payload: &Value,
+) -> Result<ReplaceEquipmentCategoryFieldRulesInput, AgentError> {
+    let rules = payload
+        .get("rules")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            AgentError::with_details(
+                "invalid_json_field",
+                "rules must be an array",
+                json!({ "field": "rules" }),
+            )
+        })?
+        .iter()
+        .map(|rule| {
+            Ok(EquipmentCategoryFieldRuleInput {
+                field_id: required_string(rule, "field_id")?,
+                required: optional_bool(rule, "required")?,
+                visible: optional_bool(rule, "visible")?,
+                display_group: optional_string(rule, "display_group"),
+                display_order: optional_i64(rule, "display_order")?,
+                default_value: optional_json_value(rule, "default_value"),
+                help_text_override: optional_string(rule, "help_text_override"),
+            })
+        })
+        .collect::<Result<Vec<_>, AgentError>>()?;
+    Ok(ReplaceEquipmentCategoryFieldRulesInput {
+        category_id: category_id.to_owned(),
+        rules,
+    })
 }
 
 fn create_equipment_model_from_preset_input(
@@ -1262,6 +1502,45 @@ fn create_equipment_model_from_preset_input(
         manufacturer: required_string(payload, "manufacturer")?,
         model_name: required_string(payload, "model_name")?,
         variant: optional_string(payload, "variant"),
+        is_demo: optional_bool(payload, "is_demo")?.unwrap_or(false),
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn create_equipment_model_from_category_template_input(
+    payload: &Value,
+) -> Result<CreateEquipmentModelFromCategoryTemplateInput, AgentError> {
+    let operation_id = optional_string(payload, "operation_id").unwrap_or_else(|| {
+        let category_id = payload
+            .get("category_id")
+            .and_then(Value::as_str)
+            .unwrap_or("category");
+        format!("equipment-model-from-template-{category_id}")
+    });
+    let field_values = payload
+        .get("field_values")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            AgentError::with_details(
+                "invalid_json_field",
+                "field_values must be an object",
+                json!({ "field": "field_values" }),
+            )
+        })?
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<BTreeMap<_, _>>();
+    Ok(CreateEquipmentModelFromCategoryTemplateInput {
+        category_id: required_string(payload, "category_id")?,
+        equipment_model_id: optional_string(payload, "equipment_model_id"),
+        field_values,
+        is_demo: optional_bool(payload, "is_demo")?.unwrap_or(false),
         actor: required_string(payload, "actor")?,
         reason: required_string(payload, "reason")?,
         correlation_id: optional_string(payload, "correlation_id")
@@ -1796,6 +2075,10 @@ fn optional_string(payload: &Value, key: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn optional_json_value(payload: &Value, key: &str) -> Option<Value> {
+    payload.get(key).filter(|value| !value.is_null()).cloned()
+}
+
 fn required_json_or_string(
     payload: &Value,
     key: &'static str,
@@ -1858,6 +2141,44 @@ fn optional_bool(payload: &Value, key: &str) -> Result<Option<bool>, AgentError>
     Ok(Some(value))
 }
 
+fn optional_i64(payload: &Value, key: &str) -> Result<Option<i64>, AgentError> {
+    let Some(value) = payload.get(key) else {
+        return Ok(None);
+    };
+    value.as_i64().map(Some).ok_or_else(|| {
+        AgentError::with_details(
+            "invalid_json_field",
+            format!("{key} must be an integer"),
+            json!({ "field": key }),
+        )
+    })
+}
+
+fn optional_string_array(payload: &Value, key: &str) -> Result<Option<Vec<String>>, AgentError> {
+    let Some(value) = payload.get(key) else {
+        return Ok(None);
+    };
+    let Some(items) = value.as_array() else {
+        return Err(AgentError::with_details(
+            "invalid_json_field",
+            format!("{key} must be an array of strings"),
+            json!({ "field": key }),
+        ));
+    };
+    let mut output = Vec::new();
+    for item in items {
+        let Some(text) = item.as_str() else {
+            return Err(AgentError::with_details(
+                "invalid_json_field",
+                format!("{key} must be an array of strings"),
+                json!({ "field": key }),
+            ));
+        };
+        output.push(text.to_owned());
+    }
+    Ok(Some(output))
+}
+
 fn status_for_error(code: &str) -> u16 {
     match code {
         "api_route_not_found"
@@ -1872,6 +2193,8 @@ fn status_for_error(code: &str) -> u16 {
         | "equipment_model_not_found"
         | "equipment_model_revision_not_found"
         | "equipment_model_class_not_found"
+        | "equipment_category_not_found"
+        | "equipment_field_not_found"
         | "equipment_classification_preset_not_found"
         | "driver_profile_not_found"
         | "driver_profile_revision_not_found"
@@ -1892,6 +2215,12 @@ fn status_for_error(code: &str) -> u16 {
         | "test_template_revision_transition_conflict"
         | "test_template_revision_transition_not_allowed"
         | "equipment_model_already_exists"
+        | "equipment_category_already_exists"
+        | "equipment_field_already_exists"
+        | "equipment_category_system_root_immutable"
+        | "equipment_category_in_use"
+        | "equipment_category_cycle"
+        | "equipment_category_inactive"
         | "driver_profile_already_exists"
         | "equipment_definition_checksum_mismatch"
         | "equipment_active_draft_exists"
@@ -1940,7 +2269,11 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_equipment_registry_value"
         | "invalid_manufacturer"
         | "invalid_model_name"
+        | "equipment_template_required_field_missing"
+        | "equipment_template_value_invalid"
+        | "invalid_equipment_field"
         | "invalid_equipment_model_definition"
+        | "invalid_equipment_field_definition"
         | "invalid_driver_profile_definition"
         | "invalid_driver_simulation"
         | "invalid_driver_simulation_scenario"
@@ -2755,6 +3088,260 @@ mod tests {
         assert!(outbox
             .body
             .contains("\"operation_kind\":\"equipment_model_created_from_preset\""));
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn local_api_manages_equipment_repository_templates_and_demo_filter() {
+        let storage_root = temporary_storage_root("agent-api-equipment-templates");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: None,
+        };
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+
+        let tree = handle_api_request("GET", "/api/v1/equipment/categories/tree", "", &config);
+        assert_eq!(tree.status, 200, "{}", tree.body);
+        let tree_json: Value = serde_json::from_str(&tree.body).unwrap();
+        let roots = tree_json["categories"].as_array().unwrap();
+        assert_eq!(roots.len(), 7);
+        assert!(roots
+            .iter()
+            .any(|root| root["category_id"] == "rf_equipment"));
+        assert!(tree.body.contains("\"category_id\":\"rf_cable\""));
+
+        let archive_root = handle_api_request(
+            "POST",
+            "/api/v1/equipment/categories/rf_equipment/archive",
+            "",
+            &config,
+        );
+        assert_eq!(archive_root.status, 409, "{}", archive_root.body);
+        assert!(archive_root
+            .body
+            .contains("equipment_category_system_root_immutable"));
+
+        let custom_category = handle_api_request(
+            "POST",
+            "/api/v1/equipment/categories",
+            &json!({
+                "category_id": "rf_switch_matrix",
+                "parent_category_id": "rf_equipment",
+                "label": "Matrices de commutation RF",
+                "description": "Matrices RF configurees par le laboratoire",
+                "sort_order": 80
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(custom_category.status, 200, "{}", custom_category.body);
+        assert!(custom_category.body.contains("\"system_defined\":false"));
+
+        let custom_field = handle_api_request(
+            "POST",
+            "/api/v1/equipment/field-definitions",
+            &json!({
+                "field_id": "field_criticality_test",
+                "field_code": "criticality_test",
+                "label": "Criticite",
+                "description": "Niveau de criticite pour la preparation laboratoire",
+                "data_type": "choice",
+                "scope": "equipment_model",
+                "required_by_default": false,
+                "visible_by_default": true,
+                "unique_value": false,
+                "option_values": ["faible", "moyenne", "forte"],
+                "display_group": "Identification",
+                "display_order": 90,
+                "active": true
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(custom_field.status, 200, "{}", custom_field.body);
+        assert!(custom_field
+            .body
+            .contains("\"field_code\":\"criticality_test\""));
+
+        let field_rules = handle_api_request(
+            "PUT",
+            "/api/v1/equipment/categories/rf_cable/field-rules",
+            &json!({
+                "rules": [
+                    {
+                        "field_id": "field_criticality_test",
+                        "required": false,
+                        "visible": true,
+                        "display_group": "Identification",
+                        "display_order": 95,
+                        "help_text_override": "Champ optionnel propre aux equipements RF"
+                    }
+                ]
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(field_rules.status, 200, "{}", field_rules.body);
+        assert!(field_rules
+            .body
+            .contains("\"field_id\":\"field_criticality_test\""));
+
+        let template = handle_api_request(
+            "GET",
+            "/api/v1/equipment/categories/rf_cable/effective-template",
+            "",
+            &config,
+        );
+        assert_eq!(template.status, 200, "{}", template.body);
+        let template_json: Value = serde_json::from_str(&template.body).unwrap();
+        let template_fields = template_json["effective_template"]["fields"]
+            .as_array()
+            .unwrap();
+        assert!(template_fields.iter().any(
+            |field| field["field"]["field_code"] == "manufacturer" && field["required"] == true
+        ));
+        assert!(template_fields
+            .iter()
+            .any(|field| field["field"]["field_code"] == "criticality_test"
+                && field["visible"] == true));
+
+        let missing_required = handle_api_request(
+            "POST",
+            "/api/v1/equipment-models/from-category-template",
+            &json!({
+                "category_id": "rf_cable",
+                "field_values": {
+                    "manufacturer": "Demo"
+                },
+                "actor": "equipment.author",
+                "reason": "missing required model name",
+                "operation_id": "op-template-missing-required"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(missing_required.status, 400, "{}", missing_required.body);
+        assert!(missing_required
+            .body
+            .contains("equipment_template_required_field_missing"));
+        assert!(missing_required.body.contains("Mod"));
+
+        let created = handle_api_request(
+            "POST",
+            "/api/v1/equipment-models/from-category-template",
+            &json!({
+                "category_id": "rf_cable",
+                "equipment_model_id": "EQM-RF-CABLE-UX",
+                "field_values": {
+                    "manufacturer": "Acme RF",
+                    "model_name": "Cable Flex",
+                    "variant": "1m N-N",
+                    "connector_a": "N",
+                    "connector_b": "N",
+                    "impedance": {"value": 50.0, "unit": "ohm"},
+                    "length": {"value": 1.0, "unit": "m"},
+                    "criticality_test": "moyenne"
+                },
+                "actor": "equipment.author",
+                "reason": "create model from category template",
+                "operation_id": "op-template-create"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        assert!(created
+            .body
+            .contains("\"operation\":\"equipment_model_created_from_category_template\""));
+        assert!(created.body.contains("\"template_snapshot\""));
+        assert!(created.body.contains("\"custom_field_values\""));
+
+        let demo_created = handle_api_request(
+            "POST",
+            "/api/v1/equipment-models/from-category-template",
+            &json!({
+                "category_id": "rf_cable",
+                "equipment_model_id": "EQM-RF-CABLE-DEMO",
+                "field_values": {
+                    "manufacturer": "Demo",
+                    "model_name": "Cable demo",
+                    "variant": "2m",
+                    "connector_a": "N",
+                    "connector_b": "N",
+                    "impedance": {"value": 50.0, "unit": "ohm"},
+                    "length": {"value": 2.0, "unit": "m"}
+                },
+                "is_demo": true,
+                "actor": "demo.equipment.author",
+                "reason": "create demo model from category template",
+                "operation_id": "op-template-demo-create"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(demo_created.status, 200, "{}", demo_created.body);
+
+        let hidden_demo = handle_api_request(
+            "GET",
+            "/api/v1/equipment-models?category_code=rf_cable&demo_mode=hide",
+            "",
+            &config,
+        );
+        assert_eq!(hidden_demo.status, 200, "{}", hidden_demo.body);
+        assert!(hidden_demo.body.contains("EQM-RF-CABLE-UX"));
+        assert!(!hidden_demo.body.contains("EQM-RF-CABLE-DEMO"));
+
+        let only_demo = handle_api_request(
+            "GET",
+            "/api/v1/equipment-models?root_category_id=rf_equipment&demo_mode=only",
+            "",
+            &config,
+        );
+        assert_eq!(only_demo.status, 200, "{}", only_demo.body);
+        assert!(only_demo.body.contains("EQM-RF-CABLE-DEMO"));
+        assert!(!only_demo.body.contains("EQM-RF-CABLE-UX"));
+
+        let template_detail = handle_api_request(
+            "GET",
+            "/api/v1/equipment-models/EQM-RF-CABLE-UX",
+            "",
+            &config,
+        );
+        assert_eq!(template_detail.status, 200, "{}", template_detail.body);
+        let template_detail_json: Value = serde_json::from_str(&template_detail.body).unwrap();
+        assert_eq!(
+            template_detail_json["equipment_model"]["identity"]["root_category_id"],
+            "rf_equipment"
+        );
+        assert_eq!(
+            template_detail_json["equipment_model"]["latest_revision"]["definition"]
+                ["template_snapshot"]["category_id"],
+            "rf_cable"
+        );
+
+        let audit = handle_api_request(
+            "GET",
+            "/api/v1/equipment-models/EQM-RF-CABLE-UX/audit-events",
+            "",
+            &config,
+        );
+        assert_eq!(audit.status, 200, "{}", audit.body);
+        assert!(audit
+            .body
+            .contains("\"action\":\"equipment_model_created_from_category_template\""));
+
+        let outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
+        assert_eq!(outbox.status, 200, "{}", outbox.body);
+        assert!(outbox
+            .body
+            .contains("\"operation_kind\":\"equipment_model_created_from_category_template\""));
 
         remove_temporary_storage_root(&storage_root);
     }

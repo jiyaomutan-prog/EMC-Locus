@@ -21,7 +21,11 @@ import type {
   DriverSimulationResult,
   DriverSimulationScenario,
   EquipmentAuditEvent,
+  EquipmentCategory,
+  EquipmentCategoryFieldRule,
   EquipmentClassificationPreset,
+  EquipmentEffectiveTemplate,
+  EquipmentFieldDefinition,
   EquipmentRegistries,
   EquipmentModelAggregate,
   EquipmentModelDefinition,
@@ -299,6 +303,67 @@ export const equipmentApi = {
     );
   },
   registries: () => request<EquipmentRegistries>("/api/v1/equipment/registries"),
+  listCategories: (includeInactive = false) =>
+    request<{ categories: EquipmentCategory[] }>(
+      `/api/v1/equipment/categories${includeInactive ? "?include_inactive=true" : ""}`
+    ),
+  categoryTree: (includeInactive = false) =>
+    request<{ categories: EquipmentCategory[] }>(
+      `/api/v1/equipment/categories/tree${includeInactive ? "?include_inactive=true" : ""}`
+    ),
+  createCategory: (input: {
+    category_id: string;
+    parent_category_id: string;
+    label: string;
+    description?: string;
+    sort_order?: number;
+  }) => post<{ category: EquipmentCategory }>("/api/v1/equipment/categories", input),
+  updateCategory: (
+    categoryId: string,
+    input: { label: string; description?: string; sort_order?: number; active?: boolean }
+  ) => put<{ category: EquipmentCategory }>(`/api/v1/equipment/categories/${encodeURIComponent(categoryId)}`, input),
+  archiveCategory: (categoryId: string) =>
+    post<{ category: EquipmentCategory }>(
+      `/api/v1/equipment/categories/${encodeURIComponent(categoryId)}/archive`,
+      {}
+    ),
+  moveCategory: (categoryId: string, input: { parent_category_id: string; sort_order?: number }) =>
+    post<{ category: EquipmentCategory }>(
+      `/api/v1/equipment/categories/${encodeURIComponent(categoryId)}/move`,
+      input
+    ),
+  listFieldDefinitions: (scope = "equipment_model", includeInactive = false) => {
+    const query = new URLSearchParams({ scope });
+    if (includeInactive) query.set("include_inactive", "true");
+    return request<{ field_definitions: EquipmentFieldDefinition[] }>(
+      `/api/v1/equipment/field-definitions?${query.toString()}`
+    );
+  },
+  createFieldDefinition: (input: Partial<EquipmentFieldDefinition>) =>
+    post<{ field_definition: EquipmentFieldDefinition }>("/api/v1/equipment/field-definitions", input),
+  updateFieldDefinition: (fieldId: string, input: Partial<EquipmentFieldDefinition>) =>
+    put<{ field_definition: EquipmentFieldDefinition }>(
+      `/api/v1/equipment/field-definitions/${encodeURIComponent(fieldId)}`,
+      input
+    ),
+  archiveFieldDefinition: (fieldId: string) =>
+    post<{ field_definition: EquipmentFieldDefinition }>(
+      `/api/v1/equipment/field-definitions/${encodeURIComponent(fieldId)}/archive`,
+      {}
+    ),
+  categoryFieldRules: (categoryId: string) =>
+    request<{ category_id: string; rules: EquipmentCategoryFieldRule[] }>(
+      `/api/v1/equipment/categories/${encodeURIComponent(categoryId)}/field-rules`
+    ),
+  replaceCategoryFieldRules: (categoryId: string, rules: EquipmentCategoryFieldRule[]) =>
+    put<{ category_id: string; rules: EquipmentCategoryFieldRule[] }>(
+      `/api/v1/equipment/categories/${encodeURIComponent(categoryId)}/field-rules`,
+      { rules }
+    ),
+  effectiveTemplate: (categoryId: string) =>
+    request<{ effective_template: EquipmentEffectiveTemplate }>(
+      `/api/v1/equipment/categories/${encodeURIComponent(categoryId)}/effective-template`
+    ),
   listClassificationPresets: () =>
     request<{ presets: EquipmentClassificationPreset[] }>("/api/v1/equipment/classification-presets"),
   getClassificationPreset: (presetId: string) =>
@@ -336,11 +401,27 @@ export const equipmentApi = {
       manufacturer: string;
       model_name: string;
       variant?: string;
+      is_demo?: boolean;
     } & OperationContext
   ) =>
     post<EquipmentModelOperationResult>("/api/v1/equipment-models/from-preset", {
       ...input,
       operation_id: operationId("equipment-model-from-preset", `${input.preset_id}-${input.equipment_model_id}`)
+    }),
+  createModelFromCategoryTemplate: (
+    input: {
+      category_id: string;
+      equipment_model_id?: string;
+      field_values: Record<string, unknown>;
+      is_demo?: boolean;
+    } & OperationContext
+  ) =>
+    post<EquipmentModelOperationResult>("/api/v1/equipment-models/from-category-template", {
+      ...input,
+      operation_id: operationId(
+        "equipment-model-from-category-template",
+        `${input.category_id}-${String(input.equipment_model_id ?? input.field_values.model_name ?? "model")}`
+      )
     }),
   cloneModel: (
     sourceModelId: string,

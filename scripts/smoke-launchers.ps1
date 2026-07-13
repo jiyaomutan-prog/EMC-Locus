@@ -144,7 +144,7 @@ try {
         try {
             $agentUrl = "http://127.0.0.1:$labPort"
             & $SeedEquipmentDemo -AgentUrl $agentUrl
-            $models = Invoke-RestMethod -Uri "$agentUrl/api/v1/equipment-models" -TimeoutSec 10
+            $models = Invoke-RestMethod -Uri "$agentUrl/api/v1/equipment-models?demo_mode=show" -TimeoutSec 10
             $modelIds = @($models.equipment_models | ForEach-Object { $_.identity.equipment_model_id })
             foreach ($expected in @("EQM-DEMO-NRP6AN-FWD", "EQM-DEMO-SERIAL-AMP", "EQM-DEMO-CAN-BUS-POWER", "EQM-DEMO-MANUAL-ANTENNA", "EQM-PRESET-ADC-CONVERTER", "EQM-PRESET-DAQ-CARD")) {
                 if ($modelIds -notcontains $expected) {

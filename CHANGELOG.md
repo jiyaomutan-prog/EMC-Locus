@@ -8,6 +8,33 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-07-13
+
+### Added
+
+- Added the equipment taxonomy and configurable field-template layer:
+  system-defined root categories, subcategories, field definitions, inherited
+  category field rules, effective template preview, model field values, and
+  template snapshots.
+- Added local-agent routes for equipment categories, field definitions,
+  category field rules, effective templates, and model creation from a category
+  template.
+- Added LAB CONSOLE Repository Administration and a category-driven equipment
+  model creation wizard, with demo-data hide/show/only filtering and readable
+  category labels.
+- Added Rust core validation for equipment field definitions and template
+  snapshot required fields.
+- Added SQLite migration `storage/sqlite/equipment/0004_equipment_taxonomy_field_templates.sql`.
+
+### Changed
+
+- Bumped synchronized Rust, Python, and frontend versions to `0.13.1`.
+- Reframed the Equipment workspace around user-facing root categories and
+  entry templates, moving technical classification details to Advanced /
+  Diagnostics.
+- Updated equipment demo seeding so demo equipment records are explicit and
+  filterable instead of looking like normal laboratory records.
+
 ### Fixed
 
 - Rejected uppercase hexadecimal characters in Python sync operation payload

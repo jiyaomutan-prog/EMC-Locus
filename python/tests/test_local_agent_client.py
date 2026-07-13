@@ -676,6 +676,21 @@ class LocalAgentClientTests(unittest.TestCase):
                 "flow_roles": [],
                 "technology_tags": [],
             },
+            "http://127.0.0.1:8765/api/v1/equipment/categories": {
+                "categories": [{"category_id": "rf_equipment"}]
+            },
+            "http://127.0.0.1:8765/api/v1/equipment/categories/tree": {
+                "categories": [{"category_id": "rf_equipment", "children": []}]
+            },
+            "http://127.0.0.1:8765/api/v1/equipment/field-definitions?scope=equipment_model": {
+                "field_definitions": [{"field_id": "field_manufacturer"}]
+            },
+            "http://127.0.0.1:8765/api/v1/equipment/categories/rf_cable/field-rules": {
+                "rules": [{"field_id": "field_manufacturer"}]
+            },
+            "http://127.0.0.1:8765/api/v1/equipment/categories/rf_cable/effective-template": {
+                "effective_template": {"category": {"category_id": "rf_cable"}, "fields": []}
+            },
             "http://127.0.0.1:8765/api/v1/equipment/classification-presets": {
                 "presets": [{"preset_id": "rf_power_meter"}]
             },
@@ -734,6 +749,20 @@ class LocalAgentClientTests(unittest.TestCase):
                 [],
             )
             self.assertEqual(client.equipment_registries()["functional_roles"][0]["code"], "measurement_instrument")
+            self.assertEqual(client.list_equipment_categories()["categories"][0]["category_id"], "rf_equipment")
+            self.assertEqual(client.equipment_category_tree()["categories"][0]["category_id"], "rf_equipment")
+            self.assertEqual(
+                client.list_equipment_field_definitions(scope="equipment_model")["field_definitions"][0]["field_id"],
+                "field_manufacturer",
+            )
+            self.assertEqual(
+                client.list_equipment_category_field_rules("rf_cable")["rules"][0]["field_id"],
+                "field_manufacturer",
+            )
+            self.assertEqual(
+                client.equipment_effective_template("rf_cable")["effective_template"]["category"]["category_id"],
+                "rf_cable",
+            )
             self.assertEqual(
                 client.list_equipment_classification_presets()["presets"][0]["preset_id"],
                 "rf_power_meter",
@@ -778,7 +807,7 @@ class LocalAgentClientTests(unittest.TestCase):
             self.assertEqual(client.driver_profile_audit_events("DRV-PY-POWER")["audit_events"], [])
             self.assertTrue(client.communication_provider_status()["providers"][0]["available"])
 
-        self.assertEqual(len(captured), 14)
+        self.assertEqual(len(captured), 19)
 
     def test_posts_equipment_model_revision_payloads(self) -> None:
         captured: list[tuple[str, str, dict[str, object]]] = []
@@ -817,6 +846,18 @@ class LocalAgentClientTests(unittest.TestCase):
                 actor="catalog.author",
                 reason="create model from preset",
                 operation_id="op-model-from-preset",
+            )
+            client.create_equipment_model_from_category_template(
+                category_id="rf_cable",
+                equipment_model_id="EQM-PY-TEMPLATE",
+                field_values={
+                    "manufacturer": "Demo",
+                    "model_name": "Template cable",
+                    "variant": "1 m",
+                },
+                actor="catalog.author",
+                reason="create model from template",
+                operation_id="op-model-from-template",
             )
             client.replace_equipment_model_revision_definition(
                 equipment_model_id="EQM-PY-POWER",
@@ -861,11 +902,15 @@ class LocalAgentClientTests(unittest.TestCase):
         self.assertEqual(captured[1][2]["equipment_model_id"], "EQM-PY-POWER")
         self.assertEqual(captured[2][1], "http://127.0.0.1:8765/api/v1/equipment-models/from-preset")
         self.assertEqual(captured[2][2]["preset_id"], "rf_power_meter")
-        self.assertEqual(captured[3][2]["expected_definition_checksum"], "sha256:" + "a" * 64)
-        self.assertEqual(captured[4][2]["source_revision_id"], "EQM-PY-POWER-rev-0001")
-        self.assertEqual(captured[5][2]["new_equipment_model_id"], "EQM-PY-POWER-CLONE")
-        self.assertEqual(captured[6][2]["operation_id"], "op-model-submit")
-        self.assertEqual(captured[7][2]["operation_id"], "op-model-approve")
+        self.assertFalse(captured[2][2]["is_demo"])
+        self.assertEqual(captured[3][1], "http://127.0.0.1:8765/api/v1/equipment-models/from-category-template")
+        self.assertEqual(captured[3][2]["category_id"], "rf_cable")
+        self.assertFalse(captured[3][2]["is_demo"])
+        self.assertEqual(captured[4][2]["expected_definition_checksum"], "sha256:" + "a" * 64)
+        self.assertEqual(captured[5][2]["source_revision_id"], "EQM-PY-POWER-rev-0001")
+        self.assertEqual(captured[6][2]["new_equipment_model_id"], "EQM-PY-POWER-CLONE")
+        self.assertEqual(captured[7][2]["operation_id"], "op-model-submit")
+        self.assertEqual(captured[8][2]["operation_id"], "op-model-approve")
 
     def test_posts_driver_profile_revision_and_simulation_payloads(self) -> None:
         captured: list[tuple[str, str, dict[str, object]]] = []

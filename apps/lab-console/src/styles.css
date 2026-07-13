@@ -519,6 +519,25 @@ td textarea {
   align-items: stretch;
 }
 
+.advancedFilters {
+  border: 1px solid #d6dde8;
+  border-radius: 8px;
+  padding: 0.42rem 0.55rem;
+  background: #ffffff;
+}
+
+.advancedFilters summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #475569;
+}
+
+.advancedFilters[open] {
+  display: grid;
+  gap: 0.45rem;
+}
+
 .equipmentToolbar > input,
 .equipmentToolbar > select {
   min-width: 150px;
@@ -780,6 +799,72 @@ td textarea {
 .fileButton input {
   max-width: 180px;
   padding: 0;
+}
+
+.adminGrid,
+.wizardGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.categoryTree {
+  display: grid;
+  gap: 4px;
+}
+
+.categoryTree button {
+  align-items: center;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.categoryChildren {
+  border-left: 1px solid #d9dfd7;
+  margin-left: 12px;
+  padding-left: 8px;
+}
+
+.demoBanner {
+  background: #fff4d8;
+  border: 1px solid #d6bd69;
+  color: #574207;
+  font-weight: 700;
+  padding: 8px;
+}
+
+.templatePreview {
+  background: #f8faf6;
+  border: 1px solid #d9dfd7;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+}
+
+.templatePreview span,
+.templatePreview small {
+  overflow-wrap: anywhere;
+}
+
+.unitField {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(90px, 1fr) minmax(80px, 120px);
+}
+
+.checkboxLine {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.checkboxLine input {
+  min-height: auto;
+}
+
+.errorText {
+  color: #8d2b22;
+  font-weight: 700;
 }
 
 .curvePlot {

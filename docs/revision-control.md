@@ -90,7 +90,7 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.13.0` was validated on 2026-07-11 with the CI-equivalent release
+Version `0.13.1` was validated on 2026-07-13 with the CI-equivalent release
 script:
 
 ```text
@@ -101,9 +101,11 @@ The script runs the same validation path as GitHub Actions: Rust format,
 Clippy, Rust tests, Python compile/tests, SQLite migration validation, npm-based
 LAB CONSOLE install/typecheck/lint/unit/build, versioned `dist` verification,
 Playwright E2E, release consistency, launcher smoke and whitespace checks.
-For `0.13.0`, the Playwright path includes the measurement-engineering workflow
-for scaling, engineering curves, sensor definitions, DAQ channel profiles, and
-an approved logical acquisition channel recipe.
+For `0.13.1`, the Playwright path includes the Equipment Repository
+Administration and category-template model creation workflow, plus the
+measurement-engineering workflow for scaling, engineering curves, sensor
+definitions, DAQ channel profiles, and an approved logical acquisition channel
+recipe.
 
 The explicit command sequence is:
 

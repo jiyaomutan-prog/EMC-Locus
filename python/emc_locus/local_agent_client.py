@@ -183,6 +183,8 @@ class LocalAgentClient:
         manufacturer: str | None = None,
         equipment_class: str | None = None,
         category_code: str | None = None,
+        root_category_id: str | None = None,
+        demo_mode: str | None = None,
         functional_role: str | None = None,
         signal_domain: str | None = None,
         technology_tag: str | None = None,
@@ -196,6 +198,8 @@ class LocalAgentClient:
                 "manufacturer": manufacturer,
                 "equipment_class": equipment_class,
                 "category_code": category_code,
+                "root_category_id": root_category_id,
+                "demo_mode": demo_mode,
                 "functional_role": functional_role,
                 "signal_domain": signal_domain,
                 "technology_tag": technology_tag,
@@ -209,6 +213,135 @@ class LocalAgentClient:
 
     def equipment_registries(self) -> dict[str, Any]:
         return self.request_json("GET", "/api/v1/equipment/registries")
+
+    def list_equipment_categories(self, *, include_inactive: bool = False) -> dict[str, Any]:
+        query = {"include_inactive": "true"} if include_inactive else {}
+        suffix = f"?{urlencode(query)}" if query else ""
+        return self.request_json("GET", f"/api/v1/equipment/categories{suffix}")
+
+    def equipment_category_tree(self, *, include_inactive: bool = False) -> dict[str, Any]:
+        query = {"include_inactive": "true"} if include_inactive else {}
+        suffix = f"?{urlencode(query)}" if query else ""
+        return self.request_json("GET", f"/api/v1/equipment/categories/tree{suffix}")
+
+    def create_equipment_category(
+        self,
+        *,
+        category_id: str,
+        parent_category_id: str,
+        label: str,
+        description: str = "",
+        sort_order: int = 100,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "POST",
+            "/api/v1/equipment/categories",
+            {
+                "category_id": category_id,
+                "parent_category_id": parent_category_id,
+                "label": label,
+                "description": description,
+                "sort_order": sort_order,
+            },
+        )
+
+    def update_equipment_category(
+        self,
+        category_id: str,
+        *,
+        label: str,
+        description: str = "",
+        sort_order: int = 100,
+        active: bool = True,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "PUT",
+            f"/api/v1/equipment/categories/{quote(category_id)}",
+            {
+                "label": label,
+                "description": description,
+                "sort_order": sort_order,
+                "active": active,
+            },
+        )
+
+    def archive_equipment_category(self, category_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "POST",
+            f"/api/v1/equipment/categories/{quote(category_id)}/archive",
+        )
+
+    def move_equipment_category(
+        self,
+        category_id: str,
+        *,
+        parent_category_id: str,
+        sort_order: int = 100,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "POST",
+            f"/api/v1/equipment/categories/{quote(category_id)}/move",
+            {
+                "parent_category_id": parent_category_id,
+                "sort_order": sort_order,
+            },
+        )
+
+    def list_equipment_field_definitions(
+        self,
+        *,
+        scope: str | None = None,
+        include_inactive: bool = False,
+    ) -> dict[str, Any]:
+        query = {
+            key: value
+            for key, value in {
+                "scope": scope,
+                "include_inactive": "true" if include_inactive else None,
+            }.items()
+            if value
+        }
+        suffix = f"?{urlencode(query)}" if query else ""
+        return self.request_json("GET", f"/api/v1/equipment/field-definitions{suffix}")
+
+    def create_equipment_field_definition(self, **payload: Any) -> dict[str, Any]:
+        return self.request_json("POST", "/api/v1/equipment/field-definitions", payload)
+
+    def update_equipment_field_definition(self, field_id: str, **payload: Any) -> dict[str, Any]:
+        return self.request_json(
+            "PUT",
+            f"/api/v1/equipment/field-definitions/{quote(field_id)}",
+            payload,
+        )
+
+    def archive_equipment_field_definition(self, field_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "POST",
+            f"/api/v1/equipment/field-definitions/{quote(field_id)}/archive",
+        )
+
+    def list_equipment_category_field_rules(self, category_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/equipment/categories/{quote(category_id)}/field-rules",
+        )
+
+    def replace_equipment_category_field_rules(
+        self,
+        category_id: str,
+        rules: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "PUT",
+            f"/api/v1/equipment/categories/{quote(category_id)}/field-rules",
+            {"rules": rules},
+        )
+
+    def equipment_effective_template(self, category_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/equipment/categories/{quote(category_id)}/effective-template",
+        )
 
     def list_equipment_classification_presets(self) -> dict[str, Any]:
         return self.request_json("GET", "/api/v1/equipment/classification-presets")
@@ -287,6 +420,7 @@ class LocalAgentClient:
         actor: str,
         reason: str,
         variant: str | None = None,
+        is_demo: bool = False,
         operation_id: str | None = None,
         correlation_id: str | None = None,
         device_id: str | None = None,
@@ -303,12 +437,44 @@ class LocalAgentClient:
             "model_name": model_name,
             "actor": actor,
             "reason": reason,
+            "is_demo": is_demo,
             "operation_id": operation_id,
         }
         _put_optional(payload, "variant", variant)
         _put_optional(payload, "correlation_id", correlation_id)
         _put_optional(payload, "device_id", device_id)
         return self.request_json("POST", "/api/v1/equipment-models/from-preset", payload)
+
+    def create_equipment_model_from_category_template(
+        self,
+        *,
+        category_id: str,
+        field_values: dict[str, Any],
+        actor: str,
+        reason: str,
+        equipment_model_id: str | None = None,
+        is_demo: bool = False,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "equipment-model-from-category-template",
+            category_id,
+            equipment_model_id or field_values.get("model_name", "model"),
+        )
+        payload: dict[str, Any] = {
+            "category_id": category_id,
+            "field_values": field_values,
+            "actor": actor,
+            "reason": reason,
+            "is_demo": is_demo,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "equipment_model_id", equipment_model_id)
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json("POST", "/api/v1/equipment-models/from-category-template", payload)
 
     def clone_equipment_model(
         self,

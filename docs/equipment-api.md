@@ -1,10 +1,38 @@
 # Equipment API
 
-Release `0.13.0` extends the revisioned equipment catalog with
-measurement-engineering definitions: sensors/transducers, scaling profiles,
-engineering correction curves, DAQ channel profiles, and logical acquisition
-channel recipes. These routes complement the 0.12 physical-classification
-catalog; they do not run hardware or acquire data.
+Release `0.13.1` adds the Equipment Repository administration layer used by LAB
+CONSOLE: hierarchical categories, field definitions, inherited category field
+rules, effective entry templates, revision snapshots, model field values, and
+demo-data filtering. Release `0.13.0` remains the measurement-engineering
+baseline for sensors/transducers, scaling profiles, engineering correction
+curves, DAQ channel profiles, and logical acquisition channel recipes. These
+routes do not run hardware or acquire data.
+
+## Repository Administration
+
+```text
+GET    /api/v1/equipment/categories
+POST   /api/v1/equipment/categories
+PUT    /api/v1/equipment/categories/{category_id}
+POST   /api/v1/equipment/categories/{category_id}/archive
+POST   /api/v1/equipment/categories/{category_id}/move
+GET    /api/v1/equipment/categories/tree
+GET    /api/v1/equipment/field-definitions
+POST   /api/v1/equipment/field-definitions
+PUT    /api/v1/equipment/field-definitions/{field_id}
+POST   /api/v1/equipment/field-definitions/{field_id}/archive
+GET    /api/v1/equipment/categories/{category_id}/field-rules
+PUT    /api/v1/equipment/categories/{category_id}/field-rules
+GET    /api/v1/equipment/categories/{category_id}/effective-template
+```
+
+The seven system root categories are seeded during normal storage
+initialization and cannot be archived or moved. Subcategories can be created,
+updated, moved, and archived when not in use. Field definitions describe
+business form fields. Category field rules make fields visible/required for a
+category and are inherited by child categories. `effective-template` returns
+the resolved form for a category and is the contract used by the model creation
+wizard.
 
 ## Equipment Models
 
@@ -12,6 +40,7 @@ catalog; they do not run hardware or acquire data.
 GET    /api/v1/equipment-models
 POST   /api/v1/equipment-models
 POST   /api/v1/equipment-models/from-preset
+POST   /api/v1/equipment-models/from-category-template
 POST   /api/v1/equipment-model-definitions/validate
 GET    /api/v1/equipment-models/{equipment_model_id}
 POST   /api/v1/equipment-models/{equipment_model_id}/clone
@@ -35,17 +64,33 @@ definition checksum exactly.
 - `signal_domain`;
 - `technology_tag`;
 - `equipment_class`;
+- `root_category_id`;
+- `category_code`;
+- `demo_mode` (`hide`, `show`, or `only`);
 - `manufacturer`;
 - `status`;
 - `q` or `search`.
 
-Role, domain and tag filters use normalized summary tables, not JSON parsing.
+Root/category, demo, role, domain and tag filters use normalized summary
+tables, not JSON parsing.
 
 `POST /api/v1/equipment-models/from-preset` requires `preset_id`,
 `equipment_model_id`, `manufacturer`, `model_name`, `actor`, `reason`, and
 `operation_id`, with optional `variant`, `correlation_id`, and `device_id`. It
 creates a draft model revision from the selected backend preset and records
 audit/outbox evidence with operation kind `equipment_model_created_from_preset`.
+It is retained for technical seed/demo paths and should not be the primary LAB
+CONSOLE creation UX.
+
+`POST /api/v1/equipment-models/from-category-template` requires `category_id`,
+`field_values`, `actor`, `reason`, and an operation id. `equipment_model_id`
+and `is_demo` are optional. The server resolves the category's effective
+template, validates required and typed fields, derives the underlying technical
+classification defaults, stores `custom_field_values`, captures the template
+snapshot in the draft revision, updates searchable summaries
+(`category_code`, `root_category_id`, `manufacturer`, `model_name`, `variant`,
+`is_demo`, `status`), and records audit/outbox evidence with operation kind
+`equipment_model_created_from_category_template`.
 
 ## Classification Registries And Presets
 

@@ -267,7 +267,100 @@ export interface EquipmentModelDefinition {
   signal_ports: SignalPortDefinition[];
   communication_interfaces: CommunicationInterfaceDefinition[];
   capabilities: MeasurementCapabilityDefinition[];
+  custom_field_values?: Record<string, unknown>;
+  template_snapshot?: EquipmentModelTemplateSnapshot;
+  is_demo?: boolean;
   metadata?: Record<string, unknown>;
+}
+
+export interface EquipmentCategory {
+  category_id: string;
+  parent_category_id: string | null;
+  root_category_id: string;
+  label: string;
+  description: string;
+  sort_order: number;
+  active: boolean;
+  system_defined: boolean;
+  created_at: string;
+  updated_at: string;
+  children: EquipmentCategory[];
+}
+
+export type EquipmentFieldDataType =
+  | "short_text"
+  | "long_text"
+  | "number"
+  | "number_with_unit"
+  | "date"
+  | "boolean"
+  | "choice"
+  | "multi_choice"
+  | "url"
+  | "file_reference"
+  | "object_reference";
+
+export interface EquipmentFieldDefinition {
+  field_id: string;
+  field_code: string;
+  label: string;
+  description: string;
+  data_type: EquipmentFieldDataType;
+  scope: string;
+  required_by_default: boolean;
+  visible_by_default: boolean;
+  unique_value: boolean;
+  unit_quantity?: string | null;
+  allowed_units: string[];
+  option_values: string[];
+  validation_regex?: string | null;
+  default_value?: unknown;
+  display_group: string;
+  display_order: number;
+  active: boolean;
+  system_defined: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EquipmentCategoryFieldRule {
+  category_id: string;
+  field_id: string;
+  required?: boolean | null;
+  visible?: boolean | null;
+  display_group?: string | null;
+  display_order?: number | null;
+  default_value?: unknown;
+  help_text_override?: string | null;
+  updated_at?: string;
+}
+
+export interface EquipmentEffectiveField {
+  field: EquipmentFieldDefinition;
+  required: boolean;
+  visible: boolean;
+  display_group: string;
+  display_order: number;
+  default_value?: unknown;
+  help_text?: string | null;
+  inherited_from_category_ids: string[];
+}
+
+export interface EquipmentEffectiveTemplate {
+  category: EquipmentCategory;
+  root_category: EquipmentCategory;
+  category_path: EquipmentCategory[];
+  fields: EquipmentEffectiveField[];
+  template_checksum: string;
+}
+
+export interface EquipmentModelTemplateSnapshot {
+  category_id: string;
+  root_category_id: string;
+  category_path: string[];
+  captured_at: string;
+  template_checksum: string;
+  fields: EquipmentEffectiveField[];
 }
 
 export interface EquipmentModelIdentity {
@@ -277,6 +370,8 @@ export interface EquipmentModelIdentity {
   variant: string | null;
   equipment_class: EquipmentClass;
   category_code: string;
+  root_category_id?: string | null;
+  is_demo?: boolean;
   current_approved_revision_id: string | null;
   created_by: string;
   created_at: string;

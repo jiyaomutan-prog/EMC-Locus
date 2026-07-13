@@ -17,6 +17,8 @@ pub(crate) struct StoredEquipmentModelIdentity {
     pub(crate) variant: Option<String>,
     pub(crate) equipment_class: String,
     pub(crate) category_code: String,
+    pub(crate) root_category_id: Option<String>,
+    pub(crate) is_demo: bool,
     pub(crate) current_approved_revision_id: Option<String>,
     pub(crate) created_by: String,
     pub(crate) created_at: String,
@@ -159,11 +161,64 @@ pub(crate) struct StoredEquipmentClassificationPresetPort {
     pub(crate) comment: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct StoredEquipmentCategory {
+    pub(crate) category_id: String,
+    pub(crate) parent_category_id: Option<String>,
+    pub(crate) root_category_id: String,
+    pub(crate) label: String,
+    pub(crate) description: String,
+    pub(crate) sort_order: i64,
+    pub(crate) active: bool,
+    pub(crate) system_defined: bool,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct StoredEquipmentFieldDefinition {
+    pub(crate) field_id: String,
+    pub(crate) field_code: String,
+    pub(crate) label: String,
+    pub(crate) description: String,
+    pub(crate) data_type: String,
+    pub(crate) scope: String,
+    pub(crate) required_by_default: bool,
+    pub(crate) visible_by_default: bool,
+    pub(crate) unique_value: bool,
+    pub(crate) unit_quantity: Option<String>,
+    pub(crate) allowed_units_json: String,
+    pub(crate) option_values_json: String,
+    pub(crate) validation_regex: Option<String>,
+    pub(crate) default_value_json: Option<String>,
+    pub(crate) display_group: String,
+    pub(crate) display_order: i64,
+    pub(crate) active: bool,
+    pub(crate) system_defined: bool,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct StoredEquipmentCategoryFieldRule {
+    pub(crate) category_id: String,
+    pub(crate) field_id: String,
+    pub(crate) required: Option<bool>,
+    pub(crate) visible: Option<bool>,
+    pub(crate) display_group: Option<String>,
+    pub(crate) display_order: Option<i64>,
+    pub(crate) default_value_json: Option<String>,
+    pub(crate) help_text_override: Option<String>,
+    pub(crate) updated_at: String,
+}
+
 #[derive(Default)]
 pub(crate) struct EquipmentModelListFilter<'a> {
     pub(crate) manufacturer: Option<&'a str>,
     pub(crate) equipment_class: Option<&'a str>,
     pub(crate) category_code: Option<&'a str>,
+    pub(crate) root_category_id: Option<&'a str>,
+    pub(crate) is_demo: Option<bool>,
     pub(crate) functional_role: Option<&'a str>,
     pub(crate) signal_domain: Option<&'a str>,
     pub(crate) technology_tag: Option<&'a str>,
@@ -213,12 +268,114 @@ pub(crate) struct EquipmentClassificationSummaryRecord<'a> {
     pub(crate) manufacturer: &'a str,
     pub(crate) equipment_class: &'a str,
     pub(crate) category_code: &'a str,
+    pub(crate) root_category_id: &'a str,
+    pub(crate) is_demo: bool,
     pub(crate) functional_role: &'a str,
     pub(crate) definition_checksum: &'a str,
     pub(crate) signal_domains_json: &'a str,
     pub(crate) technology_tags_json: &'a str,
     pub(crate) signal_domains: &'a [String],
     pub(crate) technology_tags: &'a [String],
+    pub(crate) timestamp: &'a str,
+}
+
+pub(crate) struct NewEquipmentCategoryRecord<'a> {
+    pub(crate) category_id: &'a str,
+    pub(crate) parent_category_id: Option<&'a str>,
+    pub(crate) root_category_id: &'a str,
+    pub(crate) label: &'a str,
+    pub(crate) description: &'a str,
+    pub(crate) sort_order: i64,
+    pub(crate) active: bool,
+    pub(crate) system_defined: bool,
+    pub(crate) timestamp: &'a str,
+}
+
+pub(crate) struct UpdateEquipmentCategoryRecord<'a> {
+    pub(crate) category_id: &'a str,
+    pub(crate) label: &'a str,
+    pub(crate) description: &'a str,
+    pub(crate) sort_order: i64,
+    pub(crate) active: bool,
+    pub(crate) timestamp: &'a str,
+}
+
+pub(crate) struct MoveEquipmentCategoryRecord<'a> {
+    pub(crate) category_id: &'a str,
+    pub(crate) parent_category_id: Option<&'a str>,
+    pub(crate) root_category_id: &'a str,
+    pub(crate) sort_order: i64,
+    pub(crate) timestamp: &'a str,
+}
+
+pub(crate) struct NewEquipmentFieldDefinitionRecord<'a> {
+    pub(crate) field_id: &'a str,
+    pub(crate) field_code: &'a str,
+    pub(crate) label: &'a str,
+    pub(crate) description: &'a str,
+    pub(crate) data_type: &'a str,
+    pub(crate) scope: &'a str,
+    pub(crate) required_by_default: bool,
+    pub(crate) visible_by_default: bool,
+    pub(crate) unique_value: bool,
+    pub(crate) unit_quantity: Option<&'a str>,
+    pub(crate) allowed_units_json: &'a str,
+    pub(crate) option_values_json: &'a str,
+    pub(crate) validation_regex: Option<&'a str>,
+    pub(crate) default_value_json: Option<&'a str>,
+    pub(crate) display_group: &'a str,
+    pub(crate) display_order: i64,
+    pub(crate) active: bool,
+    pub(crate) system_defined: bool,
+    pub(crate) timestamp: &'a str,
+}
+
+pub(crate) struct UpdateEquipmentFieldDefinitionRecord<'a> {
+    pub(crate) field_id: &'a str,
+    pub(crate) label: &'a str,
+    pub(crate) description: &'a str,
+    pub(crate) data_type: &'a str,
+    pub(crate) required_by_default: bool,
+    pub(crate) visible_by_default: bool,
+    pub(crate) unique_value: bool,
+    pub(crate) unit_quantity: Option<&'a str>,
+    pub(crate) allowed_units_json: &'a str,
+    pub(crate) option_values_json: &'a str,
+    pub(crate) validation_regex: Option<&'a str>,
+    pub(crate) default_value_json: Option<&'a str>,
+    pub(crate) display_group: &'a str,
+    pub(crate) display_order: i64,
+    pub(crate) active: bool,
+    pub(crate) timestamp: &'a str,
+}
+
+pub(crate) struct NewEquipmentCategoryFieldRuleRecord<'a> {
+    pub(crate) category_id: &'a str,
+    pub(crate) field_id: &'a str,
+    pub(crate) required: Option<bool>,
+    pub(crate) visible: Option<bool>,
+    pub(crate) display_group: Option<&'a str>,
+    pub(crate) display_order: Option<i64>,
+    pub(crate) default_value_json: Option<&'a str>,
+    pub(crate) help_text_override: Option<&'a str>,
+    pub(crate) timestamp: &'a str,
+}
+
+pub(crate) struct EquipmentModelFieldValueRecord<'a> {
+    pub(crate) equipment_model_id: &'a str,
+    pub(crate) revision_id: &'a str,
+    pub(crate) field_id: &'a str,
+    pub(crate) value_json: &'a str,
+    pub(crate) display_value: &'a str,
+}
+
+pub(crate) struct EquipmentModelTemplateSnapshotRecord<'a> {
+    pub(crate) equipment_model_id: &'a str,
+    pub(crate) revision_id: &'a str,
+    pub(crate) category_id: &'a str,
+    pub(crate) root_category_id: &'a str,
+    pub(crate) snapshot_json: &'a str,
+    pub(crate) snapshot_checksum: &'a str,
     pub(crate) timestamp: &'a str,
 }
 
@@ -389,6 +546,11 @@ fn ensure_equipment_tables(connection: &Connection) -> Result<(), AgentError> {
         "equipment_model_classification_summaries",
         "equipment_model_signal_domain_summaries",
         "equipment_model_technology_tag_summaries",
+        "equipment_categories",
+        "equipment_field_definitions",
+        "equipment_category_field_rules",
+        "equipment_model_field_values",
+        "equipment_model_template_snapshots",
         "driver_profile_identities",
         "driver_profile_revisions",
         "equipment_audit_events",
@@ -417,6 +579,463 @@ fn ensure_sync_tables(connection: &Connection) -> Result<(), AgentError> {
             "storage_not_initialized",
             "missing required table sync_db.sync_operations",
         ));
+    }
+    Ok(())
+}
+
+pub(crate) fn list_equipment_categories(
+    connection: &Connection,
+    include_inactive: bool,
+) -> Result<Vec<StoredEquipmentCategory>, AgentError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT category_id, parent_category_id, root_category_id, label, description,
+                sort_order, active, system_defined, created_at, updated_at
+             FROM equipment_categories
+             WHERE (?1 = 1 OR active = 1)
+             ORDER BY root_category_id, parent_category_id, sort_order, label",
+        )
+        .map_err(|error| AgentError::new("equipment_category_query_failed", error.to_string()))?;
+    let rows = statement
+        .query_map(
+            params![bool_to_i64(include_inactive)],
+            equipment_category_from_row,
+        )
+        .map_err(|error| AgentError::new("equipment_category_query_failed", error.to_string()))?;
+    collect_rows(rows, "equipment_category_query_failed")
+}
+
+pub(crate) fn load_equipment_category(
+    connection: &Connection,
+    category_id: &str,
+) -> Result<Option<StoredEquipmentCategory>, AgentError> {
+    connection
+        .query_row(
+            "SELECT category_id, parent_category_id, root_category_id, label, description,
+                sort_order, active, system_defined, created_at, updated_at
+             FROM equipment_categories
+             WHERE category_id = ?1",
+            params![category_id],
+            equipment_category_from_row,
+        )
+        .optional()
+        .map_err(|error| AgentError::new("equipment_category_query_failed", error.to_string()))
+}
+
+pub(crate) fn insert_equipment_category(
+    transaction: &Transaction<'_>,
+    input: NewEquipmentCategoryRecord<'_>,
+) -> Result<(), AgentError> {
+    transaction
+        .execute(
+            "INSERT INTO equipment_categories (
+                category_id, parent_category_id, root_category_id, label, description,
+                sort_order, active, system_defined, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
+            params![
+                input.category_id,
+                input.parent_category_id,
+                input.root_category_id,
+                input.label,
+                input.description,
+                input.sort_order,
+                bool_to_i64(input.active),
+                bool_to_i64(input.system_defined),
+                input.timestamp
+            ],
+        )
+        .map_err(|error| AgentError::new("equipment_category_write_failed", error.to_string()))?;
+    Ok(())
+}
+
+pub(crate) fn update_equipment_category(
+    transaction: &Transaction<'_>,
+    input: UpdateEquipmentCategoryRecord<'_>,
+) -> Result<(), AgentError> {
+    let changed = transaction
+        .execute(
+            "UPDATE equipment_categories
+             SET label = ?2, description = ?3, sort_order = ?4, active = ?5, updated_at = ?6
+             WHERE category_id = ?1",
+            params![
+                input.category_id,
+                input.label,
+                input.description,
+                input.sort_order,
+                bool_to_i64(input.active),
+                input.timestamp
+            ],
+        )
+        .map_err(|error| AgentError::new("equipment_category_write_failed", error.to_string()))?;
+    if changed == 0 {
+        return Err(AgentError::new(
+            "equipment_category_not_found",
+            "equipment category not found",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn archive_equipment_category(
+    transaction: &Transaction<'_>,
+    category_id: &str,
+    timestamp: &str,
+) -> Result<(), AgentError> {
+    let changed = transaction
+        .execute(
+            "UPDATE equipment_categories
+             SET active = 0, updated_at = ?2
+             WHERE category_id = ?1",
+            params![category_id, timestamp],
+        )
+        .map_err(|error| AgentError::new("equipment_category_write_failed", error.to_string()))?;
+    if changed == 0 {
+        return Err(AgentError::new(
+            "equipment_category_not_found",
+            "equipment category not found",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn move_equipment_category(
+    transaction: &Transaction<'_>,
+    input: MoveEquipmentCategoryRecord<'_>,
+) -> Result<(), AgentError> {
+    let changed = transaction
+        .execute(
+            "UPDATE equipment_categories
+             SET parent_category_id = ?2, root_category_id = ?3, sort_order = ?4, updated_at = ?5
+             WHERE category_id = ?1",
+            params![
+                input.category_id,
+                input.parent_category_id,
+                input.root_category_id,
+                input.sort_order,
+                input.timestamp
+            ],
+        )
+        .map_err(|error| AgentError::new("equipment_category_write_failed", error.to_string()))?;
+    if changed == 0 {
+        return Err(AgentError::new(
+            "equipment_category_not_found",
+            "equipment category not found",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn count_equipment_models_in_category(
+    connection: &Connection,
+    category_id: &str,
+) -> Result<u32, AgentError> {
+    connection
+        .query_row(
+            "SELECT COUNT(*) FROM equipment_model_classification_summaries
+             WHERE category_code = ?1",
+            params![category_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| AgentError::new("equipment_category_query_failed", error.to_string()))
+}
+
+pub(crate) fn list_equipment_field_definitions(
+    connection: &Connection,
+    scope: Option<&str>,
+    include_inactive: bool,
+) -> Result<Vec<StoredEquipmentFieldDefinition>, AgentError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT field_id, field_code, label, description, data_type, scope,
+                required_by_default, visible_by_default, unique_value, unit_quantity,
+                allowed_units_json, option_values_json, validation_regex, default_value_json,
+                display_group, display_order, active, system_defined, created_at, updated_at
+             FROM equipment_field_definitions
+             WHERE (?1 IS NULL OR scope = ?1)
+               AND (?2 = 1 OR active = 1)
+             ORDER BY display_order, label, field_code",
+        )
+        .map_err(|error| AgentError::new("equipment_field_query_failed", error.to_string()))?;
+    let rows = statement
+        .query_map(
+            params![scope, bool_to_i64(include_inactive)],
+            equipment_field_definition_from_row,
+        )
+        .map_err(|error| AgentError::new("equipment_field_query_failed", error.to_string()))?;
+    collect_rows(rows, "equipment_field_query_failed")
+}
+
+pub(crate) fn load_equipment_field_definition(
+    connection: &Connection,
+    field_id: &str,
+) -> Result<Option<StoredEquipmentFieldDefinition>, AgentError> {
+    connection
+        .query_row(
+            "SELECT field_id, field_code, label, description, data_type, scope,
+                required_by_default, visible_by_default, unique_value, unit_quantity,
+                allowed_units_json, option_values_json, validation_regex, default_value_json,
+                display_group, display_order, active, system_defined, created_at, updated_at
+             FROM equipment_field_definitions
+             WHERE field_id = ?1",
+            params![field_id],
+            equipment_field_definition_from_row,
+        )
+        .optional()
+        .map_err(|error| AgentError::new("equipment_field_query_failed", error.to_string()))
+}
+
+pub(crate) fn load_equipment_field_definition_by_code(
+    connection: &Connection,
+    field_code: &str,
+) -> Result<Option<StoredEquipmentFieldDefinition>, AgentError> {
+    connection
+        .query_row(
+            "SELECT field_id, field_code, label, description, data_type, scope,
+                required_by_default, visible_by_default, unique_value, unit_quantity,
+                allowed_units_json, option_values_json, validation_regex, default_value_json,
+                display_group, display_order, active, system_defined, created_at, updated_at
+             FROM equipment_field_definitions
+             WHERE field_code = ?1",
+            params![field_code],
+            equipment_field_definition_from_row,
+        )
+        .optional()
+        .map_err(|error| AgentError::new("equipment_field_query_failed", error.to_string()))
+}
+
+pub(crate) fn insert_equipment_field_definition(
+    transaction: &Transaction<'_>,
+    input: NewEquipmentFieldDefinitionRecord<'_>,
+) -> Result<(), AgentError> {
+    transaction
+        .execute(
+            "INSERT INTO equipment_field_definitions (
+                field_id, field_code, label, description, data_type, scope,
+                required_by_default, visible_by_default, unique_value, unit_quantity,
+                allowed_units_json, option_values_json, validation_regex, default_value_json,
+                display_group, display_order, active, system_defined, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?19)",
+            params![
+                input.field_id,
+                input.field_code,
+                input.label,
+                input.description,
+                input.data_type,
+                input.scope,
+                bool_to_i64(input.required_by_default),
+                bool_to_i64(input.visible_by_default),
+                bool_to_i64(input.unique_value),
+                input.unit_quantity,
+                input.allowed_units_json,
+                input.option_values_json,
+                input.validation_regex,
+                input.default_value_json,
+                input.display_group,
+                input.display_order,
+                bool_to_i64(input.active),
+                bool_to_i64(input.system_defined),
+                input.timestamp
+            ],
+        )
+        .map_err(|error| AgentError::new("equipment_field_write_failed", error.to_string()))?;
+    Ok(())
+}
+
+pub(crate) fn update_equipment_field_definition(
+    transaction: &Transaction<'_>,
+    input: UpdateEquipmentFieldDefinitionRecord<'_>,
+) -> Result<(), AgentError> {
+    let changed = transaction
+        .execute(
+            "UPDATE equipment_field_definitions
+             SET label = ?2, description = ?3, data_type = ?4,
+                 required_by_default = ?5, visible_by_default = ?6,
+                 unique_value = ?7, unit_quantity = ?8, allowed_units_json = ?9,
+                 option_values_json = ?10, validation_regex = ?11, default_value_json = ?12,
+                 display_group = ?13, display_order = ?14, active = ?15, updated_at = ?16
+             WHERE field_id = ?1",
+            params![
+                input.field_id,
+                input.label,
+                input.description,
+                input.data_type,
+                bool_to_i64(input.required_by_default),
+                bool_to_i64(input.visible_by_default),
+                bool_to_i64(input.unique_value),
+                input.unit_quantity,
+                input.allowed_units_json,
+                input.option_values_json,
+                input.validation_regex,
+                input.default_value_json,
+                input.display_group,
+                input.display_order,
+                bool_to_i64(input.active),
+                input.timestamp
+            ],
+        )
+        .map_err(|error| AgentError::new("equipment_field_write_failed", error.to_string()))?;
+    if changed == 0 {
+        return Err(AgentError::new(
+            "equipment_field_not_found",
+            "equipment field definition not found",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn archive_equipment_field_definition(
+    transaction: &Transaction<'_>,
+    field_id: &str,
+    timestamp: &str,
+) -> Result<(), AgentError> {
+    let changed = transaction
+        .execute(
+            "UPDATE equipment_field_definitions
+             SET active = 0, updated_at = ?2
+             WHERE field_id = ?1",
+            params![field_id, timestamp],
+        )
+        .map_err(|error| AgentError::new("equipment_field_write_failed", error.to_string()))?;
+    if changed == 0 {
+        return Err(AgentError::new(
+            "equipment_field_not_found",
+            "equipment field definition not found",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn list_equipment_category_field_rules(
+    connection: &Connection,
+    category_id: &str,
+) -> Result<Vec<StoredEquipmentCategoryFieldRule>, AgentError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT category_id, field_id, required, visible, display_group,
+                display_order, default_value_json, help_text_override, updated_at
+             FROM equipment_category_field_rules
+             WHERE category_id = ?1
+             ORDER BY coalesce(display_order, 999999), field_id",
+        )
+        .map_err(|error| AgentError::new("equipment_field_rule_query_failed", error.to_string()))?;
+    let rows = statement
+        .query_map(params![category_id], equipment_category_field_rule_from_row)
+        .map_err(|error| AgentError::new("equipment_field_rule_query_failed", error.to_string()))?;
+    collect_rows(rows, "equipment_field_rule_query_failed")
+}
+
+pub(crate) fn replace_equipment_category_field_rules(
+    transaction: &Transaction<'_>,
+    category_id: &str,
+    rules: &[NewEquipmentCategoryFieldRuleRecord<'_>],
+) -> Result<(), AgentError> {
+    transaction
+        .execute(
+            "DELETE FROM equipment_category_field_rules WHERE category_id = ?1",
+            params![category_id],
+        )
+        .map_err(|error| AgentError::new("equipment_field_rule_write_failed", error.to_string()))?;
+    for rule in rules {
+        transaction
+            .execute(
+                "INSERT INTO equipment_category_field_rules (
+                    category_id, field_id, required, visible, display_group, display_order,
+                    default_value_json, help_text_override, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    rule.category_id,
+                    rule.field_id,
+                    rule.required.map(bool_to_i64),
+                    rule.visible.map(bool_to_i64),
+                    rule.display_group,
+                    rule.display_order,
+                    rule.default_value_json,
+                    rule.help_text_override,
+                    rule.timestamp
+                ],
+            )
+            .map_err(|error| {
+                AgentError::new("equipment_field_rule_write_failed", error.to_string())
+            })?;
+    }
+    Ok(())
+}
+
+pub(crate) fn replace_equipment_model_template_snapshot(
+    transaction: &Transaction<'_>,
+    equipment_model_id: &str,
+    revision_id: &str,
+    snapshot: Option<EquipmentModelTemplateSnapshotRecord<'_>>,
+    field_values: &[EquipmentModelFieldValueRecord<'_>],
+) -> Result<(), AgentError> {
+    transaction
+        .execute(
+            "DELETE FROM equipment_model_template_snapshots
+             WHERE equipment_model_id = ?1 AND revision_id = ?2",
+            params![equipment_model_id, revision_id],
+        )
+        .map_err(|error| {
+            AgentError::new(
+                "equipment_template_snapshot_write_failed",
+                error.to_string(),
+            )
+        })?;
+    transaction
+        .execute(
+            "DELETE FROM equipment_model_field_values
+             WHERE equipment_model_id = ?1 AND revision_id = ?2",
+            params![equipment_model_id, revision_id],
+        )
+        .map_err(|error| {
+            AgentError::new(
+                "equipment_template_snapshot_write_failed",
+                error.to_string(),
+            )
+        })?;
+    if let Some(snapshot) = snapshot {
+        transaction
+            .execute(
+                "INSERT INTO equipment_model_template_snapshots (
+                    equipment_model_id, revision_id, category_id, root_category_id,
+                    snapshot_json, snapshot_checksum, created_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    snapshot.equipment_model_id,
+                    snapshot.revision_id,
+                    snapshot.category_id,
+                    snapshot.root_category_id,
+                    snapshot.snapshot_json,
+                    snapshot.snapshot_checksum,
+                    snapshot.timestamp
+                ],
+            )
+            .map_err(|error| {
+                AgentError::new(
+                    "equipment_template_snapshot_write_failed",
+                    error.to_string(),
+                )
+            })?;
+    }
+    for value in field_values {
+        transaction
+            .execute(
+                "INSERT INTO equipment_model_field_values (
+                    equipment_model_id, revision_id, field_id, value_json, display_value
+                ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    value.equipment_model_id,
+                    value.revision_id,
+                    value.field_id,
+                    value.value_json,
+                    value.display_value
+                ],
+            )
+            .map_err(|error| {
+                AgentError::new(
+                    "equipment_template_snapshot_write_failed",
+                    error.to_string(),
+                )
+            })?;
     }
     Ok(())
 }
@@ -499,9 +1118,9 @@ pub(crate) fn replace_equipment_model_classification_summary(
         .execute(
             "INSERT INTO equipment_model_classification_summaries (
                 equipment_model_id, revision_id, revision_number, status, manufacturer,
-                equipment_class, category_code, functional_role, definition_checksum,
+                equipment_class, category_code, root_category_id, is_demo, functional_role, definition_checksum,
                 signal_domains_json, technology_tags_json, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 input.equipment_model_id,
                 input.revision_id,
@@ -510,6 +1129,8 @@ pub(crate) fn replace_equipment_model_classification_summary(
                 input.manufacturer,
                 input.equipment_class,
                 input.category_code,
+                input.root_category_id,
+                bool_to_i64(input.is_demo),
                 input.functional_role,
                 input.definition_checksum,
                 input.signal_domains_json,
@@ -618,39 +1239,42 @@ pub(crate) fn list_equipment_model_identities(
     let mut statement = connection
         .prepare(
             "SELECT DISTINCT i.equipment_model_id, i.manufacturer, i.model_name, i.variant,
-                i.equipment_class, i.category_code, i.current_approved_revision_id,
-                i.created_by, i.created_at, i.updated_at
+                i.equipment_class, i.category_code, s.root_category_id, coalesce(s.is_demo, 0),
+                i.current_approved_revision_id, i.created_by, i.created_at, i.updated_at
              FROM equipment_model_identities i
              LEFT JOIN equipment_model_classification_summaries s
                 ON s.equipment_model_id = i.equipment_model_id
              WHERE (?1 IS NULL OR i.manufacturer = ?1)
                AND (?2 IS NULL OR i.equipment_class = ?2)
                AND (?3 IS NULL OR i.category_code = ?3)
-               AND (?4 IS NULL OR s.functional_role = ?4)
+               AND (?4 IS NULL OR s.root_category_id = ?4)
+               AND (?5 IS NULL OR s.is_demo = ?5)
+               AND (?6 IS NULL OR s.functional_role = ?6)
                AND (
-                    ?5 IS NULL OR EXISTS (
+                    ?7 IS NULL OR EXISTS (
                         SELECT 1 FROM equipment_model_signal_domain_summaries sd
                         WHERE sd.equipment_model_id = i.equipment_model_id
-                          AND sd.signal_domain = ?5
+                          AND sd.signal_domain = ?7
                     )
                )
                AND (
-                    ?6 IS NULL OR EXISTS (
+                    ?8 IS NULL OR EXISTS (
                         SELECT 1 FROM equipment_model_technology_tag_summaries tt
                         WHERE tt.equipment_model_id = i.equipment_model_id
-                          AND tt.technology_tag = ?6
+                          AND tt.technology_tag = ?8
                     )
                )
-               AND (?7 IS NULL OR s.status = ?7)
+               AND (?9 IS NULL OR s.status = ?9)
                AND (
-                    ?8 IS NULL
+                    ?10 IS NULL
                     OR lower(
                         i.manufacturer || ' ' || i.model_name || ' ' ||
                         coalesce(i.variant, '') || ' ' || i.category_code || ' ' ||
+                        coalesce(s.root_category_id, '') || ' ' ||
                         coalesce(s.functional_role, '') || ' ' ||
                         coalesce(s.signal_domains_json, '') || ' ' ||
                         coalesce(s.technology_tags_json, '')
-                    ) LIKE '%' || lower(?8) || '%'
+                    ) LIKE '%' || lower(?10) || '%'
                )
              ORDER BY i.manufacturer, i.model_name, i.variant",
         )
@@ -661,6 +1285,8 @@ pub(crate) fn list_equipment_model_identities(
                 filter.manufacturer,
                 filter.equipment_class,
                 filter.category_code,
+                filter.root_category_id,
+                filter.is_demo.map(bool_to_i64),
                 filter.functional_role,
                 filter.signal_domain,
                 filter.technology_tag,
@@ -848,9 +1474,13 @@ pub(crate) fn load_equipment_model_identity(
 ) -> Result<Option<StoredEquipmentModelIdentity>, AgentError> {
     connection
         .query_row(
-            "SELECT equipment_model_id, manufacturer, model_name, variant, equipment_class,
-                category_code, current_approved_revision_id, created_by, created_at, updated_at
-             FROM equipment_model_identities WHERE equipment_model_id = ?1",
+            "SELECT i.equipment_model_id, i.manufacturer, i.model_name, i.variant,
+                i.equipment_class, i.category_code, s.root_category_id, coalesce(s.is_demo, 0),
+                i.current_approved_revision_id, i.created_by, i.created_at, i.updated_at
+             FROM equipment_model_identities i
+             LEFT JOIN equipment_model_classification_summaries s
+                ON s.equipment_model_id = i.equipment_model_id
+             WHERE i.equipment_model_id = ?1",
             params![equipment_model_id],
             equipment_model_identity_from_row,
         )
@@ -1586,9 +2216,85 @@ fn sha256_text(text: &str) -> String {
     format!("sha256:{digest:x}")
 }
 
+fn bool_to_i64(value: bool) -> i64 {
+    if value {
+        1
+    } else {
+        0
+    }
+}
+
+fn equipment_category_from_row(row: &Row<'_>) -> rusqlite::Result<StoredEquipmentCategory> {
+    let active: i64 = row.get(6)?;
+    let system_defined: i64 = row.get(7)?;
+    Ok(StoredEquipmentCategory {
+        category_id: row.get(0)?,
+        parent_category_id: row.get(1)?,
+        root_category_id: row.get(2)?,
+        label: row.get(3)?,
+        description: row.get(4)?,
+        sort_order: row.get(5)?,
+        active: active != 0,
+        system_defined: system_defined != 0,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+    })
+}
+
+fn equipment_field_definition_from_row(
+    row: &Row<'_>,
+) -> rusqlite::Result<StoredEquipmentFieldDefinition> {
+    let required_by_default: i64 = row.get(6)?;
+    let visible_by_default: i64 = row.get(7)?;
+    let unique_value: i64 = row.get(8)?;
+    let active: i64 = row.get(16)?;
+    let system_defined: i64 = row.get(17)?;
+    Ok(StoredEquipmentFieldDefinition {
+        field_id: row.get(0)?,
+        field_code: row.get(1)?,
+        label: row.get(2)?,
+        description: row.get(3)?,
+        data_type: row.get(4)?,
+        scope: row.get(5)?,
+        required_by_default: required_by_default != 0,
+        visible_by_default: visible_by_default != 0,
+        unique_value: unique_value != 0,
+        unit_quantity: row.get(9)?,
+        allowed_units_json: row.get(10)?,
+        option_values_json: row.get(11)?,
+        validation_regex: row.get(12)?,
+        default_value_json: row.get(13)?,
+        display_group: row.get(14)?,
+        display_order: row.get(15)?,
+        active: active != 0,
+        system_defined: system_defined != 0,
+        created_at: row.get(18)?,
+        updated_at: row.get(19)?,
+    })
+}
+
+fn equipment_category_field_rule_from_row(
+    row: &Row<'_>,
+) -> rusqlite::Result<StoredEquipmentCategoryFieldRule> {
+    let required: Option<i64> = row.get(2)?;
+    let visible: Option<i64> = row.get(3)?;
+    Ok(StoredEquipmentCategoryFieldRule {
+        category_id: row.get(0)?,
+        field_id: row.get(1)?,
+        required: required.map(|value| value != 0),
+        visible: visible.map(|value| value != 0),
+        display_group: row.get(4)?,
+        display_order: row.get(5)?,
+        default_value_json: row.get(6)?,
+        help_text_override: row.get(7)?,
+        updated_at: row.get(8)?,
+    })
+}
+
 fn equipment_model_identity_from_row(
     row: &Row<'_>,
 ) -> rusqlite::Result<StoredEquipmentModelIdentity> {
+    let is_demo: i64 = row.get(7)?;
     Ok(StoredEquipmentModelIdentity {
         equipment_model_id: row.get(0)?,
         manufacturer: row.get(1)?,
@@ -1596,10 +2302,12 @@ fn equipment_model_identity_from_row(
         variant: row.get(3)?,
         equipment_class: row.get(4)?,
         category_code: row.get(5)?,
-        current_approved_revision_id: row.get(6)?,
-        created_by: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        root_category_id: row.get(6)?,
+        is_demo: is_demo != 0,
+        current_approved_revision_id: row.get(8)?,
+        created_by: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
     })
 }
 

@@ -83,7 +83,22 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.13.0`.
+Current software version: `0.13.1`.
+
+Version `0.13.1` refounds the Equipment Repository user experience around a
+laboratory-facing taxonomy and configurable entry templates. A fresh local
+database now initializes structural defaults only: seven system root equipment
+categories, core subcategories, a minimal equipment-model field dictionary, and
+category field rules. It does not create demo equipment models, demo sensors,
+demo drivers, or demo acquisition recipes unless an explicit seed command is
+run. LAB CONSOLE now exposes Repository Administration for categories, field
+definitions, entry-template preview, and a model-creation wizard that starts
+from root category and subcategory instead of raw classification enums. Model
+definitions preserve the 0.11-0.13 technical core under the hood, with
+revisioned `custom_field_values`, template snapshots, audit, outbox evidence,
+and hide/show/only demo filtering. This release still does not add physical
+asset tracking, station wiring, live hardware drivers, acquisition, FFT,
+reporting, RBAC, or central synchronization.
 
 Version `0.13.0` adds the measurement-engineering layer needed between the
 equipment catalog and a future acquisition runtime. The equipment repository
@@ -289,6 +304,7 @@ Windows launchers are available from any working directory:
 ```powershell
 .\scripts\start-lab.ps1
 .\scripts\start-lab.ps1 -SeedDemo
+.\scripts\start-lab.ps1 -SeedEquipmentDemo
 .\scripts\start-lab.ps1 -SeedMeasurementDemo
 .\scripts\start-full-demo.ps1
 .\scripts\start-qt-demo.ps1 -Mode Static
@@ -309,10 +325,12 @@ scripts\stop-all.bat
 
 `start-lab` verifies the versioned LAB CONSOLE build, starts or reuses the Rust
 agent on `127.0.0.1:8765`, waits for `/api/v1/health` and `/lab/`, then opens
-the browser. `-SeedDemo` creates demonstration templates through the public API.
-`-SeedMeasurementDemo` creates approved measurement-engineering definitions for
-a current probe, biconical antenna, RF cable, RF amplifier, IEPE accelerometer,
-DAQ analog input, and a logical `current_A` acquisition recipe. `-Rebuild`
+the browser. A normal launch creates no demo equipment records. `-SeedDemo`
+creates demonstration templates through the public API. `-SeedEquipmentDemo`
+creates explicitly marked demo equipment and driver records. `-SeedMeasurementDemo`
+creates approved measurement-engineering demo definitions for a current probe,
+biconical antenna, RF cable, RF amplifier, IEPE accelerometer, DAQ analog
+input, and a logical `current_A` acquisition recipe. `-Rebuild`
 rebuilds the React application when Node/npm is available; normal release launch
 uses the committed `apps/lab-console/dist` bundle and does not require Node.
 `start-full-demo` opens LAB CONSOLE and then launches TEST CONSOLE Qt against

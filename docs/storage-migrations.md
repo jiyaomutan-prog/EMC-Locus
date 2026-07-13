@@ -97,7 +97,12 @@ measurement-engineering definition layer in the same repository:
 revision discipline as models and driver profiles: one active draft, immutable
 approved revisions, approval supersession, checksum CAS for draft saves, audit,
 and outbox evidence. They describe reusable measurement-chain definitions and
-recipes; they do not create physical assets or runtime acquisitions.
+recipes; they do not create physical assets or runtime acquisitions. Version 4
+adds the Equipment Repository UX foundation: hierarchical categories, field
+definitions, category field rules, model field values, model template
+snapshots, `root_category_id` summaries, and `is_demo` summaries. This
+migration seeds structural taxonomy/template defaults only and does not seed
+demo models, demo sensors, demo drivers, or demo acquisition recipes.
 
 ### Measurement Data
 

@@ -169,6 +169,7 @@ function Ensure-ApprovedPresetModel {
             model_name = $ModelName
             actor = "demo.equipment.author"
             reason = "Seed equipment demo model from classification preset"
+            is_demo = $true
             operation_id = "seed-$ModelId-from-preset"
         }
         if ($Variant.Trim()) {
@@ -311,6 +312,7 @@ function New-ScpiPowerMeterModel {
             [ordered]@{ capability_id = "measure_powers"; label = "Measure powers"; description = "Measure forward and reverse RF power."; capability_kind = "measure_power"; inputs = @(); outputs = @((New-Value -Name "forward_power_dbm" -ValueType "number" -Quantity "power" -Unit "dBm"), (New-Value -Name "reverse_power_dbm" -ValueType "number" -Quantity "power" -Unit "dBm")); required_signal_ports = @("rf_input"); safety_class = "read_only" },
             [ordered]@{ capability_id = "read_errors"; label = "Read errors"; description = "Read instrument error queue."; capability_kind = "read_errors"; inputs = @(); outputs = @((New-Value -Name "error_text" -ValueType "text" -Quantity "text" -Unit "dimensionless")); safety_class = "read_only" }
         )
+        is_demo = $true
         metadata = [ordered]@{ demo = $true }
     }
 }
@@ -354,6 +356,7 @@ function New-SerialAmplifierModel {
             [ordered]@{ capability_id = "initialize"; label = "Initialize"; description = "Check and activate amplifier."; capability_kind = "initialize"; inputs = @(); outputs = @(); safety_class = "energizes_output" },
             [ordered]@{ capability_id = "terminate"; label = "Terminate"; description = "Return amplifier to safe state."; capability_kind = "terminate"; inputs = @(); outputs = @(); safety_class = "deenergizes_output" }
         )
+        is_demo = $true
         metadata = [ordered]@{ demo = $true }
     }
 }
@@ -395,6 +398,7 @@ function New-CanPowerUnitModel {
             [ordered]@{ capability_id = "enable_output"; label = "Enable output"; description = "Enable power output."; capability_kind = "activate_rf"; inputs = @(); outputs = @(); required_signal_ports = @("dc_output"); safety_class = "energizes_output" },
             [ordered]@{ capability_id = "disable_output"; label = "Disable output"; description = "Disable power output."; capability_kind = "deactivate_rf"; inputs = @(); outputs = @(); required_signal_ports = @("dc_output"); safety_class = "deenergizes_output" }
         )
+        is_demo = $true
         metadata = [ordered]@{ demo = $true }
     }
 }
@@ -422,6 +426,7 @@ function New-ManualAntennaModel {
             [ordered]@{ capability_id = "receive_rf_signal"; label = "Receive RF signal"; description = "Manual antenna receives RF field."; capability_kind = "receive_rf_signal"; inputs = @(); outputs = @((New-Value -Name "received_level_dbuv_m" -ValueType "number" -Quantity "electric_field" -Unit "dBuV_per_m")); required_signal_ports = @("rf_output"); safety_class = "read_only" },
             [ordered]@{ capability_id = "provide_antenna_factor"; label = "Provide antenna factor"; description = "References a future engineering curve revision."; capability_kind = "provide_antenna_factor"; inputs = @((New-Value -Name "frequency_hz" -ValueType "number" -Quantity "frequency" -Unit "Hz")); outputs = @((New-Value -Name "antenna_factor_db" -ValueType "number" -Quantity "dimensionless" -Unit "dB")); safety_class = "read_only" }
         )
+        is_demo = $true
         metadata = [ordered]@{ future_engineering_curve_reference = "EngineeringCurveRevision:antenna-factor"; demo = $true }
     }
 }
