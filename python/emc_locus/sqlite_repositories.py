@@ -1367,6 +1367,13 @@ class ProjectRepository(SQLiteDomainRepository):
         ).fetchone()
         if existing_item is not None:
             raise ValueError("service schedule item already exists")
+        self._reject_service_schedule_overlap(
+            connection,
+            planned_start_at=planned_start_at,
+            planned_end_at=planned_end_at,
+            assigned_operator=assigned_operator,
+            location=location,
+        )
         cursor = connection.execute(
             """
             INSERT INTO service_schedule_items (
@@ -1405,6 +1412,41 @@ class ProjectRepository(SQLiteDomainRepository):
             ),
         )
         return int(cursor.lastrowid)
+
+    def _reject_service_schedule_overlap(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        planned_start_at: str,
+        planned_end_at: str,
+        assigned_operator: str,
+        location: str,
+    ) -> None:
+        overlapping_item = connection.execute(
+            """
+            SELECT item_code, assigned_operator, location
+            FROM service_schedule_items
+            WHERE typeof(status) = 'text'
+              AND TRIM(status) NOT IN ('completed', 'cancelled')
+              AND typeof(planned_start_at) = 'text'
+              AND typeof(planned_end_at) = 'text'
+              AND planned_start_at < ?
+              AND planned_end_at > ?
+              AND (
+                  TRIM(assigned_operator) = ?
+                  OR TRIM(location) = ?
+              )
+            ORDER BY planned_start_at, planned_end_at, item_code
+            LIMIT 1
+            """,
+            (planned_end_at, planned_start_at, assigned_operator, location),
+        ).fetchone()
+        if overlapping_item is not None:
+            if str(overlapping_item["assigned_operator"]).strip() == assigned_operator:
+                raise ValueError(
+                    "service schedule operator already has an overlapping item"
+                )
+            raise ValueError("service schedule location already has an overlapping item")
 
     def list_service_schedule_items(
         self,

@@ -1484,6 +1484,155 @@ class ProjectRepositoryScheduleTests(unittest.TestCase):
             self.assertEqual(len(schedule), 1)
             self.assertEqual(schedule[0]["item_code"], "PLAN-REPO-DUPLICATE-ITEM-NORM")
 
+    def test_repository_rejects_overlapping_service_schedule_operator(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-OVERLAP-OPERATOR",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-OVERLAP-OPERATOR-1",
+                project_code="CEM-REPO-OVERLAP-OPERATOR",
+                title="First operator slot",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "operator already has an overlapping item",
+            ):
+                projects.add_service_schedule_item(
+                    item_code="PLAN-REPO-OVERLAP-OPERATOR-2",
+                    project_code="CEM-REPO-OVERLAP-OPERATOR",
+                    title="Second operator slot",
+                    planned_start_at="2026-07-01T11:00",
+                    planned_end_at="2026-07-01T13:00",
+                    assigned_operator="operator.one",
+                    location="Lab B",
+                    equipment_under_test="EUT rail",
+                )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-OVERLAP-OPERATOR",
+            )
+            self.assertEqual(len(schedule), 1)
+
+    def test_repository_rejects_overlapping_service_schedule_location(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-OVERLAP-LOCATION",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-OVERLAP-LOCATION-1",
+                project_code="CEM-REPO-OVERLAP-LOCATION",
+                title="First location slot",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "location already has an overlapping item",
+            ):
+                projects.add_service_schedule_item(
+                    item_code="PLAN-REPO-OVERLAP-LOCATION-2",
+                    project_code="CEM-REPO-OVERLAP-LOCATION",
+                    title="Second location slot",
+                    planned_start_at="2026-07-01T10:00",
+                    planned_end_at="2026-07-01T11:00",
+                    assigned_operator="operator.two",
+                    location="Lab A",
+                    equipment_under_test="EUT rail",
+                )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-OVERLAP-LOCATION",
+            )
+            self.assertEqual(len(schedule), 1)
+
+    def test_repository_allows_adjacent_or_closed_service_schedule_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            projects = ProjectRepository(
+                Path(temporary_directory) / "projects.sqlite",
+                Path("storage/sqlite"),
+            )
+            projects.initialize()
+            projects.create_project(
+                code="CEM-REPO-OVERLAP-ALLOWED",
+                customer_name="Repository Schedule Customer",
+                execution_mode="accredited",
+                stage="test_planning",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-OVERLAP-ALLOWED-1",
+                project_code="CEM-REPO-OVERLAP-ALLOWED",
+                title="First adjacent slot",
+                planned_start_at="2026-07-01T09:00",
+                planned_end_at="2026-07-01T12:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-OVERLAP-ALLOWED-2",
+                project_code="CEM-REPO-OVERLAP-ALLOWED",
+                title="Second adjacent slot",
+                planned_start_at="2026-07-01T12:00",
+                planned_end_at="2026-07-01T14:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+            )
+            projects.update_service_schedule_status(
+                item_code="PLAN-REPO-OVERLAP-ALLOWED-1",
+                status="confirmed",
+            )
+            projects.update_service_schedule_status(
+                item_code="PLAN-REPO-OVERLAP-ALLOWED-1",
+                status="in_progress",
+            )
+            projects.update_service_schedule_status(
+                item_code="PLAN-REPO-OVERLAP-ALLOWED-1",
+                status="completed",
+            )
+            projects.add_service_schedule_item(
+                item_code="PLAN-REPO-OVERLAP-ALLOWED-3",
+                project_code="CEM-REPO-OVERLAP-ALLOWED",
+                title="Closed slot reuse",
+                planned_start_at="2026-07-01T10:00",
+                planned_end_at="2026-07-01T11:00",
+                assigned_operator="operator.one",
+                location="Lab A",
+                equipment_under_test="EUT rail",
+            )
+
+            schedule = projects.list_service_schedule_items(
+                project_code="CEM-REPO-OVERLAP-ALLOWED",
+            )
+            self.assertEqual(len(schedule), 3)
+
     def test_repository_rejects_unknown_service_schedule_status_on_update(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             projects = ProjectRepository(
