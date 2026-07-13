@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected uppercase hexadecimal characters in SHA-256 checksum evidence for
+  driver profile model links and engineering-curve source documents, aligning
+  validation with the canonical lowercase checksum format.
 - Rejected scaling-profile evaluations whose computed engineering output is
   non-finite, so extreme polynomial, linear, two-point, or lookup definitions
   cannot return `inf` or `NaN` scaled evidence.

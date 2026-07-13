@@ -23,6 +23,8 @@ A driver revision must reference:
 
 This prevents a driver from silently drifting away from the equipment model it
 claims to implement.
+The checksum must use canonical `sha256:<64 lowercase hex characters>` syntax,
+matching the digest format produced by core canonicalization.
 
 Release `0.12.0` does not change driver execution semantics, but it strengthens
 the equipment model side of that link. Driver authors now select against

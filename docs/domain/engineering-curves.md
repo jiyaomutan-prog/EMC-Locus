@@ -55,4 +55,7 @@ returning non-finite correction evidence.
 
 Evaluation returns the computed values, axis values, interpolation mode,
 whether extrapolation occurred, optional warning, source revision id, and source
-checksum. It does not acquire live spectrum, time-domain, or DAQ data.
+checksum. Source checksums must use canonical
+`sha256:<64 lowercase hex characters>` syntax, matching the digest format
+produced for controlled definitions. Evaluation does not acquire live spectrum,
+time-domain, or DAQ data.

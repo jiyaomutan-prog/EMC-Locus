@@ -2303,7 +2303,10 @@ fn is_sha256_checksum(value: &str) -> bool {
     let Some(rest) = value.strip_prefix("sha256:") else {
         return false;
     };
-    rest.len() == 64 && rest.chars().all(|character| character.is_ascii_hexdigit())
+    rest.len() == 64
+        && rest
+            .chars()
+            .all(|character| matches!(character, '0'..='9' | 'a'..='f'))
 }
 
 fn parse_issue(
@@ -2483,6 +2486,20 @@ mod tests {
         assert!(error
             .iter()
             .any(|issue| issue.code == "invalid_curve_evaluation_result"));
+    }
+
+    #[test]
+    fn rejects_uppercase_curve_source_checksum() {
+        let mut curve = demo_curve();
+        curve.source_checksum = Some(
+            "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_owned(),
+        );
+
+        let issues = validate_engineering_curve_definition(&curve);
+
+        assert!(issues
+            .iter()
+            .any(|issue| issue.code == "invalid_source_checksum"));
     }
 
     #[test]

@@ -2164,13 +2164,15 @@ fn require_token(issues: &mut Vec<DefinitionValidationIssue>, value: &str, path:
 fn require_checksum(issues: &mut Vec<DefinitionValidationIssue>, value: &str, path: &str) {
     let valid = value.len() == 71
         && value.starts_with("sha256:")
-        && value[7..].chars().all(|ch| ch.is_ascii_hexdigit());
+        && value[7..]
+            .chars()
+            .all(|ch| matches!(ch, '0'..='9' | 'a'..='f'));
     if !valid {
         issues.push(issue(
             "error",
             "invalid_checksum",
             path,
-            "checksum must be sha256:<64 hex characters>",
+            "checksum must be sha256:<64 lowercase hex characters>",
             Option::<String>::None,
         ));
     }
@@ -3197,6 +3199,18 @@ mod tests {
 
         let issues = driver.validate_all(Some(&model));
         assert!(issues.iter().any(|issue| issue.code == "unbounded_loop"));
+    }
+
+    #[test]
+    fn rejects_uppercase_driver_model_checksum() {
+        let model = minimal_model();
+        let mut driver = minimal_driver();
+        driver.supported_model_definition_checksum =
+            "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_owned();
+
+        let issues = driver.validate_all(Some(&model));
+
+        assert!(issues.iter().any(|issue| issue.code == "invalid_checksum"));
     }
 
     fn assert_no_validation_errors(definition: &EquipmentModelDefinition) {
