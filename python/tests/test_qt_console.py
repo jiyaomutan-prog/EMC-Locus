@@ -339,8 +339,6 @@ class QtConsoleTests(unittest.TestCase):
             by_id["update_service_schedule_status"].fields[1].choices,
             (
                 ("confirmed", "confirmed"),
-                ("in_progress", "in_progress"),
-                ("completed", "completed"),
                 ("cancelled", "cancelled"),
             ),
         )

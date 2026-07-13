@@ -8,6 +8,13 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Limited the Qt service-schedule status form to status targets that are valid
+  for the currently available non-terminal planning blocks, so planned blocks no
+  longer present direct `in_progress` or `completed` jumps that the repository
+  would reject.
+
 ## [0.13.1] - 2026-07-13
 
 ### Added

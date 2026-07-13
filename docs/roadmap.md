@@ -433,6 +433,9 @@ Deliverables:
 - the Qt service-schedule status form now exposes only actionable update
   targets and hides completed/cancelled planning rows, keeping the operator
   form aligned with repository transition guards.
+- the Qt service-schedule status form now derives target choices from the
+  current non-terminal planning rows, so a planned block does not present
+  direct start or completion jumps that repository transition guards reject.
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

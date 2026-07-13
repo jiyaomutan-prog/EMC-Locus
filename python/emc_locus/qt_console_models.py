@@ -55,13 +55,17 @@ TEST_EXECUTION_COLUMNS = (
     "Termine",
     "Revision",
 )
-SERVICE_SCHEDULE_TERMINAL_STATUSES = {"completed", "cancelled"}
 SERVICE_SCHEDULE_ACTION_STATUS_CHOICES = (
     ("confirmed", "confirmed"),
     ("in_progress", "in_progress"),
     ("completed", "completed"),
     ("cancelled", "cancelled"),
 )
+SERVICE_SCHEDULE_STATUS_TARGETS = {
+    "planned": ("confirmed", "cancelled"),
+    "confirmed": ("in_progress", "cancelled"),
+    "in_progress": ("completed", "cancelled"),
+}
 
 
 @dataclass(frozen=True)
@@ -258,6 +262,7 @@ def build_operator_form_specs(
     )
     projects = _project_choices(bootstrap.get("projects"))
     schedule_items = _schedule_choices(bootstrap.get("schedule"))
+    schedule_status_targets = _schedule_status_choices(bootstrap.get("schedule"))
     test_categories = _choice_rows(
         bootstrap.get("test_categories"),
         value_index=0,
@@ -602,7 +607,7 @@ def build_operator_form_specs(
                     "Statut",
                     "choice",
                     required=True,
-                    choices=SERVICE_SCHEDULE_ACTION_STATUS_CHOICES,
+                    choices=schedule_status_targets,
                 ),
                 FormFieldSpec("actor", "Acteur", "text", required=True),
                 FormFieldSpec("reason", "Raison", "multiline"),
@@ -702,7 +707,7 @@ def _schedule_choices(rows: Any) -> tuple[tuple[str, str], ...]:
         if not item_code:
             continue
         status = row[8]
-        if status in SERVICE_SCHEDULE_TERMINAL_STATUSES:
+        if status not in SERVICE_SCHEDULE_STATUS_TARGETS:
             continue
         label_parts = [item_code]
         if row[2]:
@@ -711,6 +716,18 @@ def _schedule_choices(rows: Any) -> tuple[tuple[str, str], ...]:
             label_parts.append(status)
         choices.append((item_code, " - ".join(label_parts)))
     return tuple(choices)
+
+
+def _schedule_status_choices(rows: Any) -> tuple[tuple[str, str], ...]:
+    available_targets: set[str] = set()
+    for row in _list_rows(rows, 9):
+        status = row[8]
+        available_targets.update(SERVICE_SCHEDULE_STATUS_TARGETS.get(status, ()))
+    return tuple(
+        choice
+        for choice in SERVICE_SCHEDULE_ACTION_STATUS_CHOICES
+        if choice[0] in available_targets
+    )
 
 
 def _disabled_reason(

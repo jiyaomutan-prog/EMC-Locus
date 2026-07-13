@@ -136,9 +136,10 @@ audit payloads; if multiple imported rows normalize to the same planning code,
 the update is rejected as ambiguous. The local Python/CLI action and Qt form
 use that audited path for operator status changes, and can refresh the
 bootstrap after a confirmation, start, completion, or cancellation. The Qt
-status form offers only actionable update targets (`confirmed`, `in_progress`,
-`completed`, `cancelled`) and hides already terminal planning rows, so completed
-or cancelled blocks are not presented as editable status targets.
+status form derives its target choices from the currently available
+non-terminal planning rows and hides already terminal rows, so planned blocks
+do not present direct start/completion jumps and completed or cancelled blocks
+are not presented as editable status targets.
 
 Example local action:
 
