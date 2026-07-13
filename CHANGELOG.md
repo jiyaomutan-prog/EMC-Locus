@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected scaling-profile evaluations whose computed engineering output is
+  non-finite, so extreme polynomial, linear, two-point, or lookup definitions
+  cannot return `inf` or `NaN` scaled evidence.
 - Rejected engineering-curve evaluations whose interpolated or extrapolated
   dependent result is non-finite, so permissive extrapolation policies cannot
   return `inf` or `NaN` correction evidence.

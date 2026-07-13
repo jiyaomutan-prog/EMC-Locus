@@ -1018,6 +1018,15 @@ pub fn evaluate_scaling_profile(
         )])
         }
     };
+    if !value.is_finite() {
+        return Err(vec![issue(
+            "error",
+            "invalid_scaling_result",
+            "output",
+            "scaling results must be finite",
+            Some("Use a bounded input range or scaling parameters that cannot overflow."),
+        )]);
+    }
     Ok(value)
 }
 
@@ -2528,6 +2537,22 @@ mod tests {
             ..ScalingParameters::default()
         };
         assert_eq!(evaluate_scaling_profile(&scaling, 2.5).unwrap(), 25.0);
+    }
+
+    #[test]
+    fn rejects_non_finite_scaling_result() {
+        let mut scaling = demo_scaling();
+        scaling.scaling_kind = ScalingKind::Polynomial;
+        scaling.parameters = ScalingParameters {
+            coefficients: vec![0.0, 0.0, 1.0],
+            ..ScalingParameters::default()
+        };
+
+        let error = evaluate_scaling_profile(&scaling, f64::MAX).unwrap_err();
+
+        assert!(error
+            .iter()
+            .any(|issue| issue.code == "invalid_scaling_result"));
     }
 
     #[test]

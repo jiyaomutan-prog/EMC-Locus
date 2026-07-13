@@ -145,7 +145,9 @@ GET    /api/v1/scaling-profiles/{id}/audit-events
 Scaling profiles transform a DAQ or sensor electrical signal into an
 engineering quantity. Supported definitions include identity, linear,
 two-point, polynomial, lookup-table, piecewise-linear, and a limited expression
-DSL. They are reusable transformation definitions, not calibration certificates.
+DSL. Scaling evaluation rejects non-finite inputs and non-finite computed
+outputs before they can become traceability evidence. Scaling profiles are
+reusable transformation definitions, not calibration certificates.
 
 ### Engineering Curves
 

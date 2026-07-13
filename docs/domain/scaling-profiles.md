@@ -42,5 +42,7 @@ allows them.
 
 Validation checks quantities, units, numeric finite parameters, monotonic
 lookup input where required, explicit interpolation/extrapolation policies, and
-expression safety. It does not execute a live DAQ channel and does not replace
-metrology evidence for a serialized transducer.
+expression safety. Evaluation inputs and computed outputs must remain finite;
+non-finite scaled engineering values are rejected instead of being returned as
+traceability evidence. It does not execute a live DAQ channel and does not
+replace metrology evidence for a serialized transducer.
