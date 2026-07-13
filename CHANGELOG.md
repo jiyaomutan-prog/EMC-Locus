@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected uppercase hexadecimal characters in Python sync operation payload
+  checksums and entity snapshot checksums, keeping local replay evidence in
+  the same canonical lowercase SHA-256 form as agent-owned checksum contracts.
 - Rejected uppercase hexadecimal characters in attached-document and metrology
   calibration document-manifest `sha256` evidence, keeping stored document
   digests canonical before audit and outbox records are written.

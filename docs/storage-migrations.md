@@ -121,6 +121,8 @@ baselines and peer/domain/direction cursors before central merge is introduced.
 Version 4 extends the sync domain vocabulary with `equipment` so model/driver
 catalog operations can enter the same local outbox as project, metrology and
 template operations.
+The Python adapter validates payload and snapshot checksum evidence as
+canonical `sha256:<64 lowercase hex characters>` before insert or replay.
 
 The Rust core now mirrors these storage concepts with update bundles, semantic
 software versions, package signatures, compatibility-range validation,

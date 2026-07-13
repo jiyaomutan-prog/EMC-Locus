@@ -5254,6 +5254,21 @@ class SyncRepositoryTests(unittest.TestCase):
                     payload_checksum="sha256:too-short",
                 )
 
+            with self.assertRaises(ValueError):
+                repository.record_operation(
+                    operation_id="op-project-uppercase-checksum",
+                    domain="project_records",
+                    entity_type="project",
+                    entity_id="CEM-2026-001",
+                    operation_kind="contract_review_item_completed",
+                    base_revision="rev-0002",
+                    resulting_revision="rev-0003",
+                    actor_id="quality.lead",
+                    device_id="station-lab-a",
+                    correlation_id="corr-001",
+                    payload_checksum="sha256:" + "A" * 64,
+                )
+
             with self.assertRaises(sqlite3.IntegrityError):
                 repository.record_operation(
                     operation_id="op-project-001",
@@ -5333,6 +5348,16 @@ class SyncRepositoryTests(unittest.TestCase):
                     entity_id="CEM-2026-002",
                     revision="rev-0004",
                     snapshot_checksum="sha256:too-short",
+                )
+
+            with self.assertRaises(ValueError):
+                repository.record_entity_snapshot(
+                    snapshot_id="snap-project-uppercase-checksum",
+                    domain="project_records",
+                    entity_type="project",
+                    entity_id="CEM-2026-002",
+                    revision="rev-0004",
+                    snapshot_checksum="sha256:" + "B" * 64,
                 )
 
             with self.assertRaises(sqlite3.IntegrityError):
