@@ -347,8 +347,9 @@ Version `0.9.0` replaces the 0.8.x template storage and API. Templates now have
 a stable identity plus revisioned content. `POST /api/v1/test-templates`
 creates identity plus first draft revision. Draft definitions are replaced with
 `PUT /api/v1/test-templates/{template_id}/revisions/{revision_id}/definition`
-and require `expected_definition_checksum`. Submitted and approved revisions are
-immutable. New work derives from an approved source through
+and require `expected_definition_checksum` in canonical
+`sha256:<64 lowercase hex characters>` form. Submitted and approved revisions
+are immutable. New work derives from an approved source through
 `POST /api/v1/test-templates/{template_id}/revisions`. Audit events now carry
 the template id, revision id, actor, reason, old/new revision ids, old/new
 definition checksums, operation id, device id, and correlation id. The sync

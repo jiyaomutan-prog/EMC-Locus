@@ -2198,7 +2198,34 @@ mod tests {
             &config,
         );
         assert_eq!(create_driver.status, 200, "{}", create_driver.body);
+        let create_driver_json: Value = serde_json::from_str(&create_driver.body).unwrap();
+        let driver_initial_checksum = create_driver_json["revision"]["definition_checksum"]
+            .as_str()
+            .unwrap();
         let driver_revision_id = "DRV-NRP6AN-SCPI-rev-0001";
+
+        let uppercase_driver_checksum = uppercase_checksum_payload(driver_initial_checksum);
+        let driver_uppercase_checksum = handle_api_request(
+            "PUT",
+            &format!(
+                "/api/v1/driver-profiles/DRV-NRP6AN-SCPI/revisions/{driver_revision_id}/definition"
+            ),
+            &json!({
+                "expected_definition_checksum": uppercase_driver_checksum,
+                "definition": driver_profile_definition(model_revision_id, model_checksum),
+                "actor": "driver.author",
+                "reason": "attempt uppercase checksum",
+                "operation_id": "op-driver-uppercase-checksum"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(
+            driver_uppercase_checksum.status, 400,
+            "{}",
+            driver_uppercase_checksum.body
+        );
+        assert!(driver_uppercase_checksum.body.contains("invalid_checksum"));
 
         let submit_driver = handle_api_request(
             "POST",
@@ -2325,6 +2352,25 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
+        let uppercase_scaling_checksum = uppercase_checksum_payload(&scaling_initial_checksum);
+        let scaling_uppercase_checksum = handle_api_request(
+            "PUT",
+            &format!(
+                "/api/v1/scaling-profiles/demo-current-probe-10mv-a/revisions/{scaling_revision_id}/definition"
+            ),
+            &replace_measurement_body(
+                initial_scaling_definition.clone(),
+                &uppercase_scaling_checksum,
+                "op-scaling-uppercase-checksum",
+            ),
+            &config,
+        );
+        assert_eq!(
+            scaling_uppercase_checksum.status, 400,
+            "{}",
+            scaling_uppercase_checksum.body
+        );
+        assert!(scaling_uppercase_checksum.body.contains("invalid_checksum"));
         let scaling_create_replay = handle_api_request(
             "POST",
             "/api/v1/scaling-profiles",
@@ -2766,6 +2812,27 @@ mod tests {
             .as_str()
             .unwrap();
 
+        let uppercase_checksum = uppercase_checksum_payload(initial_checksum);
+        let uppercase_checksum_edit = handle_api_request(
+            "PUT",
+            "/api/v1/equipment-models/EQM-DEMO-AMP/revisions/EQM-DEMO-AMP-rev-0001/definition",
+            &json!({
+                "expected_definition_checksum": uppercase_checksum,
+                "definition": equipment_model_definition("Demo", "Amplifier Mk2", None),
+                "actor": "equipment.author",
+                "reason": "attempt uppercase checksum",
+                "operation_id": "op-amp-uppercase-checksum"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(
+            uppercase_checksum_edit.status, 400,
+            "{}",
+            uppercase_checksum_edit.body
+        );
+        assert!(uppercase_checksum_edit.body.contains("invalid_checksum"));
+
         let mut edited_definition = equipment_model_definition("Demo", "Amplifier Mk2", None);
         edited_definition["metadata"]["edited"] = json!(true);
         let edited = handle_api_request(
@@ -3131,6 +3198,28 @@ mod tests {
         let initial_checksum = created_json["revision"]["definition_checksum"]
             .as_str()
             .unwrap();
+
+        let uppercase_checksum = uppercase_checksum_payload(initial_checksum);
+        let uppercase_checksum_body = format!(
+            r#"{{
+                "expected_definition_checksum": "{uppercase_checksum}",
+                "definition": {},
+                "actor": "method.author",
+                "reason": "attempt uppercase checksum",
+                "operation_id": "op-edit-test-template-uppercase-checksum"
+            }}"#,
+            template_definition(150_000, None)
+        );
+        let uppercase_checksum_edit = handle_api_request(
+            "PUT",
+            "/api/v1/test-templates/TT-INRUSH-001/revisions/TT-INRUSH-001-rev-0001/definition",
+            &uppercase_checksum_body,
+            &config,
+        );
+        assert_eq!(uppercase_checksum_edit.status, 400);
+        assert!(uppercase_checksum_edit
+            .body
+            .contains("invalid_test_template"));
 
         let detail = handle_api_request("GET", "/api/v1/test-templates/TT-INRUSH-001", "", &config);
         let filtered = handle_api_request(
@@ -5413,6 +5502,13 @@ mod tests {
             "reason": "replace measurement engineering draft",
             "operation_id": operation_id
         }))
+    }
+
+    fn uppercase_checksum_payload(checksum: &str) -> String {
+        format!(
+            "sha256:{}",
+            checksum["sha256:".len()..].to_ascii_uppercase()
+        )
     }
 
     fn scaling_definition(scaling_profile_id: &str, scale: f64) -> Value {

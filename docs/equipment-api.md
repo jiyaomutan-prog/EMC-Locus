@@ -25,7 +25,9 @@ GET    /api/v1/equipment-models/{equipment_model_id}/audit-events
 ```
 
 Draft replacement requires `expected_definition_checksum`, `actor`, `reason`
-and `operation_id`.
+and `operation_id`. The expected checksum must use canonical
+`sha256:<64 lowercase hex characters>` syntax, matching the server-generated
+definition checksum exactly.
 
 `GET /api/v1/equipment-models` accepts indexed filters:
 
@@ -102,6 +104,8 @@ Write requests are idempotent by `operation_id`. Replaying the same
 measurement-engineering create, draft replacement, clone/revision, submit, or
 approve request returns the original operation result with `replayed: true`;
 reusing the same `operation_id` for a different payload remains a conflict.
+Draft replacement checksums must use canonical
+`sha256:<64 lowercase hex characters>` syntax before compare-and-swap matching.
 
 ### Sensor Definitions
 

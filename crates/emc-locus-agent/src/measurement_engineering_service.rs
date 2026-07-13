@@ -2006,14 +2006,18 @@ fn validate_checksum(value: &str, field: &str) -> Result<(), AgentError> {
     let Some(rest) = value.strip_prefix("sha256:") else {
         return Err(AgentError::with_details(
             "invalid_checksum",
-            format!("{field} must be sha256:<64 hex characters>"),
+            format!("{field} must be sha256:<64 lowercase hex characters>"),
             json!({ "field": field }),
         ));
     };
-    if rest.len() != 64 || !rest.chars().all(|character| character.is_ascii_hexdigit()) {
+    if rest.len() != 64
+        || !rest
+            .chars()
+            .all(|character| character.is_ascii_digit() || matches!(character, 'a'..='f'))
+    {
         return Err(AgentError::with_details(
             "invalid_checksum",
-            format!("{field} must be sha256:<64 hex characters>"),
+            format!("{field} must be sha256:<64 lowercase hex characters>"),
             json!({ "field": field }),
         ));
     }

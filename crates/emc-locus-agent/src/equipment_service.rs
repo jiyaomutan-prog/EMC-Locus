@@ -936,6 +936,10 @@ pub fn replace_equipment_model_revision_definition(
     )?;
     validate_id(&input.equipment_model_id, "equipment_model_id")?;
     validate_id(&input.revision_id, "revision_id")?;
+    validate_checksum(
+        &input.expected_definition_checksum,
+        "expected_definition_checksum",
+    )?;
     let definition = canonical_equipment_model_definition(&input.definition_json)?;
     let parsed =
         EquipmentModelDefinition::from_json_str(&definition.canonical_json).map_err(|issue| {
@@ -1442,6 +1446,12 @@ pub fn replace_driver_profile_revision_definition(
         &input.operation_id,
         &input.correlation_id,
         &input.device_id,
+    )?;
+    validate_id(&input.driver_profile_id, "driver_profile_id")?;
+    validate_id(&input.revision_id, "revision_id")?;
+    validate_checksum(
+        &input.expected_definition_checksum,
+        "expected_definition_checksum",
     )?;
     let definition =
         DriverProfileDefinition::from_json_str(&input.definition_json).map_err(|issue| {
@@ -2929,6 +2939,28 @@ fn validate_id(value: &str, field: &'static str) -> Result<(), AgentError> {
             "invalid_equipment_identifier",
             format!("{field} contains unsupported characters"),
             json!({ "field": field, "value": value }),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_checksum(value: &str, field: &'static str) -> Result<(), AgentError> {
+    let Some(rest) = value.strip_prefix("sha256:") else {
+        return Err(AgentError::with_details(
+            "invalid_checksum",
+            format!("{field} must be sha256:<64 lowercase hex characters>"),
+            json!({ "field": field }),
+        ));
+    };
+    if rest.len() != 64
+        || !rest
+            .chars()
+            .all(|character| character.is_ascii_digit() || matches!(character, 'a'..='f'))
+    {
+        return Err(AgentError::with_details(
+            "invalid_checksum",
+            format!("{field} must be sha256:<64 lowercase hex characters>"),
+            json!({ "field": field }),
         ));
     }
     Ok(())

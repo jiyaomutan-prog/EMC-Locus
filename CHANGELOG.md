@@ -10,6 +10,10 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected uppercase hexadecimal characters in `expected_definition_checksum`
+  draft-replacement requests for test templates, equipment models, driver
+  profiles, and measurement-engineering definitions, so API CAS evidence uses
+  the same canonical lowercase SHA-256 format as stored definition checksums.
 - Rejected uppercase hexadecimal characters in SHA-256 checksum evidence for
   driver profile model links and engineering-curve source documents, aligning
   validation with the canonical lowercase checksum format.

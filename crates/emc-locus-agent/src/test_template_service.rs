@@ -1065,17 +1065,17 @@ fn validate_stable_id(value: &str, field: &'static str) -> Result<(), AgentError
 }
 
 fn validate_checksum(value: &str, field: &'static str) -> Result<(), AgentError> {
-    if value.trim().starts_with("sha256:")
-        && value.trim().len() == 71
-        && value.trim()["sha256:".len()..]
+    if value.starts_with("sha256:")
+        && value.len() == 71
+        && value["sha256:".len()..]
             .chars()
-            .all(|ch| ch.is_ascii_hexdigit())
+            .all(|ch| ch.is_ascii_digit() || matches!(ch, 'a'..='f'))
     {
         return Ok(());
     }
     Err(AgentError::with_details(
         "invalid_test_template",
-        format!("{field} must be a sha256 checksum"),
+        format!("{field} must be sha256:<64 lowercase hex characters>"),
         json!({ "field": field }),
     ))
 }

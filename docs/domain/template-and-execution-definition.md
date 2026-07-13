@@ -113,9 +113,11 @@ is a React/TypeScript client served by the local Rust agent and uses only the
 public `/api/v1/test-templates` routes. It can create or clone template
 identities, edit a draft through structured sections, validate definitions on
 the server, save with an expected definition checksum, submit, approve, derive a
-new draft revision, and inspect revision history and audit. This still does not
-instantiate a campaign test or freeze an immutable execution package; that is
-the next domain step.
+new draft revision, and inspect revision history and audit. The expected
+checksum uses canonical `sha256:<64 lowercase hex characters>` syntax and must
+match the stored draft checksum exactly. This still does not instantiate a
+campaign test or freeze an immutable execution package; that is the next domain
+step.
 
 ### Method Revision
 
