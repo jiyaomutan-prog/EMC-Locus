@@ -1,7 +1,8 @@
 # Equipment Repository UX
 
-Release `0.13.2` polishes the first operator experience from technical schema
-editing to a usable configurable laboratory repository. It does not add a
+Release `0.13.3` keeps the configurable repository introduced in `0.13.1` and
+polished in `0.13.2`, while integrating it into a more focused application
+shell with contextual commands and progressive technical disclosure. It does not add a
 physical asset fleet, station wiring, acquisition runtime, reporting, RBAC, or
 sync.
 

@@ -4,7 +4,7 @@ test("template studio workflow persists through API", async ({ page, request }) 
   const templateId = "E2E-LAB-001";
 
   await page.goto("/lab/");
-  await expect(page.getByText("Templates d'essai")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Méthodes d'essai" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Aucun template" })).toBeVisible();
 
   await page.getByRole("button", { name: /^Creer$/ }).click();
@@ -18,8 +18,8 @@ test("template studio workflow persists through API", async ({ page, request }) 
   const createResponse = await createResponsePromise;
   expect(createResponse.ok(), await createResponse.text()).toBeTruthy();
 
-  await expect(page.getByText("Template Studio")).toBeVisible();
-  await expect(page.getByText(templateId)).toBeVisible();
+  await expect(page.getByText("Éditeur de méthode")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "E2E LAB template" })).toBeVisible();
 
   await page.getByRole("button", { name: "Variables" }).click();
   await page.getByRole("button", { name: "Ajouter une variable" }).click();
@@ -56,7 +56,7 @@ test("template studio workflow persists through API", async ({ page, request }) 
     response.url().endsWith(`/api/v1/test-templates/${templateId}/revisions`) &&
     response.request().method() === "POST"
   );
-  await page.getByRole("button", { name: /Deriver/ }).click();
+  await page.getByRole("button", { name: /Dériver/ }).click();
   await deriveResponse;
   await expect(page.getByText("Brouillon")).toBeVisible();
 

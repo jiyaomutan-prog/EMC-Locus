@@ -133,6 +133,12 @@ Deliverables:
   and category-subtree filtering. It remains a usability patch and does not
   implement physical assets, station wiring, acquisition, FFT, reporting,
   RBAC, or synchronization.
+- `0.13.3` refounds the LAB CONSOLE shell and operator hierarchy: only active
+  workspaces are actionable, Equipment commands follow the selected context,
+  technical evidence is progressively disclosed, the equipment wizard is a
+  focused modal task, and desktop/mobile layouts preserve usable editor width.
+  It also carries the post-0.13.2 planning overlap guards and adds no new
+  acquisition or laboratory domain vertical.
 
 ## Phase 3: Measurement Runtime
 

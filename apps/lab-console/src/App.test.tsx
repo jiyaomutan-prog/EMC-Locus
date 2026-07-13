@@ -105,6 +105,25 @@ describe("LAB CONSOLE", () => {
     expect(screen.queryByText("Client demo")).not.toBeInTheDocument();
   });
 
+  test("keeps navigation focused on active work and catalog controls contextual", async () => {
+    mockBaseApi([]);
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await screen.findByText("Aucun template");
+    expect(screen.getByText("Métrologie")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Métrologie" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Réduire la navigation" }));
+    expect(screen.getByRole("button", { name: "Déployer la navigation" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Équipements" }));
+    expect(await screen.findByLabelText("Recherche equipement")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Administration du référentiel" }));
+    expect(screen.queryByLabelText("Recherche equipement")).not.toBeInTheDocument();
+  });
+
   test("loads templates, filters them, and opens the draft studio", async () => {
     mockBaseApi([templateFixture()]);
     const user = userEvent.setup();
@@ -114,9 +133,9 @@ describe("LAB CONSOLE", () => {
     expect(await screen.findByText("Inrush current template")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Recherche template"), "inrush");
     expect(screen.getByText("TT-LAB-001")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Brouillon" }));
+    await user.click(screen.getByRole("button", { name: "Continuer le brouillon" }));
 
-    expect(await screen.findByText("Template Studio")).toBeInTheDocument();
+    expect(await screen.findByText("Éditeur de méthode")).toBeInTheDocument();
     expect(screen.getByText("Non modifie")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Variables" }));
     expect(screen.getByDisplayValue("repeat_count")).toBeInTheDocument();
@@ -128,7 +147,7 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Brouillon" }));
+    await user.click(await screen.findByRole("button", { name: "Continuer le brouillon" }));
     await user.click(screen.getByRole("button", { name: "Variables" }));
     await user.click(screen.getByRole("button", { name: "Ajouter une variable" }));
     await user.click(screen.getByRole("button", { name: /Valider/ }));
@@ -146,7 +165,7 @@ describe("LAB CONSOLE", () => {
     const user = userEvent.setup();
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Brouillon" }));
+    await user.click(await screen.findByRole("button", { name: "Continuer le brouillon" }));
     await user.click(screen.getByLabelText("Titre technique de revision"));
     await user.keyboard(" updated");
     fetchMock.mockImplementationOnce(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -187,7 +206,7 @@ describe("LAB CONSOLE", () => {
     await user.click(screen.getByRole("button", { name: "Creer le brouillon" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/test-templates", expect.objectContaining({ method: "POST" })));
 
-    await user.click(screen.getByRole("button", { name: /Bibliotheque/ }));
+    await user.click(screen.getByRole("button", { name: /Bibliothèque/ }));
     await user.click(screen.getByRole("button", { name: /Cloner/ }));
     await user.selectOptions(screen.getByLabelText("Source approuvee"), "TT-LAB-001|TT-LAB-001-rev-0001");
     await user.type(screen.getByLabelText("Nouvel identifiant"), "TT-CLONE-001");
@@ -246,11 +265,11 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Equipements" }));
-    expect(await screen.findByRole("heading", { name: "Equipements" })).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Équipements" }));
+    expect(await screen.findByRole("heading", { name: "Équipements" })).toBeInTheDocument();
     const modelButton = await screen.findByRole("button", { name: /R&S\s+NRP6AN/ });
     await user.click(modelButton);
-    expect(await screen.findByText("Fiche modele equipement")).toBeInTheDocument();
+    expect(await screen.findByText("Fiche modèle équipement")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Drivers et actions" }));
     await user.click(await screen.findByRole("button", { name: /NRP6AN SCPI/ }));
     expect(await screen.findByText(/No VISA implementation installed/)).toBeInTheDocument();
@@ -304,8 +323,8 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Equipements" }));
-    await screen.findByRole("heading", { name: "Equipements" });
+    await user.click(await screen.findByRole("button", { name: "Équipements" }));
+    await screen.findByRole("heading", { name: "Équipements" });
     await user.selectOptions(screen.getByLabelText("Filtre categorie racine"), "rf_equipment");
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -314,8 +333,8 @@ describe("LAB CONSOLE", () => {
       )
     );
 
-    await user.click(screen.getByRole("button", { name: /Nouveau modele/ }));
-    const creationPanel = (await screen.findByText("Nouveau modele equipement")).closest(".creationPanel");
+    await user.click(screen.getByRole("button", { name: /Nouveau modèle/ }));
+    const creationPanel = (await screen.findByText("Nouveau modèle équipement")).closest(".creationPanel");
     expect(creationPanel).not.toBeNull();
     const wizard = within(creationPanel as HTMLElement);
     expect(wizard.queryByRole("button", { name: /radiofr/i })).not.toBeInTheDocument();
@@ -339,7 +358,7 @@ describe("LAB CONSOLE", () => {
       )
     );
 
-    expect(await screen.findByText("Fiche modele equipement")).toBeInTheDocument();
+    expect(await screen.findByText("Fiche modèle équipement")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Categorie et formulaire" }));
     expect(screen.getByText("Formulaire utilise")).toBeInTheDocument();
     expect(screen.queryByText("Template checksum")).not.toBeInTheDocument();
@@ -493,8 +512,8 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Equipements" }));
-    await user.click(await screen.findByRole("button", { name: "Administration du referentiel" }));
+    await user.click(await screen.findByRole("button", { name: "Équipements" }));
+    await user.click(await screen.findByRole("button", { name: "Administration du référentiel" }));
     const rfActions = await screen.findByRole("button", { name: /Actions .*radiofr/i });
     const rfActionMenu = within(rfActions.closest(".treeMenuWrap") as HTMLElement);
     await user.click(rfActions);
@@ -555,8 +574,9 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Equipements" }));
-    await user.click(await screen.findByRole("button", { name: "Courbes d'ingenierie" }));
+    await user.click(await screen.findByRole("button", { name: "Équipements" }));
+    await user.click(await screen.findByRole("button", { name: "Ingénierie de mesure" }));
+    await user.click(await screen.findByRole("button", { name: "Courbes d'ingénierie" }));
     await user.click(await screen.findByRole("button", { name: /Demo RF cable loss/ }));
     await user.click(screen.getByRole("button", { name: "Table courbe" }));
     expect(await screen.findByRole("img", { name: "1D curve plot" })).toBeInTheDocument();
@@ -600,7 +620,8 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Equipements" }));
+    await user.click(await screen.findByRole("button", { name: "Équipements" }));
+    await user.click(await screen.findByRole("button", { name: "Ingénierie de mesure" }));
     await user.click(await screen.findByRole("button", { name: "Capteurs / transducteurs" }));
     await user.click(await screen.findByRole("button", { name: /Demo Current Probe/ }));
     expect(await screen.findByDisplayValue("current_probe")).toBeInTheDocument();
@@ -619,7 +640,7 @@ describe("LAB CONSOLE", () => {
     await user.click(await screen.findByRole("button", { name: /current_A through demo current probe/ }));
     await user.click(screen.getByRole("button", { name: "Chaine de mesure" }));
     expect(await screen.findByText("DAQ channel")).toBeInTheDocument();
-    expect(screen.getAllByText(/REC-DEMO-CURRENT-A/).length).toBeGreaterThan(0);
+    expect(screen.getByText("current_A [A]")).toBeInTheDocument();
   });
 });
 

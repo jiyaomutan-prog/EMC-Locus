@@ -9,13 +9,13 @@ test("equipment repository UX manages nested categories, fields and model creati
   const modelId = `E2E-RF-LNA-${suffix}`;
 
   await page.goto("/lab/");
-  await page.getByRole("button", { name: "Equipements" }).click();
-  await expect(page.getByRole("heading", { name: "Equipements" })).toBeVisible();
+  await page.getByRole("button", { name: "Équipements" }).click();
+  await expect(page.getByRole("heading", { name: "Équipements" })).toBeVisible();
   await expect(page.getByText("[DEMO]")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Administration du referentiel" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Administration du référentiel" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Administration du referentiel" }).click();
-  await expect(page.locator(".equipmentStudio .eyebrow", { hasText: "Administration du referentiel" })).toBeVisible();
+  await page.getByRole("button", { name: "Administration du référentiel" }).click();
+  await expect(page.locator(".equipmentStudio .eyebrow", { hasText: "Administration du référentiel" })).toBeVisible();
   const categoryTree = page.locator(".categoryPanel .categoryTree");
   for (const categoryId of [
     "energy_sources",
@@ -77,10 +77,10 @@ test("equipment repository UX manages nested categories, fields and model creati
   await expect(page.getByText("template_checksum")).toHaveCount(0);
   await expect(page.getByText(generatedFieldCode)).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Catalogue equipements" }).click();
-  await page.getByRole("button", { name: /Nouveau modele/ }).click();
+  await page.getByRole("button", { name: "Catalogue équipements" }).click();
+  await page.getByRole("button", { name: /Nouveau modèle/ }).click();
   const wizard = page.locator(".creationPanel");
-  await expect(wizard.getByText("Nouveau modele equipement")).toBeVisible();
+  await expect(wizard.getByText("Nouveau modèle équipement")).toBeVisible();
   await expect(wizard.getByRole("button", { name: /radiofr/i })).toHaveCount(0);
   await wizard.getByLabel(/radiofr/i).check();
   await wizard.getByRole("button", { name: "Continuer" }).click();
@@ -99,7 +99,7 @@ test("equipment repository UX manages nested categories, fields and model creati
   await wizard.getByRole("button", { name: /Creer brouillon/ }).click();
   expect((await createResponse).ok()).toBeTruthy();
 
-  await expect(page.getByText("Fiche modele equipement")).toBeVisible();
+  await expect(page.getByText("Fiche modèle équipement")).toBeVisible();
   await page.getByRole("button", { name: "Synthese" }).click();
   await expect(page.locator("dd").filter({ hasText: nestedLabel }).first()).toBeVisible();
   await expect(page.getByText(generatedCategoryId)).toHaveCount(0);
@@ -125,8 +125,8 @@ test("equipment repository UX manages nested categories, fields and model creati
 
 test("new equipment model wizard uses category choices instead of primary action buttons", async ({ page }) => {
   await page.goto("/lab/");
-  await page.getByRole("button", { name: "Equipements" }).click();
-  await page.getByRole("button", { name: /Nouveau modele/ }).click();
+  await page.getByRole("button", { name: "Équipements" }).click();
+  await page.getByRole("button", { name: /Nouveau modèle/ }).click();
   const wizard = page.locator(".creationPanel");
 
   await expect(wizard.locator(".choiceList")).toBeVisible();

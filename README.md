@@ -83,23 +83,19 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.13.2`.
+Current software version: `0.13.3`.
 
-Version `0.13.2` polishes the Equipment Repository administration and model
-creation workflow without starting a new runtime vertical. LAB CONSOLE now uses
-grouped Equipment navigation, a real category tree with expand/collapse,
-folder icons, selection rows, keyboard-friendly selection and `...` contextual
-actions. The new equipment wizard uses radio/list choices for root categories
-instead of action-looking buttons, requires explicit subcategory selection, and
-keeps internal identifiers out of the normal operator flow. Repository
-Administration is centered on the selected category with tabs for
-Informations, Sous-categories, Formulaire, Previsualisation, and Diagnostic
-avance. Field creation is label-first, generates internal codes automatically,
-uses a proper choice-list editor, and shows checksums/codes only in diagnostics.
-The backend catalog filter now includes arbitrary-depth category descendants.
-This remains an equipment-repository usability patch: no physical asset fleet,
-station wiring, acquisition runtime, FFT, reporting, RBAC, or central sync is
-implemented.
+Version `0.13.3` refounds the LAB CONSOLE operator experience without adding a
+new domain or runtime vertical. The shell now exposes only the implemented
+Methods and Equipment workspaces, identifies future verticals without making
+them look usable, and keeps local diagnostics in an explicit System view. The
+sidebar is collapsible, navigation and command bars are contextual, the model
+wizard is a focused modal workflow, and normal views favor business labels and
+human revision states over raw IDs and checksums. Editor grids remain readable
+at ordinary desktop widths and reflow for tablet and mobile use. The release
+also includes the planning overlap guards added after `0.13.2`. Physical asset
+fleet management, station wiring, acquisition runtime, FFT, reporting, RBAC,
+and central synchronization remain outside this release.
 
 Version `0.13.1` refounds the Equipment Repository user experience around a
 laboratory-facing taxonomy and configurable entry templates. A fresh local

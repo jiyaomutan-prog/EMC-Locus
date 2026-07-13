@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Boxes,
   ChevronDown,
   ChevronRight,
   CheckCircle2,
@@ -13,8 +14,10 @@ import {
   Play,
   RefreshCw,
   Save,
+  Search,
   Send,
   Settings,
+  SlidersHorizontal,
   ShieldCheck
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -52,11 +55,7 @@ type EquipmentSpace =
   | "scaling"
   | "curves"
   | "daq"
-  | "recipes"
-  | "metrology"
-  | "fleet"
-  | "connections"
-  | "readiness";
+  | "recipes";
 
 type ModelSection =
   | "summary"
@@ -79,37 +78,12 @@ type DriverSection =
   | "audit"
   | "json";
 
-const equipmentSpaceGroups: Array<{ label: string; items: Array<[EquipmentSpace, string]> }> = [
-  {
-    label: "Referentiel",
-    items: [
-      ["catalog", "Catalogue equipements"],
-      ["admin", "Administration du referentiel"]
-    ]
-  },
-  {
-    label: "Ingenierie de mesure",
-    items: [
-      ["sensors", "Capteurs / transducteurs"],
-      ["scaling", "Profils de scaling"],
-      ["curves", "Courbes d'ingenierie"],
-      ["daq", "Voies DAQ"],
-      ["recipes", "Recettes d'acquisition"]
-    ]
-  },
-  {
-    label: "Pilotage",
-    items: [["drivers", "Drivers et actions"]]
-  },
-  {
-    label: "A venir",
-    items: [
-      ["metrology", "Metrologie"],
-      ["fleet", "Parc physique"],
-      ["connections", "Connexions"],
-      ["readiness", "Readiness"]
-    ]
-  }
+const measurementSpaces: Array<[EquipmentSpace, string]> = [
+  ["sensors", "Capteurs / transducteurs"],
+  ["scaling", "Profils de scaling"],
+  ["curves", "Courbes d'ingénierie"],
+  ["daq", "Voies DAQ"],
+  ["recipes", "Recettes d'acquisition"]
 ];
 
 const modelSections: Array<[ModelSection, string]> = [
@@ -269,6 +243,32 @@ export function EquipmentWorkspace() {
   const approvedModels = models.filter((model) => model.current_approved_revision);
   const modelReadOnly = selectedModelRevision?.status !== "draft";
   const driverReadOnly = selectedDriverRevision?.status !== "draft";
+  const measurementSpaceActive = measurementSpaces.some(([key]) => key === space);
+  const activeCatalogFilterCount = [
+    query.trim(),
+    manufacturerFilter.trim(),
+    rootFilter !== "all" ? rootFilter : "",
+    categoryFilter !== "all" ? categoryFilter : "",
+    demoMode !== "hide" ? demoMode : "",
+    classFilter !== "all" ? classFilter : "",
+    roleFilter !== "all" ? roleFilter : "",
+    domainFilter !== "all" ? domainFilter : "",
+    tagFilter !== "all" ? tagFilter : "",
+    statusFilter !== "all" ? statusFilter : ""
+  ].filter(Boolean).length;
+
+  function resetCatalogFilters() {
+    setQuery("");
+    setManufacturerFilter("");
+    setRootFilter("all");
+    setCategoryFilter("all");
+    setDemoMode("hide");
+    setClassFilter("all");
+    setRoleFilter("all");
+    setDomainFilter("all");
+    setTagFilter("all");
+    setStatusFilter("all");
+  }
 
   async function openModel(model: EquipmentModelAggregate, revision?: EquipmentModelRevision | null) {
     setOperationError(null);
@@ -571,89 +571,165 @@ export function EquipmentWorkspace() {
 
   return (
     <section className="equipmentWorkspace">
-      <div className="toolbar equipmentToolbar">
-        <label className="searchBox">
-          <Cpu size={16} />
-          <input
-            aria-label="Recherche equipement"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Recherche modele, fabricant, categorie"
-          />
-        </label>
-        <input
-          aria-label="Filtre fabricant"
-          value={manufacturerFilter}
-          onChange={(event) => setManufacturerFilter(event.target.value)}
-          placeholder="Fabricant"
-        />
-        <select aria-label="Filtre categorie racine" value={rootFilter} onChange={(event) => setRootFilter(event.target.value)}>
-          <option value="all">Toutes categories</option>
-          {categoryTree.map((category) => (
-            <option key={category.category_id} value={category.category_id}>{category.label}</option>
-          ))}
-        </select>
-        <select aria-label="Filtre sous categorie" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
-          <option value="all">Toutes sous-categories</option>
-          {categories.filter((category) => category.parent_category_id).map((category) => (
-            <option key={category.category_id} value={category.category_id}>{categoryPathLabel(categories, category.category_id)}</option>
-          ))}
-        </select>
-        <select aria-label="Filtre donnees demo" value={demoMode} onChange={(event) => setDemoMode(event.target.value as typeof demoMode)}>
-          <option value="hide">Masquer demo</option>
-          <option value="show">Afficher demo</option>
-          <option value="only">Demo uniquement</option>
-        </select>
-        <select aria-label="Filtre statut" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-          <option value="all">Tous statuts</option>
-          <option value="draft">{humanStatus("draft")}</option>
-          <option value="under_review">{humanStatus("under_review")}</option>
-          <option value="approved">{humanStatus("approved")}</option>
-          <option value="superseded">{humanStatus("superseded")}</option>
-        </select>
-        <details className="advancedFilters">
-          <summary>Filtres techniques</summary>
-          <select
-            aria-label="Filtre classe equipement"
-            value={classFilter}
-            onChange={(event) => setClassFilter(event.target.value)}
+      <div className="equipmentNavigation">
+        <nav className="equipmentTabs" aria-label="Navigation equipements">
+          <button
+            className={space === "catalog" ? "active" : ""}
+            aria-current={space === "catalog" ? "page" : undefined}
+            onClick={() => setSpace("catalog")}
           >
-            <option value="all">Toutes classes</option>
-            {equipmentClasses.map((item) => (
-              <option value={item} key={item}>
-                {humanLabel(item)}
-              </option>
+            <Boxes size={17} /> Catalogue équipements
+          </button>
+          <button
+            className={measurementSpaceActive ? "active" : ""}
+            aria-current={measurementSpaceActive ? "page" : undefined}
+            onClick={() => setSpace("sensors")}
+          >
+            <Cpu size={17} /> Ingénierie de mesure
+          </button>
+          <button
+            className={space === "drivers" ? "active" : ""}
+            aria-current={space === "drivers" ? "page" : undefined}
+            onClick={() => setSpace("drivers")}
+          >
+            <GitBranch size={17} /> Drivers et actions
+          </button>
+          <button
+            className={"equipmentAdminTab" + (space === "admin" ? " active" : "")}
+            aria-current={space === "admin" ? "page" : undefined}
+            onClick={() => setSpace("admin")}
+          >
+            <Settings size={17} /> Administration du référentiel
+          </button>
+        </nav>
+        {measurementSpaceActive && (
+          <nav className="equipmentSubnav" aria-label="Domaines d'ingenierie de mesure">
+            {measurementSpaces.map(([key, label]) => (
+              <button key={key} className={space === key ? "active" : ""} onClick={() => setSpace(key)}>
+                {label}
+              </button>
             ))}
-          </select>
-          <select aria-label="Filtre role physique" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
-            <option value="all">Tous roles</option>
-            {(registries?.functional_roles ?? functionalRoles.map((code) => ({ code, label: humanLabel(code) }))).map((item) => (
-              <option value={item.code} key={item.code}>{item.label || humanLabel(item.code)}</option>
-            ))}
-          </select>
-          <select aria-label="Filtre domaine signal" value={domainFilter} onChange={(event) => setDomainFilter(event.target.value)}>
-            <option value="all">Tous domaines</option>
-            {(registries?.signal_domains ?? []).map((item) => (
-              <option value={item.code} key={item.code}>{item.label || humanLabel(item.code)}</option>
-            ))}
-          </select>
-          <select aria-label="Filtre technologie" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
-            <option value="all">Toutes technologies</option>
-            {(registries?.technology_tags ?? []).map((item) => (
-              <option value={item.code} key={item.code}>{item.label || humanLabel(item.code)}</option>
-            ))}
-          </select>
-        </details>
-        <button onClick={() => void refresh()}>
-          <RefreshCw size={16} /> Rafraichir
-        </button>
-        <button onClick={() => setCreationOpen(true)}>
-          <Cpu size={16} /> Nouveau modele
-        </button>
-        <button onClick={() => void createDriver()} disabled={approvedModels.length === 0}>
-          <GitBranch size={16} /> Nouveau driver
-        </button>
+          </nav>
+        )}
       </div>
+
+      {space === "catalog" && (
+        <div className="catalogCommandBar">
+          <label className="searchBox catalogSearch">
+            <Search size={16} />
+            <input
+              aria-label="Recherche equipement"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Modèle, fabricant ou catégorie"
+            />
+          </label>
+          <select aria-label="Filtre categorie racine" value={rootFilter} onChange={(event) => setRootFilter(event.target.value)}>
+            <option value="all">Toutes les familles</option>
+            {categoryTree.map((category) => (
+              <option key={category.category_id} value={category.category_id}>{category.label}</option>
+            ))}
+          </select>
+          <select aria-label="Filtre statut" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <option value="all">Tous les statuts</option>
+            <option value="draft">{humanStatus("draft")}</option>
+            <option value="under_review">{humanStatus("under_review")}</option>
+            <option value="approved">{humanStatus("approved")}</option>
+            <option value="superseded">{humanStatus("superseded")}</option>
+          </select>
+          <details className="advancedFilters">
+            <summary>
+              <SlidersHorizontal size={15} />
+              Filtres{activeCatalogFilterCount > 0 ? " (" + activeCatalogFilterCount + ")" : ""}
+            </summary>
+            <div className="filterPopover">
+              <label>
+                Fabricant
+                <input
+                  aria-label="Filtre fabricant"
+                  value={manufacturerFilter}
+                  onChange={(event) => setManufacturerFilter(event.target.value)}
+                  placeholder="Tous les fabricants"
+                />
+              </label>
+              <label>
+                Sous-categorie
+                <select aria-label="Filtre sous categorie" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+                  <option value="all">Toutes les sous-categories</option>
+                  {categories.filter((category) => category.parent_category_id).map((category) => (
+                    <option key={category.category_id} value={category.category_id}>{categoryPathLabel(categories, category.category_id)}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Donnees de demonstration
+                <select aria-label="Filtre donnees demo" value={demoMode} onChange={(event) => setDemoMode(event.target.value as typeof demoMode)}>
+                  <option value="hide">Masquer</option>
+                  <option value="show">Afficher</option>
+                  <option value="only">Demonstration uniquement</option>
+                </select>
+              </label>
+              <label>
+                Classe d'equipement
+                <select aria-label="Filtre classe equipement" value={classFilter} onChange={(event) => setClassFilter(event.target.value)}>
+                  <option value="all">Toutes les classes</option>
+                  {equipmentClasses.map((item) => <option value={item} key={item}>{humanLabel(item)}</option>)}
+                </select>
+              </label>
+              <label>
+                Role physique
+                <select aria-label="Filtre role physique" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
+                  <option value="all">Tous les roles</option>
+                  {(registries?.functional_roles ?? functionalRoles.map((code) => ({ code, label: humanLabel(code) }))).map((item) => (
+                    <option value={item.code} key={item.code}>{item.label || humanLabel(item.code)}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Domaine de signal
+                <select aria-label="Filtre domaine signal" value={domainFilter} onChange={(event) => setDomainFilter(event.target.value)}>
+                  <option value="all">Tous les domaines</option>
+                  {(registries?.signal_domains ?? []).map((item) => (
+                    <option value={item.code} key={item.code}>{item.label || humanLabel(item.code)}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Technologie
+                <select aria-label="Filtre technologie" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
+                  <option value="all">Toutes les technologies</option>
+                  {(registries?.technology_tags ?? []).map((item) => (
+                    <option value={item.code} key={item.code}>{item.label || humanLabel(item.code)}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </details>
+          {activeCatalogFilterCount > 0 && (
+            <button className="textButton" type="button" onClick={resetCatalogFilters}>Effacer les filtres</button>
+          )}
+          <span className="commandBarSpacer" />
+          <button className="iconButton secondary" onClick={() => void refresh()} title="Rafraichir le catalogue" aria-label="Rafraichir le catalogue">
+            <RefreshCw size={16} />
+          </button>
+          <button onClick={() => setCreationOpen(true)}>
+            <Plus size={16} /> Nouveau modèle
+          </button>
+        </div>
+      )}
+
+      {space === "drivers" && (
+        <div className="contextCommandBar">
+          <strong>Profils de pilotage</strong>
+          <span className="commandBarSpacer" />
+          <button className="iconButton secondary" onClick={() => void refresh()} title="Rafraichir les drivers" aria-label="Rafraichir les drivers">
+            <RefreshCw size={16} />
+          </button>
+          <button onClick={() => void createDriver()} disabled={approvedModels.length === 0}>
+            <Plus size={16} /> Nouveau driver
+          </button>
+        </div>
+      )}
 
       {operationError && (
         <div className="conflictBox">
@@ -666,32 +742,15 @@ export function EquipmentWorkspace() {
       )}
 
       {creationOpen && (
-        <EquipmentModelWizard
-          roots={categoryTree}
-          categories={categories}
-          onCancel={() => setCreationOpen(false)}
-          onCreate={(categoryId, values, modelId) => void createModelFromTemplate(categoryId, values, modelId)}
-        />
+        <div className="modalBackdrop">
+          <EquipmentModelWizard
+            roots={categoryTree}
+            categories={categories}
+            onCancel={() => setCreationOpen(false)}
+            onCreate={(categoryId, values, modelId) => void createModelFromTemplate(categoryId, values, modelId)}
+          />
+        </div>
       )}
-
-      <div className="equipmentTabs groupedTabs" role="tablist" aria-label="Navigation equipement">
-        {equipmentSpaceGroups.map((group) => (
-          <section className="navGroup" key={group.label}>
-            <h2>{group.label}</h2>
-            <div>
-              {group.items.map(([key, label]) => (
-                <button
-                  key={key}
-                  className={space === key ? "active" : ""}
-                  onClick={() => setSpace(key)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
 
       {loadState === "loading" && <StateBlock title="Chargement" detail="Lecture du catalogue equipement." />}
       {loadState === "error" && <StateBlock title="Erreur" detail={operationError ?? "Catalogue indisponible."} />}
@@ -803,12 +862,6 @@ export function EquipmentWorkspace() {
         />
       )}
 
-      {["metrology", "fleet", "connections", "readiness"].includes(space) && (
-        <StateBlock
-          title="Non disponible en 0.13.2"
-          detail="Cette sous-section restera liee a la flotte physique, aux connexions station et a la readiness dans une verticale ulterieure."
-        />
-      )}
     </section>
   );
 }
@@ -822,7 +875,7 @@ function EquipmentRepositoryAdmin(props: {
 }) {
   type AdminTab = "information" | "children" | "form" | "preview" | "diagnostics";
   type CategoryAction = "add_child" | "rename" | "move" | "archive" | "edit_form" | "preview" | "diagnostics";
-  const [selectedCategoryId, setSelectedCategoryId] = useState("rf_equipment");
+  const [selectedCategoryId, setSelectedCategoryId] = useState(() => props.categoryTree[0]?.category_id ?? "");
   const [adminTab, setAdminTab] = useState<AdminTab>("information");
   const [newCategoryLabel, setNewCategoryLabel] = useState("");
   const [newCategoryDescription, setNewCategoryDescription] = useState("");
@@ -1045,7 +1098,10 @@ function EquipmentRepositoryAdmin(props: {
   return (
     <div className="equipmentLayout adminWorkbench">
       <aside className="equipmentList categoryPanel">
-        <h2>Categories</h2>
+        <div className="listHeader">
+          <h2>Catégories</h2>
+          <span>{props.categories.length}</span>
+        </div>
         <CategoryTree
           categories={props.categoryTree}
           selectedId={selectedCategoryId}
@@ -1065,7 +1121,7 @@ function EquipmentRepositoryAdmin(props: {
       <section className="equipmentStudio">
         <div className="studioHeader">
           <div>
-            <p className="eyebrow">Administration du referentiel</p>
+            <p className="eyebrow">Administration du référentiel</p>
             <h2>{selectedCategory ? categoryPathLabel(props.categories, selectedCategory.category_id) : "Categorie"}</h2>
           </div>
           {selectedCategory && (
@@ -1321,13 +1377,13 @@ function EquipmentModelWizard(props: {
   const requiredComplete = visibleFields.every((field) => !field.required || !isEmptyField(values[field.field.field_code]));
 
   return (
-    <div className="creationPanel wizardPanel">
+    <div className="creationPanel wizardPanel" role="dialog" aria-modal="true" aria-labelledby="equipment-wizard-title">
       <div className="creationHeader">
         <div>
           <p className="eyebrow">Assistant de creation</p>
-          <h2>Nouveau modele equipement</h2>
+          <h2 id="equipment-wizard-title">Nouveau modèle équipement</h2>
         </div>
-        <button onClick={props.onCancel}>Annuler</button>
+        <button className="secondary" onClick={props.onCancel}>Annuler</button>
       </div>
       <ol className="wizardStepper">
         {["Categorie", "Sous-categorie", "Identification", "Verification"].map((label, index) => {
@@ -1392,11 +1448,11 @@ function EquipmentModelWizard(props: {
           </EditorCard>
         )}
       </div>
-          <div className="buttonRow">
-        <button onClick={() => setStep((current) => Math.max(1, current - 1))} disabled={step === 1}>Retour</button>
+      <div className="buttonRow wizardFooter">
+        <button className="secondary" onClick={() => setStep((current) => Math.max(1, current - 1))} disabled={step === 1}>Retour</button>
         {step < 4 && <button onClick={continueFromStep}>Continuer</button>}
         {step === 4 && <button onClick={create}><Cpu size={16} /> Creer brouillon</button>}
-          </div>
+      </div>
     </div>
   );
 }
@@ -1574,10 +1630,21 @@ function ModelCatalog(props: {
   const demoCount = props.models.filter((model) => model.identity.is_demo || model.latest_revision?.definition.is_demo).length;
   return (
     <aside className="equipmentList">
-      <h2>Catalogue equipements</h2>
-      <CategoryTree categories={props.categoryTree} selectedId="" onSelect={props.onCategory} />
+      <div className="listHeader">
+        <h2>Modèles</h2>
+        <span>{props.models.length}</span>
+      </div>
+      <details className="catalogTreeFilter">
+        <summary>Par catégorie</summary>
+        <CategoryTree categories={props.categoryTree} selectedId="" onSelect={props.onCategory} />
+      </details>
       {demoCount > 0 && <div className="demoBanner">Donnees de demonstration visibles ({props.demoMode})</div>}
-      {props.models.length === 0 && <p>Aucun modele equipement.</p>}
+      {props.models.length === 0 && (
+        <div className="compactEmpty">
+          <strong>Aucun modele trouve</strong>
+          <span>Modifiez les filtres ou creez un nouveau modele.</span>
+        </div>
+      )}
       {props.models.map((model) => {
         const revision = model.latest_revision ?? model.current_approved_revision;
         const definition = revision?.definition;
@@ -1591,10 +1658,11 @@ function ModelCatalog(props: {
           >
             <strong>{model.identity.manufacturer} {model.identity.model_name}</strong>
             <span>{isDemo ? "[DEMO] " : ""}{model.identity.variant ?? categoryLabel}</span>
-            <small>{categoryLabel || humanLabel(model.identity.root_category_id ?? model.identity.category_code)} | {humanStatus(revision?.status)}</small>
-            <small>
-              rev {revision?.revision_number ?? "-"} | ports {revision?.signal_port_count ?? 0} | interfaces {revision?.interface_count ?? 0} | capabilities {revision?.capability_count ?? 0}
-            </small>
+            <small>{categoryLabel || humanLabel(model.identity.root_category_id ?? model.identity.category_code)}</small>
+            <span className="listItemMeta">
+              <span className={"status " + (revision?.status ?? "")}>{humanStatus(revision?.status)}</span>
+              <small>Révision {revision?.revision_number ?? "-"}</small>
+            </span>
           </button>
         );
       })}
@@ -1633,17 +1701,28 @@ function ModelStudio(props: {
     <section className="equipmentStudio">
       <div className="studioHeader">
         <div>
-          <p className="eyebrow">Fiche modele equipement</p>
+          <p className="eyebrow">Fiche modèle équipement</p>
           <h2>{props.model.identity.manufacturer} {props.model.identity.model_name}</h2>
-          <p className="mono">{props.revision.revision_id} | {props.revision.status}</p>
+          <div className="studioTitleMeta">
+            <span className={"status " + props.revision.status}>{humanStatus(props.revision.status)}</span>
+            <span>Révision {props.revision.revision_number}</span>
+          </div>
         </div>
         <div className="headerActions">
-          <button onClick={props.onValidate}><CheckCircle2 size={16} /> Valider</button>
-          <button onClick={props.onSave} disabled={props.readOnly}><Save size={16} /> Sauvegarder</button>
-          <button onClick={props.onSubmit} disabled={props.readOnly || props.revision.status !== "draft"}><Send size={16} /> Soumettre</button>
-          <button onClick={props.onApprove} disabled={props.revision.status !== "under_review"}><ShieldCheck size={16} /> Approuver</button>
-          <button onClick={props.onDerive} disabled={!props.model.current_approved_revision}><GitBranch size={16} /> Nouvelle revision</button>
-          <button onClick={props.onClone}><Copy size={16} /> Cloner</button>
+          <button className="secondary" onClick={props.onValidate}><CheckCircle2 size={16} /> Valider</button>
+          {props.revision.status === "draft" && (
+            <>
+              <button onClick={props.onSave}><Save size={16} /> Sauvegarder</button>
+              <button className="secondary" onClick={props.onSubmit}><Send size={16} /> Soumettre</button>
+            </>
+          )}
+          {props.revision.status === "under_review" && (
+            <button onClick={props.onApprove}><ShieldCheck size={16} /> Approuver</button>
+          )}
+          {props.revision.status === "approved" && props.model.current_approved_revision && (
+            <button onClick={props.onDerive}><GitBranch size={16} /> Nouvelle revision</button>
+          )}
+          <button className="secondary" onClick={props.onClone}><Copy size={16} /> Cloner</button>
         </div>
       </div>
 

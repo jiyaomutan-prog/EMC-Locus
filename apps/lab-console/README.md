@@ -1,13 +1,13 @@
 # EMC Locus LAB CONSOLE
 
 LAB CONSOLE is the browser application for laboratory management workflows. In
-0.13.2 it provides Template Studio v1 plus the Equipment workspace with
-grouped navigation, Catalogue equipements, Administration du referentiel,
-expandable category trees, category-centered form administration, form preview,
-a category-driven model creation wizard, revisioned equipment models, driver
-profiles, communication-provider status, and measurement-engineering editors
-for capteurs/transducteurs, profils de scaling, courbes d'ingenierie, voies
-DAQ, and acquisition recipes.
+0.13.3 it provides Template Studio v1 plus the Equipment workspace in a focused,
+responsive application shell. Active navigation is limited to implemented
+workflows, Equipment commands are contextual, the model wizard is presented as
+a modal task, and normal revision views favor laboratory labels and lifecycle
+states over technical identifiers. Category administration, revisioned
+equipment models, driver profiles, communication-provider status, and
+measurement-engineering editors remain available.
 
 ## Runtime
 
@@ -53,6 +53,30 @@ evidence unless the workflow and lockfile policy are deliberately migrated.
 
 Vite proxies `/api` to `http://127.0.0.1:8765` during development. Production
 does not use a Node server.
+
+## Scope In 0.13.3
+
+Experience changes:
+
+- active navigation limited to Methods, Equipment, and local System status;
+- future modules shown as roadmap context rather than clickable dead screens;
+- collapsible desktop sidebar and compact responsive navigation;
+- contextual catalog, engineering, driver, and repository-administration
+  controls;
+- focused modal equipment wizard with stable actions;
+- human revision labels and business titles in normal model and engineering
+  views;
+- raw IDs, checksums, JSON, and traceability fields retained behind explicit
+  advanced disclosures;
+- two-column editor layouts at normal desktop widths, with validation below the
+  working form and single-column mobile reflow.
+
+Still not implemented:
+
+- physical serial-numbered asset fleet;
+- station connection mapping;
+- graphical measurement-chain builder;
+- real acquisition, FFT, reporting, authentication/RBAC, and central sync.
 
 ## Scope In 0.13.2
 

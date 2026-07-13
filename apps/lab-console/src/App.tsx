@@ -1,10 +1,15 @@
 import {
   AlertTriangle,
+  BookOpenText,
   CheckCircle2,
   ClipboardCheck,
   Copy,
+  Cpu,
+  Database,
   GitBranch,
   History,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
   Save,
   Search,
@@ -47,22 +52,7 @@ type StudioSection =
   | "audit"
   | "advanced";
 
-const sidebarItems = [
-  "Tableau de bord",
-  "Clients",
-  "Produits",
-  "Projets",
-  "Campagnes",
-  "Templates et methodes",
-  "Documents",
-  "Personnel et competences",
-  "Equipements",
-  "Metrologie",
-  "Planification",
-  "Rapports",
-  "Synchronisation",
-  "Administration"
-];
+const upcomingModules = ["Métrologie", "Planification", "Campagnes", "Rapports"];
 
 const statusLabels: Record<RevisionStatus, string> = {
   draft: "Brouillon",
@@ -120,6 +110,7 @@ interface CloneFormState {
 
 export function App() {
   const [activeView, setActiveView] = useState<ActiveView>("library");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [templates, setTemplates] = useState<TestTemplateAggregate[]>([]);
   const [health, setHealth] = useState<HealthReport | null>(null);
   const [storage, setStorage] = useState<StorageStatus | null>(null);
@@ -167,6 +158,17 @@ export function App() {
   useEffect(() => {
     void refreshAll();
   }, []);
+
+  useEffect(() => {
+    const page = activeView === "equipment"
+      ? "Équipements"
+      : activeView === "system"
+        ? "Système local"
+        : activeView === "studio"
+          ? "Éditeur de méthode"
+          : "Méthodes d'essai";
+    document.title = `${page} | EMC Locus`;
+  }, [activeView]);
 
   useEffect(() => {
     setSaveState((current) => {
@@ -430,38 +432,62 @@ export function App() {
   }
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
+    <div className={`shell${sidebarCollapsed ? " sidebarCollapsed" : ""}`}>
+      <aside className="sidebar" aria-label="Navigation de l'application">
         <div className="brand">
-          <strong>EMC Locus</strong>
-          <span>LAB CONSOLE {APP_VERSION}</span>
+          <span className="brandMark" aria-hidden="true">EL</span>
+          <span className="brandCopy">
+            <strong>EMC Locus</strong>
+            <small>LAB CONSOLE {APP_VERSION}</small>
+          </span>
+          <button
+            className="sidebarToggle"
+            type="button"
+            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            aria-label={sidebarCollapsed ? "Déployer la navigation" : "Réduire la navigation"}
+            title={sidebarCollapsed ? "Déployer la navigation" : "Réduire la navigation"}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          </button>
         </div>
-        <nav>
-          {sidebarItems.map((item) => (
-            <button
-              key={item}
-              className={
-                (item === "Templates et methodes" && (activeView === "library" || activeView === "studio")) ||
-                (item === "Equipements" && activeView === "equipment")
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                setActiveView(
-                  item === "Templates et methodes"
-                    ? "library"
-                    : item === "Equipements"
-                      ? "equipment"
-                      : "system"
-                )
-              }
-            >
-              <span>{item}</span>
-              {item !== "Templates et methodes" && item !== "Equipements" && (
-                <small>Non disponible dans cette version</small>
-              )}
-            </button>
-          ))}
+        <nav className="primaryNav" aria-label="Espaces de travail">
+          <p className="navLabel">Conception laboratoire</p>
+          <button
+            className={activeView === "library" || activeView === "studio" ? "active" : ""}
+            onClick={() => setActiveView("library")}
+            title="Méthodes d'essai"
+          >
+            <BookOpenText size={18} />
+            <span>Méthodes d'essai</span>
+          </button>
+          <button
+            className={activeView === "equipment" ? "active" : ""}
+            onClick={() => setActiveView("equipment")}
+            title="Équipements"
+          >
+            <Cpu size={18} />
+            <span>Équipements</span>
+          </button>
+        </nav>
+
+        <div className="upcomingNav" aria-label="Prochaines verticales">
+          <p className="navLabel">Prochaines verticales</p>
+          <ul>
+            {upcomingModules.map((module) => (
+              <li key={module}><span>{module}</span><small>À venir</small></li>
+            ))}
+          </ul>
+        </div>
+
+        <nav className="systemNav" aria-label="État de l'application">
+          <button
+            className={activeView === "system" ? "active" : ""}
+            onClick={() => setActiveView("system")}
+            title="Système local"
+          >
+            <Database size={18} />
+            <span>Système local</span>
+          </button>
         </nav>
       </aside>
 
@@ -469,22 +495,34 @@ export function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">
-              {activeView === "equipment" ? "Referentiel equipements" : "Templates et methodes"}
+              {activeView === "equipment"
+                ? "Référentiel et ingénierie"
+                : activeView === "system"
+                  ? "Diagnostic local"
+                  : "Définitions et révisions"}
             </p>
             <h1>
               {activeView === "studio"
-                ? "Template Studio"
+                ? "Éditeur de méthode"
                 : activeView === "equipment"
-                  ? "Equipements"
+                  ? "Équipements"
                   : activeView === "system"
-                    ? "Systeme local"
-                    : "Templates d'essai"}
+                    ? "Système local"
+                    : "Méthodes d'essai"}
             </h1>
           </div>
           <div className="connection">
-            <span className={health ? "dot ok" : "dot warn"} />
-            <span>{health ? `Agent ${health.version}` : "Agent indisponible"}</span>
-            <button className="iconButton" onClick={() => void refreshAll()} title="Rafraichir">
+            <span className="connectionStatus">
+              <span className={health ? "dot ok" : "dot warn"} />
+              <span>{health ? "Agent local" : "Agent indisponible"}</span>
+              {health && <strong>{health.version}</strong>}
+            </span>
+            <button
+              className="iconButton"
+              onClick={() => void refreshAll()}
+              title="Rafraîchir l'état local"
+              aria-label="Rafraîchir l'état local"
+            >
               <RefreshCw size={16} />
             </button>
           </div>
@@ -696,40 +734,41 @@ function LibraryView(props: {
 
       {props.templates.length > 0 && (
         <div className="templateGrid">
-          {props.templates.map((template) => (
-            <article key={template.identity.template_id} className="templateCard">
-              <div>
-                <p className="mono">{template.identity.template_id}</p>
-                <h2>{template.identity.title}</h2>
-                <span className="pill">{template.identity.category_code}</span>
-              </div>
-              <dl>
-                <dt>Cree</dt>
-                <dd>{formatDate(template.identity.created_at)}</dd>
-                <dt>Modifie</dt>
-                <dd>{formatDate(template.identity.updated_at)}</dd>
-                <dt>Approuvee courante</dt>
-                <dd>{template.current_approved_revision?.revision_id ?? "-"}</dd>
-                <dt>Derniere revision</dt>
-                <dd>{template.latest_revision ? `${template.latest_revision.revision_id} (${statusLabels[template.latest_revision.status]})` : "-"}</dd>
-                <dt>Brouillon actif</dt>
-                <dd>{template.active_draft_revision?.revision_id ?? "-"}</dd>
-                <dt>Acteur</dt>
-                <dd>{template.latest_revision?.created_by ?? template.identity.created_by}</dd>
-              </dl>
-              <div className="buttonRow">
-                <button onClick={() => props.onOpen(template, template.active_draft_revision ?? template.current_approved_revision ?? template.latest_revision)}>
-                  Ouvrir
-                </button>
-                <button className="secondary" onClick={() => props.onOpen(template, template.active_draft_revision)} disabled={!template.active_draft_revision}>
-                  Brouillon
-                </button>
-                <button className="secondary" onClick={() => props.onOpen(template, template.current_approved_revision)} disabled={!template.current_approved_revision}>
-                  Revision approuvee
-                </button>
-              </div>
-            </article>
-          ))}
+          {props.templates.map((template) => {
+            const visibleRevision = template.active_draft_revision ?? template.current_approved_revision ?? template.latest_revision;
+            return (
+              <article key={template.identity.template_id} className="templateCard">
+                <div className="templateCardHeading">
+                  <div>
+                    <p className="eyebrow">Méthode d'essai</p>
+                    <h2>{template.identity.title}</h2>
+                  </div>
+                  {visibleRevision && <StatusBadge status={visibleRevision.status} />}
+                </div>
+                <span className="pill templateCategory">{humanizeCode(template.identity.category_code)}</span>
+                <dl className="templateSummary">
+                  <dt>Révision</dt>
+                  <dd>{visibleRevision ? visibleRevision.revision_number : "-"}</dd>
+                  <dt>Dernière modification</dt>
+                  <dd>{formatDate(template.identity.updated_at)}</dd>
+                </dl>
+                <details className="templateTechnicalDetails">
+                  <summary>Référence technique</summary>
+                  <code>{template.identity.template_id}</code>
+                </details>
+                <div className="buttonRow">
+                  <button onClick={() => props.onOpen(template, visibleRevision)} disabled={!visibleRevision}>
+                    {template.active_draft_revision ? "Continuer le brouillon" : "Consulter"}
+                  </button>
+                  {template.active_draft_revision && template.current_approved_revision && (
+                    <button className="secondary" onClick={() => props.onOpen(template, template.current_approved_revision)}>
+                      Consulter l'approuvée
+                    </button>
+                  )}
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
     </section>
@@ -769,40 +808,54 @@ function StudioView(props: {
   return (
     <section className="studio">
       <div className="studioHeader">
-        <button className="secondary" onClick={props.onBack}>Bibliotheque</button>
-        <div>
-          <p className="mono">{props.template.identity.template_id}</p>
+        <button className="secondary" onClick={props.onBack}>Bibliothèque</button>
+        <div className="studioHeading">
+          <p className="eyebrow">Méthode d'essai</p>
           <h2>{props.template.identity.title}</h2>
+          <div className="studioTitleMeta">
+            <StatusBadge status={props.revision.status} />
+            <span>Révision {props.revision.revision_number}</span>
+            <span className={"saveState " + props.saveState}>{saveStateLabel(props.saveState)}</span>
+          </div>
         </div>
-        <StatusBadge status={props.revision.status} />
-        <span className={`saveState ${props.saveState}`}>{saveStateLabel(props.saveState)}</span>
         <div className="headerActions">
-          <button onClick={props.onValidate}>
+          <button className="secondary" onClick={props.onValidate}>
             <CheckCircle2 size={16} /> Valider
           </button>
-          <button onClick={props.onSave} disabled={props.readOnly || props.saveState === "saving" || !props.dirty}>
-            <Save size={16} /> Sauvegarder
-          </button>
-          <button onClick={props.onSubmit} disabled={!canSubmit}>
-            <Send size={16} /> Soumettre
-          </button>
-          <button onClick={props.onApprove} disabled={props.revision.status !== "under_review"}>
-            <ShieldCheck size={16} /> Approuver
-          </button>
-          <button onClick={props.onDerive} disabled={!props.template.current_approved_revision || Boolean(props.template.active_draft_revision)}>
-            <GitBranch size={16} /> Deriver
-          </button>
+          {props.revision.status === "draft" && (
+            <>
+              <button onClick={props.onSave} disabled={props.saveState === "saving" || !props.dirty}>
+                <Save size={16} /> Sauvegarder
+              </button>
+              <button className="secondary" onClick={props.onSubmit} disabled={!canSubmit}>
+                <Send size={16} /> Soumettre
+              </button>
+            </>
+          )}
+          {props.revision.status === "under_review" && (
+            <button onClick={props.onApprove}>
+              <ShieldCheck size={16} /> Approuver
+            </button>
+          )}
+          {props.revision.status === "approved" && props.template.current_approved_revision && !props.template.active_draft_revision && (
+            <button onClick={props.onDerive}>
+              <GitBranch size={16} /> Dériver
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="contextBar">
-        <TextInput label="Acteur saisi manuellement" value={props.context.actor} onChange={(actor) => props.onContextChange({ ...props.context, actor })} />
-        <TextInput label="Raison" value={props.context.reason} onChange={(reason) => props.onContextChange({ ...props.context, reason })} />
-        <div>
-          <small>Checksum ouvert</small>
-          <code>{props.expectedChecksum}</code>
+      <details className="traceabilityDetails">
+        <summary>Contexte de traçabilité</summary>
+        <div className="contextBar">
+          <TextInput label="Acteur saisi manuellement" value={props.context.actor} onChange={(actor) => props.onContextChange({ ...props.context, actor })} />
+          <TextInput label="Raison" value={props.context.reason} onChange={(reason) => props.onContextChange({ ...props.context, reason })} />
+          <div>
+            <small>Checksum ouvert</small>
+            <code>{props.expectedChecksum}</code>
+          </div>
         </div>
-      </div>
+      </details>
 
       {props.conflict && (
         <div className="conflictBox" role="alert">
@@ -1300,7 +1353,20 @@ function formatDate(value?: string | null) {
   if (!value) {
     return "-";
   }
-  return value.replace("T", " ").replace("Z", "");
+  const normalized = value.endsWith("Z") ? value : `${value}Z`;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) {
+    return value.replace("T", " ").replace("Z", "");
+  }
+  return new Intl.DateTimeFormat("fr-FR", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(parsed);
+}
+
+function humanizeCode(value: string) {
+  const normalized = value.replaceAll("_", " ").trim();
+  return normalized ? normalized.charAt(0).toLocaleUpperCase("fr-FR") + normalized.slice(1) : "Sans catégorie";
 }
 
 function errorMessage(error: unknown) {

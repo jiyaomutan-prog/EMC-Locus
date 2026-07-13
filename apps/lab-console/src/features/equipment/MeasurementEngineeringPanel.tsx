@@ -120,8 +120,8 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     collection: "engineering-curves",
     validationCollection: "engineering-curve-definitions",
     operationPrefix: "engineering-curve",
-    title: "Courbes d'ingenierie",
-    listTitle: "Courbes d'ingenierie",
+    title: "Courbes d'ingénierie",
+    listTitle: "Courbes d'ingénierie",
     createLabel: "Creer courbe",
     emptyDetail: "Selectionnez ou creez une courbe de correction.",
     sections: [
@@ -279,7 +279,7 @@ const inputModes = [
 ];
 
 export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSpace }) {
-  const [activeSpace, setActiveSpace] = useState<MeasurementSpace>(props.initialSpace);
+  const activeSpace = props.initialSpace;
   const activeConfig = configs[activeSpace];
   const [itemsByCollection, setItemsByCollection] = useState<
     Partial<Record<MeasurementEngineeringCollection, MeasurementEngineeringAggregate[]>>
@@ -301,10 +301,6 @@ export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSp
   const [lookupCsv, setLookupCsv] = useState("");
   const [evaluationFrequency, setEvaluationFrequency] = useState("100000000");
   const [curveEvaluation, setCurveEvaluation] = useState<EngineeringCurveEvaluation | null>(null);
-
-  useEffect(() => {
-    setActiveSpace(props.initialSpace);
-  }, [props.initialSpace]);
 
   const refreshLists = useCallback(async () => {
     setLoadState("loading");
@@ -508,30 +504,23 @@ export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSp
     <section className="measurementPanel">
       <div className="measurementHeader">
         <div>
-          <p className="eyebrow">Measurement engineering</p>
+          <p className="eyebrow">Ingénierie de mesure</p>
           <h2>{activeConfig.title}</h2>
+          <p className="workspaceMeta">{items.length} definition{items.length > 1 ? "s" : ""}</p>
         </div>
-        <div className="segmented">
-          {(Object.values(configs) as MeasurementStudioConfig[]).map((config) => (
-            <button
-              key={config.key}
-              className={activeSpace === config.key ? "active" : ""}
-              onClick={() => setActiveSpace(config.key)}
-            >
-              {config.title}
-            </button>
-          ))}
-        </div>
+        <button className="iconButton secondary" onClick={() => void refreshLists()} title="Rafraichir les definitions" aria-label="Rafraichir les definitions">
+          <RefreshCw size={16} />
+        </button>
       </div>
 
       <div className="toolbar measurementCreateBar">
-        <Field label="Nouvel ID" value={newEntityId} onChange={setNewEntityId} />
-        <Field label="Libelle / modele" value={newLabel} onChange={setNewLabel} />
+        <Field label="Libellé / modèle" value={newLabel} onChange={setNewLabel} />
+        <details className="advancedOptions compactAdvanced">
+          <summary>Identifiant personnalisé</summary>
+          <Field label="Nouvel ID" value={newEntityId} onChange={setNewEntityId} />
+        </details>
         <button onClick={() => void createDraft()}>
           <Plus size={16} /> {activeConfig.createLabel}
-        </button>
-        <button onClick={() => void refreshLists()}>
-          <RefreshCw size={16} /> Rafraichir
         </button>
       </div>
 
@@ -562,26 +551,35 @@ export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSp
                   <div>
                     <p className="eyebrow">{activeConfig.title}</p>
                     <h2>{revision.label}</h2>
-                    <p className="mono">
-                      {revision.revision_id} | {revision.status} | {revision.definition_checksum}
-                    </p>
+                    <div className="studioTitleMeta">
+                      <span className={"status " + revision.status}>{measurementStatusLabel(revision.status)}</span>
+                      <span>Révision {revision.revision_number}</span>
+                    </div>
                   </div>
                   <div className="headerActions">
-                    <button onClick={() => void validateDefinition()}>
+                    <button className="secondary" onClick={() => void validateDefinition()}>
                       <CheckCircle2 size={16} /> Valider
                     </button>
-                    <button onClick={() => void saveDraft()} disabled={readOnly}>
-                      <Save size={16} /> Sauvegarder
-                    </button>
-                    <button onClick={() => void submitRevision()} disabled={readOnly || revision.status !== "draft"}>
-                      <Send size={16} /> Soumettre
-                    </button>
-                    <button onClick={() => void approveRevision()} disabled={revision.status !== "under_review"}>
-                      <ShieldCheck size={16} /> Approuver
-                    </button>
-                    <button onClick={() => void deriveRevision()} disabled={!selected.current_approved_revision}>
-                      <GitBranch size={16} /> Nouvelle revision
-                    </button>
+                    {revision.status === "draft" && (
+                      <>
+                        <button onClick={() => void saveDraft()}>
+                          <Save size={16} /> Sauvegarder
+                        </button>
+                        <button className="secondary" onClick={() => void submitRevision()}>
+                          <Send size={16} /> Soumettre
+                        </button>
+                      </>
+                    )}
+                    {revision.status === "under_review" && (
+                      <button onClick={() => void approveRevision()}>
+                        <ShieldCheck size={16} /> Approuver
+                      </button>
+                    )}
+                    {revision.status === "approved" && selected.current_approved_revision && (
+                      <button onClick={() => void deriveRevision()}>
+                        <GitBranch size={16} /> Nouvelle revision
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -659,14 +657,25 @@ function MeasurementList(props: {
             onClick={() => props.onOpen(item)}
           >
             <strong>{item.identity.label}</strong>
-            <span className="mono">{item.identity.entity_id}</span>
-            <small>{item.identity.summary_kind} | {revision?.status ?? "no_revision"}</small>
-            <small>rev {revision?.revision_number ?? "-"} | {revision?.definition_checksum?.slice(0, 18) ?? "-"}</small>
+            <span className="listItemMeta">
+              <span className={"status " + (revision?.status ?? "")}>{measurementStatusLabel(revision?.status)}</span>
+              <small>Révision {revision?.revision_number ?? "-"}</small>
+            </span>
           </button>
         );
       })}
     </aside>
   );
+}
+
+function measurementStatusLabel(status?: string) {
+  if (status === "draft") return "Brouillon";
+  if (status === "under_review") return "En revue";
+  if (status === "approved") return "Approuve";
+  if (status === "superseded") return "Remplace";
+  if (status === "suspended") return "Suspendu";
+  if (status === "retired") return "Retire";
+  return "Sans revision";
 }
 
 function StudioSectionRenderer(props: {

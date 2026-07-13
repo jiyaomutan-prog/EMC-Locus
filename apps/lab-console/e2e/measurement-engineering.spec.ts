@@ -13,7 +13,7 @@ const spaces = {
     createButton: "Creer scaling"
   },
   curves: {
-    tab: "Courbes d'ingenierie",
+    tab: "Courbes d'ingénierie",
     collection: "engineering-curves",
     createButton: "Creer courbe"
   },
@@ -44,7 +44,8 @@ test("measurement engineering workflow creates approved channel recipe", async (
   const recipeId = `E2E-REC-CURRENT-${suffix}`;
 
   await page.goto("/lab/");
-  await page.getByRole("button", { name: "Equipements" }).click();
+  await page.getByRole("button", { name: "Équipements" }).click();
+  await page.getByRole("button", { name: "Ingénierie de mesure" }).click();
 
   await createMeasurementDraft(page, spaces.scaling, scalingId, "E2E 10 mV/A scaling");
   await approveCurrentDraft(page, spaces.scaling, scalingId);
@@ -122,17 +123,21 @@ async function createMeasurementDraft(
   entityId: string,
   label: string
 ) {
-  await page.locator(".equipmentTabs").getByRole("button", { name: space.tab }).click();
+  await page.locator(".equipmentSubnav").getByRole("button", { name: space.tab }).click();
   await expect(page.locator(".measurementHeader").getByRole("heading", { name: space.tab })).toBeVisible();
-  await page.getByLabel("Nouvel ID").fill(entityId);
-  await page.getByLabel("Libelle / modele").fill(label);
+  const customIdInput = page.getByLabel("Nouvel ID");
+  if (!(await customIdInput.isVisible())) {
+    await page.getByText("Identifiant personnalisé").click();
+  }
+  await customIdInput.fill(entityId);
+  await page.getByLabel("Libellé / modèle").fill(label);
   const createResponse = page.waitForResponse((response) =>
     response.url().endsWith(`/api/v1/${space.collection}`) &&
     response.request().method() === "POST"
   );
   await page.getByRole("button", { name: space.createButton }).click();
   expect((await createResponse).ok()).toBeTruthy();
-  await expect(page.locator(".equipmentStudio").getByText(entityId)).toBeVisible();
+  await expect(page.locator(".equipmentStudio").getByRole("heading", { name: label })).toBeVisible();
 }
 
 async function approveCurrentDraft(
@@ -165,7 +170,7 @@ async function approveCurrentDraft(
   );
   await page.getByRole("button", { name: /Soumettre/ }).click();
   expect((await submitResponse).ok()).toBeTruthy();
-  await expect(page.locator(".equipmentStudio .mono").filter({ hasText: "under_review" })).toBeVisible();
+  await expect(page.locator(".studioTitleMeta .status", { hasText: "En revue" })).toBeVisible();
 
   const approveResponse = page.waitForResponse((response) =>
     response.url().includes(`/api/v1/${space.collection}/${entityId}/revisions/`) &&
@@ -174,7 +179,7 @@ async function approveCurrentDraft(
   );
   await page.getByRole("button", { name: /Approuver/ }).click();
   expect((await approveResponse).ok()).toBeTruthy();
-  await expect(page.locator(".equipmentStudio .mono").filter({ hasText: "approved" })).toBeVisible();
+  await expect(page.locator(".studioTitleMeta .status", { hasText: "Approuve" })).toBeVisible();
 }
 
 async function saveCurrentDraft(page: Page, space: MeasurementSpace, entityId: string) {

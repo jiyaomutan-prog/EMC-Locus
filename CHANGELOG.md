@@ -8,6 +8,26 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-07-14
+
+### Changed
+
+- Refounded the LAB CONSOLE shell around the two implemented workspaces,
+  Methods and Equipment, with an explicit local-system view and a non-actionable
+  preview of future verticals instead of twelve dead navigation destinations.
+- Added a collapsible, keyboard-accessible sidebar, a compact sticky status bar,
+  responsive workspace navigation, consistent focus states, and a restrained
+  laboratory palette with stable desktop and mobile layouts.
+- Made Equipment controls contextual: catalog search and filters now stay in the
+  catalog, driver controls stay with drivers, and measurement engineering uses
+  one secondary navigation instead of duplicated tab rows.
+- Simplified normal model and measurement-engineering views around business
+  labels, human revision states, and contextual lifecycle actions; technical
+  identifiers, checksums, traceability fields, and category trees move behind
+  explicit advanced disclosures where they remain useful.
+- Changed the equipment model wizard from an inline expanding panel to a focused
+  modal workflow with stable header, body, and action areas.
+
 ### Fixed
 
 - Rejected overlapping active service-schedule planning blocks for the same
@@ -20,6 +40,13 @@ change should remain traceable through Git history, session logs, and this file.
   for the currently available non-terminal planning blocks, so planned blocks no
   longer present direct `in_progress` or `completed` jumps that the repository
   would reject.
+- Prevented editor and library grids from stretching sparse content into tall
+  empty cards, and prevented three-column editor layouts from squeezing the
+  primary form at ordinary desktop widths.
+- Added responsive and regression coverage for active versus future navigation,
+  sidebar collapse/reopen, contextual Equipment controls, and the revised
+  operator-visible titles used by the full Playwright workflows.
+- Bumped synchronized Rust, Python, and frontend versions to `0.13.3`.
 
 ## [0.13.2] - 2026-07-13
 
