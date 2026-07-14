@@ -8,6 +8,13 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Revalidated imported service-schedule overlap candidates with the canonical
+  status vocabulary before reporting operator or location conflicts, so
+  constraint-bypassed rows with unknown statuses surface as workflow
+  corruption instead of ordinary resource reservations.
+
 ## [0.15.0] - 2026-07-14
 
 ### Added

@@ -62,7 +62,10 @@ row would reserve the same operator or the same location. Adjacent blocks are
 allowed, and a completed or cancelled block no longer reserves that operator or
 location for conflict checks. The overlap check compares persisted block
 windows after trimming surrounding whitespace, so constraint-bypassed imports
-reserve resources the same way they appear through normalized list reads.
+reserve resources the same way they appear through normalized list reads. When
+an imported overlapping row carries an unknown status, the repository raises the
+status corruption instead of reporting an ordinary operator or location
+reservation.
 Repository list reads also reject imported planning rows whose item codes
 normalize to the same value, so operator views do not expose ambiguous planning
 identifiers that later status updates would refuse.

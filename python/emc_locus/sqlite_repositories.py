@@ -1429,7 +1429,7 @@ class ProjectRepository(SQLiteDomainRepository):
     ) -> None:
         overlapping_item = connection.execute(
             """
-            SELECT item_code, assigned_operator, location
+            SELECT item_code, assigned_operator, location, status
             FROM service_schedule_items
             WHERE typeof(status) = 'text'
               AND TRIM(status) NOT IN ('completed', 'cancelled')
@@ -1447,6 +1447,7 @@ class ProjectRepository(SQLiteDomainRepository):
             (planned_end_at, planned_start_at, assigned_operator, location),
         ).fetchone()
         if overlapping_item is not None:
+            normalize_service_schedule_status(overlapping_item["status"])
             if str(overlapping_item["assigned_operator"]).strip() == assigned_operator:
                 raise ValueError(
                     "service schedule operator already has an overlapping item"

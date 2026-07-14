@@ -474,6 +474,9 @@ Deliverables:
 - service-schedule inserts now compare overlap windows against normalized
   persisted timestamps, so whitespace-padded imported rows still reserve their
   operator and location consistently with list-read normalization.
+- service-schedule inserts now revalidate imported overlap-candidate statuses
+  before reporting resource conflicts, so unknown persisted workflow states
+  remain visible as data corruption.
 - Python local metrology actions and direct repository writes now reject
   non-canonical certificate and instrument-document checksum evidence, keeping
   legacy SQLite document attachments aligned with the agent's lowercase
