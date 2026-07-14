@@ -22,6 +22,7 @@ pub mod quality;
 pub mod reporting;
 pub mod repositories;
 pub mod signal;
+pub mod station_setup;
 pub mod test_definitions;
 pub mod traceability;
 pub mod updates;
@@ -45,6 +46,7 @@ pub use quality::*;
 pub use reporting::*;
 pub use repositories::*;
 pub use signal::*;
+pub use station_setup::*;
 pub use traceability::*;
 pub use updates::*;
 

@@ -32,6 +32,7 @@ prepare the metrology and test-definition agent databases. They manage:
 - `metrology.sqlite`;
 - `test_definitions.sqlite`.
 - `equipment.sqlite`.
+- `station.sqlite`.
 
 Use an explicit storage root and migration root:
 
@@ -42,7 +43,7 @@ cargo run -q -p emc-locus-agent -- storage verify --storage-root data\agent --mi
 ```
 
 `storage init` creates the storage directory if needed and applies missing
-project, sync, metrology, test-definition, and equipment migrations. `storage status`
+project, sync, metrology, test-definition, equipment, and station migrations. `storage status`
 reports whether the databases are missing, current, invalid, or need migration.
 `storage verify` fails when a database is not current or fails SQLite integrity
 checks.
@@ -172,6 +173,16 @@ POST /api/v1/projects/{code}/transitions/to-test-planning
 GET  /api/v1/projects/{code}/audit-events
 GET  /api/v1/projects/{code}/test-executions
 GET  /api/v1/sync/outbox
+GET  /api/v1/station-setups
+POST /api/v1/station-setups
+GET  /api/v1/station-setups/{setup_id}
+GET  /api/v1/station-setups/{setup_id}/revisions
+POST /api/v1/station-setups/{setup_id}/revisions
+GET  /api/v1/station-setups/{setup_id}/revisions/{revision_id}
+PUT  /api/v1/station-setups/{setup_id}/revisions/{revision_id}/definition
+GET  /api/v1/station-setups/{setup_id}/revisions/{revision_id}/readiness
+POST /api/v1/station-setups/{setup_id}/revisions/{revision_id}/transitions/ready
+GET  /api/v1/station-setups/{setup_id}/audit-events
 GET  /api/v1/documents
 POST /api/v1/documents
 GET  /api/v1/documents/{document_id}
@@ -289,6 +300,14 @@ manifest, audit event, and pending outbox row atomically. `POST
 the local storage root. LAB CONSOLE exposes the workflow from the selected
 physical asset rather than as another generic correction library.
 
+Version `0.17.0` adds revisioned physical station-setup routes. A draft binds
+real metrology assets to pinned equipment-model revisions, connects typed
+ports, and selects applicable serial-specific corrections. Readiness is derived
+for the planned use date and execution mode. A successful `ready` transition
+makes the revision immutable and writes station audit plus sync outbox evidence
+atomically. `station.sqlite` is a separate local domain; it does not duplicate
+the equipment catalog or metrology record.
+
 ## Python And Qt Client Path
 
 Version `0.4.6` adds `emc_locus.local_agent_client.LocalAgentClient`, a thin
@@ -316,9 +335,11 @@ The Qt console accepts:
 py apps\qt-console\main.py --projects-db data\agent\projects.sqlite --agent-url http://127.0.0.1:8765
 ```
 
-With `--agent-url`, the console header shows the local-agent state and the
-agent-backed project forms are submitted through a Qt worker so the main UI
-thread remains responsive.
+With `--agent-url`, the console becomes Locus Test Station and opens the focused
+`Préparation du poste` workflow. It reads and writes only through the local
+agent: selecting real materials, connecting typed ports, choosing a
+serial-specific correction, checking readiness, saving a draft and declaring
+the revision `Prêt à câbler`.
 
 Version `0.6.6` also routes the temporary Qt/Python metrology surface through
 the agent when `agent_url` is configured:

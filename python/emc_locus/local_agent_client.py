@@ -1369,7 +1369,7 @@ class LocalAgentClient:
         *,
         template_id: str,
         title: str,
-        category_code: str,
+        category_code: str | None,
         definition: dict[str, Any],
         actor: str,
         reason: str,
@@ -1637,7 +1637,7 @@ class LocalAgentClient:
         *,
         asset_id: str,
         family: str,
-        category_code: str,
+        category_code: str | None,
         manufacturer: str,
         model: str,
         serial_number: str,
@@ -1649,6 +1649,9 @@ class LocalAgentClient:
         calibration_due_warning_days: int | None = None,
         serviceability_status: str = "usable",
         serviceability_reason: str | None = None,
+        equipment_model_id: str | None = None,
+        equipment_model_revision_id: str | None = None,
+        equipment_model_checksum: str | None = None,
         capabilities_json: str = "[]",
         metrology_notes: str | None = None,
         operation_id: str | None = None,
@@ -1659,7 +1662,6 @@ class LocalAgentClient:
         payload: dict[str, Any] = {
             "asset_id": asset_id,
             "family": family,
-            "category_code": category_code,
             "manufacturer": manufacturer,
             "model": model,
             "serial_number": serial_number,
@@ -1670,6 +1672,7 @@ class LocalAgentClient:
             "reason": reason,
             "operation_id": operation_id,
         }
+        _put_optional(payload, "category_code", category_code)
         _put_optional(payload, "part_number", part_number)
         _put_optional_int(payload, "calibration_period_months", calibration_period_months)
         _put_optional_int(
@@ -1678,6 +1681,9 @@ class LocalAgentClient:
             calibration_due_warning_days,
         )
         _put_optional(payload, "serviceability_reason", serviceability_reason)
+        _put_optional(payload, "equipment_model_id", equipment_model_id)
+        _put_optional(payload, "equipment_model_revision_id", equipment_model_revision_id)
+        _put_optional(payload, "equipment_model_checksum", equipment_model_checksum)
         _put_optional(payload, "metrology_notes", metrology_notes)
         _put_optional(payload, "correlation_id", correlation_id)
         _put_optional(payload, "device_id", device_id)
@@ -1827,6 +1833,141 @@ class LocalAgentClient:
         return self.request_json(
             "POST",
             f"/api/v1/metrology/instruments/{quote(asset_id)}/serviceability",
+            payload,
+        )
+
+    def list_station_setups(self) -> dict[str, Any]:
+        return self.request_json("GET", "/api/v1/station-setups")
+
+    def get_station_setup(self, setup_id: str) -> dict[str, Any]:
+        return self.request_json("GET", f"/api/v1/station-setups/{quote(setup_id)}")
+
+    def station_setup_revisions(self, setup_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/station-setups/{quote(setup_id)}/revisions",
+        )
+
+    def station_setup_audit_events(self, setup_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/station-setups/{quote(setup_id)}/audit-events",
+        )
+
+    def assess_station_setup(self, setup_id: str, revision_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/station-setups/{quote(setup_id)}/revisions/{quote(revision_id)}/readiness",
+        )
+
+    def create_station_setup(
+        self,
+        *,
+        setup_id: str,
+        label: str,
+        station_label: str,
+        planned_use_on: str,
+        execution_mode: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id("station-setup-create", setup_id)
+        payload: dict[str, Any] = {
+            "setup_id": setup_id,
+            "label": label,
+            "station_label": station_label,
+            "planned_use_on": planned_use_on,
+            "execution_mode": execution_mode,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json("POST", "/api/v1/station-setups", payload)
+
+    def replace_station_setup_draft(
+        self,
+        *,
+        setup_id: str,
+        revision_id: str,
+        expected_definition_checksum: str,
+        definition: dict[str, Any],
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id("station-setup-save", setup_id)
+        payload: dict[str, Any] = {
+            "expected_definition_checksum": expected_definition_checksum,
+            "definition": definition,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "PUT",
+            f"/api/v1/station-setups/{quote(setup_id)}/revisions/{quote(revision_id)}/definition",
+            payload,
+        )
+
+    def mark_station_setup_ready(
+        self,
+        *,
+        setup_id: str,
+        revision_id: str,
+        expected_definition_checksum: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id("station-setup-ready", setup_id)
+        payload: dict[str, Any] = {
+            "expected_definition_checksum": expected_definition_checksum,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/station-setups/{quote(setup_id)}/revisions/{quote(revision_id)}/transitions/ready",
+            payload,
+        )
+
+    def derive_station_setup_draft(
+        self,
+        *,
+        setup_id: str,
+        source_revision_id: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id("station-setup-derive", setup_id)
+        payload: dict[str, Any] = {
+            "source_revision_id": source_revision_id,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/station-setups/{quote(setup_id)}/revisions",
             payload,
         )
 

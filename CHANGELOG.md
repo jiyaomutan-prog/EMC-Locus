@@ -8,6 +8,45 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-07-14
+
+### Added
+
+- Added a typed, canonical and revisioned physical measurement-setup aggregate
+  for real asset bindings, typed port connections and pinned serial-specific
+  corrections.
+- Added `station.sqlite`, station-setup routes, Python client methods, atomic
+  audit/outbox evidence, optimistic draft concurrency and immutable
+  `ready` revisions.
+- Added context readiness covering structure, asset identity, serviceability,
+  calibration validity, missing evidence, nonconformance, port compatibility
+  and correction applicability.
+- Added a dedicated Locus Test Station Qt workflow for selecting real
+  materials, connecting inputs and outputs, choosing the metrology curve and
+  declaring the setup `Prêt à câbler`.
+- Added real HTTP restart coverage and Qt visual acceptance at 1440 x 900 and
+  1280 x 720.
+
+### Changed
+
+- Reframed the operator domain around `Entrées et sorties`, `Conversion
+  temporelle`, `Réponse fréquentielle`, and `Alimentation / conditionnement du
+  capteur`; scaling, engineering-curve and excitation remain internal contract
+  names only.
+- Allowed a physical asset pinned to an approved equipment model to omit the
+  legacy metrology category code, which is necessary for passive materials such
+  as RF cables.
+- Focused agent-backed Qt mode on station preparation instead of presenting a
+  generic dashboard and unrelated CRUD forms.
+
+### Fixed
+
+- Kept missing evidence and nonconformity as distinct readiness dimensions
+  instead of collapsing every metrology refusal into calibration validity.
+- Made the selected correction follow the saved station revision in Qt and
+  kept material identity, serial number and aptitude readable at the supported
+  desktop sizes.
+
 ## [0.16.0] - 2026-07-14
 
 ### Added

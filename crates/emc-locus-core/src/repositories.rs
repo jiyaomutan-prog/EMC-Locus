@@ -27,6 +27,7 @@ pub enum RepositoryDomain {
     TestDefinitions,
     InstrumentDrivers,
     ProjectRecords,
+    StationConfigurations,
     MeasurementData,
     ReportTemplates,
     UpdateCatalog,
@@ -40,6 +41,7 @@ impl RepositoryDomain {
             Self::TestDefinitions => "test_definitions",
             Self::InstrumentDrivers => "instrument_drivers",
             Self::ProjectRecords => "project_records",
+            Self::StationConfigurations => "station_configurations",
             Self::MeasurementData => "measurement_data",
             Self::ReportTemplates => "report_templates",
             Self::UpdateCatalog => "update_catalog",
@@ -56,6 +58,7 @@ pub fn baseline_repository_domains() -> Vec<RepositoryDomain> {
         TestDefinitions,
         InstrumentDrivers,
         ProjectRecords,
+        StationConfigurations,
         MeasurementData,
         ReportTemplates,
         UpdateCatalog,
@@ -87,13 +90,14 @@ impl RepositoryPolicy {
                     | RepositoryDomain::TestDefinitions
                     | RepositoryDomain::InstrumentDrivers
                     | RepositoryDomain::ProjectRecords
+                    | RepositoryDomain::StationConfigurations
                     | RepositoryDomain::MeasurementData
             );
 
         let sync_direction = match domain {
-            RepositoryDomain::MeasurementData | RepositoryDomain::ProjectRecords => {
-                SyncDirection::Bidirectional
-            }
+            RepositoryDomain::MeasurementData
+            | RepositoryDomain::ProjectRecords
+            | RepositoryDomain::StationConfigurations => SyncDirection::Bidirectional,
             RepositoryDomain::Metrology
             | RepositoryDomain::Equipment
             | RepositoryDomain::TestDefinitions

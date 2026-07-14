@@ -63,10 +63,19 @@ conditionnement nécessaire au capteur : courant IEPE/ICP, tension de pont,
 courant constant, alimentation externe ou amplificateur de charge. Ce n’est
 pas le signal d’essai appliqué à l’équipement sous test.
 
-## Frontière actuelle
+## Choix pour un matériel réel
 
-La version 0.16.0 définit, valide et conserve aussi les caractérisations propres
-à un numéro de série. Elle ne les applique pas encore à une acquisition réelle,
-ne calcule pas de FFT et ne choisit pas automatiquement entre la correction du
-modèle et les événements métrologiques disponibles. Une future préparation
-d’essai devra figer explicitement la caractérisation retenue et son empreinte.
+Depuis la version 0.17.0, la préparation du poste relie ces définitions au
+matériel réellement posé sur la table. Le modèle approuvé fournit ses ports,
+ses domaines physiques et ses transformations génériques. Le dossier
+métrologique fournit les conversions ou réponses mesurées pour son numéro de
+série. L’opérateur choisit explicitement la caractérisation applicable et le
+montage en fige l’identifiant et l’empreinte.
+
+Le logiciel ne choisit donc pas silencieusement une courbe « qui semble
+convenir ». Le contrôle avant câblage vérifie le matériel, la date de validité,
+le type de correction et l’empreinte retenue.
+
+La version 0.17.0 ne calcule toujours pas de FFT et n’applique pas encore la
+correction à des données acquises ou simulées. Elle prépare et trace le chemin
+physique ainsi que la correction qui devra être appliquée par un futur runtime.

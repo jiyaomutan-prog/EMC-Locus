@@ -1,7 +1,7 @@
 # EMC Locus LAB CONSOLE
 
 LAB CONSOLE is the browser application for laboratory management workflows. In
-0.16.0 it provides Template Studio v1 plus the Equipment workspace in a focused,
+0.17.0 it provides Template Studio v1 plus the Equipment workspace in a focused,
 responsive application shell. Active navigation is limited to implemented
 workflows, Equipment commands are contextual, the model wizard is presented as
 a modal task, and normal revision views favor laboratory labels and lifecycle
@@ -59,6 +59,14 @@ evidence unless the workflow and lockfile policy are deliberately migrated.
 
 Vite proxies `/api` to `http://127.0.0.1:8765` during development. Production
 does not use a Node server.
+
+## Scope In 0.17.0
+
+The LAB CONSOLE feature surface is unchanged in 0.17.0. It remains the owner of
+equipment models and serial-specific metrology characterizations. The new
+physical station-setup workflow lives in the Qt Locus Test Station and consumes
+those controlled definitions through the local agent; it does not duplicate
+their maintenance in this browser application.
 
 ## Scope In 0.16.0
 

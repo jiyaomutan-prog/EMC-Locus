@@ -6261,11 +6261,19 @@ class SyncRepositoryTests(unittest.TestCase):
                       AND name = 'sync_checkpoints'
                     """
                 ).fetchone()
+                station_domain = connection.execute(
+                    """
+                    SELECT value
+                    FROM repository_metadata
+                    WHERE key = 'station_configurations_domain_supported'
+                    """
+                ).fetchone()
 
-            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4])
+            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4, 5])
             self.assertIsNotNone(operation_table)
             self.assertIsNotNone(snapshot_table)
             self.assertIsNotNone(checkpoint_table)
+            self.assertEqual(station_domain["value"], "true")
 
 
 class UpdateCatalogRepositoryTests(unittest.TestCase):

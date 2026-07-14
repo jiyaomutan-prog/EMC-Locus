@@ -90,13 +90,13 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.16.0` was validated on 2026-07-14 with the CI-equivalent command
+Version `0.17.0` was validated on 2026-07-14 with the CI-equivalent command
 set. Its checks cover the same path as GitHub Actions: Rust format, Clippy,
 Rust tests, Python compile/tests, SQLite migration validation, LAB CONSOLE
 typecheck/lint/unit/build, versioned `dist` verification, Playwright E2E,
 release consistency, launcher smoke and whitespace checks. The commands were
 run directly with the bundled Node.js runtime available in the workspace.
-For `0.16.0`, the Playwright path includes the focused application navigation,
+For `0.17.0`, the Playwright path includes the focused application navigation,
 Equipment Repository administration, nested category creation, generated field
 codes, form preview, the modal category wizard, category-subtree filtering, and
 the signal-correction workflow for time conversions, frequency responses,
@@ -106,7 +106,11 @@ upload, audit/outbox and reload. A sixth Playwright scenario captures and
 checks the main method, correction and physical-asset metrology flows at exactly
 1440 x 900 and 1280 x 720. Frontend tests also cover signal-centered
 terminology, clipping controls, amplitude and optional phase compensation, and
-controlled equipment signal-path references.
+controlled equipment signal-path references. Rust and Python tests additionally
+cover physical station setup creation, draft CAS, structured readiness,
+serial-specific correction selection, ready-state immutability, audit/outbox,
+real HTTP transport and persistence across an agent restart. Qt captures verify
+the dedicated `Préparation du poste` view at the same two resolutions.
 
 The explicit command sequence is:
 

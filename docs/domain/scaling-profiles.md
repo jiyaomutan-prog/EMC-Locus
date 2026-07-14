@@ -49,7 +49,9 @@ A conversion definition is revisioned, approved, and checksum-addressed. It is
 not a calibration event. Calibration records the state of a serialized asset,
 date, provider, uncertainty, and evidence. A transducer sheet or certificate
 may justify the conversion, while the controlled conversion remains the
-machine-readable contract referenced by an equipment signal path.
+machine-readable contract referenced by an equipment signal path. When a
+conversion is measured for one serialized transducer, a `0.17.0` station setup
+can pin that characterization id and checksum for the physical mounting.
 
 Validation checks quantities, units, finite parameters, ordered lookup inputs,
 conversion expression safety, and coherent overload bounds. This release does

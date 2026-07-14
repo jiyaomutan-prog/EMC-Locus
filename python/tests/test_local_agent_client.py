@@ -1035,6 +1035,83 @@ class LocalAgentClientTests(unittest.TestCase):
         self.assertEqual(body["sha256"], "f" * 64)
         self.assertEqual(response["document"]["owner_domain"], "locus_lab_management")
 
+    def test_station_setup_client_uses_business_routes_and_cas(self) -> None:
+        captured: list[tuple[str, str, dict[str, object] | None]] = []
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            body = json.loads(request.data.decode("utf-8")) if request.data else None
+            captured.append((request.get_method(), request.full_url, body))
+            return _FakeResponse(
+                {
+                    "operation": "station_setup_operation",
+                    "operation_id": body.get("operation_id", "read") if body else "read",
+                    "replayed": False,
+                    "station_setup": {
+                        "identity": {"setup_id": "SETUP-PY-001"},
+                        "latest_revision": {"revision_id": "SETUP-PY-001-rev-0001"},
+                    },
+                }
+            )
+
+        definition = {
+            "definition_schema_version": "emc-locus.station-measurement-setup-definition.v1",
+            "setup_id": "SETUP-PY-001",
+            "label": "Chaîne RF",
+            "station_label": "Salle CEM 1",
+            "planned_use_on": "2026-07-15",
+            "execution_mode": "accredited",
+            "asset_bindings": [],
+            "connections": [],
+            "correction_selections": [],
+        }
+        client = LocalAgentClient("http://127.0.0.1:8765")
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            client.create_station_setup(
+                setup_id="SETUP-PY-001",
+                label="Chaîne RF",
+                station_label="Salle CEM 1",
+                planned_use_on="2026-07-15",
+                execution_mode="accredited",
+                actor="operator.one",
+                reason="préparer la mesure",
+                operation_id="op-station-create",
+            )
+            client.replace_station_setup_draft(
+                setup_id="SETUP-PY-001",
+                revision_id="SETUP-PY-001-rev-0001",
+                expected_definition_checksum="sha256:" + "a" * 64,
+                definition=definition,
+                actor="operator.one",
+                reason="ajouter les matériels",
+                operation_id="op-station-save",
+            )
+            client.assess_station_setup("SETUP-PY-001", "SETUP-PY-001-rev-0001")
+            client.mark_station_setup_ready(
+                setup_id="SETUP-PY-001",
+                revision_id="SETUP-PY-001-rev-0001",
+                expected_definition_checksum="sha256:" + "b" * 64,
+                actor="operator.one",
+                reason="montage vérifié",
+                operation_id="op-station-ready",
+            )
+            client.derive_station_setup_draft(
+                setup_id="SETUP-PY-001",
+                source_revision_id="SETUP-PY-001-rev-0001",
+                actor="operator.one",
+                reason="adapter le montage",
+                operation_id="op-station-derive",
+            )
+
+        self.assertEqual(captured[0][0:2], ("POST", "http://127.0.0.1:8765/api/v1/station-setups"))
+        self.assertEqual(captured[0][2]["station_label"], "Salle CEM 1")
+        self.assertEqual(captured[1][0], "PUT")
+        self.assertTrue(captured[1][1].endswith("/SETUP-PY-001-rev-0001/definition"))
+        self.assertEqual(captured[1][2]["expected_definition_checksum"], "sha256:" + "a" * 64)
+        self.assertEqual(captured[2][0], "GET")
+        self.assertTrue(captured[2][1].endswith("/SETUP-PY-001-rev-0001/readiness"))
+        self.assertTrue(captured[3][1].endswith("/transitions/ready"))
+        self.assertEqual(captured[4][2]["source_revision_id"], "SETUP-PY-001-rev-0001")
+
     def test_list_documents_encodes_owner_filter(self) -> None:
         captured: dict[str, object] = {}
 
@@ -1786,6 +1863,40 @@ class LocalAgentClientTests(unittest.TestCase):
         self.assertEqual(captured[1][2]["definition"], definition)
         self.assertEqual(captured[1][2]["document_manifest"], uploaded["file"])
         self.assertEqual(captured[1][2]["operation_id"], "op-char-py-001")
+
+    def test_registers_physical_asset_with_pinned_equipment_model(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            captured.update(json.loads(request.data.decode("utf-8")))
+            return _FakeResponse({"instrument": {"asset_id": "SA-PY-MODEL-001"}})
+
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            LocalAgentClient("http://127.0.0.1:8765").register_metrology_instrument(
+                asset_id="SA-PY-MODEL-001",
+                family="RfCable",
+                category_code="rf_cable",
+                manufacturer="Demo",
+                model="Cable 1 GHz",
+                serial_number="CAB-001",
+                calibration_requirement="not_required",
+                equipment_model_id="EQM-PY-CABLE",
+                equipment_model_revision_id="EQM-PY-CABLE-rev-0001",
+                equipment_model_checksum="sha256:" + "a" * 64,
+                actor="metrology.admin",
+                reason="register physical cable",
+                operation_id="op-register-pinned-model",
+            )
+
+        self.assertEqual(captured["equipment_model_id"], "EQM-PY-CABLE")
+        self.assertEqual(
+            captured["equipment_model_revision_id"],
+            "EQM-PY-CABLE-rev-0001",
+        )
+        self.assertEqual(
+            captured["equipment_model_checksum"],
+            "sha256:" + "a" * 64,
+        )
 
 
 class GuiActionAgentPathTests(unittest.TestCase):

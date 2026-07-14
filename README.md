@@ -61,6 +61,7 @@ docs/
   project-api.md       Local project API contract
   metrology-api.md     Local metrology API contract
   test-template-api.md Local test-template API contract
+  station-setup-api.md Local physical station-setup API contract
   session-logs/          Dated development session records
   competitive-analysis/  Public feature baselines and product positioning
   roadmap.md             Incremental delivery plan
@@ -72,10 +73,10 @@ storage/
 
 ## First Useful Milestones
 
-1. Design the first real LAB CONSOLE template/method/document workflows from
-   the stabilized information architecture.
-2. Continue TEST CONSOLE Qt hardening only after the execution package model is
-   explicit enough to avoid fake runtime screens.
+1. Bind a ready physical station setup to a controlled campaign/test execution
+   package.
+2. Prove correction application and resulting lineage on simulated data before
+   introducing real instrument acquisition.
 
 ## Development Status
 
@@ -83,7 +84,17 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.16.0`.
+Current software version: `0.17.0`.
+
+Version `0.17.0` adds the first revisioned physical measurement-setup workflow
+to Locus Test Station. An operator selects real serial-numbered materials,
+assigns their roles, connects typed input/output ports, and explicitly pins the
+applicable time conversion or frequency response measured by metrology. The
+local Rust agent evaluates structural, port, serviceability, calibration,
+evidence and nonconformity readiness before the setup can become immutable as
+`Prêt à câbler`. The dedicated Qt workflow remains local-first and communicates
+only through the agent. It prepares a physical station; it does not acquire a
+signal or apply the selected correction to data.
 
 Version `0.16.0` adds the first serial-specific correction workflow to the
 physical asset dossier. A metrologist can record either a time-sample
@@ -142,14 +153,14 @@ and hide/show/only demo filtering. This release still does not add physical
 asset tracking, station wiring, live hardware drivers, acquisition, FFT,
 reporting, RBAC, or central synchronization.
 
-Version `0.13.0` adds the measurement-engineering layer needed between the
-equipment catalog and a future acquisition runtime. The equipment repository
-now owns revisioned sensor/transducer definitions, scaling profiles,
-engineering correction curves, DAQ channel profiles, and logical acquisition
+Version `0.13.0` introduced the internal contracts later presented to operators
+as signal definitions and corrections. The equipment repository owns
+revisioned sensor/transducer definitions, time-domain conversion profiles,
+frequency-response definitions, DAQ channel profiles, and logical acquisition
 channel recipes. These aggregates are typed in Rust core, persisted in
 `equipment.sqlite` with draft/review/approval lifecycle, audit and outbox
 evidence, exposed through public local-agent API routes, covered by Python
-client helpers, and editable in LAB CONSOLE. Engineering curves support simple
+client helpers, and editable in LAB CONSOLE. Frequency responses support simple
 CSV import/export and deterministic 1D evaluation for frequency-dependent
 artifacts such as antenna factor, cable loss, amplifier gain, and current
 probe transfer. This release still does not perform real DAQ acquisition,
@@ -176,8 +187,9 @@ metadata as a runtime driver. It is still not a physical fleet deployment
 system, certified hardware driver package, acquisition engine, RBAC domain,
 or full sensor/DAQ scaling model.
 
-Recommended next vertical: `0.16.0 - Station Connections And Physical
-Measurement Chain Drafting`.
+Recommended next vertical: bind a ready station setup to a controlled test
+execution package, then apply its pinned correction in a simulated data path
+before introducing real acquisition.
 
 Version `0.11.0` delivers the first Equipment Definition Catalog and Driver
 Script Studio slice. LAB CONSOLE now has an Equipment space with a functional

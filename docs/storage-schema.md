@@ -324,6 +324,34 @@ Characterization insertion and its `metrology_audit_events` plus sync outbox
 evidence are one transaction. The table is immutable in 0.16.0: a later
 measurement creates another event instead of replacing the previous result.
 
+### physical station setups
+
+Migration `storage/sqlite/station/0001_station_measurement_setups.sql` adds the
+separate `station.sqlite` domain used by Locus Test Station:
+
+- `station_setup_identities` stores the stable setup id, label and current
+  ready revision pointer;
+- `station_setup_revisions` stores deterministic revision numbers, parent
+  links, lifecycle status, canonical definition JSON, SHA-256 checksum and the
+  readiness snapshot;
+- `station_setup_audit_events` stores actor, reason, old/new revision and
+  checksum evidence, operation id, device, correlation and payload checksum;
+- `station_setup_operations` provides operation-id replay and mismatch
+  protection.
+
+The canonical definition pins each real asset revision and its approved
+equipment-model revision/checksum, each physical connection between typed
+ports, and each selected serial-specific characterization/checksum. A draft is
+replaced with SQL compare-and-swap. A `ready` revision is immutable; a later
+change creates a new draft with an explicit parent.
+
+Station writes attach `sync.sqlite` and add pending outbox rows in the same
+rollback-journal transaction. Sync migration
+`0005_station_configurations_domain.sql` registers the
+`station_configurations` domain. `station.sqlite` does not store model
+definitions, calibration events, characterization bodies or acquired data; it
+retains only the references needed to reconstruct the prepared physical setup.
+
 ### standards
 
 ```sql

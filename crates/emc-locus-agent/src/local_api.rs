@@ -57,6 +57,14 @@ use crate::metrology_service::{
 use crate::project_agent::{
     AdvanceToTestPlanningInput, CompleteReviewItemInput, CreateProjectInput,
 };
+use crate::station_setup_service::{
+    assess_station_setup_revision_json, create_station_setup, derive_station_setup_revision,
+    get_station_setup, get_station_setup_revision_json, list_station_setup_audit_events_json,
+    list_station_setup_revisions_json, list_station_setups, mark_station_setup_revision_ready,
+    replace_station_setup_draft_definition, CreateStationSetupInput,
+    DeriveStationSetupRevisionInput, MarkStationSetupReadyInput, ReplaceStationSetupDraftInput,
+    StationOperationContext,
+};
 use crate::test_execution_service::{
     get_simulated_test_execution, list_project_simulated_test_executions, run_simulated_emc_test,
     RunSimulatedEmcTestInput,
@@ -464,6 +472,80 @@ fn route_api_request(
             action: SyncAction::Outbox,
             storage_root: config.storage_root.clone(),
         });
+    }
+    if parts.as_slice() == ["api", "v1", "station-setups"] && method == "GET" {
+        return list_station_setups(&config.storage_root);
+    }
+    if parts.as_slice() == ["api", "v1", "station-setups"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return create_station_setup(&config.storage_root, create_station_setup_input(&payload)?);
+    }
+    if parts.len() == 4
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "station-setups"
+        && method == "GET"
+    {
+        return get_station_setup(&config.storage_root, parts[3]);
+    }
+    if parts.len() == 5 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "station-setups" {
+        let setup_id = parts[3];
+        if parts[4] == "revisions" && method == "GET" {
+            return list_station_setup_revisions_json(&config.storage_root, setup_id);
+        }
+        if parts[4] == "revisions" && method == "POST" {
+            let payload = parse_json_body(body)?;
+            return derive_station_setup_revision(
+                &config.storage_root,
+                derive_station_setup_revision_input(setup_id, &payload)?,
+            );
+        }
+        if parts[4] == "audit-events" && method == "GET" {
+            return list_station_setup_audit_events_json(&config.storage_root, setup_id);
+        }
+    }
+    if parts.len() == 6
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "station-setups"
+        && parts[4] == "revisions"
+        && method == "GET"
+    {
+        return get_station_setup_revision_json(&config.storage_root, parts[3], parts[5]);
+    }
+    if parts.len() == 7
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "station-setups"
+        && parts[4] == "revisions"
+    {
+        let setup_id = parts[3];
+        let revision_id = parts[5];
+        if parts[6] == "definition" && method == "PUT" {
+            let payload = parse_json_body(body)?;
+            return replace_station_setup_draft_definition(
+                &config.storage_root,
+                replace_station_setup_draft_input(setup_id, revision_id, &payload)?,
+            );
+        }
+        if parts[6] == "readiness" && method == "GET" {
+            return assess_station_setup_revision_json(&config.storage_root, setup_id, revision_id);
+        }
+    }
+    if parts.len() == 8
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "station-setups"
+        && parts[4] == "revisions"
+        && parts[6] == "transitions"
+        && parts[7] == "ready"
+        && method == "POST"
+    {
+        let payload = parse_json_body(body)?;
+        return mark_station_setup_revision_ready(
+            &config.storage_root,
+            mark_station_setup_ready_input(parts[3], parts[5], &payload)?,
+        );
     }
     if parts.as_slice() == ["api", "v1", "documents"] && method == "GET" {
         return list_documents(&config.storage_root, list_documents_input(query));
@@ -1439,6 +1521,68 @@ fn simulated_emc_input(payload: &Value) -> Result<RunSimulatedEmcTestInput, Agen
     })
 }
 
+fn station_operation_context(payload: &Value) -> Result<StationOperationContext, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(StationOperationContext {
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "test-station".to_owned()),
+        operation_id,
+    })
+}
+
+fn create_station_setup_input(payload: &Value) -> Result<CreateStationSetupInput, AgentError> {
+    Ok(CreateStationSetupInput {
+        setup_id: required_string(payload, "setup_id")?,
+        label: required_string(payload, "label")?,
+        station_label: required_string(payload, "station_label")?,
+        planned_use_on: required_string(payload, "planned_use_on")?,
+        execution_mode: required_string(payload, "execution_mode")?,
+        context: station_operation_context(payload)?,
+    })
+}
+
+fn replace_station_setup_draft_input(
+    setup_id: &str,
+    revision_id: &str,
+    payload: &Value,
+) -> Result<ReplaceStationSetupDraftInput, AgentError> {
+    Ok(ReplaceStationSetupDraftInput {
+        setup_id: setup_id.to_owned(),
+        revision_id: revision_id.to_owned(),
+        expected_definition_checksum: required_string(payload, "expected_definition_checksum")?,
+        definition_json: required_json_or_string(payload, "definition", "definition_json")?,
+        context: station_operation_context(payload)?,
+    })
+}
+
+fn derive_station_setup_revision_input(
+    setup_id: &str,
+    payload: &Value,
+) -> Result<DeriveStationSetupRevisionInput, AgentError> {
+    Ok(DeriveStationSetupRevisionInput {
+        setup_id: setup_id.to_owned(),
+        source_revision_id: required_string(payload, "source_revision_id")?,
+        context: station_operation_context(payload)?,
+    })
+}
+
+fn mark_station_setup_ready_input(
+    setup_id: &str,
+    revision_id: &str,
+    payload: &Value,
+) -> Result<MarkStationSetupReadyInput, AgentError> {
+    Ok(MarkStationSetupReadyInput {
+        setup_id: setup_id.to_owned(),
+        revision_id: revision_id.to_owned(),
+        expected_definition_checksum: required_string(payload, "expected_definition_checksum")?,
+        context: station_operation_context(payload)?,
+    })
+}
+
 fn register_document_input(payload: &Value) -> Result<RegisterAttachedDocumentInput, AgentError> {
     let operation_id = required_string(payload, "operation_id")?;
     Ok(RegisterAttachedDocumentInput {
@@ -2343,7 +2487,9 @@ fn status_for_error(code: &str) -> u16 {
         | "measurement_engineering_revision_not_found"
         | "signal_transformation_reference_not_found"
         | "metrology_instrument_not_found"
-        | "asset_characterization_not_found" => 404,
+        | "asset_characterization_not_found"
+        | "station_setup_not_found"
+        | "station_setup_revision_not_found" => 404,
         "contract_review_incomplete"
         | "invalid_project_transition"
         | "project_already_exists"
@@ -2392,7 +2538,13 @@ fn status_for_error(code: &str) -> u16 {
         | "operation_replay_mismatch"
         | "metrology_instrument_already_exists"
         | "metrology_calibration_already_exists"
-        | "asset_characterization_already_exists" => 409,
+        | "asset_characterization_already_exists"
+        | "station_setup_exists"
+        | "station_setup_concurrent_update"
+        | "station_setup_revision_not_editable"
+        | "station_setup_active_draft_exists"
+        | "station_setup_source_not_ready"
+        | "station_setup_not_ready" => 409,
         "storage_not_initialized" | "lab_console_build_missing" => 503,
         "invalid_json_body"
         | "missing_json_field"
@@ -2434,6 +2586,9 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_metrology_file"
         | "invalid_metrology_instrument"
         | "invalid_metrology_readiness"
+        | "invalid_station_setup_request"
+        | "invalid_station_setup_definition"
+        | "station_setup_identity_mismatch"
         | "unknown_execution_mode"
         | "unknown_contract_review_item" => 400,
         "equipment_file_too_large" | "metrology_file_too_large" => 413,
@@ -3896,6 +4051,346 @@ mod tests {
         );
         assert_eq!(immutable.status, 409, "{}", immutable.body);
         assert!(immutable.body.contains("equipment_revision_immutable"));
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn local_api_prepares_revisioned_physical_measurement_setup() {
+        let storage_root = temporary_storage_root("agent-api-station-setup");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: None,
+        };
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+
+        let (cable_model_revision, cable_model_checksum) = create_and_approve_equipment_model(
+            &config,
+            "EQM-RF-CABLE-STATION",
+            rf_cable_model_definition(),
+            "station-cable-model",
+        );
+        let (receiver_model_revision, receiver_model_checksum) = create_and_approve_equipment_model(
+            &config,
+            "EQM-RF-RECEIVER-STATION",
+            equipment_model_definition("EMC Locus", "Receiver station model", None),
+            "station-receiver-model",
+        );
+
+        for (asset_id, family, model_id, model_revision, model_checksum, serial) in [
+            (
+                "SA-CABLE-STATION-001",
+                "RfCable",
+                "EQM-RF-CABLE-STATION",
+                cable_model_revision.as_str(),
+                cable_model_checksum.as_str(),
+                "CAB-001",
+            ),
+            (
+                "SA-RECEIVER-STATION-001",
+                "EmcReceiver",
+                "EQM-RF-RECEIVER-STATION",
+                receiver_model_revision.as_str(),
+                receiver_model_checksum.as_str(),
+                "RX-001",
+            ),
+        ] {
+            let registered = handle_api_request(
+                "POST",
+                "/api/v1/metrology/instruments",
+                &json!({
+                    "asset_id": asset_id,
+                    "family": family,
+                    "manufacturer": "EMC Locus",
+                    "model": model_id,
+                    "serial_number": serial,
+                    "equipment_model_id": model_id,
+                    "equipment_model_revision_id": model_revision,
+                    "equipment_model_checksum": model_checksum,
+                    "calibration_requirement": "not_required",
+                    "serviceability_status": "usable",
+                    "serviceability_reason": "verified before station setup",
+                    "capabilities": {},
+                    "actor": "metrology.admin",
+                    "reason": "register station material",
+                    "operation_id": format!("op-register-{asset_id}")
+                })
+                .to_string(),
+                &config,
+            );
+            assert_eq!(registered.status, 200, "{}", registered.body);
+        }
+
+        let cable_characterization = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-CABLE-STATION-001/characterizations",
+            &station_cable_characterization_body(),
+            &config,
+        );
+        assert_eq!(
+            cable_characterization.status, 200,
+            "{}",
+            cable_characterization.body
+        );
+        let cable_characterization_json: Value =
+            serde_json::from_str(&cable_characterization.body).unwrap();
+        let cable_characterization_checksum = cable_characterization_json["characterization"]
+            ["definition_checksum"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        let cable_asset = station_instrument(&config, "SA-CABLE-STATION-001");
+        let receiver_asset = station_instrument(&config, "SA-RECEIVER-STATION-001");
+        let created = handle_api_request(
+            "POST",
+            "/api/v1/station-setups",
+            &json!({
+                "setup_id": "SETUP-RF-STATION-001",
+                "label": "Mesure RF câble vers récepteur",
+                "station_label": "Poste CEM mobile",
+                "planned_use_on": "2026-07-15",
+                "execution_mode": "accredited",
+                "actor": "test.technician",
+                "reason": "prepare physical measurement chain",
+                "operation_id": "op-station-setup-create"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        let created_json: Value = serde_json::from_str(&created.body).unwrap();
+        let draft = &created_json["station_setup"]["active_draft_revision"];
+        let revision_id = draft["revision_id"].as_str().unwrap();
+        let initial_checksum = draft["definition_checksum"].as_str().unwrap();
+
+        let incomplete = handle_api_request(
+            "GET",
+            &format!(
+                "/api/v1/station-setups/SETUP-RF-STATION-001/revisions/{revision_id}/readiness"
+            ),
+            "",
+            &config,
+        );
+        assert_eq!(incomplete.status, 200, "{}", incomplete.body);
+        assert!(incomplete.body.contains("\"ready\":false"));
+        assert!(incomplete
+            .body
+            .contains("station_setup_requires_two_materials"));
+
+        let premature_ready = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/station-setups/SETUP-RF-STATION-001/revisions/{revision_id}/transitions/ready"
+            ),
+            &json!({
+                "expected_definition_checksum": initial_checksum,
+                "actor": "test.technician",
+                "reason": "attempt incomplete setup",
+                "operation_id": "op-station-setup-premature-ready"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(premature_ready.status, 409, "{}", premature_ready.body);
+        assert!(premature_ready.body.contains("station_setup_not_ready"));
+
+        let definition = json!({
+            "definition_schema_version": "emc-locus.station-measurement-setup-definition.v1",
+            "setup_id": "SETUP-RF-STATION-001",
+            "label": "Mesure RF câble vers récepteur",
+            "station_label": "Poste CEM mobile",
+            "planned_use_on": "2026-07-15",
+            "execution_mode": "accredited",
+            "asset_bindings": [
+                station_asset_binding(
+                    "cable",
+                    "Câble RF caractérisé",
+                    &cable_asset,
+                    "EQM-RF-CABLE-STATION",
+                    &cable_model_revision,
+                    &cable_model_checksum,
+                ),
+                station_asset_binding(
+                    "receiver",
+                    "Récepteur CEM",
+                    &receiver_asset,
+                    "EQM-RF-RECEIVER-STATION",
+                    &receiver_model_revision,
+                    &receiver_model_checksum,
+                )
+            ],
+            "connections": [{
+                "connection_id": "link-cable-receiver",
+                "label": "Sortie câble vers entrée récepteur",
+                "from": {"binding_id": "cable", "port_id": "RF_B"},
+                "to": {"binding_id": "receiver", "port_id": "rf_input"}
+            }],
+            "correction_selections": [{
+                "selection_id": "correction-cable-loss",
+                "binding_id": "cable",
+                "correction_kind": "frequency_response",
+                "characterization_id": "CHAR-CABLE-STATION-2026",
+                "characterization_checksum": cable_characterization_checksum,
+                "label": "Pertes mesurées du câble CAB-001"
+            }]
+        });
+        let saved = handle_api_request(
+            "PUT",
+            &format!(
+                "/api/v1/station-setups/SETUP-RF-STATION-001/revisions/{revision_id}/definition"
+            ),
+            &json!({
+                "expected_definition_checksum": initial_checksum,
+                "definition": definition,
+                "actor": "test.technician",
+                "reason": "select materials ports and serial correction",
+                "operation_id": "op-station-setup-save"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(saved.status, 200, "{}", saved.body);
+        let saved_json: Value = serde_json::from_str(&saved.body).unwrap();
+        let ready_checksum = saved_json["station_setup"]["active_draft_revision"]
+            ["definition_checksum"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        let stale = handle_api_request(
+            "PUT",
+            &format!(
+                "/api/v1/station-setups/SETUP-RF-STATION-001/revisions/{revision_id}/definition"
+            ),
+            &json!({
+                "expected_definition_checksum": initial_checksum,
+                "definition": saved_json["station_setup"]["active_draft_revision"]["definition"],
+                "actor": "test.technician",
+                "reason": "stale station save",
+                "operation_id": "op-station-setup-stale-save"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(stale.status, 409, "{}", stale.body);
+        assert!(stale.body.contains("station_setup_concurrent_update"));
+
+        let readiness = handle_api_request(
+            "GET",
+            &format!(
+                "/api/v1/station-setups/SETUP-RF-STATION-001/revisions/{revision_id}/readiness"
+            ),
+            "",
+            &config,
+        );
+        assert_eq!(readiness.status, 200, "{}", readiness.body);
+        assert!(readiness.body.contains("\"ready\":true"));
+
+        let marked_ready = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/station-setups/SETUP-RF-STATION-001/revisions/{revision_id}/transitions/ready"
+            ),
+            &json!({
+                "expected_definition_checksum": ready_checksum,
+                "actor": "test.technician",
+                "reason": "measurement chain checked before wiring",
+                "operation_id": "op-station-setup-ready"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(marked_ready.status, 200, "{}", marked_ready.body);
+        assert!(marked_ready.body.contains("\"status\":\"ready\""));
+
+        let immutable = handle_api_request(
+            "PUT",
+            &format!(
+                "/api/v1/station-setups/SETUP-RF-STATION-001/revisions/{revision_id}/definition"
+            ),
+            &json!({
+                "expected_definition_checksum": ready_checksum,
+                "definition": saved_json["station_setup"]["active_draft_revision"]["definition"],
+                "actor": "test.technician",
+                "reason": "attempt to edit ready setup",
+                "operation_id": "op-station-setup-immutable"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(immutable.status, 409, "{}", immutable.body);
+        assert!(immutable
+            .body
+            .contains("station_setup_revision_not_editable"));
+
+        let derived = handle_api_request(
+            "POST",
+            "/api/v1/station-setups/SETUP-RF-STATION-001/revisions",
+            &json!({
+                "source_revision_id": revision_id,
+                "actor": "test.technician",
+                "reason": "prepare next station revision",
+                "operation_id": "op-station-setup-derive"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(derived.status, 200, "{}", derived.body);
+        assert!(derived.body.contains("SETUP-RF-STATION-001-rev-0002"));
+        assert!(derived
+            .body
+            .contains(&format!("\"parent_revision_id\":\"{revision_id}\"")));
+
+        let replay_mismatch = handle_api_request(
+            "POST",
+            "/api/v1/station-setups/SETUP-RF-STATION-001/revisions",
+            &json!({
+                "source_revision_id": "SETUP-RF-STATION-001-rev-9999",
+                "actor": "test.technician",
+                "reason": "conflicting derive replay",
+                "operation_id": "op-station-setup-derive"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(replay_mismatch.status, 409, "{}", replay_mismatch.body);
+        assert!(replay_mismatch.body.contains("operation_replay_mismatch"));
+
+        let history = handle_api_request(
+            "GET",
+            "/api/v1/station-setups/SETUP-RF-STATION-001/revisions",
+            "",
+            &config,
+        );
+        assert_eq!(history.status, 200, "{}", history.body);
+        assert!(history.body.contains("\"revision_number\":1"));
+        assert!(history.body.contains("\"revision_number\":2"));
+        assert!(history.body.contains("CHAR-CABLE-STATION-2026"));
+
+        let audit = handle_api_request(
+            "GET",
+            "/api/v1/station-setups/SETUP-RF-STATION-001/audit-events",
+            "",
+            &config,
+        );
+        assert_eq!(audit.status, 200, "{}", audit.body);
+        assert!(audit.body.contains("station_setup_created"));
+        assert!(audit.body.contains("station_setup_draft_replaced"));
+        assert!(audit.body.contains("station_setup_marked_ready"));
+        assert!(audit.body.contains("station_setup_revision_derived"));
+        let outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
+        assert_eq!(outbox.status, 200, "{}", outbox.body);
+        assert!(outbox
+            .body
+            .contains("\"domain\":\"station_configurations\""));
+        assert!(outbox.body.contains("op-station-setup-ready"));
 
         remove_temporary_storage_root(&storage_root);
     }
@@ -6274,6 +6769,203 @@ mod tests {
     }
 
     #[test]
+    fn real_http_server_persists_station_setup_workflow_across_restart() {
+        let storage_root = temporary_storage_root("agent-api-real-station-setup");
+        let migrations_root = repo_root().join("storage/sqlite");
+        let seed_config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: migrations_root.clone(),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: None,
+        };
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &seed_config).status,
+            200
+        );
+        let fixture = seed_station_setup_fixture(&seed_config);
+
+        let first_port = free_loopback_port();
+        let first_address = format!("127.0.0.1:{first_port}");
+        let first_server = spawn_server(ApiServerConfig {
+            bind: first_address.clone(),
+            storage_root: storage_root.clone(),
+            migrations_root: migrations_root.clone(),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: Some(7),
+        });
+        assert_eq!(wait_for_http(&first_address, "/api/v1/health").0, 200);
+
+        let created = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/station-setups",
+            &json!({
+                "setup_id": "SETUP-RF-HTTP-001",
+                "label": "Mesure RF câble vers récepteur",
+                "station_label": "Poste CEM mobile",
+                "planned_use_on": "2026-07-15",
+                "execution_mode": "accredited",
+                "actor": "test.technician",
+                "reason": "prepare physical setup over HTTP",
+                "operation_id": "op-http-station-create"
+            })
+            .to_string(),
+        );
+        assert_eq!(created.0, 200, "{}", created.1);
+        let created_json: Value = serde_json::from_str(&created.1).unwrap();
+        let draft = &created_json["station_setup"]["active_draft_revision"];
+        let revision_id = draft["revision_id"].as_str().unwrap();
+        let initial_checksum = draft["definition_checksum"].as_str().unwrap();
+        let definition = json!({
+            "definition_schema_version": "emc-locus.station-measurement-setup-definition.v1",
+            "setup_id": "SETUP-RF-HTTP-001",
+            "label": "Mesure RF câble vers récepteur",
+            "station_label": "Poste CEM mobile",
+            "planned_use_on": "2026-07-15",
+            "execution_mode": "accredited",
+            "asset_bindings": [
+                station_asset_binding(
+                    "cable",
+                    "Câble RF caractérisé",
+                    &fixture.cable_asset,
+                    "EQM-RF-CABLE-STATION",
+                    &fixture.cable_model_revision,
+                    &fixture.cable_model_checksum,
+                ),
+                station_asset_binding(
+                    "receiver",
+                    "Récepteur CEM",
+                    &fixture.receiver_asset,
+                    "EQM-RF-RECEIVER-STATION",
+                    &fixture.receiver_model_revision,
+                    &fixture.receiver_model_checksum,
+                )
+            ],
+            "connections": [{
+                "connection_id": "link-cable-receiver",
+                "label": "Sortie câble vers entrée récepteur",
+                "from": {"binding_id": "cable", "port_id": "RF_B"},
+                "to": {"binding_id": "receiver", "port_id": "rf_input"}
+            }],
+            "correction_selections": [{
+                "selection_id": "correction-cable-loss",
+                "binding_id": "cable",
+                "correction_kind": "frequency_response",
+                "characterization_id": "CHAR-CABLE-STATION-2026",
+                "characterization_checksum": fixture.characterization_checksum,
+                "label": "Pertes mesurées du câble CAB-001"
+            }]
+        });
+        let saved = http_request(
+            "PUT",
+            &first_address,
+            &format!("/api/v1/station-setups/SETUP-RF-HTTP-001/revisions/{revision_id}/definition"),
+            &json!({
+                "expected_definition_checksum": initial_checksum,
+                "definition": definition,
+                "actor": "test.technician",
+                "reason": "select HTTP station materials and correction",
+                "operation_id": "op-http-station-save"
+            })
+            .to_string(),
+        );
+        assert_eq!(saved.0, 200, "{}", saved.1);
+        let saved_json: Value = serde_json::from_str(&saved.1).unwrap();
+        let ready_checksum = saved_json["station_setup"]["active_draft_revision"]
+            ["definition_checksum"]
+            .as_str()
+            .unwrap();
+
+        let readiness = http_request(
+            "GET",
+            &first_address,
+            &format!("/api/v1/station-setups/SETUP-RF-HTTP-001/revisions/{revision_id}/readiness"),
+            "",
+        );
+        assert_eq!(readiness.0, 200, "{}", readiness.1);
+        assert!(readiness.1.contains("\"ready\":true"));
+        let marked_ready = http_request(
+            "POST",
+            &first_address,
+            &format!(
+                "/api/v1/station-setups/SETUP-RF-HTTP-001/revisions/{revision_id}/transitions/ready"
+            ),
+            &json!({
+                "expected_definition_checksum": ready_checksum,
+                "actor": "test.technician",
+                "reason": "HTTP station setup checked before wiring",
+                "operation_id": "op-http-station-ready"
+            })
+            .to_string(),
+        );
+        assert_eq!(marked_ready.0, 200, "{}", marked_ready.1);
+        assert!(marked_ready.1.contains("\"status\":\"ready\""));
+
+        let audit = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/station-setups/SETUP-RF-HTTP-001/audit-events",
+            "",
+        );
+        let outbox = http_request("GET", &first_address, "/api/v1/sync/outbox", "");
+        assert_eq!(audit.0, 200, "{}", audit.1);
+        assert!(audit.1.contains("station_setup_marked_ready"));
+        assert_eq!(outbox.0, 200, "{}", outbox.1);
+        assert!(outbox.1.contains("\"domain\":\"station_configurations\""));
+        first_server
+            .join()
+            .expect("server thread panicked")
+            .unwrap();
+
+        let second_port = free_loopback_port();
+        let second_address = format!("127.0.0.1:{second_port}");
+        let second_server = spawn_server(ApiServerConfig {
+            bind: second_address.clone(),
+            storage_root: storage_root.clone(),
+            migrations_root,
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: Some(5),
+        });
+        assert_eq!(wait_for_http(&second_address, "/api/v1/health").0, 200);
+        let reloaded = http_request(
+            "GET",
+            &second_address,
+            "/api/v1/station-setups/SETUP-RF-HTTP-001",
+            "",
+        );
+        let revisions = http_request(
+            "GET",
+            &second_address,
+            "/api/v1/station-setups/SETUP-RF-HTTP-001/revisions",
+            "",
+        );
+        let reloaded_readiness = http_request(
+            "GET",
+            &second_address,
+            &format!("/api/v1/station-setups/SETUP-RF-HTTP-001/revisions/{revision_id}/readiness"),
+            "",
+        );
+        let reloaded_outbox = http_request("GET", &second_address, "/api/v1/sync/outbox", "");
+        assert_eq!(reloaded.0, 200, "{}", reloaded.1);
+        assert!(reloaded.1.contains("\"current_ready_revision\""));
+        assert!(reloaded.1.contains("CHAR-CABLE-STATION-2026"));
+        assert_eq!(revisions.0, 200, "{}", revisions.1);
+        assert_eq!(revisions.1.matches("\"revision_number\"").count(), 1);
+        assert!(revisions.1.contains("\"status\":\"ready\""));
+        assert_eq!(reloaded_readiness.0, 200, "{}", reloaded_readiness.1);
+        assert!(reloaded_readiness.1.contains("\"ready\":true"));
+        assert_eq!(reloaded_outbox.0, 200, "{}", reloaded_outbox.1);
+        assert!(reloaded_outbox.1.contains("op-http-station-ready"));
+        second_server
+            .join()
+            .expect("server thread panicked")
+            .unwrap();
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
     fn real_http_server_persists_test_template_revision_workflow_across_restart() {
         let storage_root = temporary_storage_root("agent-api-real-test-template-revisions");
         let migrations_root = repo_root().join("storage/sqlite");
@@ -6573,6 +7265,315 @@ mod tests {
             "operation_id": operation_id
         })
         .to_string()
+    }
+
+    struct StationSetupFixture {
+        cable_model_revision: String,
+        cable_model_checksum: String,
+        receiver_model_revision: String,
+        receiver_model_checksum: String,
+        characterization_checksum: String,
+        cable_asset: Value,
+        receiver_asset: Value,
+    }
+
+    fn seed_station_setup_fixture(config: &ApiServerConfig) -> StationSetupFixture {
+        let (cable_model_revision, cable_model_checksum) = create_and_approve_equipment_model(
+            config,
+            "EQM-RF-CABLE-STATION",
+            rf_cable_model_definition(),
+            "fixture-station-cable-model",
+        );
+        let (receiver_model_revision, receiver_model_checksum) = create_and_approve_equipment_model(
+            config,
+            "EQM-RF-RECEIVER-STATION",
+            equipment_model_definition("EMC Locus", "Receiver station model", None),
+            "fixture-station-receiver-model",
+        );
+
+        for (asset_id, family, model_id, model_revision, model_checksum, serial) in [
+            (
+                "SA-CABLE-STATION-001",
+                "RfCable",
+                "EQM-RF-CABLE-STATION",
+                cable_model_revision.as_str(),
+                cable_model_checksum.as_str(),
+                "CAB-001",
+            ),
+            (
+                "SA-RECEIVER-STATION-001",
+                "EmcReceiver",
+                "EQM-RF-RECEIVER-STATION",
+                receiver_model_revision.as_str(),
+                receiver_model_checksum.as_str(),
+                "RX-001",
+            ),
+        ] {
+            let registered = handle_api_request(
+                "POST",
+                "/api/v1/metrology/instruments",
+                &json!({
+                    "asset_id": asset_id,
+                    "family": family,
+                    "manufacturer": "EMC Locus",
+                    "model": model_id,
+                    "serial_number": serial,
+                    "equipment_model_id": model_id,
+                    "equipment_model_revision_id": model_revision,
+                    "equipment_model_checksum": model_checksum,
+                    "calibration_requirement": "not_required",
+                    "serviceability_status": "usable",
+                    "serviceability_reason": "verified before station setup",
+                    "capabilities": {},
+                    "actor": "metrology.admin",
+                    "reason": "register station material",
+                    "operation_id": format!("op-fixture-register-{asset_id}")
+                })
+                .to_string(),
+                config,
+            );
+            assert_eq!(registered.status, 200, "{}", registered.body);
+        }
+
+        let characterization = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-CABLE-STATION-001/characterizations",
+            &station_cable_characterization_body().replace(
+                "op-station-cable-characterization",
+                "op-fixture-station-cable-characterization",
+            ),
+            config,
+        );
+        assert_eq!(characterization.status, 200, "{}", characterization.body);
+        let characterization_json: Value = serde_json::from_str(&characterization.body).unwrap();
+
+        StationSetupFixture {
+            cable_model_revision,
+            cable_model_checksum,
+            receiver_model_revision,
+            receiver_model_checksum,
+            characterization_checksum: characterization_json["characterization"]
+                ["definition_checksum"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+            cable_asset: station_instrument(config, "SA-CABLE-STATION-001"),
+            receiver_asset: station_instrument(config, "SA-RECEIVER-STATION-001"),
+        }
+    }
+
+    fn create_and_approve_equipment_model(
+        config: &ApiServerConfig,
+        model_id: &str,
+        definition: Value,
+        operation_prefix: &str,
+    ) -> (String, String) {
+        let revision_id = format!("{model_id}-rev-0001");
+        let created = handle_api_request(
+            "POST",
+            "/api/v1/equipment-models",
+            &json!({
+                "equipment_model_id": model_id,
+                "definition": definition,
+                "actor": "equipment.author",
+                "reason": "create station equipment model",
+                "operation_id": format!("op-{operation_prefix}-create")
+            })
+            .to_string(),
+            config,
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        assert_eq!(
+            handle_api_request(
+                "POST",
+                &format!(
+                    "/api/v1/equipment-models/{model_id}/revisions/{revision_id}/transitions/submit-for-review"
+                ),
+                &transition_body(
+                    "equipment.author",
+                    "submit station equipment model",
+                    &format!("op-{operation_prefix}-submit"),
+                ),
+                config,
+            )
+            .status,
+            200
+        );
+        let approved = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/equipment-models/{model_id}/revisions/{revision_id}/transitions/approve"
+            ),
+            &transition_body(
+                "quality.approver",
+                "approve station equipment model",
+                &format!("op-{operation_prefix}-approve"),
+            ),
+            config,
+        );
+        assert_eq!(approved.status, 200, "{}", approved.body);
+        let approved_json: Value = serde_json::from_str(&approved.body).unwrap();
+        let checksum = approved_json["revision"]["definition_checksum"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        (revision_id, checksum)
+    }
+
+    fn station_instrument(config: &ApiServerConfig, asset_id: &str) -> Value {
+        let response = handle_api_request(
+            "GET",
+            &format!("/api/v1/metrology/instruments/{asset_id}"),
+            "",
+            config,
+        );
+        assert_eq!(response.status, 200, "{}", response.body);
+        serde_json::from_str::<Value>(&response.body).unwrap()["instrument"].clone()
+    }
+
+    fn station_asset_binding(
+        binding_id: &str,
+        role_label: &str,
+        instrument: &Value,
+        model_id: &str,
+        model_revision_id: &str,
+        model_checksum: &str,
+    ) -> Value {
+        json!({
+            "binding_id": binding_id,
+            "role_label": role_label,
+            "asset_id": instrument["asset_id"],
+            "asset_revision": instrument["revision"],
+            "equipment_model_id": model_id,
+            "equipment_model_revision_id": model_revision_id,
+            "equipment_model_checksum": model_checksum
+        })
+    }
+
+    fn station_cable_characterization_body() -> String {
+        json!({
+            "characterization_id": "CHAR-CABLE-STATION-2026",
+            "performed_on": "2026-07-01",
+            "valid_until": "2027-07-01",
+            "provider": "Laboratoire métrologie interne",
+            "method_reference": "MET-RF-CABLE-001",
+            "decision": "conforming",
+            "definition": {
+                "definition_schema_version": "emc-locus.asset-characterization-definition.v1",
+                "characterization_id": "CHAR-CABLE-STATION-2026",
+                "asset_id": "SA-CABLE-STATION-001",
+                "label": "Pertes mesurées du câble CAB-001",
+                "correction": {
+                    "correction_kind": "frequency_response",
+                    "correction": {
+                        "definition_schema_version": "emc-locus.engineering-curve-definition.v1",
+                        "curve_id": "CHAR-CABLE-STATION-2026",
+                        "curve_type": "cable_loss",
+                        "label": "Pertes mesurées du câble CAB-001",
+                        "signal_representation": "frequency_domain_spectrum",
+                        "independent_axes": [{
+                            "axis": "frequency",
+                            "quantity": "frequency",
+                            "unit": "Hz"
+                        }],
+                        "dependent_values": [{
+                            "value_id": "amplitude_loss_db",
+                            "quantity": "dimensionless",
+                            "unit": "dB",
+                            "component": "amplitude",
+                            "operation": "add"
+                        }],
+                        "points": [
+                            {
+                                "axis_values": {"frequency": 10000000.0},
+                                "values": {"amplitude_loss_db": 0.2}
+                            },
+                            {
+                                "axis_values": {"frequency": 100000000.0},
+                                "values": {"amplitude_loss_db": 1.0}
+                            },
+                            {
+                                "axis_values": {"frequency": 1000000000.0},
+                                "values": {"amplitude_loss_db": 3.0}
+                            }
+                        ],
+                        "interpolation": "log_x_linear_y",
+                        "extrapolation_policy": "forbidden"
+                    }
+                },
+                "uncertainty": {
+                    "expanded_uncertainty": 0.2,
+                    "unit": "dB",
+                    "coverage_factor": 2.0,
+                    "confidence_level_percent": 95.0
+                }
+            },
+            "certificate_reference": "CERT-CHAR-CABLE-STATION-2026",
+            "comment": "Caractérisation série utilisée pour le montage",
+            "recorded_by": "metrology.admin",
+            "actor": "metrology.admin",
+            "reason": "record station cable loss",
+            "operation_id": "op-station-cable-characterization"
+        })
+        .to_string()
+    }
+
+    fn rf_cable_model_definition() -> Value {
+        let mut definition = equipment_model_definition("EMC Locus", "RF cable 1 GHz", None);
+        definition["equipment_class"] = json!("passive_component");
+        definition["functional_role"] = json!("rf_network_element");
+        definition["category_code"] = json!("rf_cable");
+        definition["signal_domains"] = json!(["rf"]);
+        definition["technology_tags"] = json!(["rf_50_ohm"]);
+        definition["specifications"] = json!([{
+            "specification_id": "frequency_range",
+            "label": "Domaine fréquentiel d'utilisation",
+            "quantity": "frequency",
+            "unit": "Hz",
+            "minimum": 10000000.0,
+            "maximum": 1000000000.0
+        }]);
+        definition["signal_ports"] = json!([
+            {
+                "port_id": "RF_A",
+                "label": "Connecteur RF A",
+                "directionality": "through",
+                "flow_role": "through_port",
+                "signal_domain": "rf",
+                "connector_type": "N",
+                "technology_tags": ["rf_50_ohm"],
+                "quantity": "power",
+                "unit": "dBm",
+                "impedance": 50.0,
+                "frequency_min": 10000000.0,
+                "frequency_max": 1000000000.0
+            },
+            {
+                "port_id": "RF_B",
+                "label": "Connecteur RF B",
+                "directionality": "through",
+                "flow_role": "through_port",
+                "signal_domain": "rf",
+                "connector_type": "N",
+                "technology_tags": ["rf_50_ohm"],
+                "quantity": "power",
+                "unit": "dBm",
+                "impedance": 50.0,
+                "frequency_min": 10000000.0,
+                "frequency_max": 1000000000.0
+            }
+        ]);
+        definition["signal_paths"] = json!([{
+            "path_id": "RF_THROUGH",
+            "label": "Transmission RF du câble",
+            "input_port_id": "RF_A",
+            "output_port_id": "RF_B",
+            "transformations": []
+        }]);
+        definition["communication_interfaces"] = json!([]);
+        definition["capabilities"] = json!([]);
+        definition["metadata"] = json!({});
+        definition
     }
 
     fn equipment_model_definition(

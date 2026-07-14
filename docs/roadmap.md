@@ -160,6 +160,12 @@ Deliverables:
   or frequency response with validity, uncertainty and uploaded evidence, and
   retrieves its audit/outbox history after restart. The execution runtime does
   not yet select or apply these corrections automatically.
+- `0.17.0` delivers physical station preparation in Locus Test Station: an
+  operator binds real serialized assets to their approved model revisions,
+  connects typed ports, selects an applicable serial-specific conversion or
+  frequency response, receives an explainable readiness verdict, and freezes a
+  revision as `Prêt à câbler`. The selected correction is not yet applied to
+  acquired or simulated measurement data.
 
 ## Phase 3: Measurement Runtime
 

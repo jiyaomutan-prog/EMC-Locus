@@ -16,6 +16,24 @@ TEST CONSOLE imports or opens that package locally; TEST CONSOLE executes and
 publishes evidence back to the local repositories; LAB CONSOLE reviews,
 reconciles, validates, reports, and publishes.
 
+## Implemented Preparation Slice
+
+Version `0.17.0` implements the first narrow part of this direction as
+`Préparation du poste`. It is deliberately a physical setup workflow rather
+than a dashboard:
+
+- select real serial-numbered materials from metrology;
+- retain the approved equipment-model revision that defines their ports;
+- assign a laboratory role to each material;
+- connect a compatible output or through port to an input or through port;
+- select the applicable conversion or frequency response measured for that
+  serial number;
+- inspect the structured readiness verdict;
+- freeze an immutable revision as `Prêt à câbler`.
+
+This slice does not yet open a campaign package, control hardware, acquire
+samples, calculate an FFT, apply a correction, or publish a result.
+
 ## One-Screen Layout
 
 The ideal single-screen layout uses a dense docked workstation pattern:

@@ -49,11 +49,14 @@ are `linear_x_linear_y`, `log_x_linear_y`, `linear_x_log_y`, `nearest`,
 
 The response is a controlled machine-readable artifact, not a metrology
 certificate. Its source reference and checksum can point to the certificate or
-calculation sheet maintained by the metrologist. Equipment paths pin the
-response identity, approved revision, and definition checksum.
+calculation sheet maintained by the metrologist. Equipment paths pin reusable
+model-level responses by identity, approved revision, and definition checksum.
+A `0.17.0` physical station setup instead pins the chosen characterization id
+and checksum when the response was measured for one serial-numbered asset.
 
 Validation requires a frequency axis, a unique amplitude component, at most one
 phase component, coherent units, complete point values, and evaluable
-interpolation. This release can evaluate the stored curve deterministically; it
+interpolation. This release can evaluate the stored curve deterministically and
+can retain the selected serial-specific response in a ready station setup. It
 does not acquire a spectrum, perform an FFT, or apply the correction to live
 data.

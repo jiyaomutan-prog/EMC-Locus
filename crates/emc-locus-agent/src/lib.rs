@@ -18,6 +18,9 @@ mod project_dto;
 mod project_repository;
 mod project_service;
 mod sqlite_policy;
+mod station_setup_dto;
+mod station_setup_repository;
+mod station_setup_service;
 mod test_execution_dto;
 mod test_execution_repository;
 mod test_execution_service;
@@ -86,6 +89,14 @@ use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
 use sqlite_policy::{initialize_project_slice_journal_mode, journal_mode, AttachedDatabase};
+pub use station_setup_service::{
+    assess_station_setup_revision_json, create_station_setup, derive_station_setup_revision,
+    get_station_setup, get_station_setup_revision_json, list_station_setup_audit_events_json,
+    list_station_setup_revisions_json, list_station_setups, mark_station_setup_revision_ready,
+    replace_station_setup_draft_definition, CreateStationSetupInput,
+    DeriveStationSetupRevisionInput, MarkStationSetupReadyInput, ReplaceStationSetupDraftInput,
+    StationOperationContext,
+};
 use std::{
     error::Error,
     fmt, fs,
@@ -538,7 +549,7 @@ struct StorageDomainSpec {
     migration_folder: &'static str,
 }
 
-fn project_slice_domains() -> [StorageDomainSpec; 5] {
+fn project_slice_domains() -> [StorageDomainSpec; 6] {
     [
         StorageDomainSpec {
             domain: "projects",
@@ -564,6 +575,11 @@ fn project_slice_domains() -> [StorageDomainSpec; 5] {
             domain: "test_definitions",
             database_file: "test_definitions.sqlite",
             migration_folder: "test_definitions",
+        },
+        StorageDomainSpec {
+            domain: "station_configurations",
+            database_file: "station.sqlite",
+            migration_folder: "station",
         },
     ]
 }
@@ -870,12 +886,13 @@ mod tests {
         let second_report =
             run_storage_action(StorageAction::Init, storage_root.clone(), migrations_root).unwrap();
 
-        assert_eq!(report.domains.len(), 5);
+        assert_eq!(report.domains.len(), 6);
         assert!(storage_root.join("projects.sqlite").exists());
         assert!(storage_root.join("sync.sqlite").exists());
         assert!(storage_root.join("metrology.sqlite").exists());
         assert!(storage_root.join("equipment.sqlite").exists());
         assert!(storage_root.join("test_definitions.sqlite").exists());
+        assert!(storage_root.join("station.sqlite").exists());
         assert!(report
             .domains
             .iter()
@@ -900,7 +917,7 @@ mod tests {
                 .find(|domain| domain.domain == "sync")
                 .unwrap()
                 .schema_version,
-            Some(4)
+            Some(5)
         );
         assert_eq!(
             second_report
@@ -928,6 +945,15 @@ mod tests {
                 .unwrap()
                 .schema_version,
             Some(5)
+        );
+        assert_eq!(
+            second_report
+                .domains
+                .iter()
+                .find(|domain| domain.domain == "station_configurations")
+                .unwrap()
+                .schema_version,
+            Some(1)
         );
 
         remove_temporary_storage_root(&storage_root);
