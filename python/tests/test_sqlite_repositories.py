@@ -4184,7 +4184,7 @@ class GuiBootstrapTests(unittest.TestCase):
                 method_code="INRUSH-001",
                 revision="A",
                 status="approved",
-                checksum="sha256:method001",
+                checksum=_checksum("d"),
             )
             measurement_data.add_dataset(
                 project_code="CEM-BOOT-001",
@@ -5407,7 +5407,7 @@ class TestDefinitionRepositoryTests(unittest.TestCase):
                 parameters_json='{"sample_rate_hz": 1000}',
                 acceptance_criteria_json='{"peak_a_max": 50}',
                 processing_graph_json='{"ops": ["peak"]}',
-                checksum="sha256:draft",
+                checksum=_checksum("d"),
             )
             step_id = repository.add_test_step(
                 method_revision_id=revision_id,
@@ -5421,7 +5421,7 @@ class TestDefinitionRepositoryTests(unittest.TestCase):
                 method_code="TD-INRUSH",
                 revision="A",
                 approved_by="qa.lead",
-                checksum="sha256:approved",
+                checksum=_checksum("e"),
             )
 
             self.assertTrue(approved)
@@ -5429,8 +5429,54 @@ class TestDefinitionRepositoryTests(unittest.TestCase):
             self.assertEqual(repository.get_test_method("TD-INRUSH")["controlled"], 1)
             self.assertEqual(repository.list_test_methods("inrush")[0]["code"], "TD-INRUSH")
             self.assertEqual(repository.method_revisions("TD-INRUSH")[0]["status"], "approved")
-            self.assertEqual(repository.method_revisions("TD-INRUSH")[0]["checksum"], "sha256:approved")
+            self.assertEqual(
+                repository.method_revisions("TD-INRUSH")[0]["checksum"],
+                _checksum("e"),
+            )
             self.assertEqual(repository.test_steps(revision_id)[0]["id"], step_id)
+
+    def test_rejects_noncanonical_method_revision_checksums(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = TestDefinitionRepository(
+                Path(temporary_directory) / "test_definitions.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            repository.add_test_method(
+                code="TD-CHECKSUM",
+                standard_code=None,
+                name="Checksum guarded method",
+                family="investigation",
+                measurement_axis="mixed_time_frequency",
+            )
+
+            with self.assertRaisesRegex(ValueError, "checksum"):
+                repository.add_method_revision(
+                    method_code="TD-CHECKSUM",
+                    revision="A",
+                    checksum="sha256:too-short",
+                )
+            self.assertEqual(repository.method_revisions("TD-CHECKSUM"), [])
+
+            revision_id = repository.add_method_revision(
+                method_code="TD-CHECKSUM",
+                revision="A",
+                checksum=_checksum("f"),
+            )
+
+            with self.assertRaisesRegex(ValueError, "checksum"):
+                repository.approve_method_revision(
+                    method_code="TD-CHECKSUM",
+                    revision="A",
+                    approved_by="qa.lead",
+                    checksum="sha256:" + "A" * 64,
+                )
+
+            revisions = repository.method_revisions("TD-CHECKSUM")
+            self.assertEqual(revisions[0]["id"], revision_id)
+            self.assertEqual(revisions[0]["status"], "draft")
+            self.assertEqual(revisions[0]["checksum"], _checksum("f"))
 
     def test_rejects_orphan_method_and_duplicate_step_sequence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

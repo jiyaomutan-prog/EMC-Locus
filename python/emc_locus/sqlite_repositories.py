@@ -2714,6 +2714,9 @@ class TestDefinitionRepository(SQLiteDomainRepository):
         processing_graph_json: str = "{}",
         checksum: str | None = None,
     ) -> int:
+        if checksum is not None:
+            checksum = require_sha256_checksum(checksum, "checksum")
+
         with closing(self.connect()) as connection:
             with connection:
                 cursor = connection.execute(
@@ -2749,6 +2752,9 @@ class TestDefinitionRepository(SQLiteDomainRepository):
         approved_by: str,
         checksum: str | None = None,
     ) -> bool:
+        if checksum is not None:
+            checksum = require_sha256_checksum(checksum, "checksum")
+
         with closing(self.connect()) as connection:
             with connection:
                 cursor = connection.execute(

@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected non-canonical test-method revision checksums in the Python
+  test-definition repository before draft creation or approval can persist
+  shortened or uppercase `sha256:` evidence.
 - Rejected non-canonical measurement-data checksum evidence in Python dataset,
   processing-graph, and result-artifact writes, so laboratory data lineage
   cannot persist uppercase or shortened `sha256:` values through the local

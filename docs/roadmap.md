@@ -157,6 +157,9 @@ Deliverables:
 - Python measurement-data writes now reject non-canonical dataset,
   processing-graph, and result-artifact checksums before lineage evidence is
   persisted.
+- Python test-definition writes now reject non-canonical test-method revision
+  checksums before draft creation or approval can persist shortened or uppercase
+  `sha256:` evidence.
 
 ## Phase 4: Reporting Pipeline
 

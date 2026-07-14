@@ -75,6 +75,10 @@ dual-write compatibility path after migration. Version 5 adds a partial unique
 index on `test_template_revisions(template_id) WHERE status = 'draft'` so the
 database enforces one active draft per template identity.
 
+The Python adapter requires optional `test_method_revisions.checksum` evidence
+to use canonical `sha256:<64 lowercase hex characters>` form before method
+revision creation or approval can persist it.
+
 ### Equipment
 
 Owns revisioned equipment model definitions and driver profiles. This domain is
