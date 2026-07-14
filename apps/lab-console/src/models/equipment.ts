@@ -354,6 +354,15 @@ export interface EquipmentEffectiveTemplate {
   template_checksum: string;
 }
 
+export interface EquipmentFileReference {
+  object_id: string;
+  original_filename: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+  storage_key: string;
+}
+
 export interface EquipmentModelTemplateSnapshot {
   category_id: string;
   root_category_id: string;

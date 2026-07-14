@@ -44,7 +44,10 @@ where
         "register-instrument" => MetrologyAction::Register(Box::new(RegisterInstrumentInput {
             asset_id: required_value(&mut flags, "--asset-id")?,
             family: required_value(&mut flags, "--family")?,
-            category_code: required_value(&mut flags, "--category-code")?,
+            category_code: Some(required_value(&mut flags, "--category-code")?),
+            equipment_model_id: None,
+            equipment_model_revision_id: None,
+            equipment_model_checksum: None,
             manufacturer: required_value(&mut flags, "--manufacturer")?,
             model: required_value(&mut flags, "--model")?,
             serial_number: required_value(&mut flags, "--serial-number")?,
@@ -317,7 +320,10 @@ mod tests {
                 action: MetrologyAction::Register(Box::new(RegisterInstrumentInput {
                     asset_id: "SA-001".to_owned(),
                     family: "SpectrumAnalyzer".to_owned(),
-                    category_code: "spectrum_analyzer".to_owned(),
+                    category_code: Some("spectrum_analyzer".to_owned()),
+                    equipment_model_id: None,
+                    equipment_model_revision_id: None,
+                    equipment_model_checksum: None,
                     manufacturer: "Rohde Schwarz".to_owned(),
                     model: "FSW".to_owned(),
                     serial_number: "100001".to_owned(),

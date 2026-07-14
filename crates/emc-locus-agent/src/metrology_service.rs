@@ -26,7 +26,10 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 pub struct RegisterInstrumentInput {
     pub asset_id: String,
     pub family: String,
-    pub category_code: String,
+    pub category_code: Option<String>,
+    pub equipment_model_id: Option<String>,
+    pub equipment_model_revision_id: Option<String>,
+    pub equipment_model_checksum: Option<String>,
     pub manufacturer: String,
     pub model: String,
     pub serial_number: String,
@@ -142,7 +145,20 @@ pub fn register_metrology_instrument(
     let asset_id = InstrumentCode::parse(input.asset_id.clone()).map_err(domain_error)?;
     validate_operation_context(&input.context)?;
     require_non_empty(&input.family, "family")?;
-    require_non_empty(&input.category_code, "category_code")?;
+    validate_equipment_model_reference(&input)?;
+    if input
+        .category_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+        && input.equipment_model_id.is_none()
+    {
+        return Err(AgentError::new(
+            "invalid_metrology_instrument",
+            "category_code or a complete equipment model reference is required",
+        ));
+    }
     require_non_empty(&input.manufacturer, "manufacturer")?;
     require_non_empty(&input.model, "model")?;
     require_non_empty(&input.serial_number, "serial_number")?;
@@ -205,7 +221,12 @@ pub fn register_metrology_instrument(
             manufacturer: input.manufacturer.trim(),
             model: input.model.trim(),
             serial_number: input.serial_number.trim(),
-            category_code: input.category_code.trim(),
+            category_code: trimmed_optional(input.category_code.as_deref()),
+            equipment_model_id: trimmed_optional(input.equipment_model_id.as_deref()),
+            equipment_model_revision_id: trimmed_optional(
+                input.equipment_model_revision_id.as_deref(),
+            ),
+            equipment_model_checksum: trimmed_optional(input.equipment_model_checksum.as_deref()),
             part_number: input
                 .part_number
                 .as_deref()
@@ -732,11 +753,43 @@ fn validate_capabilities_json(value: &str) -> Result<(), AgentError> {
     Ok(())
 }
 
+fn validate_equipment_model_reference(input: &RegisterInstrumentInput) -> Result<(), AgentError> {
+    let values = [
+        trimmed_optional(input.equipment_model_id.as_deref()),
+        trimmed_optional(input.equipment_model_revision_id.as_deref()),
+        trimmed_optional(input.equipment_model_checksum.as_deref()),
+    ];
+    let present = values.iter().filter(|value| value.is_some()).count();
+    if present != 0 && present != values.len() {
+        return Err(AgentError::new(
+            "invalid_metrology_instrument",
+            "equipment model id, revision id and checksum must be provided together",
+        ));
+    }
+    if let Some(checksum) = values[2] {
+        let digest = checksum.strip_prefix("sha256:").unwrap_or_default();
+        if digest.len() != 64
+            || !digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(AgentError::new(
+                "invalid_metrology_instrument",
+                "equipment_model_checksum must use canonical sha256:<64 lowercase hex> form",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn register_instrument_payload_json(input: &RegisterInstrumentInput, warning_days: u32) -> String {
     render_json(&serde_json::json!({
         "asset_id": input.asset_id.trim(),
         "family": input.family.trim(),
-        "category_code": input.category_code.trim(),
+        "category_code": trimmed_optional(input.category_code.as_deref()),
+        "equipment_model_id": trimmed_optional(input.equipment_model_id.as_deref()),
+        "equipment_model_revision_id": trimmed_optional(input.equipment_model_revision_id.as_deref()),
+        "equipment_model_checksum": trimmed_optional(input.equipment_model_checksum.as_deref()),
         "manufacturer": input.manufacturer.trim(),
         "model": input.model.trim(),
         "serial_number": input.serial_number.trim(),
@@ -1089,7 +1142,10 @@ mod tests {
                 RegisterInstrumentInput {
                     asset_id: "SA-REG-001".to_owned(),
                     family: "SpectrumAnalyzer".to_owned(),
-                    category_code: "spectrum_analyzer".to_owned(),
+                    category_code: Some("spectrum_analyzer".to_owned()),
+                    equipment_model_id: None,
+                    equipment_model_revision_id: None,
+                    equipment_model_checksum: None,
                     manufacturer: "Rohde Schwarz".to_owned(),
                     model: "FSW".to_owned(),
                     serial_number: "REG-001".to_owned(),

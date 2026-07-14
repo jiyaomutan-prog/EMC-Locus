@@ -83,19 +83,17 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.13.3`.
+Current software version: `0.14.0`.
 
-Version `0.13.3` refounds the LAB CONSOLE operator experience without adding a
-new domain or runtime vertical. The shell now exposes only the implemented
-Methods and Equipment workspaces, identifies future verticals without making
-them look usable, and keeps local diagnostics in an explicit System view. The
-sidebar is collapsible, navigation and command bars are contextual, the model
-wizard is a focused modal workflow, and normal views favor business labels and
-human revision states over raw IDs and checksums. Editor grids remain readable
-at ordinary desktop widths and reflow for tablet and mobile use. The release
-also includes the planning overlap guards added after `0.13.2`. Physical asset
-fleet management, station wiring, acquisition runtime, FFT, reporting, RBAC,
-and central synchronization remain outside this release.
+Version `0.14.0` gives the Equipment Repository a universal editable `Général`
+category inherited by all equipment families, explicit required/optional field
+semantics, field editing and archival, and real content-addressed document
+upload through the local Rust agent. LAB CONSOLE now also registers a physical,
+serial-numbered material in the metrology domain from an approved model. Model
+identity and physical asset identity stay separate: manufacturer/model describe
+the reusable model, while serial number belongs to the laboratory asset. This
+release does not yet implement station wiring, acquisition, FFT, reporting,
+RBAC, or central synchronization.
 
 Version `0.13.1` refounds the Equipment Repository user experience around a
 laboratory-facing taxonomy and configurable entry templates. A fresh local
@@ -146,8 +144,8 @@ metadata as a runtime driver. It is still not a physical fleet deployment
 system, certified hardware driver package, acquisition engine, RBAC domain,
 or full sensor/DAQ scaling model.
 
-Recommended next vertical: `0.14.0 - Physical Asset Fleet, Station Connections
-And Measurement Chain Drafting`.
+Recommended next vertical: `0.14.1 - Station Connections And Physical
+Measurement Chain Drafting`.
 
 Version `0.11.0` delivers the first Equipment Definition Catalog and Driver
 Script Studio slice. LAB CONSOLE now has an Equipment space with a functional

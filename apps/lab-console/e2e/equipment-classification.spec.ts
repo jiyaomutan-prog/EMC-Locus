@@ -17,6 +17,7 @@ test("equipment repository UX manages nested categories, fields and model creati
   await page.getByRole("button", { name: "Administration du référentiel" }).click();
   await expect(page.locator(".equipmentStudio .eyebrow", { hasText: "Administration du référentiel" })).toBeVisible();
   const categoryTree = page.locator(".categoryPanel .categoryTree");
+  await expect(categoryTree.locator('[data-category-id="general_equipment"]')).toBeVisible();
   for (const categoryId of [
     "energy_sources",
     "signal_sources",
@@ -39,8 +40,8 @@ test("equipment repository UX manages nested categories, fields and model creati
 
   await categoryTree.locator('[data-category-id="rf_amplifier"]').click();
   await page.getByRole("button", { name: "Sous-categories" }).click();
-  await page.getByLabel("Nom de la sous-categorie").fill(nestedLabel);
-  await expect(page.getByLabel("Identifiant interne")).toBeHidden();
+  await page.getByLabel(/Nom de la sous-categorie/).fill(nestedLabel);
+  await expect(page.getByLabel(/Identifiant interne/)).toBeHidden();
   const categoryResponse = page.waitForResponse((response) =>
     response.url().endsWith("/api/v1/equipment/categories") &&
     response.request().method() === "POST"
@@ -53,7 +54,7 @@ test("equipment repository UX manages nested categories, fields and model creati
   await page.locator(".adminTabs").getByRole("button", { name: "Formulaire", exact: true }).click();
   await page.getByLabel("Nom du champ").fill(fieldLabel);
   await page.getByLabel("Description / aide").fill("Niveau de criticite propre a cette categorie.");
-  await expect(page.getByLabel("Nom technique genere")).toBeHidden();
+  await expect(page.getByLabel("Nom technique")).toBeHidden();
   await page.getByPlaceholder("Nouvelle valeur").fill("Observation");
   await page.getByRole("button", { name: "Ajouter une valeur" }).click();
   await expect(page.getByText("Observation")).toBeVisible();
@@ -71,8 +72,8 @@ test("equipment repository UX manages nested categories, fields and model creati
   await page.getByRole("button", { name: /Ajouter au formulaire/ }).click();
   expect((await ruleResponse).ok()).toBeTruthy();
 
-  await page.getByRole("button", { name: "Previsualisation" }).click();
-  await expect(page.getByText("Previsualisation du formulaire")).toBeVisible();
+  await page.getByRole("button", { name: "Apercu" }).click();
+  await expect(page.getByText("Voici le formulaire que verra un technicien pour cette categorie.")).toBeVisible();
   await expect(page.getByText(fieldLabel)).toBeVisible();
   await expect(page.getByText("template_checksum")).toHaveCount(0);
   await expect(page.getByText(generatedFieldCode)).toHaveCount(0);
@@ -88,8 +89,18 @@ test("equipment repository UX manages nested categories, fields and model creati
   await wizard.getByRole("button", { name: "Continuer" }).click();
   await wizard.getByLabel(/Fabricant/).fill("E2E Demo");
   await wizard.getByLabel(/Mod.le/).fill("LNA UX");
-  await wizard.getByLabel(/Variante/).fill("40 dB");
   await wizard.getByLabel(fieldLabel).selectOption("Normale");
+  const fileResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/api/v1/equipment/files") &&
+    response.request().method() === "POST"
+  );
+  await wizard.locator('input[type="file"]').setInputFiles({
+    name: "lna-datasheet.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4\nE2E")
+  });
+  expect((await fileResponse).ok()).toBeTruthy();
+  await expect(wizard.getByText("lna-datasheet.pdf")).toBeVisible();
   await wizard.getByRole("button", { name: "Continuer" }).click();
   await wizard.getByLabel("ID modele optionnel").fill(modelId);
   const createResponse = page.waitForResponse((response) =>
@@ -117,10 +128,48 @@ test("equipment repository UX manages nested categories, fields and model creati
   expect(body.equipment_model.identity.is_demo).toBe(false);
   expect(body.equipment_model.latest_revision.definition.template_snapshot.category_id).toBe(generatedCategoryId);
   expect(body.equipment_model.latest_revision.definition.custom_field_values[generatedFieldCode]).toBe("Normale");
+  expect(body.equipment_model.latest_revision.definition.custom_field_values.documentation.original_filename).toBe("lna-datasheet.pdf");
 
   const subtree = await request.get(`/api/v1/equipment-models?category_code=rf_amplifier&demo_mode=hide`);
   expect(subtree.ok()).toBeTruthy();
   expect(await subtree.text()).toContain(modelId);
+
+  const submitResponse = page.waitForResponse((response) =>
+    response.url().includes("submit-for-review") && response.request().method() === "POST"
+  );
+  await page.getByRole("button", { name: "Soumettre" }).click();
+  expect((await submitResponse).ok()).toBeTruthy();
+  const approveResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/transitions/approve") && response.request().method() === "POST"
+  );
+  await page.getByRole("button", { name: "Approuver" }).click();
+  expect((await approveResponse).ok()).toBeTruthy();
+
+  await page.getByRole("button", { name: "Matériels réels" }).click();
+  const approvedModelSelect = page.getByLabel(/Modèle d'équipement/);
+  await expect(approvedModelSelect.locator(`option[value="${modelId}"]`)).toHaveCount(1);
+  await approvedModelSelect.selectOption(modelId);
+  const assetId = `ASSET-RF-LNA-${suffix}`;
+  await page.getByLabel(/Référence du matériel/).fill(assetId);
+  await page.getByLabel(/Numéro de série/).fill(`SN-${suffix}`);
+  await page.getByLabel(/Part number/).fill("LNA-40DB");
+  const assetResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/api/v1/metrology/instruments") &&
+    response.request().method() === "POST"
+  );
+  await page.getByRole("button", { name: "Enregistrer le matériel" }).click();
+  expect((await assetResponse).ok()).toBeTruthy();
+  await expect(page.getByText(assetId)).toBeVisible();
+
+  const asset = await request.get(`/api/v1/metrology/instruments/${assetId}`);
+  expect(asset.ok()).toBeTruthy();
+  const assetBody = await asset.json();
+  expect(assetBody.instrument.serial_number).toBe(`SN-${suffix}`);
+  expect(assetBody.instrument.manufacturer).toBe("E2E Demo");
+  expect(assetBody.instrument.category_code).toBeNull();
+  expect(assetBody.instrument.equipment_model_id).toBe(modelId);
+  expect(assetBody.instrument.equipment_model_revision_id).toBe(body.equipment_model.latest_revision.revision_id);
+  expect(assetBody.instrument.equipment_model_checksum).toBe(body.equipment_model.latest_revision.definition_checksum);
 });
 
 test("new equipment model wizard uses category choices instead of primary action buttons", async ({ page }) => {

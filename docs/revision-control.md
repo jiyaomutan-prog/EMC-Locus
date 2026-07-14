@@ -90,7 +90,7 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.13.3` was validated on 2026-07-14 with the CI-equivalent release
+Version `0.14.0` was validated on 2026-07-14 with the CI-equivalent release
 script:
 
 ```text
@@ -101,7 +101,7 @@ The script runs the same validation path as GitHub Actions: Rust format,
 Clippy, Rust tests, Python compile/tests, SQLite migration validation, npm-based
 LAB CONSOLE install/typecheck/lint/unit/build, versioned `dist` verification,
 Playwright E2E, release consistency, launcher smoke and whitespace checks.
-For `0.13.3`, the Playwright path includes the focused application navigation,
+For `0.14.0`, the Playwright path includes the focused application navigation,
 Equipment Repository administration, nested category creation, generated field
 codes, form preview, the modal category wizard, category-subtree filtering, and
 the measurement-engineering workflow for scaling, engineering curves, sensor

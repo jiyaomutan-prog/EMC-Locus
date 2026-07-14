@@ -19,6 +19,9 @@ pub struct StoredInstrument {
     pub calibration_requirement: String,
     pub capabilities_json: String,
     pub category_code: Option<String>,
+    pub equipment_model_id: Option<String>,
+    pub equipment_model_revision_id: Option<String>,
+    pub equipment_model_checksum: Option<String>,
     pub part_number: Option<String>,
     pub calibration_period_months: Option<u32>,
     pub calibration_due_warning_days: u32,
@@ -101,7 +104,10 @@ pub struct NewInstrumentRecord<'a> {
     pub manufacturer: &'a str,
     pub model: &'a str,
     pub serial_number: &'a str,
-    pub category_code: &'a str,
+    pub category_code: Option<&'a str>,
+    pub equipment_model_id: Option<&'a str>,
+    pub equipment_model_revision_id: Option<&'a str>,
+    pub equipment_model_checksum: Option<&'a str>,
     pub part_number: Option<&'a str>,
     pub calibration_requirement: &'a str,
     pub calibration_period_months: Option<u32>,
@@ -339,7 +345,8 @@ fn instrument_select_sql(suffix: &str) -> String {
         "calibration_requirement, capabilities_json, category_code, part_number, ",
         "calibration_period_months, metrology_notes, serviceability_status, ",
         "serviceability_reason, serviceability_updated_at, legacy_availability, ",
-        "calibration_due_warning_days, ",
+        "calibration_due_warning_days, equipment_model_id, equipment_model_revision_id, ",
+        "equipment_model_checksum, ",
         "created_at, updated_at FROM instruments "
     );
     format!("{base}{suffix}")
@@ -347,7 +354,7 @@ fn instrument_select_sql(suffix: &str) -> String {
 
 fn stored_instrument_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredInstrument> {
     let asset_id: String = row.get(0)?;
-    let updated_at: String = row.get(18)?;
+    let updated_at: String = row.get(21)?;
     Ok(StoredInstrument {
         revision: revision_for("instrument", &asset_id, &updated_at),
         asset_id,
@@ -367,7 +374,10 @@ fn stored_instrument_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Store
         serviceability_updated_at: row.get(14)?,
         legacy_availability: row.get(15)?,
         calibration_due_warning_days: row.get(16)?,
-        created_at: row.get(17)?,
+        equipment_model_id: row.get(17)?,
+        equipment_model_revision_id: row.get(18)?,
+        equipment_model_checksum: row.get(19)?,
+        created_at: row.get(20)?,
         updated_at,
     })
 }
@@ -551,9 +561,10 @@ pub fn insert_instrument(
                 "INSERT INTO instruments (asset_id, family, manufacturer, model, serial_number, ",
                 "availability, calibration_requirement, capabilities_json, category_code, ",
                 "part_number, calibration_period_months, calibration_due_warning_days, ",
-                "metrology_notes, serviceability_status, ",
+                "metrology_notes, serviceability_status, equipment_model_id, ",
+                "equipment_model_revision_id, equipment_model_checksum, ",
                 "serviceability_reason, serviceability_updated_at, legacy_availability, created_at, updated_at) ",
-                "VALUES (?1, ?2, ?3, ?4, ?5, 'available', ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 'available', ?15, ?15)"
+                "VALUES (?1, ?2, ?3, ?4, ?5, 'available', ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, 'available', ?18, ?18)"
             ),
             params![
                 input.asset_id,
@@ -569,6 +580,9 @@ pub fn insert_instrument(
                 input.calibration_due_warning_days,
                 input.metrology_notes,
                 input.serviceability_status,
+                input.equipment_model_id,
+                input.equipment_model_revision_id,
+                input.equipment_model_checksum,
                 input.serviceability_reason,
                 input.timestamp,
             ],

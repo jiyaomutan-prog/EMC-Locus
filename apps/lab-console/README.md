@@ -1,7 +1,7 @@
 # EMC Locus LAB CONSOLE
 
 LAB CONSOLE is the browser application for laboratory management workflows. In
-0.13.3 it provides Template Studio v1 plus the Equipment workspace in a focused,
+0.14.0 it provides Template Studio v1 plus the Equipment workspace in a focused,
 responsive application shell. Active navigation is limited to implemented
 workflows, Equipment commands are contextual, the model wizard is presented as
 a modal task, and normal revision views favor laboratory labels and lifecycle
@@ -53,6 +53,21 @@ evidence unless the workflow and lockfile policy are deliberately migrated.
 
 Vite proxies `/api` to `http://127.0.0.1:8765` during development. Production
 does not use a Node server.
+
+## Scope In 0.14.0
+
+Equipment repository changes:
+
+- universal editable `Général` category inherited by all equipment families;
+- visible required/optional semantics in category and model creation;
+- create, edit, and archive field definitions from Repository Administration;
+- actual local file upload for equipment-model documentation;
+- serial-numbered material registration in the metrology domain from an
+  approved equipment model;
+- one form-preview workflow with technical evidence under disclosure.
+
+Still not implemented: station wiring, a graphical measurement-chain builder,
+real acquisition, FFT, reporting, authentication/RBAC, and central sync.
 
 ## Scope In 0.13.3
 

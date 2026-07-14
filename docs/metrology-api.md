@@ -49,9 +49,29 @@ GET  /api/v1/metrology/instruments/{asset_id}/audit-events
 }
 ```
 
-Required fields are `asset_id`, `family`, `category_code`, `manufacturer`,
-`model`, `serial_number`, `calibration_requirement`, `actor`, `reason`, and
-`operation_id`.
+Required fields are `asset_id`, `family`, `manufacturer`, `model`,
+`serial_number`, `calibration_requirement`, `actor`, `reason`, and
+`operation_id`. A direct metrology registration also requires `category_code`.
+An asset created from Equipment Repository instead supplies the complete typed
+catalog reference:
+
+```json
+{
+  "equipment_model_id": "EQM-RF-LNA-001",
+  "equipment_model_revision_id": "EQM-RF-LNA-001-rev-0003",
+  "equipment_model_checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
+```
+
+These three values are indivisible. The checksum is the canonical
+`sha256:<64 lowercase hex>` checksum of the approved model definition. The metrology taxonomy and the
+Equipment Repository hierarchy deliberately remain separate: no equipment
+category identifier is inserted into the `instrument_categories` foreign key.
+
+Since `0.14.0`, LAB CONSOLE exposes this registration through `Matériels réels`
+and pre-fills model identity, family, capabilities, and the immutable approved
+revision reference. The serial number and part number remain properties of the
+physical metrology asset, not of the reusable model.
 
 Accepted calibration requirements are:
 
@@ -177,6 +197,11 @@ Migration `0007_legacy_calibration_events.sql` backfills legacy
 `calibration_records` into `calibration_events` so historical certificates are
 visible to the agent-backed computed-status and readiness paths while preserving
 the original rows.
+
+Migration `0008_equipment_model_traceability.sql` adds the optional typed
+Equipment Repository identity, revision, and checksum link to each physical
+instrument. The Rust service requires either a metrology category or this
+complete model reference when registering an instrument.
 
 Document attachment remains split: calibration events can carry certificate
 document manifests through `document_manifest_json`, but standalone instrument

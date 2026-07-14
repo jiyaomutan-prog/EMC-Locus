@@ -1,6 +1,6 @@
 # Equipment API
 
-Release `0.13.1` adds the Equipment Repository administration layer used by LAB
+Release `0.14.0` extends the Equipment Repository administration layer used by LAB
 CONSOLE: hierarchical categories, field definitions, inherited category field
 rules, effective entry templates, revision snapshots, model field values, and
 demo-data filtering. Release `0.13.0` remains the measurement-engineering
@@ -24,15 +24,35 @@ POST   /api/v1/equipment/field-definitions/{field_id}/archive
 GET    /api/v1/equipment/categories/{category_id}/field-rules
 PUT    /api/v1/equipment/categories/{category_id}/field-rules
 GET    /api/v1/equipment/categories/{category_id}/effective-template
+POST   /api/v1/equipment/files
 ```
 
-The seven system root categories are seeded during normal storage
-initialization and cannot be archived or moved. Subcategories can be created,
-updated, moved, and archived when not in use. Field definitions describe
+The editable `general_equipment` category is the universal tree root. Its field
+rules are inherited by the seven classification families below it. The family
+IDs remain the `root_category_id` used for catalog filtering; `Général` is an
+inheritance root and cannot instantiate a model directly. System categories
+cannot be archived or moved. Subcategories can be created, updated, moved, and
+archived when not in use. Field definitions describe
 business form fields. Category field rules make fields visible/required for a
 category and are inherited by child categories. `effective-template` returns
 the resolved form for a category and is the contract used by the model creation
 wizard.
+
+`POST /api/v1/equipment/files` accepts `original_filename`, `mime_type`, and
+`content_base64`. The agent rejects empty, unsafe, malformed, or larger-than-20
+MiB payloads, computes SHA-256, stores the bytes below
+`objects/equipment/<prefix>/<sha256>`, and returns a manifest. The
+`file_reference` field type requires that typed manifest; it no longer accepts
+an arbitrary URL or path string.
+
+Manufacturer and model name are structural model identifiers and cannot be
+archived. Other active field definitions can be edited or archived. Historical
+model revisions keep their template snapshot and values.
+
+Physical serial-numbered equipment is registered through
+`POST /api/v1/metrology/instruments`. LAB CONSOLE fills that contract from an
+approved equipment model; it does not store a serial number on the reusable
+model definition.
 
 ## Equipment Models
 

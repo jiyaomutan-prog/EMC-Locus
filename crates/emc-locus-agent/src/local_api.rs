@@ -22,7 +22,7 @@ use crate::equipment_service::{
     list_equipment_category_field_rules_json, list_equipment_field_definitions_json,
     list_equipment_model_revisions, list_equipment_models, move_equipment_category_json,
     replace_driver_profile_revision_definition, replace_equipment_category_field_rules_json,
-    replace_equipment_model_revision_definition, simulate_driver_profile,
+    replace_equipment_model_revision_definition, simulate_driver_profile, store_equipment_file,
     transition_driver_profile_revision, transition_equipment_model_revision,
     update_equipment_category_json, update_equipment_field_definition_json,
     validate_driver_profile_definition_json, validate_equipment_model_definition_json,
@@ -33,7 +33,7 @@ use crate::equipment_service::{
     ListEquipmentCategoriesInput, ListEquipmentFieldDefinitionsInput, ListEquipmentModelsInput,
     MoveEquipmentCategoryInput, ReplaceDriverProfileDefinitionInput,
     ReplaceEquipmentCategoryFieldRulesInput, ReplaceEquipmentModelDefinitionInput,
-    SimulateDriverProfileInput, TransitionDriverProfileRevisionInput,
+    SimulateDriverProfileInput, StoreEquipmentFileInput, TransitionDriverProfileRevisionInput,
     TransitionEquipmentModelRevisionInput, UpdateEquipmentCategoryInput,
     UpsertEquipmentFieldDefinitionInput,
 };
@@ -519,6 +519,17 @@ fn route_api_request(
         return create_equipment_field_definition_json(
             &config.storage_root,
             equipment_field_definition_input(&payload)?,
+        );
+    }
+    if parts.as_slice() == ["api", "v1", "equipment", "files"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return store_equipment_file(
+            &config.storage_root,
+            StoreEquipmentFileInput {
+                original_filename: required_string(&payload, "original_filename")?,
+                mime_type: required_string(&payload, "mime_type")?,
+                content_base64: required_string(&payload, "content_base64")?,
+            },
         );
     }
     if parts.len() == 5
@@ -1187,7 +1198,10 @@ fn register_instrument_input(payload: &Value) -> Result<RegisterInstrumentInput,
     Ok(RegisterInstrumentInput {
         asset_id: required_string(payload, "asset_id")?,
         family: required_string(payload, "family")?,
-        category_code: required_string(payload, "category_code")?,
+        category_code: optional_string(payload, "category_code"),
+        equipment_model_id: optional_string(payload, "equipment_model_id"),
+        equipment_model_revision_id: optional_string(payload, "equipment_model_revision_id"),
+        equipment_model_checksum: optional_string(payload, "equipment_model_checksum"),
         manufacturer: required_string(payload, "manufacturer")?,
         model: required_string(payload, "model")?,
         serial_number: required_string(payload, "serial_number")?,
@@ -2217,6 +2231,7 @@ fn status_for_error(code: &str) -> u16 {
         | "equipment_model_already_exists"
         | "equipment_category_already_exists"
         | "equipment_field_already_exists"
+        | "equipment_structural_field_immutable"
         | "equipment_category_system_root_immutable"
         | "equipment_category_in_use"
         | "equipment_category_cycle"
@@ -2270,10 +2285,12 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_manufacturer"
         | "invalid_model_name"
         | "equipment_template_required_field_missing"
+        | "equipment_general_category_not_instantiable"
         | "equipment_template_value_invalid"
         | "invalid_equipment_field"
         | "invalid_equipment_model_definition"
         | "invalid_equipment_field_definition"
+        | "invalid_equipment_file"
         | "invalid_driver_profile_definition"
         | "invalid_driver_simulation"
         | "invalid_driver_simulation_scenario"
@@ -2285,6 +2302,7 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_metrology_readiness"
         | "unknown_execution_mode"
         | "unknown_contract_review_item" => 400,
+        "equipment_file_too_large" => 413,
         _ => 500,
     }
 }
@@ -3111,8 +3129,11 @@ mod tests {
         assert_eq!(tree.status, 200, "{}", tree.body);
         let tree_json: Value = serde_json::from_str(&tree.body).unwrap();
         let roots = tree_json["categories"].as_array().unwrap();
-        assert_eq!(roots.len(), 7);
-        assert!(roots
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0]["category_id"], "general_equipment");
+        assert!(roots[0]["children"]
+            .as_array()
+            .unwrap()
             .iter()
             .any(|root| root["category_id"] == "rf_equipment"));
         assert!(tree.body.contains("\"category_id\":\"rf_cable\""));
@@ -3225,6 +3246,14 @@ mod tests {
         assert!(template_fields.iter().any(
             |field| field["field"]["field_code"] == "manufacturer" && field["required"] == true
         ));
+        assert!(template_fields.iter().any(|field| {
+            field["field"]["field_code"] == "manufacturer"
+                && field["inherited_from_category_ids"][0] == "general_equipment"
+        }));
+        assert!(template_fields.iter().any(|field| {
+            field["field"]["field_code"] == "documentation"
+                && field["field"]["data_type"] == "file_reference"
+        }));
         assert!(template_fields
             .iter()
             .any(|field| field["field"]["field_code"] == "criticality_test"
@@ -3251,6 +3280,41 @@ mod tests {
             .contains("equipment_template_required_field_missing"));
         assert!(missing_required.body.contains("Mod"));
 
+        let general_model = handle_api_request(
+            "POST",
+            "/api/v1/equipment-models/from-category-template",
+            &json!({
+                "category_id": "general_equipment",
+                "field_values": {
+                    "manufacturer": "Demo",
+                    "model_name": "Modele sans famille"
+                },
+                "actor": "equipment.author",
+                "reason": "general category must not instantiate a model",
+                "operation_id": "op-template-general-refused"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(general_model.status, 400, "{}", general_model.body);
+        assert!(general_model
+            .body
+            .contains("equipment_general_category_not_instantiable"));
+
+        let uploaded_document = handle_api_request(
+            "POST",
+            "/api/v1/equipment/files",
+            &json!({
+                "original_filename": "cable-flex-datasheet.pdf",
+                "mime_type": "application/pdf",
+                "content_base64": "JVBERi0xLjQK"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(uploaded_document.status, 200, "{}", uploaded_document.body);
+        let uploaded_document_json: Value = serde_json::from_str(&uploaded_document.body).unwrap();
+
         let created = handle_api_request(
             "POST",
             "/api/v1/equipment-models/from-category-template",
@@ -3260,12 +3324,12 @@ mod tests {
                 "field_values": {
                     "manufacturer": "Acme RF",
                     "model_name": "Cable Flex",
-                    "variant": "1m N-N",
                     "connector_a": "N",
                     "connector_b": "N",
                     "impedance": {"value": 50.0, "unit": "ohm"},
                     "length": {"value": 1.0, "unit": "m"},
-                    "criticality_test": "moyenne"
+                    "criticality_test": "moyenne",
+                    "documentation": uploaded_document_json["file"].clone()
                 },
                 "actor": "equipment.author",
                 "reason": "create model from category template",
@@ -3280,6 +3344,7 @@ mod tests {
             .contains("\"operation\":\"equipment_model_created_from_category_template\""));
         assert!(created.body.contains("\"template_snapshot\""));
         assert!(created.body.contains("\"custom_field_values\""));
+        assert!(created.body.contains("cable-flex-datasheet.pdf"));
 
         let nested_created = handle_api_request(
             "POST",
@@ -3289,8 +3354,7 @@ mod tests {
                 "equipment_model_id": "EQM-RF-LNA-UX",
                 "field_values": {
                     "manufacturer": "Acme RF",
-                    "model_name": "Low Noise Amp",
-                    "variant": "40 dB"
+                    "model_name": "Low Noise Amp"
                 },
                 "actor": "equipment.author",
                 "reason": "create nested category model",
@@ -3319,7 +3383,6 @@ mod tests {
                 "field_values": {
                     "manufacturer": "Demo",
                     "model_name": "Cable demo",
-                    "variant": "2m",
                     "connector_a": "N",
                     "connector_b": "N",
                     "impedance": {"value": 50.0, "unit": "ohm"},
@@ -3389,6 +3452,56 @@ mod tests {
         assert!(outbox
             .body
             .contains("\"operation_kind\":\"equipment_model_created_from_category_template\""));
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn local_api_stores_equipment_files_by_sha256() {
+        let storage_root = temporary_storage_root("agent-api-equipment-files");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: None,
+        };
+
+        let stored = handle_api_request(
+            "POST",
+            "/api/v1/equipment/files",
+            &json!({
+                "original_filename": "datasheet.pdf",
+                "mime_type": "application/pdf",
+                "content_base64": "JVBERi0xLjQK"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(stored.status, 200, "{}", stored.body);
+        let body: Value = serde_json::from_str(&stored.body).unwrap();
+        let storage_key = body["file"]["storage_key"].as_str().unwrap();
+        assert_eq!(body["file"]["original_filename"], "datasheet.pdf");
+        assert_eq!(body["file"]["size_bytes"], 9);
+        assert!(body["file"]["object_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:"));
+        assert!(storage_root.join(storage_key).is_file());
+
+        let unsafe_name = handle_api_request(
+            "POST",
+            "/api/v1/equipment/files",
+            &json!({
+                "original_filename": "../datasheet.pdf",
+                "mime_type": "application/pdf",
+                "content_base64": "JVBERi0xLjQK"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(unsafe_name.status, 400, "{}", unsafe_name.body);
+        assert!(unsafe_name.body.contains("invalid_equipment_file"));
 
         remove_temporary_storage_root(&storage_root);
     }
@@ -4677,6 +4790,57 @@ mod tests {
         assert_eq!(detail.status, 200);
         assert!(detail.body.contains("\"part_number\":\"FSW44\""));
         assert!(detail.body.contains("\"calibration_due_warning_days\":45"));
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn local_api_registers_instrument_from_equipment_model_without_taxonomy_collision() {
+        let storage_root = temporary_storage_root("agent-api-metrology-equipment-link");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: None,
+        };
+
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+        let created = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments",
+            r#"{
+                "asset_id": "LNA-API-001",
+                "family": "rf_equipment",
+                "equipment_model_id": "EM-RF-LNA-001",
+                "equipment_model_revision_id": "EM-RF-LNA-001-rev-0003",
+                "equipment_model_checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "manufacturer": "Example RF",
+                "model": "LNA-40",
+                "serial_number": "LNA-SN-001",
+                "calibration_requirement": "conditional",
+                "calibration_period_months": 12,
+                "actor": "metrology.operator",
+                "reason": "registration from approved equipment model",
+                "operation_id": "op-api-register-LNA-API-001"
+            }"#,
+            &config,
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        let body: Value = serde_json::from_str(&created.body).expect("instrument response JSON");
+        assert!(body["instrument"]["category_code"].is_null());
+        assert_eq!(body["instrument"]["equipment_model_id"], "EM-RF-LNA-001");
+        assert_eq!(
+            body["instrument"]["equipment_model_revision_id"],
+            "EM-RF-LNA-001-rev-0003"
+        );
+        assert_eq!(
+            body["instrument"]["equipment_model_checksum"],
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
 
         remove_temporary_storage_root(&storage_root);
     }

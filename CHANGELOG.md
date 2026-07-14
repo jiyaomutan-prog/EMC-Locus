@@ -8,6 +8,34 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-07-14
+
+### Added
+
+- Added an editable universal `Général` equipment category whose field rules
+  are inherited by every equipment family while family classification remains
+  stable for catalog filters and measurement-chain semantics.
+- Added content-addressed equipment-document upload through the local Rust
+  agent, with a 20 MiB limit, canonical SHA-256 manifests, safe filenames, and
+  deduplicated payload storage below the local storage root.
+- Added a LAB CONSOLE physical-material workflow that registers a real,
+  serial-numbered asset in the metrology domain from an approved equipment
+  model, including serviceability and calibration policy.
+- Added a typed metrology traceability link to the approved equipment-model
+  identity, revision, and canonical checksum without merging the two category
+  taxonomies.
+
+### Changed
+
+- Reworked Equipment Repository administration so fields can be created,
+  edited, archived, assigned to forms, and clearly marked as required or
+  optional. Manufacturer and model remain protected structural identifiers.
+- Replaced the model-level `Variante` and documentation URL defaults with a
+  real uploaded document field; serial number now appears only on physical
+  material records where it has the correct business meaning.
+- Merged form preview and advanced diagnostics into one `Aperçu` workflow with
+  technical evidence available through a disclosure.
+
 ### Fixed
 
 - Rejected non-canonical synchronization snapshot checksums during Python

@@ -67,6 +67,7 @@ use crate::{
     },
     render_json, AgentError,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use emc_locus_core::equipment::{
     simulate_driver_action, AccessProviderKind, CommunicationInterfaceDefinition,
     DefinitionValidationIssue, DriverProfileDefinition, DriverSimulationScenario, EquipmentClass,
@@ -81,6 +82,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fs,
     path::Path,
 };
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
@@ -195,6 +197,89 @@ pub struct CreateEquipmentModelFromCategoryTemplateInput {
     pub operation_id: String,
     pub correlation_id: String,
     pub device_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoreEquipmentFileInput {
+    pub original_filename: String,
+    pub mime_type: String,
+    pub content_base64: String,
+}
+
+const MAX_EQUIPMENT_FILE_SIZE_BYTES: usize = 20 * 1024 * 1024;
+
+pub fn store_equipment_file(
+    storage_root: &Path,
+    input: StoreEquipmentFileInput,
+) -> Result<String, AgentError> {
+    let filename = input.original_filename.trim();
+    if filename.is_empty()
+        || filename.len() > 255
+        || filename.contains(['/', '\\', '\0'])
+        || filename == "."
+        || filename == ".."
+    {
+        return Err(AgentError::new(
+            "invalid_equipment_file",
+            "original_filename must be a safe file name",
+        ));
+    }
+    let mime_type = input.mime_type.trim();
+    if mime_type.is_empty()
+        || mime_type.len() > 127
+        || !mime_type.contains('/')
+        || mime_type.chars().any(char::is_whitespace)
+    {
+        return Err(AgentError::new(
+            "invalid_equipment_file",
+            "mime_type must be a valid non-empty media type",
+        ));
+    }
+    let content = BASE64_STANDARD
+        .decode(input.content_base64.trim())
+        .map_err(|_| AgentError::new("invalid_equipment_file", "content_base64 is invalid"))?;
+    if content.is_empty() {
+        return Err(AgentError::new(
+            "invalid_equipment_file",
+            "the uploaded file must not be empty",
+        ));
+    }
+    if content.len() > MAX_EQUIPMENT_FILE_SIZE_BYTES {
+        return Err(AgentError::new(
+            "equipment_file_too_large",
+            format!(
+                "the uploaded file exceeds the {} byte limit",
+                MAX_EQUIPMENT_FILE_SIZE_BYTES
+            ),
+        ));
+    }
+
+    let digest = format!("{:x}", Sha256::digest(&content));
+    let relative_storage_key = format!("objects/equipment/{}/{}", &digest[..2], digest);
+    let object_path = storage_root.join(&relative_storage_key);
+    let parent = object_path.parent().ok_or_else(|| {
+        AgentError::new("equipment_file_store_failed", "object path has no parent")
+    })?;
+    fs::create_dir_all(parent)
+        .map_err(|error| AgentError::new("equipment_file_store_failed", error.to_string()))?;
+    if !object_path.exists() {
+        let temporary_path = parent.join(format!(".{digest}.upload"));
+        fs::write(&temporary_path, &content)
+            .map_err(|error| AgentError::new("equipment_file_store_failed", error.to_string()))?;
+        fs::rename(&temporary_path, &object_path)
+            .map_err(|error| AgentError::new("equipment_file_store_failed", error.to_string()))?;
+    }
+
+    Ok(render_json(&json!({
+        "file": {
+            "object_id": format!("sha256:{digest}"),
+            "original_filename": filename,
+            "mime_type": mime_type,
+            "size_bytes": content.len(),
+            "sha256": digest,
+            "storage_key": relative_storage_key
+        }
+    })))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -750,7 +835,13 @@ pub fn archive_equipment_field_definition_json(
 ) -> Result<String, AgentError> {
     validate_id(field_id, "field_id")?;
     let mut connection = open_equipment_connection_with_sync(storage_root)?;
-    require_equipment_field_definition(&connection, field_id)?;
+    let field = require_equipment_field_definition(&connection, field_id)?;
+    if matches!(field.field_code.as_str(), "manufacturer" | "model_name") {
+        return Err(AgentError::new(
+            "equipment_structural_field_immutable",
+            "manufacturer and model_name are structural equipment model identifiers and cannot be archived",
+        ));
+    }
     let now = utc_timestamp()?;
     let transaction = connection
         .transaction()
@@ -1105,6 +1196,12 @@ pub fn create_equipment_model_from_category_template(
         &input.device_id,
     )?;
     validate_id(&input.category_id, "category_id")?;
+    if input.category_id == "general_equipment" {
+        return Err(AgentError::new(
+            "equipment_general_category_not_instantiable",
+            "la catégorie Général définit les champs communs et ne peut pas créer directement un modèle",
+        ));
+    }
     if let Some(equipment_model_id) = input.equipment_model_id.as_deref() {
         validate_id(equipment_model_id, "equipment_model_id")?;
     }
@@ -3608,6 +3705,9 @@ fn is_blank_template_value(value: &Value) -> bool {
         return true;
     }
     if let Some(object) = value.as_object() {
+        if object.contains_key("object_id") || object.contains_key("original_filename") {
+            return false;
+        }
         let number_missing = object
             .get("value")
             .is_none_or(|candidate| candidate.as_f64().is_none());

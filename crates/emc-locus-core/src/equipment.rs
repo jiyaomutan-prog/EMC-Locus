@@ -1091,11 +1091,82 @@ fn validate_equipment_custom_value(
         EquipmentFieldDataType::ShortText
         | EquipmentFieldDataType::LongText
         | EquipmentFieldDataType::Url
-        | EquipmentFieldDataType::FileReference
         | EquipmentFieldDataType::ObjectReference
         | EquipmentFieldDataType::Date => {
             if value.as_str().is_none_or(|text| text.trim().is_empty()) {
                 invalid_type(issues, "texte non vide");
+            }
+        }
+        EquipmentFieldDataType::FileReference => {
+            let Some(object) = value.as_object() else {
+                invalid_type(issues, "manifeste de fichier");
+                return;
+            };
+            for key in ["object_id", "original_filename", "mime_type", "storage_key"] {
+                if object
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .is_none_or(|text| text.trim().is_empty())
+                {
+                    issues.push(issue(
+                        "error",
+                        "equipment_file_reference_invalid",
+                        format!("{path}.{key}"),
+                        format!(
+                            "Le manifeste du champ \"{}\" doit renseigner {key}.",
+                            field.label
+                        ),
+                        Option::<String>::None,
+                    ));
+                }
+            }
+            if object.get("size_bytes").and_then(Value::as_u64).is_none() {
+                issues.push(issue(
+                    "error",
+                    "equipment_file_reference_invalid",
+                    format!("{path}.size_bytes"),
+                    format!(
+                        "Le manifeste du champ \"{}\" doit renseigner une taille valide.",
+                        field.label
+                    ),
+                    Option::<String>::None,
+                ));
+            }
+            let checksum_valid =
+                object
+                    .get("sha256")
+                    .and_then(Value::as_str)
+                    .is_some_and(|checksum| {
+                        checksum.len() == 64
+                            && checksum
+                                .bytes()
+                                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                    });
+            if !checksum_valid {
+                issues.push(issue(
+                    "error",
+                    "equipment_file_reference_invalid",
+                    format!("{path}.sha256"),
+                    format!(
+                        "Le manifeste du champ \"{}\" doit contenir un SHA-256 canonique.",
+                        field.label
+                    ),
+                    Option::<String>::None,
+                ));
+            }
+            if let (Some(object_id), Some(checksum)) = (
+                object.get("object_id").and_then(Value::as_str),
+                object.get("sha256").and_then(Value::as_str),
+            ) {
+                if object_id != format!("sha256:{checksum}") {
+                    issues.push(issue(
+                        "error",
+                        "equipment_file_reference_invalid",
+                        format!("{path}.object_id"),
+                        format!("L'identifiant du fichier du champ \"{}\" ne correspond pas à son SHA-256.", field.label),
+                        Option::<String>::None,
+                    ));
+                }
             }
         }
         EquipmentFieldDataType::Number => {

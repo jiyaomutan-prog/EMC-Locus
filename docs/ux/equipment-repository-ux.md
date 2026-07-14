@@ -1,10 +1,9 @@
 # Equipment Repository UX
 
-Release `0.13.3` keeps the configurable repository introduced in `0.13.1` and
-polished in `0.13.2`, while integrating it into a more focused application
-shell with contextual commands and progressive technical disclosure. It does not add a
-physical asset fleet, station wiring, acquisition runtime, reporting, RBAC, or
-sync.
+Release `0.14.0` adds the editable universal `Général` inheritance root, actual
+document upload, explicit required/optional semantics, field editing and
+archival, and the first physical-material registration flow. It does not add
+station wiring, acquisition runtime, reporting, RBAC, or final sync.
 
 ## Normal User Flow
 
@@ -29,14 +28,14 @@ Administration du referentiel is centered on the selected category:
   state;
 - `Sous-categories`: direct children and child creation under any selected
   category;
-- `Formulaire`: visible category fields, required/optional flags, grouping and
-  direct rule removal;
-- `Previsualisation`: the form a technician will see when creating equipment in
-  that category;
-- `Diagnostic avance`: internal IDs, checksums and inherited rule details.
+- `Formulaire`: field creation/editing/archival, visible category fields,
+  required/optional flags, grouping, inheritance origin and direct rule
+  removal;
+- `Aperçu`: the technician form plus repliable technical evidence.
 
-This area is for laboratory managers configuring what fields matter in the
-equipment repository. It is not a physical fleet or station wiring screen.
+The category tree starts at `Général`; every classification family inherits its
+rules. The physical-material tab is separate because a reusable model and a
+serial-numbered laboratory asset have different lifecycles.
 
 ## Category Tree Behavior
 
@@ -53,8 +52,7 @@ Field creation is label-first:
 1. Enter the business label, description/help text, field type, choices or
    units, and display group.
 2. The internal field code is generated automatically from the label.
-3. Technical identifiers are shown only in expandable advanced options and in
-   Diagnostic avance.
+3. Technical identifiers are shown only in expandable advanced options.
 4. Choice fields use a visible list editor for values such as `Faible`,
    `Normale`, `Haute`, and `Critique`.
 
@@ -62,10 +60,18 @@ Field creation is label-first:
 
 ## Form Preview
 
-Previsualisation shows the final technician form using business labels and
-required markers. It intentionally hides template checksum, internal field IDs,
-field codes, category IDs, revision IDs, schema versions, and raw JSON. Those
-details remain available in Diagnostic avance.
+Aperçu shows the final technician form using business labels and explicit
+`Obligatoire`/`Optionnel` badges. It hides template checksum, internal field
+IDs, field codes, category IDs, revision IDs, schema versions, and raw JSON
+until `Informations techniques` is expanded.
+
+## Physical Materials
+
+`Matériels réels` starts from an approved equipment model and requires an asset
+reference and serial number. The form copies manufacturer, model, family,
+category, and capabilities into the metrology registration contract, then asks
+for calibration applicability, periodicity, warning window and serviceability.
+Calibration events and certificates continue through the metrology domain.
 
 ## Demo Data
 

@@ -139,6 +139,11 @@ Deliverables:
   focused modal task, and desktop/mobile layouts preserve usable editor width.
   It also carries the post-0.13.2 planning overlap guards and adds no new
   acquisition or laboratory domain vertical.
+- `0.14.0` adds universal equipment-form inheritance through an editable
+  `Général` root, actual content-addressed equipment document upload, explicit
+  required/optional form semantics, field maintenance, and the first
+  serial-numbered material registration path backed by metrology. It does not
+  yet provide station connections or a physical measurement-chain builder.
 
 ## Phase 3: Measurement Runtime
 
@@ -481,10 +486,9 @@ Deliverables:
 
 ## Near-Term Next Session
 
-Recommended next vertical: `0.14.0 - Physical Asset Fleet, Station Connections
-And Measurement Chain Drafting`. It should connect approved equipment models,
-sensors, curves, DAQ profiles, and recipes to physical serial-numbered assets
-and station-level connection bindings. It should not become a real acquisition
+Recommended next vertical: `0.14.1 - Station Connections And Measurement Chain
+Drafting`. It should connect the new physical asset records, sensors, curves,
+DAQ profiles, and recipes to station-level connection bindings. It should not become a real acquisition
 runtime, FFT engine, report generator, RBAC implementation, or central sync.
 
 The parallel runtime stream should continue guarded serial or VISA IO behind the

@@ -21,6 +21,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
 
 [[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
 name = "bitflags"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -94,8 +100,9 @@ dependencies = [
 
 [[package]]
 name = "emc-locus-agent"
-version = "0.13.3"
+version = "0.14.0"
 dependencies = [
+ "base64",
  "emc-locus-core",
  "rusqlite",
  "serde",
@@ -107,7 +114,7 @@ dependencies = [
 
 [[package]]
 name = "emc-locus-core"
-version = "0.13.3"
+version = "0.14.0"
 dependencies = [
  "serde",
  "serde_json",

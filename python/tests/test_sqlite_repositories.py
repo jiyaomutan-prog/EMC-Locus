@@ -824,16 +824,20 @@ class MetrologyRepositoryTests(unittest.TestCase):
                     ("LEGACY-001",),
                 ).fetchall()
 
-            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4, 5, 6, 7])
-            self.assertIn("category_code", {row["name"] for row in instrument_columns})
-            self.assertIn("part_number", {row["name"] for row in instrument_columns})
-            self.assertIn("calibration_period_months", {row["name"] for row in instrument_columns})
+            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4, 5, 6, 7, 8])
+            column_names = {row["name"] for row in instrument_columns}
+            self.assertIn("category_code", column_names)
+            self.assertIn("part_number", column_names)
+            self.assertIn("calibration_period_months", column_names)
             self.assertIn(
                 "calibration_due_warning_days",
-                {row["name"] for row in instrument_columns},
+                column_names,
             )
-            self.assertIn("serviceability_status", {row["name"] for row in instrument_columns})
-            self.assertIn("legacy_availability", {row["name"] for row in instrument_columns})
+            self.assertIn("serviceability_status", column_names)
+            self.assertIn("legacy_availability", column_names)
+            self.assertIn("equipment_model_id", column_names)
+            self.assertIn("equipment_model_revision_id", column_names)
+            self.assertIn("equipment_model_checksum", column_names)
             self.assertTrue(calibration_events_exists)
             self.assertTrue(metrology_audit_events_exists)
             self.assertEqual(repository.category_count(), 34)

@@ -37,7 +37,10 @@ calibration-status policy metadata while preserving the legacy
 agent-owned metrology writes can produce local audit evidence and sync outbox
 operations atomically. Version 7 backfills legacy `calibration_records` into
 `calibration_events` for the agent-backed computed-status and readiness paths
-without deleting the original records.
+without deleting the original records. Version 8 adds an optional, indivisible
+Equipment Repository model identity, revision, and canonical checksum reference
+to physical instruments. No cross-database foreign key or taxonomy alias is
+invented between equipment categories and metrology instrument categories.
 
 ### Projects
 
@@ -107,6 +110,12 @@ definitions, category field rules, model field values, model template
 snapshots, `root_category_id` summaries, and `is_demo` summaries. This
 migration seeds structural taxonomy/template defaults only and does not seed
 demo models, demo sensors, demo drivers, or demo acquisition recipes.
+Version 5 inserts `general_equipment` above the seven classification families,
+moves common rules to that universal inheritance root, archives the provisional
+`variant` and documentation-URL defaults, and introduces a typed
+`file_reference` documentation field. File payloads are stored outside SQLite
+under the local storage root; immutable model JSON stores their SHA-256
+manifest.
 
 ### Measurement Data
 

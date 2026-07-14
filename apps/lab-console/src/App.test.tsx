@@ -275,6 +275,65 @@ describe("LAB CONSOLE", () => {
     expect(await screen.findByText(/No VISA implementation installed/)).toBeInTheDocument();
   });
 
+  test("registers a physical asset from an approved equipment model", async () => {
+    const instruments: Array<Record<string, unknown>> = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/health") return jsonResponse(healthFixture);
+      if (path === "/api/v1/storage/status") return jsonResponse(storageFixture);
+      if (path === "/api/v1/test-templates") return jsonResponse({ test_templates: [templateFixture()] });
+      if (path === "/api/v1/equipment/registries") return jsonResponse(equipmentRegistriesFixture());
+      if (path === "/api/v1/equipment/classification-presets") return jsonResponse({ presets: [] });
+      if (path === "/api/v1/equipment-models" || path.startsWith("/api/v1/equipment-models?")) {
+        return jsonResponse({ equipment_models: [equipmentModelFixture()] });
+      }
+      if (path === "/api/v1/driver-profiles") return jsonResponse({ driver_profiles: [] });
+      if (path === "/api/v1/equipment/communication-providers") return jsonResponse({ providers: [] });
+      if (path === "/api/v1/metrology/instruments" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        const instrument = {
+          ...body,
+          category_code: body.category_code ?? null,
+          part_number: body.part_number ?? null,
+          serviceability_reason: body.serviceability_reason ?? "",
+          metrology_notes: body.metrology_notes ?? "",
+          created_at: "2026-07-14T00:00:00Z",
+          updated_at: "2026-07-14T00:00:00Z",
+          revision: "rev-0001",
+          latest_calibration: null,
+          latest_calibration_event: null
+        };
+        instruments.push(instrument);
+        return jsonResponse({ instrument });
+      }
+      if (path === "/api/v1/metrology/instruments") return jsonResponse({ instruments });
+      return mockBaseApiResponse(path, init);
+    });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Équipements" }));
+    await user.click(await screen.findByRole("button", { name: "Matériels réels" }));
+    await user.type(screen.getByLabelText(/Référence du matériel/), "SA-LAB-001");
+    await user.type(screen.getByLabelText(/Numéro de série/), "SN-7788");
+    await user.type(screen.getByLabelText(/Part number/), "PN-NRP6AN");
+    await user.click(screen.getByRole("button", { name: "Enregistrer le matériel" }));
+
+    await waitFor(() => expect(instruments).toHaveLength(1));
+    const request = fetchMock.mock.calls.find(([path, options]) =>
+      String(path) === "/api/v1/metrology/instruments" && (options as RequestInit | undefined)?.method === "POST"
+    );
+    const body = JSON.parse(String((request?.[1] as RequestInit).body));
+    expect(body.serial_number).toBe("SN-7788");
+    expect(body.manufacturer).toBe("R&S");
+    expect(body.model).toBe("NRP6AN");
+    expect(body.category_code).toBeUndefined();
+    expect(body.equipment_model_id).toBe("EQM-NRP6AN-FWD");
+    expect(body.equipment_model_revision_id).toBe("EQM-NRP6AN-FWD-rev-0001");
+    expect(body.equipment_model_checksum).toBe(equipmentModelFixture().current_approved_revision?.definition_checksum);
+  });
+
   test("filters equipment catalog and creates a model from a category template", async () => {
     const createdModel = rfCableModelFixture();
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -345,7 +404,6 @@ describe("LAB CONSOLE", () => {
     await waitFor(() => expect(wizard.getByLabelText(/Fabricant/)).toBeInTheDocument());
     await user.type(wizard.getByLabelText(/Fabricant/), "Demo");
     await user.type(wizard.getByLabelText(/Modèle/), "RF Cable");
-    await user.type(wizard.getByLabelText(/Variante/), "1m");
     await user.type(wizard.getByLabelText(/Connecteur A/), "N");
     await user.type(wizard.getByLabelText(/Connecteur B/), "N");
     await user.click(wizard.getByRole("button", { name: "Continuer" }));
@@ -505,6 +563,17 @@ describe("LAB CONSOLE", () => {
         fields = [...fields, field];
         return jsonResponse({ field_definition: field });
       }
+      if (path.startsWith("/api/v1/equipment/field-definitions/") && init?.method === "PUT") {
+        const fieldId = decodeURIComponent(path.split("/api/v1/equipment/field-definitions/")[1]);
+        const body = JSON.parse(String(init.body));
+        fields = fields.map((field) => field.field_id === fieldId ? { ...field, ...body, field_code: field.field_code } : field);
+        return jsonResponse({ field_definition: fields.find((field) => field.field_id === fieldId) });
+      }
+      if (path.endsWith("/archive") && path.includes("/api/v1/equipment/field-definitions/") && init?.method === "POST") {
+        const fieldId = decodeURIComponent(path.split("/api/v1/equipment/field-definitions/")[1].split("/")[0]);
+        fields = fields.map((field) => field.field_id === fieldId ? { ...field, active: false } : field);
+        return jsonResponse({ field_definition: fields.find((field) => field.field_id === fieldId) });
+      }
       if (path.startsWith("/api/v1/equipment/field-definitions")) return jsonResponse({ field_definitions: fields });
       return mockBaseApiResponse(path, init);
     });
@@ -523,26 +592,31 @@ describe("LAB CONSOLE", () => {
 
     await user.click(screen.getByText("Amplificateurs"));
     await user.click(screen.getByRole("button", { name: "Sous-categories" }));
-    await user.type(screen.getByLabelText("Nom de la sous-categorie"), "Amplificateurs faible bruit");
-    expect(screen.getByLabelText("Identifiant interne")).not.toBeVisible();
+    await user.type(screen.getByLabelText(/Nom de la sous-categorie/), "Amplificateurs faible bruit");
+    expect(screen.getByLabelText(/Identifiant interne/)).not.toBeVisible();
     await user.click(screen.getByRole("button", { name: /Creer la sous-categorie/ }));
     await waitFor(() => expect(document.querySelector('[data-category-id="amplificateurs_faible_bruit"]')).not.toBeNull());
 
     await user.click(document.querySelector('[data-category-id="amplificateurs_faible_bruit"]') as HTMLElement);
     await user.click(screen.getByRole("button", { name: "Formulaire" }));
     await user.type(screen.getByLabelText("Nom du champ"), "Criticite terrain");
-    expect(screen.getByLabelText("Nom technique genere")).not.toBeVisible();
+    expect(screen.getByLabelText("Nom technique")).not.toBeVisible();
     await user.type(screen.getByPlaceholderText("Nouvelle valeur"), "Surveillance");
     await user.click(screen.getByRole("button", { name: "Ajouter une valeur" }));
     expect(screen.getByText("Surveillance")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Creer le champ/ }));
     await waitFor(() => expect(fields.some((field) => field.field_code === "criticite_terrain")).toBe(true));
+    await user.click(screen.getByRole("button", { name: "Modifier Criticite terrain" }));
+    await user.clear(screen.getByLabelText("Nom du champ"));
+    await user.type(screen.getByLabelText("Nom du champ"), "Criticite mission");
+    await user.click(screen.getByRole("button", { name: "Enregistrer" }));
+    await waitFor(() => expect(fields.some((field) => field.label === "Criticite mission")).toBe(true));
     await user.click(screen.getByRole("button", { name: /Ajouter au formulaire/ }));
 
-    await user.click(screen.getByRole("button", { name: "Previsualisation" }));
-    expect(await screen.findByText("Criticite terrain")).toBeInTheDocument();
-    expect(screen.queryByText("sha256:admin-template")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Diagnostic avance" }));
+    await user.click(screen.getByRole("button", { name: "Apercu" }));
+    expect(await screen.findByText("Criticite mission")).toBeInTheDocument();
+    expect(screen.getByText("sha256:admin-template")).not.toBeVisible();
+    await user.click(screen.getByText("Informations techniques"));
     expect(screen.getAllByText("sha256:admin-template").length).toBeGreaterThanOrEqual(1);
   });
 
@@ -919,8 +993,21 @@ function equipmentCategoriesFixture(): EquipmentCategoryFixture[] {
   const now = "2026-07-13T00:00:00Z";
   return [
     {
-      category_id: "energy_sources",
+      category_id: "general_equipment",
       parent_category_id: null,
+      root_category_id: "general_equipment",
+      label: "Général",
+      description: "Champs communs",
+      sort_order: 0,
+      active: true,
+      system_defined: true,
+      created_at: now,
+      updated_at: now,
+      children: []
+    },
+    {
+      category_id: "energy_sources",
+      parent_category_id: "general_equipment",
       root_category_id: "energy_sources",
       label: "Sources d'énergie",
       description: "",
@@ -933,7 +1020,7 @@ function equipmentCategoriesFixture(): EquipmentCategoryFixture[] {
     },
     {
       category_id: "signal_sources",
-      parent_category_id: null,
+      parent_category_id: "general_equipment",
       root_category_id: "signal_sources",
       label: "Sources de signaux",
       description: "",
@@ -946,7 +1033,7 @@ function equipmentCategoriesFixture(): EquipmentCategoryFixture[] {
     },
     {
       category_id: "rf_equipment",
-      parent_category_id: null,
+      parent_category_id: "general_equipment",
       root_category_id: "rf_equipment",
       label: "Équipements radiofréquences",
       description: "",
@@ -959,7 +1046,7 @@ function equipmentCategoriesFixture(): EquipmentCategoryFixture[] {
     },
     {
       category_id: "sensors_transducers",
-      parent_category_id: null,
+      parent_category_id: "general_equipment",
       root_category_id: "sensors_transducers",
       label: "Capteurs / transducteurs",
       description: "",
@@ -972,7 +1059,7 @@ function equipmentCategoriesFixture(): EquipmentCategoryFixture[] {
     },
     {
       category_id: "actuators_emitters",
-      parent_category_id: null,
+      parent_category_id: "general_equipment",
       root_category_id: "actuators_emitters",
       label: "Actionneurs / Emetteurs",
       description: "",
@@ -985,7 +1072,7 @@ function equipmentCategoriesFixture(): EquipmentCategoryFixture[] {
     },
     {
       category_id: "measurement_instruments_digitizers",
-      parent_category_id: null,
+      parent_category_id: "general_equipment",
       root_category_id: "measurement_instruments_digitizers",
       label: "Instruments de mesure / numériseurs",
       description: "",
@@ -998,7 +1085,7 @@ function equipmentCategoriesFixture(): EquipmentCategoryFixture[] {
     },
     {
       category_id: "processing_control_systems",
-      parent_category_id: null,
+      parent_category_id: "general_equipment",
       root_category_id: "processing_control_systems",
       label: "Systèmes de traitement et de contrôle",
       description: "",
@@ -1083,9 +1170,14 @@ function equipmentFieldDefinitionsFixture() {
   return [
     field("field_manufacturer", "manufacturer", "Fabricant", true),
     field("field_model_name", "model_name", "Modèle", true),
-    field("field_variant", "variant", "Variante"),
     field("field_connector_a", "connector_a", "Connecteur A"),
-    field("field_connector_b", "connector_b", "Connecteur B")
+    field("field_connector_b", "connector_b", "Connecteur B"),
+    {
+      ...field("field_documentation_file", "documentation", "Documentation"),
+      data_type: "file_reference",
+      display_group: "Documents",
+      display_order: 900
+    }
   ];
 }
 
@@ -1096,6 +1188,7 @@ function effectiveTemplateFixture() {
     category: categories.find((category) => category.category_id === "rf_cable"),
     root_category: categories.find((category) => category.category_id === "rf_equipment"),
     category_path: [
+      categories.find((category) => category.category_id === "general_equipment"),
       categories.find((category) => category.category_id === "rf_equipment"),
       categories.find((category) => category.category_id === "rf_cable")
     ].filter(Boolean),
@@ -1107,7 +1200,7 @@ function effectiveTemplateFixture() {
       display_order: (index + 1) * 10,
       default_value: null,
       help_text: null,
-      inherited_from_category_ids: field.field_code.startsWith("connector") ? ["rf_cable"] : ["rf_equipment"]
+      inherited_from_category_ids: field.field_code.startsWith("connector") ? ["rf_cable"] : ["general_equipment"]
     })),
     template_checksum: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
   };
@@ -1178,6 +1271,7 @@ function mockBaseApiResponse(path: string, init?: RequestInit) {
   if (path.startsWith("/api/v1/equipment/categories/rf_cable/field-rules")) return jsonResponse({ category_id: "rf_cable", rules: [] });
   if (path.startsWith("/api/v1/equipment/categories")) return jsonResponse({ categories: equipmentCategoriesFixture() });
   if (path.startsWith("/api/v1/equipment/field-definitions")) return jsonResponse({ field_definitions: equipmentFieldDefinitionsFixture() });
+  if (path === "/api/v1/metrology/instruments") return jsonResponse({ instruments: [] });
   if (path === "/api/v1/test-templates/TT-LAB-001") return jsonResponse({ test_template: templateFixture() });
   if (path.includes("/revisions/TT-LAB-001-rev-0001") && !path.endsWith("/definition") && !path.includes("/transitions/")) return jsonResponse({ revision: revisionFixture() });
   if (path === "/api/v1/test-templates/TT-LAB-001/revisions") return jsonResponse({ template_id: "TT-LAB-001", revisions: [revisionFixture()] });

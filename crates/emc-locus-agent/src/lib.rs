@@ -44,7 +44,7 @@ pub use equipment_service::{
     list_equipment_category_field_rules_json, list_equipment_field_definitions_json,
     list_equipment_model_revisions, list_equipment_models, move_equipment_category_json,
     replace_driver_profile_revision_definition, replace_equipment_category_field_rules_json,
-    replace_equipment_model_revision_definition, simulate_driver_profile,
+    replace_equipment_model_revision_definition, simulate_driver_profile, store_equipment_file,
     transition_driver_profile_revision, transition_equipment_model_revision,
     update_equipment_category_json, update_equipment_field_definition_json,
     validate_driver_profile_definition_json, validate_equipment_model_definition_json,
@@ -55,7 +55,7 @@ pub use equipment_service::{
     ListEquipmentCategoriesInput, ListEquipmentFieldDefinitionsInput, ListEquipmentModelsInput,
     MoveEquipmentCategoryInput, ReplaceDriverProfileDefinitionInput,
     ReplaceEquipmentCategoryFieldRulesInput, ReplaceEquipmentModelDefinitionInput,
-    SimulateDriverProfileInput, TransitionDriverProfileRevisionInput,
+    SimulateDriverProfileInput, StoreEquipmentFileInput, TransitionDriverProfileRevisionInput,
     TransitionEquipmentModelRevisionInput, UpdateEquipmentCategoryInput,
     UpsertEquipmentFieldDefinitionInput,
 };
@@ -908,7 +908,7 @@ mod tests {
                 .find(|domain| domain.domain == "metrology")
                 .unwrap()
                 .schema_version,
-            Some(7)
+            Some(8)
         );
         assert_eq!(
             second_report
@@ -917,7 +917,7 @@ mod tests {
                 .find(|domain| domain.domain == "equipment")
                 .unwrap()
                 .schema_version,
-            Some(4)
+            Some(5)
         );
         assert_eq!(
             second_report

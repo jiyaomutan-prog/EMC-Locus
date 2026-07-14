@@ -1,6 +1,51 @@
 use super::*;
 
 #[test]
+fn equipment_file_reference_requires_a_canonical_manifest() {
+    let manifest = serde_json::json!({
+        "object_id": format!("sha256:{}", "a".repeat(64)),
+        "original_filename": "datasheet.pdf",
+        "mime_type": "application/pdf",
+        "size_bytes": 1024,
+        "sha256": "a".repeat(64),
+        "storage_key": format!("objects/equipment/aa/{}", "a".repeat(64))
+    });
+    let mut field = EquipmentFieldDefinition {
+        field_id: "field_documentation".to_owned(),
+        field_code: "documentation".to_owned(),
+        label: "Documentation".to_owned(),
+        description: String::new(),
+        data_type: EquipmentFieldDataType::FileReference,
+        scope: EquipmentFieldScope::EquipmentModel,
+        required_by_default: false,
+        visible_by_default: true,
+        unique_value: false,
+        unit_quantity: None,
+        allowed_units: Vec::new(),
+        option_values: Vec::new(),
+        validation_regex: None,
+        default_value: Some(manifest),
+        active: true,
+        system_defined: true,
+    };
+
+    assert!(validate_equipment_field_definition(&field).is_empty());
+
+    field.default_value = Some(serde_json::json!({
+        "object_id": format!("sha256:{}", "B".repeat(64)),
+        "original_filename": "datasheet.pdf",
+        "mime_type": "application/pdf",
+        "size_bytes": 1024,
+        "sha256": "B".repeat(64),
+        "storage_key": "objects/equipment/bb/invalid"
+    }));
+    let issues = validate_equipment_field_definition(&field);
+    assert!(issues
+        .iter()
+        .any(|issue| issue.code == "equipment_file_reference_invalid"));
+}
+
+#[test]
 fn project_code_rejects_empty_values() {
     let error = ProjectCode::parse("   ").unwrap_err();
     assert_eq!(error, DomainError::EmptyProjectCode);

@@ -26,6 +26,7 @@ import type {
   EquipmentClassificationPreset,
   EquipmentEffectiveTemplate,
   EquipmentFieldDefinition,
+  EquipmentFileReference,
   EquipmentRegistries,
   EquipmentModelAggregate,
   EquipmentModelDefinition,
@@ -39,6 +40,10 @@ import type {
   MeasurementEngineeringOperationResult,
   MeasurementEngineeringRevision
 } from "./models/equipment";
+import type {
+  MetrologyInstrument,
+  RegisterMetrologyInstrumentInput
+} from "./models/metrology";
 
 export class ApiError extends Error {
   readonly code: string;
@@ -364,6 +369,12 @@ export const equipmentApi = {
     request<{ effective_template: EquipmentEffectiveTemplate }>(
       `/api/v1/equipment/categories/${encodeURIComponent(categoryId)}/effective-template`
     ),
+  uploadFile: async (file: File) =>
+    post<{ file: EquipmentFileReference }>("/api/v1/equipment/files", {
+      original_filename: file.name,
+      mime_type: file.type || "application/octet-stream",
+      content_base64: await fileToBase64(file)
+    }),
   listClassificationPresets: () =>
     request<{ presets: EquipmentClassificationPreset[] }>("/api/v1/equipment/classification-presets"),
   getClassificationPreset: (presetId: string) =>
@@ -582,6 +593,26 @@ export const equipmentApi = {
       "/api/v1/equipment/communication-providers"
     )
 };
+
+export const metrologyApi = {
+  listInstruments: () =>
+    request<{ instruments: MetrologyInstrument[] }>("/api/v1/metrology/instruments"),
+  registerInstrument: (input: RegisterMetrologyInstrumentInput) =>
+    post<{ instrument: MetrologyInstrument }>("/api/v1/metrology/instruments", {
+      ...input,
+      operation_id: operationId("metrology-register", input.asset_id)
+    })
+};
+
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const chunks: string[] = [];
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + chunkSize)));
+  }
+  return btoa(chunks.join(""));
+}
 
 export interface MeasurementEngineeringConfig {
   collection: MeasurementEngineeringCollection;

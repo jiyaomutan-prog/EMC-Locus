@@ -819,6 +819,10 @@ td textarea {
   grid-template-columns: 330px minmax(0, 1fr);
 }
 
+.equipmentLayout > * {
+  min-width: 0;
+}
+
 .equipmentList {
   align-content: start;
   background: #fff;
@@ -1246,6 +1250,162 @@ td textarea {
 .templatePreview span,
 .templatePreview small {
   overflow-wrap: anywhere;
+}
+
+.templateField {
+  display: grid;
+  gap: 6px;
+}
+
+.fieldCaption {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: space-between;
+}
+
+.requirementBadge {
+  border: 1px solid #cbd4cf;
+  color: #526059;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 5px;
+  white-space: nowrap;
+}
+
+.requirementBadge.required {
+  background: #fff0ed;
+  border-color: #d7a098;
+  color: #7b241c;
+}
+
+.requirementBadge.optional {
+  background: #f3f6f4;
+}
+
+.fieldRequirementLegend {
+  align-items: center;
+  background: #f7f9f7;
+  border-left: 3px solid #7b9f90;
+  color: #536159;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 7px 10px;
+  padding: 8px 10px;
+}
+
+.fileReferenceField input[type="file"] {
+  border: 1px dashed #91a49b;
+  padding: 12px;
+}
+
+.uploadedFile {
+  align-items: center;
+  background: #edf5f0;
+  border: 1px solid #b5d3bf;
+  display: grid;
+  gap: 2px 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 8px 10px;
+}
+
+.uploadedFile strong,
+.uploadedFile small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.uploadedFile .iconButton {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.fieldCode {
+  color: #65736c;
+  display: block;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  margin-top: 3px;
+}
+
+.inactiveRow {
+  color: #758079;
+  opacity: 0.72;
+}
+
+.tableActions {
+  display: flex;
+  gap: 5px;
+}
+
+.structuralFieldLabel {
+  color: #596860;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 2px;
+}
+
+.diagnosticDetails {
+  margin-top: 12px;
+}
+
+.physicalAssetRow {
+  border: 1px solid #d9dfd7;
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+}
+
+.physicalAssetRow > span,
+.physicalAssetRow > small {
+  overflow-wrap: anywhere;
+}
+
+.physicalAssetForm {
+  display: grid;
+  gap: 14px;
+}
+
+.physicalAssetForm textarea {
+  min-height: 90px;
+}
+
+.physicalAssetForm .formGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: none;
+  width: 100%;
+}
+
+.physicalAssetForm .formGrid > label,
+.physicalAssetForm .formGrid input,
+.physicalAssetForm .formGrid select {
+  min-width: 0;
+  width: 100%;
+}
+
+@media (max-width: 1050px) {
+  .physicalAssetForm .formGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.status.usable {
+  background: #e5f2eb;
+  color: #17422d;
+}
+
+.status.restricted {
+  background: #fff4d8;
+  color: #574207;
+}
+
+.status.out_of_service,
+.status.retired {
+  background: #f4e5e3;
+  color: #73271f;
 }
 
 .unitField {
