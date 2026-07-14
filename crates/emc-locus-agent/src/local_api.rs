@@ -80,6 +80,7 @@ use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
     fs,
+    io::Read,
     path::{Component, Path, PathBuf},
 };
 use tiny_http::{Header, Response, Server, StatusCode};
@@ -157,12 +158,10 @@ pub fn run_local_api_server(config: ApiServerConfig) -> Result<(), AgentError> {
     for (handled, mut request) in server.incoming_requests().enumerate() {
         let method = request.method().as_str().to_owned();
         let url = request.url().to_owned();
-        let mut body = String::new();
-        request
-            .as_reader()
-            .read_to_string(&mut body)
-            .map_err(|error| AgentError::new("api_read_failed", error.to_string()))?;
-        let response = handle_api_request(&method, &url, &body, &config);
+        let response = match read_api_request_body(request.as_reader()) {
+            Ok(body) => handle_api_request(&method, &url, &body, &config),
+            Err(error) => json_response(400, error.to_json()),
+        };
         let content_type = Header::from_bytes("Content-Type", response.content_type.as_str())
             .expect("static content-type header is valid");
         let mut http_response = Response::from_string(response.body)
@@ -185,6 +184,19 @@ pub fn run_local_api_server(config: ApiServerConfig) -> Result<(), AgentError> {
         }
     }
     Ok(())
+}
+
+fn read_api_request_body(reader: &mut dyn Read) -> Result<String, AgentError> {
+    let mut body = Vec::new();
+    reader
+        .read_to_end(&mut body)
+        .map_err(|error| AgentError::new("api_read_failed", error.to_string()))?;
+    String::from_utf8(body).map_err(|_| {
+        AgentError::new(
+            "api_request_body_not_utf8",
+            "request body must contain valid UTF-8",
+        )
+    })
 }
 
 pub fn handle_api_request(
@@ -2214,6 +2226,7 @@ fn status_for_error(code: &str) -> u16 {
         | "driver_profile_revision_not_found"
         | "measurement_engineering_not_found"
         | "measurement_engineering_revision_not_found"
+        | "signal_transformation_reference_not_found"
         | "metrology_instrument_not_found" => 404,
         "contract_review_incomplete"
         | "invalid_project_transition"
@@ -2257,6 +2270,8 @@ fn status_for_error(code: &str) -> u16 {
         | "measurement_engineering_revision_transition_conflict"
         | "measurement_engineering_revision_transition_not_allowed"
         | "measurement_engineering_revision_checksum_invalid"
+        | "signal_transformation_reference_not_controlled"
+        | "signal_transformation_checksum_mismatch"
         | "attached_document_already_exists"
         | "operation_replay_mismatch"
         | "metrology_instrument_already_exists"
@@ -2856,6 +2871,89 @@ mod tests {
         );
         assert_eq!(evaluation.status, 200, "{}", evaluation.body);
         assert!(evaluation.body.contains("\"correction_db\":1.0"));
+
+        let curve_detail = handle_api_request(
+            "GET",
+            "/api/v1/engineering-curves/demo-current-probe-transfer",
+            "",
+            &config,
+        );
+        assert_eq!(curve_detail.status, 200, "{}", curve_detail.body);
+        let curve_detail_json: Value = serde_json::from_str(&curve_detail.body).unwrap();
+        let curve_checksum = curve_detail_json["item"]["current_approved_revision"]
+            ["definition_checksum"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        let mut corrected_model = equipment_model_definition("Demo", "Spectrum Receiver", None);
+        corrected_model["signal_domains"] = json!(["rf", "ethernet", "software"]);
+        corrected_model["signal_ports"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "port_id": "measurement_result",
+                "label": "Measured spectrum",
+                "directionality": "output",
+                "flow_role": "transducer_output_port",
+                "signal_domain": "software",
+                "required": true,
+                "quantity": "power",
+                "unit": "dBm"
+            }));
+        corrected_model["signal_paths"] = json!([{
+            "path_id": "rf_input_to_spectrum",
+            "label": "RF input corrected spectrum",
+            "input_port_id": "rf_input",
+            "output_port_id": "measurement_result",
+            "transformations": [{
+                "transformation_kind": "frequency_response",
+                "entity_id": "demo-current-probe-transfer",
+                "revision_id": curve_revision_id,
+                "definition_checksum": curve_checksum
+            }]
+        }]);
+        let corrected_model_created = handle_api_request(
+            "POST",
+            "/api/v1/equipment-models",
+            &json!({
+                "equipment_model_id": "EQM-SPECTRUM-RECEIVER",
+                "definition": corrected_model.clone(),
+                "actor": "equipment.author",
+                "reason": "bind controlled frequency response",
+                "operation_id": "op-eqm-frequency-response-create"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(
+            corrected_model_created.status, 200,
+            "{}",
+            corrected_model_created.body
+        );
+        assert!(corrected_model_created
+            .body
+            .contains("demo-current-probe-transfer"));
+
+        corrected_model["signal_paths"][0]["transformations"][0]["definition_checksum"] =
+            json!("sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        let stale_reference = handle_api_request(
+            "POST",
+            "/api/v1/equipment-models",
+            &json!({
+                "equipment_model_id": "EQM-SPECTRUM-RECEIVER-STALE",
+                "definition": corrected_model,
+                "actor": "equipment.author",
+                "reason": "reject stale frequency response",
+                "operation_id": "op-eqm-frequency-response-stale"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(stale_reference.status, 409, "{}", stale_reference.body);
+        assert!(stale_reference
+            .body
+            .contains("signal_transformation_checksum_mismatch"));
 
         create_and_approve_measurement(
             &config,
@@ -5171,6 +5269,41 @@ mod tests {
 
         assert_eq!(transition.status, 200);
         assert!(transition.body.contains("\"stage\":\"test_planning\""));
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn real_http_server_rejects_non_utf8_body_without_stopping() {
+        let storage_root = temporary_storage_root("agent-api-invalid-utf8");
+        let port = free_loopback_port();
+        let address = format!("127.0.0.1:{port}");
+        let server = spawn_server(ApiServerConfig {
+            bind: address.clone(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: Some(3),
+        });
+
+        assert_eq!(wait_for_http(&address, "/api/v1/health").0, 200);
+
+        let mut stream = TcpStream::connect(&address).unwrap();
+        let headers = format!(
+            "POST /api/v1/equipment-models HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: 1\r\nConnection: close\r\n\r\n"
+        );
+        stream.write_all(headers.as_bytes()).unwrap();
+        stream.write_all(&[0xff]).unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+
+        assert!(response.starts_with("HTTP/1.1 400"));
+        assert!(response.contains("api_request_body_not_utf8"));
+        assert_eq!(http_request("GET", &address, "/api/v1/health", "").0, 200);
+        server
+            .join()
+            .expect("server thread panicked")
+            .expect("server stopped after a malformed request");
+
         remove_temporary_storage_root(&storage_root);
     }
 

@@ -65,6 +65,9 @@ use crate::{
         UpdateDriverDefinitionCounts, UpdateEquipmentCategoryRecord,
         UpdateEquipmentFieldDefinitionRecord, UpdateModelDefinitionCounts, UpdateStatusInput,
     },
+    measurement_engineering_repository::{
+        load_measurement_engineering_revision, MeasurementEngineeringStorageKind,
+    },
     render_json, AgentError,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
@@ -74,9 +77,10 @@ use emc_locus_core::equipment::{
     EquipmentEffectiveFieldRule, EquipmentFieldDataType, EquipmentFieldDefinition,
     EquipmentFieldScope, EquipmentModelDefinition, EquipmentModelTemplateSnapshot,
     EquipmentRevisionStatus, FunctionalRole, PhysicalQuantity, PortDirectionality, PortFlowRole,
-    ProtocolKind, SignalDomain, SignalPortDefinition, TechnologyTag, TransportKind,
-    EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION,
+    ProtocolKind, SignalDomain, SignalPortDefinition, SignalTransformationKind, TechnologyTag,
+    TransportKind, EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION,
 };
+use emc_locus_core::measurement_engineering::MeasurementEngineeringAggregateKind;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -1074,6 +1078,7 @@ pub fn create_equipment_model_from_preset(
             ),
         ));
     }
+    validate_signal_transformation_references(&connection, &parsed)?;
     if !equipment_model_class_exists(&connection, equipment_class_text(parsed.equipment_class))? {
         return Err(AgentError::new(
             "equipment_model_class_not_found",
@@ -1426,6 +1431,7 @@ pub fn create_equipment_model(
             ),
         ));
     }
+    validate_signal_transformation_references(&connection, &parsed)?;
     if !equipment_model_class_exists(&connection, equipment_class_text(parsed.equipment_class))? {
         return Err(AgentError::new(
             "equipment_model_class_not_found",
@@ -1594,6 +1600,7 @@ pub fn clone_equipment_model(
         .clone()
         .unwrap_or_else(|| format!("{} copy", source_identity.model_name));
     cloned_definition.variant = input.variant.clone().or(source_identity.variant.clone());
+    validate_signal_transformation_references(&connection, &cloned_definition)?;
     let canonical = cloned_definition
         .canonicalize()
         .map_err(|issues| invalid_definition_error("invalid_equipment_model_definition", issues))?;
@@ -1840,6 +1847,7 @@ pub fn replace_equipment_model_revision_definition(
             "only draft equipment model revisions can be edited",
         ));
     }
+    validate_signal_transformation_references(&connection, &parsed)?;
     let now = utc_timestamp()?;
     let transaction = connection
         .transaction()
@@ -2769,6 +2777,11 @@ fn transition_model_revision(
             format!("revision is {}, expected {expected}", revision.status),
         ));
     }
+    let parsed_definition = EquipmentModelDefinition::from_json_str(&revision.definition_json)
+        .map_err(|issue| {
+            invalid_definition_error("invalid_equipment_model_definition", vec![issue])
+        })?;
+    validate_signal_transformation_references(&connection, &parsed_definition)?;
     let now = utc_timestamp()?;
     let previous_approved = if target == EquipmentRevisionStatus::Approved {
         let identity = require_model_identity(&connection, &input.equipment_model_id)?;
@@ -2808,10 +2821,6 @@ fn transition_model_revision(
     } else {
         touch_equipment_model_identity(&transaction, &input.equipment_model_id, &now)?;
     }
-    let parsed_definition = EquipmentModelDefinition::from_json_str(&revision.definition_json)
-        .map_err(|issue| {
-            invalid_definition_error("invalid_equipment_model_definition", vec![issue])
-        })?;
     write_equipment_model_classification_summary(
         &transaction,
         EquipmentModelClassificationSummaryInput {
@@ -3655,6 +3664,7 @@ fn equipment_model_definition_from_category_template(
         technology_tags: technical.technology_tags,
         specifications: Vec::new(),
         signal_ports: technical.signal_ports,
+        signal_paths: Vec::new(),
         communication_interfaces: technical.communication_interfaces,
         capabilities: Vec::new(),
         custom_field_values,
@@ -4640,6 +4650,7 @@ fn equipment_model_definition_from_preset(
         technology_tags,
         specifications: Vec::new(),
         signal_ports,
+        signal_paths: Vec::new(),
         communication_interfaces: Vec::new(),
         capabilities: Vec::new(),
         custom_field_values: BTreeMap::new(),
@@ -4827,6 +4838,69 @@ fn validate_checksum(value: &str, field: &'static str) -> Result<(), AgentError>
             format!("{field} must be sha256:<64 lowercase hex characters>"),
             json!({ "field": field }),
         ));
+    }
+    Ok(())
+}
+
+fn validate_signal_transformation_references(
+    connection: &rusqlite::Connection,
+    definition: &EquipmentModelDefinition,
+) -> Result<(), AgentError> {
+    for signal_path in &definition.signal_paths {
+        for reference in &signal_path.transformations {
+            let aggregate_kind = match reference.transformation_kind {
+                SignalTransformationKind::SampleConversion => {
+                    MeasurementEngineeringAggregateKind::ScalingProfile
+                }
+                SignalTransformationKind::FrequencyResponse => {
+                    MeasurementEngineeringAggregateKind::EngineeringCurve
+                }
+            };
+            let storage_kind = MeasurementEngineeringStorageKind::from_core(aggregate_kind);
+            let revision = load_measurement_engineering_revision(
+                connection,
+                storage_kind,
+                &reference.entity_id,
+                &reference.revision_id,
+            )?
+            .ok_or_else(|| {
+                AgentError::with_details(
+                    "signal_transformation_reference_not_found",
+                    "signal path references an unknown conversion or frequency response",
+                    json!({
+                        "path_id": signal_path.path_id,
+                        "transformation_kind": enum_code(reference.transformation_kind),
+                        "entity_id": reference.entity_id,
+                        "revision_id": reference.revision_id
+                    }),
+                )
+            })?;
+            if !matches!(revision.status.as_str(), "approved" | "superseded") {
+                return Err(AgentError::with_details(
+                    "signal_transformation_reference_not_controlled",
+                    "signal paths may only reference approved or historically superseded definitions",
+                    json!({
+                        "path_id": signal_path.path_id,
+                        "entity_id": reference.entity_id,
+                        "revision_id": reference.revision_id,
+                        "status": revision.status
+                    }),
+                ));
+            }
+            if revision.definition_checksum != reference.definition_checksum {
+                return Err(AgentError::with_details(
+                    "signal_transformation_checksum_mismatch",
+                    "signal path transformation checksum does not match the controlled revision",
+                    json!({
+                        "path_id": signal_path.path_id,
+                        "entity_id": reference.entity_id,
+                        "revision_id": reference.revision_id,
+                        "expected_checksum": revision.definition_checksum,
+                        "provided_checksum": reference.definition_checksum
+                    }),
+                ));
+            }
+        }
     }
     Ok(())
 }

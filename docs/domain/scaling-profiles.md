@@ -1,48 +1,56 @@
-# Scaling Profiles
+# Time-Domain Sample Conversions
 
-Release `0.13.0` introduces `ScalingProfileDefinition` for reusable signal to
-engineering-value transformations. A scaling profile describes the mathematical
-conversion, for example volts to amperes for a current probe, volts to
-acceleration for an accelerometer, or a lookup table for a transducer sheet.
+The operator-facing term is **conversion temporelle**. The Rust aggregate keeps
+the technical name `ScalingProfileDefinition`, but its scope is deliberately
+narrow: it converts one time-domain sample from the electrical or raw quantity
+into the physical quantity used by the laboratory.
 
-A scaling profile is not a calibration event. A calibration event records that
-a physical asset was calibrated at a date, by a provider, with evidence and
-uncertainty. A scaling profile is a controlled transformation definition that
-may be referenced by many sensors or channel recipes.
+The usual linear law is:
 
-## Supported Kinds
+```text
+physical_value = gain * input_sample + offset
+```
+
+Examples include volts to amperes for a current probe, volts to acceleration
+for an accelerometer, or ADC counts to volts. The definition declares
+`signal_representation = time_domain_samples`; spectrum correction does not
+belong here.
+
+## Conversion Methods
 
 - `identity`;
-- `linear`, using `output = scale * input + offset`;
+- `linear`, with explicit gain and offset;
 - `two_point`;
 - `polynomial`;
 - `lookup_table`;
 - `piecewise_linear`;
-- `expression`.
+- `expression` using the controlled expression subset.
 
-The expression mode uses a limited DSL only. Allowed variables are `x`,
-`input`, `temperature`, and `frequency`; allowed functions include `pow`,
-`sqrt`, `log10`, `ln`, `abs`, `min`, and `max`. There is no unsafe eval.
+The expression subset allows `x`, `input`, `temperature`, and `frequency`, and
+the functions `pow`, `sqrt`, `log10`, `ln`, `abs`, `min`, and `max`. It does not
+use unrestricted evaluation.
 
-## CSV Lookup Format
+## Overload And Clipping
 
-Lookup-table and piecewise scaling data use a simple two-column CSV:
+`input_limits` optionally defines the finite minimum and maximum raw input for
+which the conversion is usable. `handling` records the future runtime policy:
 
-```text
-input,output
-0.0,0.0
-0.01,1.0
-```
+- `warn`: keep the value and report overload;
+- `reject`: refuse the out-of-range value;
+- `mark_clipped`: retain it with explicit clipping evidence.
 
-Decimal points use `.`, whitespace is trimmed, non-numeric values are rejected,
-and duplicate input values are rejected unless a future explicit step policy
-allows them.
+These limits describe the input chain, such as a DAQ range of `-10 V` to
+`+10 V`. They are not frequency coverage and do not replace the safe operating
+limits of the physical equipment.
 
-## Validation Boundary
+## Traceability Boundary
 
-Validation checks quantities, units, numeric finite parameters, monotonic
-lookup input where required, explicit interpolation/extrapolation policies, and
-expression safety. Evaluation inputs and computed outputs must remain finite;
-non-finite scaled engineering values are rejected instead of being returned as
-traceability evidence. It does not execute a live DAQ channel and does not
-replace metrology evidence for a serialized transducer.
+A conversion definition is revisioned, approved, and checksum-addressed. It is
+not a calibration event. Calibration records the state of a serialized asset,
+date, provider, uncertainty, and evidence. A transducer sheet or certificate
+may justify the conversion, while the controlled conversion remains the
+machine-readable contract referenced by an equipment signal path.
+
+Validation checks quantities, units, finite parameters, ordered lookup inputs,
+conversion expression safety, and coherent overload bounds. This release does
+not execute a live DAQ channel or apply the conversion to acquired samples.

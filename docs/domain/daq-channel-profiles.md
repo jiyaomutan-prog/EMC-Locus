@@ -11,7 +11,8 @@ not a concrete runtime channel on a connected station.
 - input quantity/unit for input channels;
 - supported ranges, resolution bits, min/max sampling rate;
 - coupling modes and input modes;
-- anti-alias filter, excitation capabilities, bridge completion, IEPE support;
+- anti-alias filter, sensor power/conditioning capabilities, bridge completion,
+  and IEPE support;
 - isolation, synchronization, triggering, and metadata.
 
 Supported channel kinds include analog input/output, digital input/output,

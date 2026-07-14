@@ -1,61 +1,59 @@
-# Engineering Curves
+# Frequency-Response Corrections
 
-Release `0.13.0` introduces `EngineeringCurveDefinition` for reusable
-correction artifacts such as antenna factor, cable loss, amplifier gain,
-attenuator loss, current-probe transfer, voltage-probe transfer, sensor
-frequency response, phase response, uncertainty, VSWR, S-parameter magnitude,
-site characterization, and generic correction curves.
+The operator-facing term is **réponse fréquentielle**. The Rust aggregate keeps
+the technical name `EngineeringCurveDefinition`, but its domain is explicit:
+it describes how a measured spectrum is compensated as a function of
+frequency. It declares `signal_representation = frequency_domain_spectrum`.
 
-An engineering curve is not a metrology certificate. The certificate is source
-evidence that may justify the curve and provide a source reference/checksum.
-The curve is the controlled, machine-readable correction artifact used by later
-templates, recipes, or execution packages.
+This differs from a time-domain conversion. A conversion applies gain and
+offset to each sampled value. A frequency response applies an amplitude value,
+and optionally a phase value, at each spectral frequency.
 
-## RF Concepts
+## Components And Operations
 
-- Antenna factor converts between received voltage and electric-field strength;
-  EMC workflows often express it as `dB_per_meter`.
-- Cable loss represents frequency-dependent attenuation and is commonly stored
-  as `dB` versus frequency.
-- Amplifier gain represents frequency-dependent gain and is commonly stored as
-  `dB` versus frequency.
-- Current-probe transfer represents probe frequency response or correction,
-  often expressed as a `dB` correction or transfer quantity depending on method.
+Every definition has one amplitude component. A phase component is optional.
+Each component declares the operation applied by a future runtime:
 
-## CSV Curve Format
+- `add` or `subtract`, typically for logarithmic dB values or phase;
+- `multiply` or `divide`, typically for linear ratios.
 
-For 1D frequency curves, LAB CONSOLE supports CSV paste/import/export such as:
+The operation is part of the controlled contract. It must not be guessed from
+the curve label or from whether stored values happen to be positive or
+negative. Amplitude is dimensionless and may be expressed as `dB` or a linear
+ratio. Phase uses an angle unit such as `deg` or `rad`.
+
+## RF Cable Example
+
+An RF cable model exposes two RF through ports and a declared operating band
+`Fmin` to `Fmax`. Its controlled loss response can be recorded as:
 
 ```text
-frequency_hz,correction_db
+frequency_hz,cable_loss_db
 10000000,0.2
 100000000,1.2
 1000000000,2.2
 ```
 
-Other supported value headers include method-specific names such as
-`antenna_factor_db_per_m`, `cable_loss_db`, or `gain_db`. Units are carried in
-definition metadata and dependent-value definitions, not repeated in each cell.
+For a method where measured level is compensated by cable loss, the amplitude
+component uses `operation = add`. Another laboratory method may deliberately
+choose a different operation; the revision makes that choice auditable. An
+optional `phase_correction_deg` column can be added when phase traceability is
+required.
 
-## Evaluation
+The point range provides the effective frequency coverage. Interpolation modes
+are `linear_x_linear_y`, `log_x_linear_y`, `linear_x_log_y`, `nearest`,
+`step_previous`, and `step_next`. Extrapolation is explicitly `forbidden`,
+`clamp`, `warn`, or `allow`.
 
-The local agent can deterministically evaluate 1D curves for draft or approved
-revisions. Supported interpolation modes are `linear_x_linear_y`,
-`log_x_linear_y`, `linear_x_log_y`, `nearest`, `step_previous`, and
-`step_next`. Extrapolation policies are `forbidden`, `clamp`, `warn`, and
-`allow`.
+## Traceability Boundary
 
-Validation rejects `log_x_linear_y` curves with non-positive x values and
-`linear_x_log_y` curves with non-positive dependent values, so logarithmic
-interpolation inputs are controlled before a revision can be submitted.
-Evaluation requests for `log_x_linear_y` curves also reject non-positive axis
-values before extrapolation or interpolation is applied. Evaluation results
-must remain finite, so extreme permitted extrapolation is rejected instead of
-returning non-finite correction evidence.
+The response is a controlled machine-readable artifact, not a metrology
+certificate. Its source reference and checksum can point to the certificate or
+calculation sheet maintained by the metrologist. Equipment paths pin the
+response identity, approved revision, and definition checksum.
 
-Evaluation returns the computed values, axis values, interpolation mode,
-whether extrapolation occurred, optional warning, source revision id, and source
-checksum. Source checksums must use canonical
-`sha256:<64 lowercase hex characters>` syntax, matching the digest format
-produced for controlled definitions. Evaluation does not acquire live spectrum,
-time-domain, or DAQ data.
+Validation requires a frequency axis, a unique amplitude component, at most one
+phase component, coherent units, complete point values, and evaluable
+interpolation. This release can evaluate the stored curve deterministically; it
+does not acquire a spectrum, perform an FFT, or apply the correction to live
+data.

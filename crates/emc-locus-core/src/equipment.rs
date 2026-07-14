@@ -300,6 +300,31 @@ pub struct SignalPortDefinition {
     pub comment: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SignalTransformationKind {
+    SampleConversion,
+    FrequencyResponse,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignalTransformationReference {
+    pub transformation_kind: SignalTransformationKind,
+    pub entity_id: String,
+    pub revision_id: String,
+    pub definition_checksum: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EquipmentSignalPathDefinition {
+    pub path_id: String,
+    pub label: String,
+    pub input_port_id: String,
+    pub output_port_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub transformations: Vec<SignalTransformationReference>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IdentificationStrategy {
     pub strategy_id: String,
@@ -387,6 +412,8 @@ pub struct EquipmentModelDefinition {
     pub specifications: Vec<EngineeringSpecification>,
     #[serde(default)]
     pub signal_ports: Vec<SignalPortDefinition>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub signal_paths: Vec<EquipmentSignalPathDefinition>,
     #[serde(default)]
     pub communication_interfaces: Vec<CommunicationInterfaceDefinition>,
     #[serde(default)]
@@ -885,6 +912,11 @@ pub fn validate_equipment_model_definition(
         &model_technology_tags,
     );
     validate_functional_port_topology(&mut issues, definition);
+    validate_signal_paths(
+        &mut issues,
+        &definition.signal_paths,
+        &port_map_for(&definition.signal_ports),
+    );
     let interface_ids = validate_interfaces(&mut issues, &definition.communication_interfaces);
     validate_can_bus_protocol_topology(&mut issues, definition);
     validate_specifications(&mut issues, &definition.specifications);
@@ -1643,7 +1675,10 @@ fn validate_signal_ports(
                 Some("Most EMC conducted RF chains use 50 ohm; keep other values only when explicit."),
             ));
         }
-        if is_communication_port(port) && !is_communication_signal_domain(port.signal_domain) {
+        if is_communication_port(port)
+            && !is_communication_signal_domain(port.signal_domain)
+            && port.signal_domain != SignalDomain::Software
+        {
             issues.push(issue(
                 "error",
                 "communication_port_has_physical_signal_domain",
@@ -1670,6 +1705,147 @@ fn validate_signal_ports(
         );
     }
     ids
+}
+
+fn validate_signal_paths(
+    issues: &mut Vec<DefinitionValidationIssue>,
+    paths: &[EquipmentSignalPathDefinition],
+    ports_by_id: &BTreeMap<String, &SignalPortDefinition>,
+) {
+    let mut path_ids = BTreeSet::new();
+    for (path_index, signal_path) in paths.iter().enumerate() {
+        let path = format!("signal_paths[{path_index}]");
+        require_token(issues, &signal_path.path_id, &format!("{path}.path_id"));
+        require_text(issues, &signal_path.label, &format!("{path}.label"));
+        if !path_ids.insert(signal_path.path_id.clone()) {
+            issues.push(issue(
+                "error",
+                "duplicate_signal_path_id",
+                format!("{path}.path_id"),
+                format!("duplicate signal path id: {}", signal_path.path_id),
+                Option::<String>::None,
+            ));
+        }
+
+        let input = ports_by_id.get(&signal_path.input_port_id).copied();
+        let output = ports_by_id.get(&signal_path.output_port_id).copied();
+        if input.is_none() {
+            issues.push(issue(
+                "error",
+                "signal_path_input_port_not_found",
+                format!("{path}.input_port_id"),
+                format!(
+                    "signal path references unknown input port: {}",
+                    signal_path.input_port_id
+                ),
+                Some("Choose an input port declared in signal_ports."),
+            ));
+        }
+        if output.is_none() {
+            issues.push(issue(
+                "error",
+                "signal_path_output_port_not_found",
+                format!("{path}.output_port_id"),
+                format!(
+                    "signal path references unknown output port: {}",
+                    signal_path.output_port_id
+                ),
+                Some("Choose an output port declared in signal_ports."),
+            ));
+        }
+        if signal_path.input_port_id == signal_path.output_port_id {
+            issues.push(issue(
+                "error",
+                "signal_path_ports_identical",
+                format!("{path}.output_port_id"),
+                "a signal path must connect two distinct ports",
+                Some("Choose the port where the signal enters and the port where it leaves."),
+            ));
+        }
+        if input.is_some_and(is_communication_port) || output.is_some_and(is_communication_port) {
+            issues.push(issue(
+                "error",
+                "signal_path_uses_communication_port",
+                path.clone(),
+                "measurement signal paths cannot use communication-only ports",
+                Some("Use physical or logical signal ports; keep USB, LAN and GPIB as control interfaces."),
+            ));
+        }
+        if input.is_some_and(|port| {
+            !matches!(
+                port.directionality,
+                PortDirectionality::Input
+                    | PortDirectionality::Bidirectional
+                    | PortDirectionality::Through
+            )
+        }) {
+            issues.push(issue(
+                "error",
+                "signal_path_input_direction_invalid",
+                format!("{path}.input_port_id"),
+                "the selected input port cannot receive a measurement signal",
+                Some("Use an input, bidirectional, or through port."),
+            ));
+        }
+        if output.is_some_and(|port| {
+            !matches!(
+                port.directionality,
+                PortDirectionality::Output
+                    | PortDirectionality::Bidirectional
+                    | PortDirectionality::Through
+            )
+        }) {
+            issues.push(issue(
+                "error",
+                "signal_path_output_direction_invalid",
+                format!("{path}.output_port_id"),
+                "the selected output port cannot deliver a measurement signal",
+                Some("Use an output, bidirectional, or through port."),
+            ));
+        }
+
+        let mut references = BTreeSet::new();
+        for (reference_index, reference) in signal_path.transformations.iter().enumerate() {
+            let reference_path = format!("{path}.transformations[{reference_index}]");
+            require_token(
+                issues,
+                &reference.entity_id,
+                &format!("{reference_path}.entity_id"),
+            );
+            require_token(
+                issues,
+                &reference.revision_id,
+                &format!("{reference_path}.revision_id"),
+            );
+            require_checksum(
+                issues,
+                &reference.definition_checksum,
+                &format!("{reference_path}.definition_checksum"),
+            );
+            if !references.insert((reference.transformation_kind, reference.entity_id.clone())) {
+                issues.push(issue(
+                    "error",
+                    "duplicate_signal_transformation_reference",
+                    reference_path,
+                    "a signal path cannot reference the same transformation more than once",
+                    Option::<String>::None,
+                ));
+            }
+            if reference.transformation_kind == SignalTransformationKind::FrequencyResponse
+                && input.is_some_and(|port| {
+                    port.frequency_min.is_none() || port.frequency_max.is_none()
+                })
+            {
+                issues.push(issue(
+                    "warning",
+                    "frequency_response_without_input_port_band",
+                    format!("{path}.input_port_id"),
+                    "a frequency-response correction should be associated with an input port that declares Fmin and Fmax",
+                    Some("Declare the usable frequency range of the equipment port."),
+                ));
+            }
+        }
+    }
 }
 
 fn technology_tag_compatible_with_domain(tag: TechnologyTag, domain: SignalDomain) -> bool {
@@ -1901,7 +2077,7 @@ fn validate_functional_port_topology(
     let communication_only_domains = definition
         .signal_domains
         .iter()
-        .all(|domain| is_communication_signal_domain(*domain));
+        .all(|domain| is_communication_signal_domain(*domain) || *domain == SignalDomain::Software);
     let allows_physical_ports = definition
         .metadata
         .get("allow_physical_ports")
@@ -2003,7 +2179,6 @@ fn is_communication_signal_domain(domain: SignalDomain) -> bool {
             | SignalDomain::Ethernet
             | SignalDomain::Usb
             | SignalDomain::Gpib
-            | SignalDomain::Software
     )
 }
 
@@ -4044,6 +4219,79 @@ mod tests {
         assert_eq!(result.trace[2].duration_virtual_ms, 25);
     }
 
+    #[test]
+    fn validates_revision_pinned_signal_path_transformations() {
+        let mut definition = minimal_model();
+        definition.signal_domains.push(SignalDomain::Software);
+        definition.signal_ports.push(SignalPortDefinition {
+            port_id: "measurement_result".to_owned(),
+            label: "Measurement result".to_owned(),
+            directionality: PortDirectionality::Output,
+            flow_role: PortFlowRole::TransducerOutputPort,
+            signal_domain: SignalDomain::Software,
+            required: true,
+            connector_type: None,
+            technology_tags: Vec::new(),
+            quantity: PhysicalQuantity::Power,
+            unit: "dBm".to_owned(),
+            impedance: None,
+            frequency_min: None,
+            frequency_max: None,
+            voltage_max: None,
+            current_max: None,
+            power_max: None,
+            channel_index: None,
+            differential: false,
+            isolated: false,
+            comment: None,
+        });
+        definition.signal_paths = vec![EquipmentSignalPathDefinition {
+            path_id: "rf_measurement".to_owned(),
+            label: "RF input to measured spectrum".to_owned(),
+            input_port_id: "rf_input".to_owned(),
+            output_port_id: "measurement_result".to_owned(),
+            transformations: vec![SignalTransformationReference {
+                transformation_kind: SignalTransformationKind::FrequencyResponse,
+                entity_id: "cable-loss".to_owned(),
+                revision_id: "cable-loss-rev-0001".to_owned(),
+                definition_checksum:
+                    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        .to_owned(),
+            }],
+        }];
+
+        let issues = definition.validate_all();
+
+        assert!(
+            !issues.iter().any(|item| item.severity == "error"),
+            "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_signal_path_with_unknown_port_or_invalid_checksum() {
+        let mut definition = minimal_model();
+        definition.signal_paths = vec![EquipmentSignalPathDefinition {
+            path_id: "broken_path".to_owned(),
+            label: "Broken path".to_owned(),
+            input_port_id: "rf_input".to_owned(),
+            output_port_id: "missing_output".to_owned(),
+            transformations: vec![SignalTransformationReference {
+                transformation_kind: SignalTransformationKind::FrequencyResponse,
+                entity_id: "cable-loss".to_owned(),
+                revision_id: "cable-loss-rev-0001".to_owned(),
+                definition_checksum: "sha256:ABC".to_owned(),
+            }],
+        }];
+
+        let issues = definition.validate_all();
+
+        assert!(issues
+            .iter()
+            .any(|item| item.code == "signal_path_output_port_not_found"));
+        assert!(issues.iter().any(|item| item.code == "invalid_checksum"));
+    }
+
     fn minimal_model() -> EquipmentModelDefinition {
         EquipmentModelDefinition {
             definition_schema_version: EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION.to_owned(),
@@ -4083,6 +4331,7 @@ mod tests {
                 isolated: false,
                 comment: None,
             }],
+            signal_paths: Vec::new(),
             communication_interfaces: vec![CommunicationInterfaceDefinition {
                 interface_id: "tcp".to_owned(),
                 label: "Raw TCP SCPI".to_owned(),

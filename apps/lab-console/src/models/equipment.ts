@@ -213,6 +213,23 @@ export interface SignalPortDefinition {
   comment?: string;
 }
 
+export type SignalTransformationKind = "sample_conversion" | "frequency_response";
+
+export interface SignalTransformationReference {
+  transformation_kind: SignalTransformationKind;
+  entity_id: string;
+  revision_id: string;
+  definition_checksum: string;
+}
+
+export interface EquipmentSignalPathDefinition {
+  path_id: string;
+  label: string;
+  input_port_id: string;
+  output_port_id: string;
+  transformations: SignalTransformationReference[];
+}
+
 export interface CommunicationInterfaceDefinition {
   interface_id: string;
   label: string;
@@ -265,6 +282,7 @@ export interface EquipmentModelDefinition {
   technology_tags?: TechnologyTag[];
   specifications: EngineeringSpecification[];
   signal_ports: SignalPortDefinition[];
+  signal_paths?: EquipmentSignalPathDefinition[];
   communication_interfaces: CommunicationInterfaceDefinition[];
   capabilities: MeasurementCapabilityDefinition[];
   custom_field_values?: Record<string, unknown>;

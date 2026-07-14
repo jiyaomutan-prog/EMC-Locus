@@ -420,7 +420,7 @@ describe("LAB CONSOLE", () => {
     await user.click(screen.getByRole("button", { name: "Categorie et formulaire" }));
     expect(screen.getByText("Formulaire utilise")).toBeInTheDocument();
     expect(screen.queryByText("Template checksum")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Ports et connexions" }));
+    await user.click(screen.getByRole("button", { name: "Entrées et sorties" }));
     expect(screen.getByDisplayValue("RF_A")).toBeInTheDocument();
     expect(screen.getByDisplayValue("RF_B")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Valider/ }));
@@ -649,20 +649,22 @@ describe("LAB CONSOLE", () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Équipements" }));
-    await user.click(await screen.findByRole("button", { name: "Ingénierie de mesure" }));
-    await user.click(await screen.findByRole("button", { name: "Courbes d'ingénierie" }));
+    await user.click(await screen.findByRole("button", { name: "Signaux et corrections" }));
+    await user.click(await screen.findByRole("button", { name: "Réponses fréquentielles" }));
     await user.click(await screen.findByRole("button", { name: /Demo RF cable loss/ }));
-    await user.click(screen.getByRole("button", { name: "Table courbe" }));
+    expect(screen.getByText("Spectre fréquentiel")).toBeInTheDocument();
+    expect(screen.getByText(/Compensation d.amplitude/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Amplitude / phase" }));
     expect(await screen.findByRole("img", { name: "1D curve plot" })).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("frequency_hz,correction_db"), {
       target: { value: "frequency_hz,correction_db\n10000000,0.2\n100000000,1.25\n1000000000,3.8" }
     });
-    await user.click(screen.getByRole("button", { name: /Import CSV/ }));
-    await user.click(screen.getByRole("button", { name: "Evaluation" }));
-    await user.clear(screen.getByLabelText("Frequency Hz"));
-    await user.type(screen.getByLabelText("Frequency Hz"), "100000000");
-    await user.click(screen.getByRole("button", { name: /Evaluer la courbe/ }));
+    await user.click(screen.getByRole("button", { name: /Importer CSV/ }));
+    await user.click(screen.getByRole("button", { name: "Vérification ponctuelle" }));
+    await user.clear(screen.getByLabelText("Fréquence (Hz)"));
+    await user.type(screen.getByLabelText("Fréquence (Hz)"), "100000000");
+    await user.click(screen.getByRole("button", { name: /Calculer la correction/ }));
     expect(await screen.findByText(/log_x_linear_y/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Valider/ }));
@@ -695,25 +697,34 @@ describe("LAB CONSOLE", () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Équipements" }));
-    await user.click(await screen.findByRole("button", { name: "Ingénierie de mesure" }));
+    await user.click(await screen.findByRole("button", { name: "Signaux et corrections" }));
     await user.click(await screen.findByRole("button", { name: "Capteurs / transducteurs" }));
     await user.click(await screen.findByRole("button", { name: /Demo Current Probe/ }));
-    expect(await screen.findByDisplayValue("current_probe")).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Famille de capteur" })).toHaveValue("current_probe");
 
-    await user.click(screen.getAllByRole("button", { name: "Profils de scaling" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Conversions temporelles" })[0]);
     await user.click(await screen.findByRole("button", { name: /Current probe 10 mV/ }));
-    await user.click(screen.getByRole("button", { name: "Lookup Table" }));
+    expect(screen.getByText("Signal temporel échantillonné")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Gain et offset" }));
+    expect(screen.getByText(/gain × échantillon \+ offset/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Surcharge / écrêtage" }));
+    expect(screen.getByText(/plage exploitable avant saturation/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Table de conversion" }));
     expect(screen.getByPlaceholderText("input,output")).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "Réponses fréquentielles" })[0]);
+    expect(await screen.findByText("Aucune définition ouverte")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("input,output")).not.toBeInTheDocument();
 
     await user.click(screen.getAllByRole("button", { name: "Voies DAQ" })[0]);
     await user.click(await screen.findByRole("button", { name: /Demo DAQ AI/ }));
     await user.click(screen.getByRole("button", { name: "Echantillonnage" }));
     expect(screen.getByDisplayValue("1000000")).toBeInTheDocument();
 
-    await user.click(screen.getAllByRole("button", { name: "Recettes d'acquisition" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Chaînes d'acquisition" })[0]);
     await user.click(await screen.findByRole("button", { name: /current_A through demo current probe/ }));
-    await user.click(screen.getByRole("button", { name: "Chaine de mesure" }));
-    expect(await screen.findByText("DAQ channel")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Chaîne de mesure" }));
+    expect((await screen.findAllByText("Voie DAQ")).length).toBeGreaterThan(0);
     expect(screen.getByText("current_A [A]")).toBeInTheDocument();
   });
 });
@@ -1272,6 +1283,12 @@ function mockBaseApiResponse(path: string, init?: RequestInit) {
   if (path.startsWith("/api/v1/equipment/categories")) return jsonResponse({ categories: equipmentCategoriesFixture() });
   if (path.startsWith("/api/v1/equipment/field-definitions")) return jsonResponse({ field_definitions: equipmentFieldDefinitionsFixture() });
   if (path === "/api/v1/metrology/instruments") return jsonResponse({ instruments: [] });
+  if (path === "/api/v1/scaling-profiles") {
+    return jsonResponse({ aggregate_kind: "scaling-profiles", collection_key: "items", items: [] });
+  }
+  if (path === "/api/v1/engineering-curves") {
+    return jsonResponse({ aggregate_kind: "engineering-curves", collection_key: "items", items: [] });
+  }
   if (path === "/api/v1/test-templates/TT-LAB-001") return jsonResponse({ test_template: templateFixture() });
   if (path.includes("/revisions/TT-LAB-001-rev-0001") && !path.endsWith("/definition") && !path.includes("/transitions/")) return jsonResponse({ revision: revisionFixture() });
   if (path === "/api/v1/test-templates/TT-LAB-001/revisions") return jsonResponse({ template_id: "TT-LAB-001", revisions: [revisionFixture()] });
@@ -1473,8 +1490,10 @@ function measurementDefinition(collection: string): Record<string, unknown> {
       input_unit: "V",
       output_quantity: "current",
       output_unit: "A",
+      signal_representation: "time_domain_samples",
       scaling_kind: "linear",
       parameters: { scale: 100, offset: 0, points: [{ input: 0, output: 0 }, { input: 0.01, output: 1 }] },
+      input_limits: { minimum: -10, maximum: 10, handling: "mark_clipped" },
       metadata: {}
     };
   }
@@ -1484,8 +1503,9 @@ function measurementDefinition(collection: string): Record<string, unknown> {
       curve_id: "CURVE-DEMO-RF-CABLE-1M-LOSS",
       curve_type: "cable_loss",
       label: "Demo RF cable loss",
+      signal_representation: "frequency_domain_spectrum",
       independent_axes: [{ axis: "frequency", quantity: "frequency", unit: "Hz" }],
-      dependent_values: [{ value_id: "correction_db", quantity: "dimensionless", unit: "dB" }],
+      dependent_values: [{ value_id: "correction_db", quantity: "dimensionless", unit: "dB", component: "amplitude", operation: "add" }],
       units: { frequency: "Hz", correction_db: "dB" },
       points: [
         { axis_values: { frequency: 10000000 }, values: { correction_db: 0.2 } },

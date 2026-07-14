@@ -170,6 +170,15 @@ canonical JSON. The current runtime supports deterministic 1D evaluation for
 frequency-dependent artifacts; the table does not imply a real DAQ runtime,
 station connection binding, or calibration-certificate file store.
 
+Release `0.15.0` adds no table and no dual storage path. Backward-compatible
+fields are carried in canonical revision JSON: sample conversions declare the
+time-domain representation and optional input limits; frequency responses
+declare amplitude/phase components and explicit operations; equipment-model
+revisions declare optional signal paths. Each path references a controlled
+conversion or response by identity, revision, and checksum. The agent resolves
+those references in the same `equipment.sqlite` transaction boundary before a
+model write or lifecycle transition is accepted.
+
 ### projects
 
 ```sql

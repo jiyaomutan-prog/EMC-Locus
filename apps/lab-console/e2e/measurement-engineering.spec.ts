@@ -2,35 +2,38 @@ import { expect, type Page, type APIRequestContext, test } from "@playwright/tes
 
 type MeasurementSpace = {
   tab: string;
+  heading?: string;
   collection: string;
   createButton: string;
 };
 
 const spaces = {
   scaling: {
-    tab: "Profils de scaling",
+    tab: "Conversions temporelles",
     collection: "scaling-profiles",
-    createButton: "Creer scaling"
+    createButton: "Nouvelle conversion"
   },
   curves: {
-    tab: "Courbes d'ingénierie",
+    tab: "Réponses fréquentielles",
     collection: "engineering-curves",
-    createButton: "Creer courbe"
+    createButton: "Nouvelle réponse"
   },
   sensors: {
     tab: "Capteurs / transducteurs",
+    heading: "Capteurs et transducteurs",
     collection: "sensor-definitions",
-    createButton: "Creer capteur"
+    createButton: "Nouveau capteur"
   },
   daq: {
     tab: "Voies DAQ",
+    heading: "Entrées / sorties DAQ",
     collection: "daq-channel-profiles",
-    createButton: "Creer profil DAQ"
+    createButton: "Nouvelle voie DAQ"
   },
   recipes: {
-    tab: "Recettes d'acquisition",
+    tab: "Chaînes d'acquisition",
     collection: "acquisition-channel-recipes",
-    createButton: "Creer recette"
+    createButton: "Nouvelle chaîne"
   }
 } satisfies Record<string, MeasurementSpace>;
 
@@ -45,44 +48,44 @@ test("measurement engineering workflow creates approved channel recipe", async (
 
   await page.goto("/lab/");
   await page.getByRole("button", { name: "Équipements" }).click();
-  await page.getByRole("button", { name: "Ingénierie de mesure" }).click();
+  await page.getByRole("button", { name: "Signaux et corrections" }).click();
 
   await createMeasurementDraft(page, spaces.scaling, scalingId, "E2E 10 mV/A scaling");
   await approveCurrentDraft(page, spaces.scaling, scalingId);
 
   await createMeasurementDraft(page, spaces.curves, currentCurveId, "E2E current probe transfer");
-  await page.getByLabel("Curve type").selectOption("current_probe_transfer");
+  await page.getByLabel("Type de réponse").selectOption("current_probe_transfer");
   await importCurveCsv(
     page,
-    "frequency_hz,correction_db\n10000000,0\n100000000,0.8\n1000000000,1.6"
+    "frequency_hz,amplitude_correction_db\n10000000,0\n100000000,0.8\n1000000000,1.6"
   );
   await approveCurrentDraft(page, spaces.curves, currentCurveId, { save: true });
 
   await createMeasurementDraft(page, spaces.curves, cableCurveId, "E2E RF cable loss");
   await importCurveCsv(
     page,
-    "frequency_hz,correction_db\n10000000,0.2\n100000000,1.2\n1000000000,2.2"
+    "frequency_hz,amplitude_correction_db\n10000000,0.2\n100000000,1.2\n1000000000,2.2"
   );
   await saveCurrentDraft(page, spaces.curves, cableCurveId);
-  await page.getByRole("button", { name: "Evaluation" }).click();
-  await page.getByLabel("Frequency Hz").fill("100000000");
+  await page.getByRole("button", { name: "Vérification ponctuelle" }).click();
+  await page.getByLabel("Fréquence (Hz)").fill("100000000");
   const evaluationResponse = page.waitForResponse((response) =>
     response.url().includes(`/api/v1/engineering-curves/${cableCurveId}/revisions/`) &&
     response.url().endsWith("/evaluate") &&
     response.request().method() === "POST"
   );
-  await page.getByRole("button", { name: /Evaluer la courbe/ }).click();
+  await page.getByRole("button", { name: /Calculer la correction/ }).click();
   const evaluatedCable = await evaluationResponse;
   expect(evaluatedCable.ok()).toBeTruthy();
   const evaluatedCableBody = await evaluatedCable.json();
-  expect(evaluatedCableBody.evaluation.values.correction_db).toBe(1.2);
-  await expect(page.locator(".editorPane")).toContainText("correction_db");
+  expect(evaluatedCableBody.evaluation.values.amplitude_correction_db).toBe(1.2);
+  await expect(page.locator(".editorPane")).toContainText("amplitude_correction_db");
   await approveCurrentDraft(page, spaces.curves, cableCurveId);
 
   await createMeasurementDraft(page, spaces.sensors, sensorId, "E2E current probe 10mV/A");
-  await sectionButton(page, "Scaling").click();
+  await sectionButton(page, "Conversion temporelle").click();
   await expect(page.getByRole("cell", { name: scalingId, exact: true })).toBeVisible();
-  await sectionButton(page, "Courbes de correction").click();
+  await sectionButton(page, "Réponse fréquentielle").click();
   await expect(page.getByRole("cell", { name: currentCurveId, exact: true })).toBeVisible();
   await approveCurrentDraft(page, spaces.sensors, sensorId);
 
@@ -90,7 +93,7 @@ test("measurement engineering workflow creates approved channel recipe", async (
   await approveCurrentDraft(page, spaces.daq, daqId);
 
   await createMeasurementDraft(page, spaces.recipes, recipeId, "E2E current_A logical channel");
-  await sectionButton(page, "Chaine de mesure").click();
+  await sectionButton(page, "Chaîne de mesure").click();
   const chain = page.locator(".chainSummary");
   await expect(chain).toContainText(daqId);
   await expect(chain).toContainText(sensorId);
@@ -113,7 +116,7 @@ test("measurement engineering workflow creates approved channel recipe", async (
   );
   expect(apiEvaluation.ok()).toBeTruthy();
   const evaluationBody = await apiEvaluation.json();
-  expect(evaluationBody.evaluation.values.correction_db).toBe(1.2);
+  expect(evaluationBody.evaluation.values.amplitude_correction_db).toBe(1.2);
   expect(evaluationBody.evaluation.extrapolated).toBe(false);
 });
 
@@ -124,7 +127,7 @@ async function createMeasurementDraft(
   label: string
 ) {
   await page.locator(".equipmentSubnav").getByRole("button", { name: space.tab }).click();
-  await expect(page.locator(".measurementHeader").getByRole("heading", { name: space.tab })).toBeVisible();
+  await expect(page.locator(".measurementHeader").getByRole("heading", { name: space.heading ?? space.tab })).toBeVisible();
   const customIdInput = page.getByLabel("Nouvel ID");
   if (!(await customIdInput.isVisible())) {
     await page.getByText("Identifiant personnalisé").click();
@@ -193,11 +196,11 @@ async function saveCurrentDraft(page: Page, space: MeasurementSpace, entityId: s
 }
 
 async function importCurveCsv(page: Page, csv: string) {
-  await sectionButton(page, "Table courbe").click();
+  await sectionButton(page, "Amplitude / phase").click();
   const editor = page.locator(".editorPane");
   const firstDataRow = csv.trim().split(/\r?\n/)[1].split(",");
-  await editor.locator('textarea[placeholder="frequency_hz,correction_db"]').fill(csv);
-  await editor.getByRole("button", { name: /Import CSV/ }).click();
+  await editor.locator('textarea[placeholder^="frequency_hz,"]').fill(csv);
+  await editor.getByRole("button", { name: /Importer CSV/ }).click();
   await expect(editor.locator("tbody tr").first().locator("input").nth(0)).toHaveValue(firstDataRow[0]);
   await expect(editor.locator("tbody tr").first().locator("input").nth(1)).toHaveValue(firstDataRow[1]);
   await expect(editor.getByRole("img", { name: "1D curve plot" })).toBeVisible();

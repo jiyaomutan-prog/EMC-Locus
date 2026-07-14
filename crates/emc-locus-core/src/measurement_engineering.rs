@@ -241,6 +241,31 @@ pub struct FrequencyRange {
     pub maximum_hz: f64,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SignalRepresentation {
+    #[default]
+    TimeDomainSamples,
+    FrequencyDomainSpectrum,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SampleLimitHandling {
+    #[default]
+    Warn,
+    Reject,
+    MarkClipped,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SampleInputLimits {
+    pub minimum: f64,
+    pub maximum: f64,
+    #[serde(default)]
+    pub handling: SampleLimitHandling,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ExcitationRequirement {
     pub excitation_kind: ExcitationKind,
@@ -412,9 +437,13 @@ pub struct ScalingProfileDefinition {
     pub input_unit: String,
     pub output_quantity: PhysicalQuantity,
     pub output_unit: String,
+    #[serde(default)]
+    pub signal_representation: SignalRepresentation,
     pub scaling_kind: ScalingKind,
     #[serde(default)]
     pub parameters: ScalingParameters,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_limits: Option<SampleInputLimits>,
     #[serde(default)]
     pub validity_domain: BTreeMap<String, Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -495,6 +524,28 @@ pub struct CurveValueDefinition {
     pub value_id: String,
     pub quantity: PhysicalQuantity,
     pub unit: String,
+    #[serde(default)]
+    pub component: FrequencyResponseComponent,
+    #[serde(default)]
+    pub operation: CorrectionOperation,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FrequencyResponseComponent {
+    #[default]
+    Amplitude,
+    Phase,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CorrectionOperation {
+    #[default]
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -509,6 +560,8 @@ pub struct EngineeringCurveDefinition {
     pub curve_id: String,
     pub curve_type: EngineeringCurveType,
     pub label: String,
+    #[serde(default = "default_frequency_domain_spectrum")]
+    pub signal_representation: SignalRepresentation,
     #[serde(default)]
     pub independent_axes: Vec<CurveAxisDefinition>,
     #[serde(default)]
@@ -853,6 +906,29 @@ pub fn validate_scaling_profile_definition(
         &definition.output_unit,
         "output_unit",
     );
+    if definition.signal_representation != SignalRepresentation::TimeDomainSamples {
+        issues.push(issue(
+            "error",
+            "scaling_requires_time_domain_samples",
+            "signal_representation",
+            "sample conversion profiles operate on time-domain samples",
+            Some("Use frequency-response correction for spectrum amplitude or phase compensation."),
+        ));
+    }
+    if let Some(limits) = &definition.input_limits {
+        if !limits.minimum.is_finite()
+            || !limits.maximum.is_finite()
+            || limits.maximum <= limits.minimum
+        {
+            issues.push(issue(
+                "error",
+                "invalid_sample_input_limits",
+                "input_limits",
+                "sample input limits require finite values with maximum above minimum",
+                Some("Declare the usable input range before overload or clipping."),
+            ));
+        }
+    }
     match definition.scaling_kind {
         ScalingKind::Identity => {
             if definition.input_quantity != definition.output_quantity
@@ -1042,6 +1118,15 @@ pub fn validate_engineering_curve_definition(
     );
     require_id(&mut issues, &definition.curve_id, "curve_id");
     require_text(&mut issues, &definition.label, "label");
+    if definition.signal_representation != SignalRepresentation::FrequencyDomainSpectrum {
+        issues.push(issue(
+            "error",
+            "engineering_curve_requires_frequency_spectrum",
+            "signal_representation",
+            "frequency-response corrections operate on frequency-domain spectra",
+            Some("Use a sample conversion profile for gain, offset, overload, or clipping in the time domain."),
+        ));
+    }
     if definition.independent_axes.is_empty() {
         issues.push(issue(
             "error",
@@ -1080,6 +1165,7 @@ pub fn validate_engineering_curve_definition(
         );
     }
     let mut value_ids = BTreeSet::new();
+    let mut components = BTreeSet::new();
     for (index, dependent) in definition.dependent_values.iter().enumerate() {
         require_id(
             &mut issues,
@@ -1101,6 +1187,63 @@ pub fn validate_engineering_curve_definition(
             &dependent.unit,
             format!("dependent_values[{index}].unit"),
         );
+        if !components.insert(dependent.component) {
+            issues.push(issue(
+                "error",
+                "duplicate_frequency_response_component",
+                format!("dependent_values[{index}].component"),
+                "a frequency response can define at most one amplitude and one phase component",
+                None::<String>,
+            ));
+        }
+        match dependent.component {
+            FrequencyResponseComponent::Amplitude => {
+                if dependent.quantity != PhysicalQuantity::Dimensionless {
+                    issues.push(issue(
+                        "error",
+                        "amplitude_correction_quantity_mismatch",
+                        format!("dependent_values[{index}].quantity"),
+                        "amplitude response corrections must use the dimensionless quantity with dB or a linear ratio unit",
+                        Some("Use quantity=dimensionless and unit=dB for RF loss or gain."),
+                    ));
+                }
+            }
+            FrequencyResponseComponent::Phase => {
+                if dependent.quantity != PhysicalQuantity::Angle
+                    || !matches!(dependent.unit.as_str(), "deg" | "rad")
+                {
+                    issues.push(issue(
+                        "error",
+                        "phase_correction_unit_mismatch",
+                        format!("dependent_values[{index}].unit"),
+                        "phase response corrections must use an angle in deg or rad",
+                        Some("Use quantity=angle with unit=deg or rad."),
+                    ));
+                }
+            }
+        }
+    }
+    if !components.contains(&FrequencyResponseComponent::Amplitude) {
+        issues.push(issue(
+            "error",
+            "missing_amplitude_frequency_response",
+            "dependent_values",
+            "frequency-response corrections require an amplitude component",
+            Some("Add an amplitude correction in dB or as a linear ratio."),
+        ));
+    }
+    if !definition
+        .independent_axes
+        .iter()
+        .any(|axis| axis.axis == CurveAxis::Frequency)
+    {
+        issues.push(issue(
+            "error",
+            "frequency_response_axis_missing",
+            "independent_axes",
+            "frequency-response corrections require a frequency axis",
+            Some("Use axis=frequency, quantity=frequency, unit=Hz."),
+        ));
     }
     if definition.points.is_empty() {
         issues.push(issue(
@@ -1940,6 +2083,9 @@ fn validate_curve_type_units(
     definition: &EngineeringCurveDefinition,
 ) {
     for dependent in &definition.dependent_values {
+        if dependent.component == FrequencyResponseComponent::Phase {
+            continue;
+        }
         match definition.curve_type {
             EngineeringCurveType::AntennaFactor
                 if !matches!(dependent.unit.as_str(), "dB_per_meter" | "dBuV_per_m") =>
@@ -2362,6 +2508,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_frequency_domain_spectrum() -> SignalRepresentation {
+    SignalRepresentation::FrequencyDomainSpectrum
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2622,6 +2772,68 @@ mod tests {
             .any(|issue| issue.code == "recipe_range_not_supported"));
     }
 
+    #[test]
+    fn rejects_frequency_domain_scaling_and_invalid_sample_limits() {
+        let mut definition = demo_scaling();
+        definition.signal_representation = SignalRepresentation::FrequencyDomainSpectrum;
+        definition.input_limits = Some(SampleInputLimits {
+            minimum: 10.0,
+            maximum: -10.0,
+            handling: SampleLimitHandling::MarkClipped,
+        });
+
+        let issues = validate_scaling_profile_definition(&definition);
+
+        assert!(issues
+            .iter()
+            .any(|issue| issue.code == "scaling_requires_time_domain_samples"));
+        assert!(issues
+            .iter()
+            .any(|issue| issue.code == "invalid_sample_input_limits"));
+    }
+
+    #[test]
+    fn validates_amplitude_and_optional_phase_frequency_response() {
+        let mut definition = demo_curve();
+        definition.dependent_values.push(CurveValueDefinition {
+            value_id: "phase_correction_deg".to_owned(),
+            quantity: PhysicalQuantity::Angle,
+            unit: "deg".to_owned(),
+            component: FrequencyResponseComponent::Phase,
+            operation: CorrectionOperation::Add,
+        });
+        for point in &mut definition.points {
+            point.values.insert("phase_correction_deg".to_owned(), 0.0);
+        }
+
+        let issues = validate_engineering_curve_definition(&definition);
+
+        assert!(
+            !issues.iter().any(|item| item.severity == "error"),
+            "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_frequency_response_without_frequency_axis() {
+        let mut definition = demo_curve();
+        definition.independent_axes[0] = CurveAxisDefinition {
+            axis: CurveAxis::Time,
+            quantity: PhysicalQuantity::Time,
+            unit: "s".to_owned(),
+        };
+        for point in &mut definition.points {
+            let frequency = point.axis_values.remove("frequency").unwrap();
+            point.axis_values.insert("time".to_owned(), frequency);
+        }
+
+        let issues = validate_engineering_curve_definition(&definition);
+
+        assert!(issues
+            .iter()
+            .any(|issue| issue.code == "frequency_response_axis_missing"));
+    }
+
     fn demo_scaling() -> ScalingProfileDefinition {
         ScalingProfileDefinition {
             definition_schema_version: SCALING_PROFILE_DEFINITION_SCHEMA_VERSION.to_owned(),
@@ -2631,12 +2843,14 @@ mod tests {
             input_unit: "V".to_owned(),
             output_quantity: PhysicalQuantity::Current,
             output_unit: "A".to_owned(),
+            signal_representation: SignalRepresentation::TimeDomainSamples,
             scaling_kind: ScalingKind::Linear,
             parameters: ScalingParameters {
                 scale: Some(100.0),
                 offset: Some(0.0),
                 ..ScalingParameters::default()
             },
+            input_limits: None,
             validity_domain: BTreeMap::new(),
             uncertainty: None,
             source_reference: None,
@@ -2650,6 +2864,7 @@ mod tests {
             curve_id: "demo-cable-loss".to_owned(),
             curve_type: EngineeringCurveType::CableLoss,
             label: "Demo cable loss".to_owned(),
+            signal_representation: SignalRepresentation::FrequencyDomainSpectrum,
             independent_axes: vec![CurveAxisDefinition {
                 axis: CurveAxis::Frequency,
                 quantity: PhysicalQuantity::Frequency,
@@ -2659,6 +2874,8 @@ mod tests {
                 value_id: "correction_db".to_owned(),
                 quantity: PhysicalQuantity::Dimensionless,
                 unit: "dB".to_owned(),
+                component: FrequencyResponseComponent::Amplitude,
+                operation: CorrectionOperation::Add,
             }],
             units: BTreeMap::new(),
             points: vec![

@@ -245,11 +245,13 @@ GET  /api/v1/metrology/instruments/{asset_id}/audit-events
 used by Qt to display connected, unavailable, storage-not-initialized,
 migration-required, and integrity-error states without opening SQLite directly.
 
-The API is intentionally local and narrow. It backs LAB CONSOLE Template Studio
-and the 0.12.0 Equipment Model/Driver Script Studio plus physical
-classification workflows, but it does not expose central synchronization,
-PostgreSQL, object storage, certified hardware drivers, acquisition runtime
-features, campaign instantiation, RBAC, or reporting.
+The API is intentionally local and narrow. It backs LAB CONSOLE Template Studio,
+the Equipment Repository, and the controlled signal/correction definitions.
+Since `0.15.0`, equipment-model writes also resolve every signal-path conversion
+or frequency-response reference by approved revision and checksum. It does not
+expose central synchronization, PostgreSQL, object storage, certified hardware
+drivers, acquisition runtime features, campaign instantiation, RBAC, or
+reporting.
 
 For metrology, `POST /api/v1/metrology/instruments` accepts the same fields as
 the `metrology register-instrument` command, with `capabilities` accepted as a

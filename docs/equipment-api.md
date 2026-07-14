@@ -1,10 +1,10 @@
 # Equipment API
 
-Release `0.14.0` extends the Equipment Repository administration layer used by LAB
-CONSOLE: hierarchical categories, field definitions, inherited category field
+Release `0.15.0` extends the Equipment Repository and signal-correction layer used by
+LAB CONSOLE: hierarchical categories, field definitions, inherited category field
 rules, effective entry templates, revision snapshots, model field values, and
-demo-data filtering. Release `0.13.0` remains the measurement-engineering
-baseline for sensors/transducers, scaling profiles, engineering correction
+demo-data filtering, equipment ports, and controlled signal paths. Release
+`0.13.0` introduced the technical resources for sensors/transducers, sample conversions, frequency-response
 curves, DAQ channel profiles, and logical acquisition channel recipes. These
 routes do not run hardware or acquire data.
 
@@ -194,7 +194,7 @@ a current probe, receiving antenna, IEPE accelerometer, microphone, or generic
 transducer. It is not a physical asset with a serial number and not a
 calibration event.
 
-### Scaling Profiles
+### Time-Domain Sample Conversions
 
 ```text
 GET    /api/v1/scaling-profiles
@@ -211,14 +211,16 @@ POST   /api/v1/scaling-profiles/{id}/revisions/{revision_id}/transitions/approve
 GET    /api/v1/scaling-profiles/{id}/audit-events
 ```
 
-Scaling profiles transform a DAQ or sensor electrical signal into an
-engineering quantity. Supported definitions include identity, linear,
+The `scaling-profiles` resource stores operator-facing **conversions
+temporelles**. It transforms each DAQ or sensor sample into a physical
+quantity. Supported definitions include identity, linear,
 two-point, polynomial, lookup-table, piecewise-linear, and a limited expression
-DSL. Scaling evaluation rejects non-finite inputs and non-finite computed
-outputs before they can become traceability evidence. Scaling profiles are
-reusable transformation definitions, not calibration certificates.
+DSL. `signal_representation` must be `time_domain_samples`; optional
+`input_limits` declare minimum, maximum, and `warn`, `reject`, or
+`mark_clipped` handling. Conversion definitions are reusable controlled
+transformations, not calibration certificates.
 
-### Engineering Curves
+### Frequency-Response Corrections
 
 ```text
 GET    /api/v1/engineering-curves
@@ -236,7 +238,8 @@ POST   /api/v1/engineering-curves/{id}/revisions/{revision_id}/evaluate
 GET    /api/v1/engineering-curves/{id}/audit-events
 ```
 
-Curve definitions cover antenna factor, cable loss, amplifier gain, attenuator
+The `engineering-curves` resource stores operator-facing **réponses
+fréquentielles**. Definitions cover antenna factor, cable loss, amplifier gain, attenuator
 loss, current-probe transfer, voltage-probe transfer, sensor frequency
 response, phase response, uncertainty, VSWR, S-parameter magnitude, site
 characterization, and generic correction artifacts. Evaluation is deterministic
@@ -245,7 +248,9 @@ extrapolation flag, optional warning, source revision id, and source checksum.
 Validation rejects logarithmic interpolation inputs that cannot be evaluated:
 `log_x_linear_y` requires positive x values and `linear_x_log_y` requires
 positive dependent values. Evaluation requests for `log_x_linear_y` curves also
-reject non-positive axis values before extrapolation is applied. Interpolated
+reject non-positive axis values before extrapolation is applied. Every response
+has a typed amplitude component with an explicit correction operation; an
+angular phase component is optional. Interpolated
 and extrapolated dependent results must remain finite; non-finite results are
 returned as controlled validation errors.
 
@@ -258,6 +263,33 @@ Example evaluation request:
   }
 }
 ```
+
+### Equipment Signal Paths
+
+`EquipmentModelDefinition.signal_paths` binds declared measurement ports to
+controlled corrections:
+
+```json
+{
+  "path_id": "rf_input_to_spectrum",
+  "label": "RF input vers spectre corrigé",
+  "input_port_id": "rf_input",
+  "output_port_id": "measurement_result",
+  "transformations": [
+    {
+      "transformation_kind": "frequency_response",
+      "entity_id": "cable-loss-main",
+      "revision_id": "cable-loss-main-rev-0003",
+      "definition_checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  ]
+}
+```
+
+The agent resolves each reference in `equipment.sqlite`. The revision must be
+`approved` or `superseded`, and its canonical checksum must match. Unknown
+references return `404`; uncontrolled revisions and checksum mismatches return
+`409`. Communication-only ports cannot be used as measurement-path endpoints.
 
 ### DAQ Channel Profiles
 

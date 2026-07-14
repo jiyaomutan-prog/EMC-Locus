@@ -8,6 +8,44 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-07-14
+
+### Added
+
+- Added revision-pinned signal paths to equipment models. A path connects a
+  declared input port to a declared output port and references approved sample
+  conversions or frequency responses by identity, revision, and canonical
+  checksum.
+- Added explicit time-domain sample limits with controlled overload handling,
+  plus typed amplitude and optional phase components for frequency-response
+  definitions.
+- Added a focused LAB CONSOLE signal-path editor and readable input/output port
+  cards, while retaining detailed electrical fields under an advanced
+  disclosure.
+
+### Changed
+
+- Replaced operator-facing `Ingénierie de mesure`, `Scaling`, `Courbes
+  d’ingénierie`, and `Excitation` terminology with `Signaux et corrections`,
+  `Conversions temporelles`, `Réponses fréquentielles`, and `Alimentation /
+  conditionnement du capteur`.
+- Separated time-domain gain/offset and clipping rules from spectrum-domain
+  amplitude/phase compensation in the Rust core, API validation, LAB CONSOLE,
+  tests, and documentation.
+- Made correction operations explicit (`add`, `subtract`, `multiply`, or
+  `divide`) instead of relying on the sign or name of a generic curve value.
+
+### Fixed
+
+- Rejected missing, uncontrolled, or checksum-mismatched correction references
+  on every equipment-model creation and revision path, including direct model
+  creation, with structured HTTP `404` or `409` responses.
+- Allowed logical software result ports to participate in measurement signal
+  paths without classifying every software-domain port as a communication-only
+  connector.
+- Kept the local agent available after malformed non-UTF-8 HTTP request bodies;
+  these requests now receive a structured `400` response.
+
 ## [0.14.0] - 2026-07-14
 
 ### Added

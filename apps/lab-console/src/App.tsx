@@ -496,7 +496,7 @@ export function App() {
           <div>
             <p className="eyebrow">
               {activeView === "equipment"
-                ? "Référentiel et ingénierie"
+                ? "Référentiel, signaux et corrections"
                 : activeView === "system"
                   ? "Diagnostic local"
                   : "Définitions et révisions"}

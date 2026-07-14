@@ -54,6 +54,7 @@ type StudioSection =
   | "method"
   | "lookup"
   | "expression"
+  | "limits"
   | "axes"
   | "table"
   | "evaluation"
@@ -79,18 +80,18 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     collection: "sensor-definitions",
     validationCollection: "sensor-definition-definitions",
     operationPrefix: "sensor-definition",
-    title: "Capteurs / transducteurs",
-    listTitle: "Definitions capteurs",
-    createLabel: "Creer capteur",
-    emptyDetail: "Selectionnez ou creez une definition de capteur/transducteur.",
+    title: "Capteurs et transducteurs",
+    listTitle: "Définitions de capteurs",
+    createLabel: "Nouveau capteur",
+    emptyDetail: "Sélectionnez ou créez une définition de capteur ou de transducteur.",
     sections: [
-      ["general", "General"],
-      ["physical", "Entree physique"],
-      ["electrical", "Sortie electrique"],
-      ["excitation", "Excitation"],
-      ["scaling", "Scaling"],
-      ["corrections", "Courbes de correction"],
-      ["revisions", "Revisions"],
+      ["general", "Identification"],
+      ["physical", "Entrée mesurée"],
+      ["electrical", "Sortie électrique"],
+      ["excitation", "Alimentation / conditionnement"],
+      ["scaling", "Conversion temporelle"],
+      ["corrections", "Réponse fréquentielle"],
+      ["revisions", "Révisions"],
       ["audit", "Audit"],
       ["json", "Diagnostic JSON"]
     ]
@@ -100,17 +101,18 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     collection: "scaling-profiles",
     validationCollection: "scaling-profile-definitions",
     operationPrefix: "scaling-profile",
-    title: "Profils de scaling",
-    listTitle: "Profils de scaling",
-    createLabel: "Creer scaling",
-    emptyDetail: "Selectionnez ou creez un profil de mise a l'echelle.",
+    title: "Conversions temporelles",
+    listTitle: "Conversions des échantillons",
+    createLabel: "Nouvelle conversion",
+    emptyDetail: "Sélectionnez ou créez une conversion appliquée aux échantillons temporels.",
     sections: [
-      ["general", "General"],
-      ["physical", "Entree / sortie"],
-      ["method", "Methode de scaling"],
-      ["lookup", "Lookup Table"],
+      ["general", "Identification"],
+      ["physical", "Entrée / sortie"],
+      ["method", "Gain et offset"],
+      ["limits", "Surcharge / écrêtage"],
+      ["lookup", "Table de conversion"],
       ["expression", "Expression"],
-      ["revisions", "Revisions"],
+      ["revisions", "Révisions"],
       ["audit", "Audit"],
       ["json", "Diagnostic JSON"]
     ]
@@ -120,16 +122,16 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     collection: "engineering-curves",
     validationCollection: "engineering-curve-definitions",
     operationPrefix: "engineering-curve",
-    title: "Courbes d'ingénierie",
-    listTitle: "Courbes d'ingénierie",
-    createLabel: "Creer courbe",
-    emptyDetail: "Selectionnez ou creez une courbe de correction.",
+    title: "Réponses fréquentielles",
+    listTitle: "Corrections amplitude / phase",
+    createLabel: "Nouvelle réponse",
+    emptyDetail: "Sélectionnez ou créez une correction en fonction de la fréquence.",
     sections: [
-      ["general", "General"],
-      ["axes", "Axes"],
-      ["table", "Table courbe"],
-      ["evaluation", "Evaluation"],
-      ["revisions", "Revisions"],
+      ["general", "Identification"],
+      ["axes", "Grandeurs corrigées"],
+      ["table", "Amplitude / phase"],
+      ["evaluation", "Vérification ponctuelle"],
+      ["revisions", "Révisions"],
       ["audit", "Audit"],
       ["json", "Diagnostic JSON"]
     ]
@@ -139,17 +141,17 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     collection: "daq-channel-profiles",
     validationCollection: "daq-channel-profile-definitions",
     operationPrefix: "daq-channel-profile",
-    title: "Voies DAQ",
+    title: "Entrées / sorties DAQ",
     listTitle: "Profils de voies DAQ",
-    createLabel: "Creer profil DAQ",
-    emptyDetail: "Selectionnez ou creez un profil de voie DAQ.",
+    createLabel: "Nouvelle voie DAQ",
+    emptyDetail: "Sélectionnez ou créez un profil d’entrée ou de sortie de numériseur.",
     sections: [
-      ["general", "General"],
+      ["general", "Identification"],
       ["daq", "Type de voie"],
       ["physical", "Plages"],
       ["sampling", "Echantillonnage"],
-      ["excitation", "Excitation"],
-      ["revisions", "Revisions"],
+      ["excitation", "Alimentation capteur"],
+      ["revisions", "Révisions"],
       ["audit", "Audit"],
       ["json", "Diagnostic JSON"]
     ]
@@ -159,15 +161,15 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     collection: "acquisition-channel-recipes",
     validationCollection: "acquisition-channel-recipe-definitions",
     operationPrefix: "acquisition-channel-recipe",
-    title: "Recettes d'acquisition",
-    listTitle: "Recettes d'acquisition",
-    createLabel: "Creer recette",
-    emptyDetail: "Selectionnez ou creez une recette de voie logique.",
+    title: "Chaînes d'acquisition",
+    listTitle: "Chaînes d'acquisition",
+    createLabel: "Nouvelle chaîne",
+    emptyDetail: "Sélectionnez ou créez une chaîne reliant capteur, voie DAQ et traitements.",
     sections: [
-      ["general", "General"],
-      ["chain", "Chaine de mesure"],
-      ["sampling", "Echantillonnage / plage"],
-      ["revisions", "Revisions"],
+      ["general", "Identification"],
+      ["chain", "Chaîne de mesure"],
+      ["sampling", "Échantillonnage / plage"],
+      ["revisions", "Révisions"],
       ["audit", "Audit"],
       ["json", "Diagnostic JSON"]
     ]
@@ -325,6 +327,13 @@ export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSp
   }, [refreshLists]);
 
   useEffect(() => {
+    setSelected(null);
+    setRevision(null);
+    setDefinition(null);
+    setDefinitionChecksum("");
+    setRevisions([]);
+    setAudit([]);
+    setJsonDraft("");
     setSection("general");
     setValidation(null);
     setCurveEvaluation(null);
@@ -504,9 +513,9 @@ export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSp
     <section className="measurementPanel">
       <div className="measurementHeader">
         <div>
-          <p className="eyebrow">Ingénierie de mesure</p>
+          <p className="eyebrow">Signaux et corrections</p>
           <h2>{activeConfig.title}</h2>
-          <p className="workspaceMeta">{items.length} definition{items.length > 1 ? "s" : ""}</p>
+          <p className="workspaceMeta">{items.length} définition{items.length > 1 ? "s" : ""}</p>
         </div>
         <button className="iconButton secondary" onClick={() => void refreshLists()} title="Rafraichir les definitions" aria-label="Rafraichir les definitions">
           <RefreshCw size={16} />
@@ -526,12 +535,12 @@ export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSp
 
       {operationError && (
         <div className="conflictBox">
-          <strong>Operation refusee</strong>
+          <strong>Opération refusée</strong>
           <p>{operationError}</p>
         </div>
       )}
 
-      {loadState === "loading" && <StateBlock title="Chargement" detail="Lecture du domaine measurement engineering." />}
+      {loadState === "loading" && <StateBlock title="Chargement" detail="Lecture des définitions de signaux et de corrections." />}
       {loadState === "error" && <StateBlock title="Erreur" detail={operationError ?? "Domaine indisponible."} />}
 
       {loadState === "ready" && (
@@ -544,7 +553,7 @@ export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSp
           />
           <section className="equipmentStudio">
             {!selected || !revision || !definition ? (
-              <StateBlock title="Aucune definition ouverte" detail={activeConfig.emptyDetail} />
+              <StateBlock title="Aucune définition ouverte" detail={activeConfig.emptyDetail} />
             ) : (
               <>
                 <div className="studioHeader">
@@ -577,7 +586,7 @@ export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSp
                     )}
                     {revision.status === "approved" && selected.current_approved_revision && (
                       <button onClick={() => void deriveRevision()}>
-                        <GitBranch size={16} /> Nouvelle revision
+                        <GitBranch size={16} /> Nouvelle révision
                       </button>
                     )}
                   </div>
@@ -796,48 +805,47 @@ function SensorSections(props: SectionProps & { approvedOptions: ApprovedOptions
   const d = props.definition;
   if (props.section === "general") {
     return (
-      <EditorCard title="General">
-        <Field label="Sensor definition ID" value={s(d.sensor_definition_id)} disabled onChange={() => undefined} />
-        <Field label="Manufacturer" value={s(d.manufacturer)} disabled={props.readOnly} onChange={(manufacturer) => props.onDefinition({ ...d, manufacturer })} />
-        <Field label="Model name" value={s(d.model_name)} disabled={props.readOnly} onChange={(model_name) => props.onDefinition({ ...d, model_name })} />
-        <Field label="Variant" value={s(d.variant)} disabled={props.readOnly} onChange={(variant) => props.onDefinition({ ...d, variant: optionalString(variant) })} />
+      <EditorCard title="Identification">
+        <Field label="Identifiant interne" value={s(d.sensor_definition_id)} disabled onChange={() => undefined} />
+        <Field label="Fabricant" value={s(d.manufacturer)} disabled={props.readOnly} onChange={(manufacturer) => props.onDefinition({ ...d, manufacturer })} />
+        <Field label="Modèle" value={s(d.model_name)} disabled={props.readOnly} onChange={(model_name) => props.onDefinition({ ...d, model_name })} />
         <label>
-          Sensor family
+          Famille de capteur
           <select disabled={props.readOnly} value={s(d.sensor_family)} onChange={(event) => props.onDefinition({ ...d, sensor_family: event.target.value })}>
-            {sensorFamilies.map((family) => <option key={family} value={family}>{family}</option>)}
+            {sensorFamilies.map((family) => <option key={family} value={family}>{humanMeasurementLabel(family)}</option>)}
           </select>
         </label>
-        <Field label="Technology tags" value={stringArray(d.technology_tags).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, technology_tags: splitTokens(value) })} />
+        <Field label="Technologies" value={stringArray(d.technology_tags).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, technology_tags: splitTokens(value) })} />
       </EditorCard>
     );
   }
   if (props.section === "physical") {
     return (
-      <EditorCard title="Physical Input">
-        <QuantitySelect label="Physical input quantity" value={s(d.physical_input_quantity)} disabled={props.readOnly} onChange={(physical_input_quantity) => props.onDefinition({ ...d, physical_input_quantity })} />
-        <QuantitySelect label="Engineering output quantity" value={s(d.engineering_output_quantity)} disabled={props.readOnly} onChange={(engineering_output_quantity) => props.onDefinition({ ...d, engineering_output_quantity })} />
-        <Field label="Engineering output unit" value={s(d.engineering_output_unit)} disabled={props.readOnly} onChange={(engineering_output_unit) => props.onDefinition({ ...d, engineering_output_unit })} />
-        <RangeFields title="Nominal range" range={objectValue(d.nominal_range)} unitFallback={s(d.engineering_output_unit)} readOnly={props.readOnly} onRange={(nominal_range) => props.onDefinition({ ...d, nominal_range })} />
+      <EditorCard title="Grandeur mesurée">
+        <QuantitySelect label="Grandeur physique à l’entrée" value={s(d.physical_input_quantity)} disabled={props.readOnly} onChange={(physical_input_quantity) => props.onDefinition({ ...d, physical_input_quantity })} />
+        <QuantitySelect label="Grandeur restituée" value={s(d.engineering_output_quantity)} disabled={props.readOnly} onChange={(engineering_output_quantity) => props.onDefinition({ ...d, engineering_output_quantity })} />
+        <Field label="Unité restituée" value={s(d.engineering_output_unit)} disabled={props.readOnly} onChange={(engineering_output_unit) => props.onDefinition({ ...d, engineering_output_unit })} />
+        <RangeFields title="Plage nominale" range={objectValue(d.nominal_range)} unitFallback={s(d.engineering_output_unit)} readOnly={props.readOnly} onRange={(nominal_range) => props.onDefinition({ ...d, nominal_range })} />
         <FrequencyRangeFields range={frequencyRange(d.frequency_range)} readOnly={props.readOnly} onRange={(frequency_range) => props.onDefinition({ ...d, frequency_range })} />
       </EditorCard>
     );
   }
   if (props.section === "electrical") {
     return (
-      <EditorCard title="Electrical Output">
-        <QuantitySelect label="Electrical output quantity" value={s(d.electrical_output_quantity)} disabled={props.readOnly} onChange={(electrical_output_quantity) => props.onDefinition({ ...d, electrical_output_quantity })} />
-        <Field label="Electrical output unit" value={s(d.electrical_output_unit)} disabled={props.readOnly} onChange={(electrical_output_unit) => props.onDefinition({ ...d, electrical_output_unit })} />
+      <EditorCard title="Signal électrique délivré">
+        <QuantitySelect label="Grandeur électrique" value={s(d.electrical_output_quantity)} disabled={props.readOnly} onChange={(electrical_output_quantity) => props.onDefinition({ ...d, electrical_output_quantity })} />
+        <Field label="Unité électrique" value={s(d.electrical_output_unit)} disabled={props.readOnly} onChange={(electrical_output_unit) => props.onDefinition({ ...d, electrical_output_unit })} />
         <label>
-          Signal domain
+          Domaine du signal
           <select disabled={props.readOnly} value={s(d.signal_domain)} onChange={(event) => props.onDefinition({ ...d, signal_domain: event.target.value })}>
-            {signalDomains.map((domain) => <option key={domain} value={domain}>{domain}</option>)}
+            {signalDomains.map((domain) => <option key={domain} value={domain}>{humanMeasurementLabel(domain)}</option>)}
           </select>
         </label>
         <label>
-          Input mode requirement
+          Mode d’entrée requis
           <select disabled={props.readOnly} value={s(d.input_mode_requirement)} onChange={(event) => props.onDefinition({ ...d, input_mode_requirement: optionalString(event.target.value) })}>
-            <option value="">none</option>
-            {inputModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+            <option value="">Aucun</option>
+            {inputModes.map((mode) => <option key={mode} value={mode}>{humanMeasurementLabel(mode)}</option>)}
           </select>
         </label>
       </EditorCard>
@@ -849,7 +857,7 @@ function SensorSections(props: SectionProps & { approvedOptions: ApprovedOptions
   if (props.section === "scaling") {
     return (
       <ReferenceEditor
-        title="Scaling"
+        title="Conversion des échantillons"
         refs={refs(d.scaling_profile_refs)}
         options={props.approvedOptions.scalings}
         readOnly={props.readOnly}
@@ -859,7 +867,7 @@ function SensorSections(props: SectionProps & { approvedOptions: ApprovedOptions
   }
   return (
     <ReferenceEditor
-      title="Correction Curves"
+      title="Réponse fréquentielle"
       refs={refs(d.correction_curve_refs)}
       options={props.approvedOptions.curves}
       readOnly={props.readOnly}
@@ -876,35 +884,41 @@ function ScalingSections(props: SectionProps & {
 }) {
   const d = props.definition;
   const parameters = objectValue(d.parameters);
+  const inputLimits = objectValue(d.input_limits);
   if (props.section === "general") {
     return (
-      <EditorCard title="General">
-        <Field label="Scaling profile ID" value={s(d.scaling_profile_id)} disabled onChange={() => undefined} />
-        <Field label="Label" value={s(d.label)} disabled={props.readOnly} onChange={(label) => props.onDefinition({ ...d, label })} />
-        <Field label="Source reference" value={s(d.source_reference)} disabled={props.readOnly} onChange={(source_reference) => props.onDefinition({ ...d, source_reference: optionalString(source_reference) })} />
+      <EditorCard title="Identification">
+        <div className="domainBanner">
+          <strong>Signal temporel échantillonné</strong>
+          <span>Conversion d’une valeur brute vers une grandeur physique.</span>
+        </div>
+        <Field label="Identifiant interne" value={s(d.scaling_profile_id)} disabled onChange={() => undefined} />
+        <Field label="Nom de la conversion" value={s(d.label)} disabled={props.readOnly} onChange={(label) => props.onDefinition({ ...d, label })} />
+        <Field label="Source métrologique ou documentaire" value={s(d.source_reference)} disabled={props.readOnly} onChange={(source_reference) => props.onDefinition({ ...d, source_reference: optionalString(source_reference) })} />
       </EditorCard>
     );
   }
   if (props.section === "physical") {
     return (
-      <EditorCard title="Input / Output">
-        <QuantitySelect label="Input quantity" value={s(d.input_quantity)} disabled={props.readOnly} onChange={(input_quantity) => props.onDefinition({ ...d, input_quantity })} />
-        <Field label="Input unit" value={s(d.input_unit)} disabled={props.readOnly} onChange={(input_unit) => props.onDefinition({ ...d, input_unit })} />
-        <QuantitySelect label="Output quantity" value={s(d.output_quantity)} disabled={props.readOnly} onChange={(output_quantity) => props.onDefinition({ ...d, output_quantity })} />
-        <Field label="Output unit" value={s(d.output_unit)} disabled={props.readOnly} onChange={(output_unit) => props.onDefinition({ ...d, output_unit })} />
+      <EditorCard title="Grandeur brute et grandeur restituée">
+        <QuantitySelect label="Grandeur d’entrée" value={s(d.input_quantity)} disabled={props.readOnly} onChange={(input_quantity) => props.onDefinition({ ...d, input_quantity })} />
+        <Field label="Unité d’entrée" value={s(d.input_unit)} disabled={props.readOnly} onChange={(input_unit) => props.onDefinition({ ...d, input_unit })} />
+        <QuantitySelect label="Grandeur de sortie" value={s(d.output_quantity)} disabled={props.readOnly} onChange={(output_quantity) => props.onDefinition({ ...d, output_quantity })} />
+        <Field label="Unité de sortie" value={s(d.output_unit)} disabled={props.readOnly} onChange={(output_unit) => props.onDefinition({ ...d, output_unit })} />
       </EditorCard>
     );
   }
   if (props.section === "method") {
     return (
-      <EditorCard title="Scaling Method">
+      <EditorCard title="Loi de conversion">
+        <div className="formulaStrip">Valeur physique = gain × échantillon + offset</div>
         <label>
-          Scaling kind
+          Type de conversion
           <select disabled={props.readOnly} value={s(d.scaling_kind)} onChange={(event) => props.onDefinition({ ...d, scaling_kind: event.target.value })}>
-            {["identity", "linear", "two_point", "polynomial", "lookup_table", "piecewise_linear", "expression"].map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+            {["identity", "linear", "two_point", "polynomial", "lookup_table", "piecewise_linear", "expression"].map((kind) => <option key={kind} value={kind}>{scalingKindLabel(kind)}</option>)}
           </select>
         </label>
-        <Field label="Scale" value={s(parameters.scale)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, scale: optionalNumber(value) } })} />
+        <Field label="Gain / facteur" value={s(parameters.scale)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, scale: optionalNumber(value) } })} />
         <Field label="Offset" value={s(parameters.offset ?? 0)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, offset: optionalNumber(value) ?? 0 } })} />
         <div className="measurementFourGrid">
           <Field label="Input point 1" value={s(parameters.input_point_1)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, input_point_1: optionalNumber(value) } })} />
@@ -912,20 +926,45 @@ function ScalingSections(props: SectionProps & {
           <Field label="Input point 2" value={s(parameters.input_point_2)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, input_point_2: optionalNumber(value) } })} />
           <Field label="Output point 2" value={s(parameters.output_point_2)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, output_point_2: optionalNumber(value) } })} />
         </div>
-        <Field label="Polynomial coefficients" value={numberArray(parameters.coefficients).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, coefficients: numberList(value) } })} />
+        <Field label="Coefficients polynomiaux" value={numberArray(parameters.coefficients).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, coefficients: numberList(value) } })} />
+      </EditorCard>
+    );
+  }
+  if (props.section === "limits") {
+    return (
+      <EditorCard title="Limites du signal d’entrée">
+        <div className="domainBanner warning">
+          <strong>Détection de surcharge</strong>
+          <span>Ces bornes décrivent la plage exploitable avant saturation ou écrêtage de l’entrée.</span>
+        </div>
+        <div className="measurementThreeGrid">
+          <Field label={`Minimum (${s(d.input_unit)})`} value={s(inputLimits.minimum)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, input_limits: { ...inputLimits, minimum: numberOrZero(value), maximum: Number(inputLimits.maximum ?? 10), handling: s(inputLimits.handling || "warn") } })} />
+          <Field label={`Maximum (${s(d.input_unit)})`} value={s(inputLimits.maximum)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, input_limits: { ...inputLimits, minimum: Number(inputLimits.minimum ?? -10), maximum: numberOrZero(value), handling: s(inputLimits.handling || "warn") } })} />
+          <label>
+            Traitement hors plage
+            <select disabled={props.readOnly} value={s(inputLimits.handling || "warn")} onChange={(event) => props.onDefinition({ ...d, input_limits: { minimum: Number(inputLimits.minimum ?? -10), maximum: Number(inputLimits.maximum ?? 10), handling: event.target.value } })}>
+              <option value="warn">Signaler une surcharge</option>
+              <option value="reject">Refuser la valeur</option>
+              <option value="mark_clipped">Marquer comme écrêtée</option>
+            </select>
+          </label>
+        </div>
+        <button className="secondary" disabled={props.readOnly || !d.input_limits} onClick={() => props.onDefinition({ ...d, input_limits: undefined })}>
+          Retirer les limites
+        </button>
       </EditorCard>
     );
   }
   if (props.section === "lookup") {
     return (
-      <EditorCard title="Lookup Table">
+      <EditorCard title="Table de conversion">
         <div className="buttonRow">
           <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...d, parameters: { ...parameters, points: [...scalingPoints(parameters.points), { input: 0, output: 0 }] } })}>Ajouter point</button>
-          <button onClick={props.onExportLookupCsv}><Download size={16} /> Export CSV</button>
-          <button disabled={props.readOnly} onClick={props.onApplyLookupCsv}><FileSpreadsheet size={16} /> Import CSV</button>
+          <button onClick={props.onExportLookupCsv}><Download size={16} /> Exporter CSV</button>
+          <button disabled={props.readOnly} onClick={props.onApplyLookupCsv}><FileSpreadsheet size={16} /> Importer CSV</button>
         </div>
         <textarea value={props.lookupCsv} onChange={(event) => props.onLookupCsv(event.target.value)} placeholder="input,output" />
-        <StructuredTable columns={["Input", "Output"]}>
+        <StructuredTable columns={["Entrée", "Sortie"]}>
           {scalingPoints(parameters.points).map((point, index) => (
             <tr key={index}>
               <td><input disabled={props.readOnly} value={point.input} onChange={(event) => props.onDefinition({ ...d, parameters: { ...parameters, points: replaceAt(scalingPoints(parameters.points), index, { ...point, input: numberOrZero(event.target.value) }) } })} /></td>
@@ -938,8 +977,8 @@ function ScalingSections(props: SectionProps & {
   }
   return (
     <EditorCard title="Expression">
-      <Field label="Expression DSL" value={s(parameters.expression)} disabled={props.readOnly} onChange={(expression) => props.onDefinition({ ...d, parameters: { ...parameters, expression: optionalString(expression) } })} />
-      <p className="notice">Allowed identifiers: x, input, temperature, frequency. Allowed functions: pow, sqrt, log10, ln, abs, min, max.</p>
+      <Field label="Expression contrôlée" value={s(parameters.expression)} disabled={props.readOnly} onChange={(expression) => props.onDefinition({ ...d, parameters: { ...parameters, expression: optionalString(expression) } })} />
+      <p className="notice">Variables autorisées : x, input, temperature, frequency. Fonctions : pow, sqrt, log10, ln, abs, min, max.</p>
     </EditorCard>
   );
 }
@@ -958,67 +997,99 @@ function CurveSections(props: SectionProps & {
   const d = props.definition;
   if (props.section === "general") {
     return (
-      <EditorCard title="General">
-        <Field label="Curve ID" value={s(d.curve_id)} disabled onChange={() => undefined} />
-        <Field label="Label" value={s(d.label)} disabled={props.readOnly} onChange={(label) => props.onDefinition({ ...d, label })} />
+      <EditorCard title="Identification">
+        <div className="domainBanner">
+          <strong>Spectre fréquentiel</strong>
+          <span>Compensation d’amplitude et, si nécessaire, de phase en fonction de la fréquence.</span>
+        </div>
+        <Field label="Identifiant interne" value={s(d.curve_id)} disabled onChange={() => undefined} />
+        <Field label="Nom de la réponse" value={s(d.label)} disabled={props.readOnly} onChange={(label) => props.onDefinition({ ...d, label })} />
         <label>
-          Curve type
+          Type de réponse
           <select disabled={props.readOnly} value={s(d.curve_type)} onChange={(event) => props.onDefinition({ ...d, curve_type: event.target.value })}>
-            {curveTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+            {curveTypes.map((type) => <option key={type} value={type}>{curveTypeLabel(type)}</option>)}
           </select>
         </label>
-        <Field label="Source document reference" value={s(d.source_document_reference)} disabled={props.readOnly} onChange={(source_document_reference) => props.onDefinition({ ...d, source_document_reference: optionalString(source_document_reference) })} />
-        <Field label="Source checksum" value={s(d.source_checksum)} disabled={props.readOnly} onChange={(source_checksum) => props.onDefinition({ ...d, source_checksum: optionalString(source_checksum) })} />
+        <Field label="Document source" value={s(d.source_document_reference)} disabled={props.readOnly} onChange={(source_document_reference) => props.onDefinition({ ...d, source_document_reference: optionalString(source_document_reference) })} />
+        <Field label="Empreinte SHA-256 de la source" value={s(d.source_checksum)} disabled={props.readOnly} onChange={(source_checksum) => props.onDefinition({ ...d, source_checksum: optionalString(source_checksum) })} />
       </EditorCard>
     );
   }
   if (props.section === "axes") {
     const axis = curveAxes(d)[0] ?? { axis: "frequency", quantity: "frequency", unit: "Hz" };
-    const dependent = curveValues(d)[0] ?? { value_id: "correction_db", quantity: "dimensionless", unit: "dB" };
-    const dependentValueId = s(dependent.value_id || "correction_db");
+    const values = curveValues(d);
+    const amplitude = values.find((value) => s(value.component || "amplitude") === "amplitude") ?? { value_id: "amplitude_correction_db", quantity: "dimensionless", unit: "dB", component: "amplitude", operation: "add" };
+    const phase = values.find((value) => s(value.component) === "phase");
+    const amplitudeValueId = s(amplitude.value_id || "amplitude_correction_db");
     return (
-      <EditorCard title="Axes And Values">
-        <Field label="Independent axis" value={s(axis.axis)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, independent_axes: [{ ...axis, axis: value }] })} />
-        <QuantitySelect label="Axis quantity" value={s(axis.quantity)} disabled={props.readOnly} onChange={(quantity) => props.onDefinition({ ...d, independent_axes: [{ ...axis, quantity }] })} />
-        <Field label="Axis unit" value={s(axis.unit)} disabled={props.readOnly} onChange={(unit) => props.onDefinition({ ...d, independent_axes: [{ ...axis, unit }] })} />
-        <Field label="Dependent value ID" value={dependentValueId} disabled={props.readOnly} onChange={(value_id) => props.onDefinition({ ...d, dependent_values: [{ ...dependent, value_id }], units: { ...objectValue(d.units), [value_id]: dependent.unit } })} />
-        <QuantitySelect label="Dependent quantity" value={s(dependent.quantity)} disabled={props.readOnly} onChange={(quantity) => props.onDefinition({ ...d, dependent_values: [{ ...dependent, quantity }] })} />
-        <Field label="Dependent unit" value={s(dependent.unit)} disabled={props.readOnly} onChange={(unit) => props.onDefinition({ ...d, dependent_values: [{ ...dependent, unit }], units: { frequency: "Hz", [dependentValueId]: unit } })} />
+      <EditorCard title="Composantes de la réponse">
+        <div className="measurementThreeGrid">
+          <Field label="Axe" value="Fréquence" disabled onChange={() => undefined} />
+          <Field label="Unité de fréquence" value={s(axis.unit)} disabled={props.readOnly} onChange={(unit) => props.onDefinition({ ...d, independent_axes: [{ axis: "frequency", quantity: "frequency", unit }] })} />
+          <Field label="ID amplitude" value={amplitudeValueId} disabled={props.readOnly} onChange={(value_id) => props.onDefinition({ ...d, dependent_values: [{ ...amplitude, value_id }, ...(phase ? [phase] : [])], units: { frequency: s(axis.unit || "Hz"), [value_id]: amplitude.unit, ...(phase ? { [s(phase.value_id)]: phase.unit } : {}) } })} />
+          <Field label="Unité d’amplitude" value={s(amplitude.unit)} disabled={props.readOnly} onChange={(unit) => props.onDefinition({ ...d, dependent_values: [{ ...amplitude, unit }, ...(phase ? [phase] : [])], units: { ...objectValue(d.units), [amplitudeValueId]: unit } })} />
+          <label>
+            Opération sur l’amplitude
+            <select disabled={props.readOnly} value={s(amplitude.operation || "add")} onChange={(event) => props.onDefinition({ ...d, dependent_values: [{ ...amplitude, operation: event.target.value }, ...(phase ? [phase] : [])] })}>
+              {["add", "subtract", "multiply", "divide"].map((operation) => <option key={operation} value={operation}>{correctionOperationLabel(operation)}</option>)}
+            </select>
+          </label>
+          <div className="inlineFieldAction">
+            {phase
+              ? <button className="secondary" disabled={props.readOnly} onClick={() => props.onDefinition({ ...d, dependent_values: [amplitude], points: curvePoints(d.points).map((point) => ({ ...point, values: { [amplitudeValueId]: valueNumber(point, amplitudeValueId) } })) })}>Retirer la phase</button>
+              : <button className="secondary" disabled={props.readOnly} onClick={() => props.onDefinition({ ...d, dependent_values: [amplitude, { value_id: "phase_correction_deg", quantity: "angle", unit: "deg", component: "phase", operation: "add" }], units: { ...objectValue(d.units), phase_correction_deg: "deg" }, points: curvePoints(d.points).map((point) => ({ ...point, values: { ...objectValue(point.values), phase_correction_deg: 0 } })) })}>Ajouter la phase</button>}
+          </div>
+        </div>
+        {phase && (
+          <div className="measurementThreeGrid">
+            <Field label="ID phase" value={s(phase.value_id)} disabled={props.readOnly} onChange={(value_id) => props.onDefinition({ ...d, dependent_values: [amplitude, { ...phase, value_id }] })} />
+            <Field label="Unité de phase" value={s(phase.unit)} disabled={props.readOnly} onChange={(unit) => props.onDefinition({ ...d, dependent_values: [amplitude, { ...phase, unit }], units: { ...objectValue(d.units), [s(phase.value_id)]: unit } })} />
+            <label>
+              Opération sur la phase
+              <select disabled={props.readOnly} value={s(phase.operation || "add")} onChange={(event) => props.onDefinition({ ...d, dependent_values: [amplitude, { ...phase, operation: event.target.value }] })}>
+                <option value="add">Ajouter</option>
+                <option value="subtract">Soustraire</option>
+              </select>
+            </label>
+          </div>
+        )}
         <label>
           Interpolation
           <select disabled={props.readOnly} value={s(d.interpolation)} onChange={(event) => props.onDefinition({ ...d, interpolation: event.target.value })}>
-            {["linear_x_linear_y", "log_x_linear_y", "linear_x_log_y", "nearest", "step_previous", "step_next"].map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+            {["linear_x_linear_y", "log_x_linear_y", "linear_x_log_y", "nearest", "step_previous", "step_next"].map((mode) => <option key={mode} value={mode}>{interpolationLabel(mode)}</option>)}
           </select>
         </label>
         <label>
           Extrapolation
           <select disabled={props.readOnly} value={s(d.extrapolation_policy)} onChange={(event) => props.onDefinition({ ...d, extrapolation_policy: event.target.value })}>
-            {["forbidden", "clamp", "warn", "allow"].map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+            {["forbidden", "clamp", "warn", "allow"].map((mode) => <option key={mode} value={mode}>{extrapolationLabel(mode)}</option>)}
           </select>
         </label>
       </EditorCard>
     );
   }
   if (props.section === "table") {
-    const valueId = s(curveValues(d)[0]?.value_id ?? "correction_db");
+    const values = curveValues(d);
+    const valueIds = values.map((value) => s(value.value_id));
     return (
-      <EditorCard title="Curve Table">
+      <EditorCard title="Réponse en fréquence">
+        <FrequencyCoverage definition={d} />
         <div className="buttonRow">
-          <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...d, points: [...curvePoints(d.points), newCurvePoint(valueId)] })}>Ajouter point</button>
-          <button onClick={props.onExportCurveCsv}><Download size={16} /> Export CSV</button>
-          <button disabled={props.readOnly} onClick={props.onApplyCurveCsv}><FileSpreadsheet size={16} /> Import CSV</button>
+          <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...d, points: [...curvePoints(d.points), newCurvePoint(valueIds)] })}>Ajouter un point</button>
+          <button onClick={props.onExportCurveCsv}><Download size={16} /> Exporter CSV</button>
+          <button disabled={props.readOnly} onClick={props.onApplyCurveCsv}><FileSpreadsheet size={16} /> Importer CSV</button>
           <label className="fileButton">
-            CSV file
+            Fichier CSV
             <input type="file" accept=".csv,text/csv" disabled={props.readOnly} onChange={(event) => event.target.files?.[0] && props.onImportCurveFile(event.target.files[0])} />
           </label>
         </div>
-        <textarea value={props.curveCsv} onChange={(event) => props.onCurveCsv(event.target.value)} placeholder="frequency_hz,correction_db" />
+        <textarea value={props.curveCsv} onChange={(event) => props.onCurveCsv(event.target.value)} placeholder={`frequency_hz,${valueIds.join(",")}`} />
         <CurvePlot definition={d} />
-        <StructuredTable columns={["Frequency Hz", valueId]}>
+        <StructuredTable columns={["Fréquence (Hz)", ...valueIds]}>
           {curvePoints(d.points).map((point, index) => (
             <tr key={index}>
               <td><input disabled={props.readOnly} value={axisNumber(point, "frequency")} onChange={(event) => props.onDefinition({ ...d, points: replaceAt(curvePoints(d.points), index, { ...point, axis_values: { ...objectValue(point.axis_values), frequency: numberOrZero(event.target.value) } }) })} /></td>
-              <td><input disabled={props.readOnly} value={valueNumber(point, valueId)} onChange={(event) => props.onDefinition({ ...d, points: replaceAt(curvePoints(d.points), index, { ...point, values: { ...objectValue(point.values), [valueId]: numberOrZero(event.target.value) } }) })} /></td>
+              {valueIds.map((valueId) => <td key={valueId}><input disabled={props.readOnly} value={valueNumber(point, valueId)} onChange={(event) => props.onDefinition({ ...d, points: replaceAt(curvePoints(d.points), index, { ...point, values: { ...objectValue(point.values), [valueId]: numberOrZero(event.target.value) } }) })} /></td>)}
             </tr>
           ))}
         </StructuredTable>
@@ -1026,14 +1097,14 @@ function CurveSections(props: SectionProps & {
     );
   }
   return (
-    <EditorCard title="Evaluation">
-      <Field label="Frequency Hz" value={props.evaluationFrequency} onChange={props.onEvaluationFrequency} />
-      <button onClick={props.onEvaluateCurve}><CheckCircle2 size={16} /> Evaluer la courbe</button>
+    <EditorCard title="Vérification ponctuelle">
+      <Field label="Fréquence (Hz)" value={props.evaluationFrequency} onChange={props.onEvaluationFrequency} />
+      <button onClick={props.onEvaluateCurve}><CheckCircle2 size={16} /> Calculer la correction</button>
       {props.curveEvaluation && (
         <dl>
-          <dt>Values</dt><dd>{JSON.stringify(props.curveEvaluation.values)}</dd>
+          <dt>Valeurs</dt><dd>{JSON.stringify(props.curveEvaluation.values)}</dd>
           <dt>Interpolation</dt><dd>{props.curveEvaluation.interpolation}</dd>
-          <dt>Extrapolated</dt><dd>{props.curveEvaluation.extrapolated ? "yes" : "no"}</dd>
+          <dt>Extrapolation</dt><dd>{props.curveEvaluation.extrapolated ? "Oui" : "Non"}</dd>
           <dt>Source</dt><dd className="mono">{props.curveEvaluation.source_revision_id}</dd>
           <dt>Checksum</dt><dd><code>{props.curveEvaluation.source_checksum}</code></dd>
         </dl>
@@ -1046,19 +1117,19 @@ function DaqSections(props: SectionProps) {
   const d = props.definition;
   if (props.section === "general") {
     return (
-      <EditorCard title="General">
-        <Field label="DAQ profile ID" value={s(d.daq_channel_profile_id)} disabled onChange={() => undefined} />
-        <Field label="Label" value={s(d.label)} disabled={props.readOnly} onChange={(label) => props.onDefinition({ ...d, label })} />
+      <EditorCard title="Identification">
+        <Field label="Identifiant interne" value={s(d.daq_channel_profile_id)} disabled onChange={() => undefined} />
+        <Field label="Nom de la voie" value={s(d.label)} disabled={props.readOnly} onChange={(label) => props.onDefinition({ ...d, label })} />
         <label>
-          Channel kind
+          Type de voie
           <select disabled={props.readOnly} value={s(d.channel_kind)} onChange={(event) => props.onDefinition({ ...d, channel_kind: event.target.value })}>
-            {channelKinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+            {channelKinds.map((kind) => <option key={kind} value={kind}>{humanMeasurementLabel(kind)}</option>)}
           </select>
         </label>
         <label>
-          Signal domain
+          Domaine du signal
           <select disabled={props.readOnly} value={s(d.signal_domain)} onChange={(event) => props.onDefinition({ ...d, signal_domain: event.target.value })}>
-            {signalDomains.map((domain) => <option key={domain} value={domain}>{domain}</option>)}
+            {signalDomains.map((domain) => <option key={domain} value={domain}>{humanMeasurementLabel(domain)}</option>)}
           </select>
         </label>
       </EditorCard>
@@ -1066,29 +1137,29 @@ function DaqSections(props: SectionProps) {
   }
   if (props.section === "daq") {
     return (
-      <EditorCard title="Input / Output Mode">
-        <QuantitySelect label="Input quantity" value={s(d.input_quantity)} disabled={props.readOnly} onChange={(input_quantity) => props.onDefinition({ ...d, input_quantity })} />
-        <Field label="Input unit" value={s(d.input_unit)} disabled={props.readOnly} onChange={(input_unit) => props.onDefinition({ ...d, input_unit })} />
-        <Field label="Input modes" value={stringArray(d.input_modes).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, input_modes: splitTokens(value) })} />
-        <Field label="Coupling modes" value={stringArray(d.coupling_modes).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, coupling_modes: splitTokens(value) })} />
+      <EditorCard title="Mode d’entrée / sortie">
+        <QuantitySelect label="Grandeur d’entrée" value={s(d.input_quantity)} disabled={props.readOnly} onChange={(input_quantity) => props.onDefinition({ ...d, input_quantity })} />
+        <Field label="Unité d’entrée" value={s(d.input_unit)} disabled={props.readOnly} onChange={(input_unit) => props.onDefinition({ ...d, input_unit })} />
+        <Field label="Modes d’entrée" value={stringArray(d.input_modes).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, input_modes: splitTokens(value) })} />
+        <Field label="Couplages" value={stringArray(d.coupling_modes).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, coupling_modes: splitTokens(value) })} />
       </EditorCard>
     );
   }
   if (props.section === "physical") {
     return (
-      <EditorCard title="Ranges">
+      <EditorCard title="Plages électriques">
         <SupportedRangeTable ranges={supportedRanges(d.supported_ranges)} readOnly={props.readOnly} onRanges={(supported_ranges) => props.onDefinition({ ...d, supported_ranges })} />
       </EditorCard>
     );
   }
   if (props.section === "sampling") {
     return (
-      <EditorCard title="Sampling">
-        <Field label="Resolution bits" value={s(d.resolution_bits)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, resolution_bits: optionalInteger(value) })} />
-        <Field label="Min sampling rate" value={s(d.min_sampling_rate)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, min_sampling_rate: optionalNumber(value) })} />
-        <Field label="Max sampling rate" value={s(d.max_sampling_rate)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, max_sampling_rate: optionalNumber(value) })} />
-        <Field label="Synchronization" value={s(d.synchronization)} disabled={props.readOnly} onChange={(synchronization) => props.onDefinition({ ...d, synchronization: optionalString(synchronization) })} />
-        <Field label="Triggering" value={s(d.triggering)} disabled={props.readOnly} onChange={(triggering) => props.onDefinition({ ...d, triggering: optionalString(triggering) })} />
+      <EditorCard title="Échantillonnage">
+        <Field label="Résolution (bits)" value={s(d.resolution_bits)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, resolution_bits: optionalInteger(value) })} />
+        <Field label="Fréquence minimale (éch/s)" value={s(d.min_sampling_rate)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, min_sampling_rate: optionalNumber(value) })} />
+        <Field label="Fréquence maximale (éch/s)" value={s(d.max_sampling_rate)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, max_sampling_rate: optionalNumber(value) })} />
+        <Field label="Synchronisation" value={s(d.synchronization)} disabled={props.readOnly} onChange={(synchronization) => props.onDefinition({ ...d, synchronization: optionalString(synchronization) })} />
+        <Field label="Déclenchement" value={s(d.triggering)} disabled={props.readOnly} onChange={(triggering) => props.onDefinition({ ...d, triggering: optionalString(triggering) })} />
       </EditorCard>
     );
   }
@@ -1099,29 +1170,29 @@ function RecipeSections(props: SectionProps & { approvedOptions: ApprovedOptions
   const d = props.definition;
   if (props.section === "general") {
     return (
-      <EditorCard title="General">
-        <Field label="Recipe ID" value={s(d.recipe_id)} disabled onChange={() => undefined} />
-        <Field label="Label" value={s(d.label)} disabled={props.readOnly} onChange={(label) => props.onDefinition({ ...d, label })} />
-        <Field label="Output channel name" value={s(d.output_channel_name)} disabled={props.readOnly} onChange={(output_channel_name) => props.onDefinition({ ...d, output_channel_name })} />
-        <QuantitySelect label="Output quantity" value={s(d.output_quantity)} disabled={props.readOnly} onChange={(output_quantity) => props.onDefinition({ ...d, output_quantity })} />
-        <Field label="Output unit" value={s(d.output_unit)} disabled={props.readOnly} onChange={(output_unit) => props.onDefinition({ ...d, output_unit })} />
+      <EditorCard title="Identification">
+        <Field label="Identifiant interne" value={s(d.recipe_id)} disabled onChange={() => undefined} />
+        <Field label="Nom de la chaîne" value={s(d.label)} disabled={props.readOnly} onChange={(label) => props.onDefinition({ ...d, label })} />
+        <Field label="Nom du canal résultat" value={s(d.output_channel_name)} disabled={props.readOnly} onChange={(output_channel_name) => props.onDefinition({ ...d, output_channel_name })} />
+        <QuantitySelect label="Grandeur de sortie" value={s(d.output_quantity)} disabled={props.readOnly} onChange={(output_quantity) => props.onDefinition({ ...d, output_quantity })} />
+        <Field label="Unité de sortie" value={s(d.output_unit)} disabled={props.readOnly} onChange={(output_unit) => props.onDefinition({ ...d, output_unit })} />
       </EditorCard>
     );
   }
   if (props.section === "chain") {
     return (
-      <EditorCard title="Measurement Chain">
+      <EditorCard title="Chaîne de mesure">
         <ChainSummary definition={d} />
-        <ReferenceSelect label="DAQ channel profile" value={refText(d.daq_channel_profile_ref)} options={props.approvedOptions.daq} readOnly={props.readOnly} onValue={(value) => props.onDefinition({ ...d, daq_channel_profile_ref: refFromText(value) })} />
-        <ReferenceSelect label="Sensor definition" value={refText(d.sensor_definition_ref)} options={props.approvedOptions.sensors} readOnly={props.readOnly} onValue={(value) => props.onDefinition({ ...d, sensor_definition_ref: value ? refFromText(value) : undefined })} />
-        <ReferenceSelect label="Scaling profile" value={refText(d.scaling_profile_ref)} options={props.approvedOptions.scalings} readOnly={props.readOnly} onValue={(value) => props.onDefinition({ ...d, scaling_profile_ref: value ? refFromText(value) : undefined })} />
-        <ReferenceEditor title="Correction curves" refs={refs(d.correction_curve_refs)} options={props.approvedOptions.curves} readOnly={props.readOnly} onRefs={(correction_curve_refs) => props.onDefinition({ ...d, correction_curve_refs })} />
+        <ReferenceSelect label="Voie DAQ" value={refText(d.daq_channel_profile_ref)} options={props.approvedOptions.daq} readOnly={props.readOnly} onValue={(value) => props.onDefinition({ ...d, daq_channel_profile_ref: refFromText(value) })} />
+        <ReferenceSelect label="Capteur / transducteur" value={refText(d.sensor_definition_ref)} options={props.approvedOptions.sensors} readOnly={props.readOnly} onValue={(value) => props.onDefinition({ ...d, sensor_definition_ref: value ? refFromText(value) : undefined })} />
+        <ReferenceSelect label="Conversion temporelle" value={refText(d.scaling_profile_ref)} options={props.approvedOptions.scalings} readOnly={props.readOnly} onValue={(value) => props.onDefinition({ ...d, scaling_profile_ref: value ? refFromText(value) : undefined })} />
+        <ReferenceEditor title="Réponses fréquentielles" refs={refs(d.correction_curve_refs)} options={props.approvedOptions.curves} readOnly={props.readOnly} onRefs={(correction_curve_refs) => props.onDefinition({ ...d, correction_curve_refs })} />
       </EditorCard>
     );
   }
   return (
-    <EditorCard title="Sampling / Range">
-      <Field label="Sample rate" value={s(d.sample_rate)} disabled={props.readOnly} onChange={(sample_rate) => props.onDefinition({ ...d, sample_rate: numberOrZero(sample_rate) })} />
+    <EditorCard title="Échantillonnage et plage">
+      <Field label="Fréquence d’échantillonnage (éch/s)" value={s(d.sample_rate)} disabled={props.readOnly} onChange={(sample_rate) => props.onDefinition({ ...d, sample_rate: numberOrZero(sample_rate) })} />
       <SupportedRangeTable ranges={[supportedRange(d.range)]} readOnly={props.readOnly} onRanges={(ranges) => props.onDefinition({ ...d, range: ranges[0] })} />
       <label>
         Coupling
@@ -1194,7 +1265,7 @@ function QuantitySelect(props: {
     <label>
       {props.label}
       <select disabled={props.disabled} value={props.value} onChange={(event) => props.onChange(event.target.value)}>
-        {quantities.map((quantity) => <option key={quantity} value={quantity}>{quantity}</option>)}
+        {quantities.map((quantity) => <option key={quantity} value={quantity}>{humanMeasurementLabel(quantity)}</option>)}
       </select>
     </label>
   );
@@ -1212,7 +1283,7 @@ function RangeFields(props: {
       <legend>{props.title}</legend>
       <Field label="Minimum" value={s(props.range.minimum)} disabled={props.readOnly} onChange={(value) => props.onRange({ ...props.range, minimum: optionalNumber(value) })} />
       <Field label="Maximum" value={s(props.range.maximum)} disabled={props.readOnly} onChange={(value) => props.onRange({ ...props.range, maximum: optionalNumber(value) })} />
-      <Field label="Unit" value={s(props.range.unit ?? props.unitFallback)} disabled={props.readOnly} onChange={(unit) => props.onRange({ ...props.range, unit })} />
+      <Field label="Unité" value={s(props.range.unit ?? props.unitFallback)} disabled={props.readOnly} onChange={(unit) => props.onRange({ ...props.range, unit })} />
     </fieldset>
   );
 }
@@ -1224,9 +1295,9 @@ function FrequencyRangeFields(props: {
 }) {
   return (
     <fieldset className="measurementFieldset">
-      <legend>Frequency range Hz</legend>
-      <Field label="Minimum Hz" value={s(props.range.minimum_hz)} disabled={props.readOnly} onChange={(value) => props.onRange({ ...props.range, minimum_hz: numberOrZero(value) })} />
-      <Field label="Maximum Hz" value={s(props.range.maximum_hz)} disabled={props.readOnly} onChange={(value) => props.onRange({ ...props.range, maximum_hz: numberOrZero(value) })} />
+      <legend>Domaine fréquentiel</legend>
+      <Field label="Fmin (Hz)" value={s(props.range.minimum_hz)} disabled={props.readOnly} onChange={(value) => props.onRange({ ...props.range, minimum_hz: numberOrZero(value) })} />
+      <Field label="Fmax (Hz)" value={s(props.range.maximum_hz)} disabled={props.readOnly} onChange={(value) => props.onRange({ ...props.range, maximum_hz: numberOrZero(value) })} />
     </fieldset>
   );
 }
@@ -1238,8 +1309,8 @@ function SupportedRangeTable(props: {
 }) {
   return (
     <>
-      <button disabled={props.readOnly} onClick={() => props.onRanges([...props.ranges, { minimum: -10, maximum: 10, unit: "V" }])}>Ajouter range</button>
-      <StructuredTable columns={["Minimum", "Maximum", "Unit"]}>
+      <button disabled={props.readOnly} onClick={() => props.onRanges([...props.ranges, { minimum: -10, maximum: 10, unit: "V" }])}>Ajouter une plage</button>
+      <StructuredTable columns={["Minimum", "Maximum", "Unité"]}>
         {props.ranges.map((range, index) => (
           <tr key={index}>
             <td><input disabled={props.readOnly} value={range.minimum} onChange={(event) => props.onRanges(replaceAt(props.ranges, index, { ...range, minimum: numberOrZero(event.target.value) }))} /></td>
@@ -1273,22 +1344,26 @@ function ExcitationEditor(props: {
     }
   };
   return (
-    <EditorCard title="Excitation">
-      {props.list && <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...props.definition, [props.field]: [...excitations, defaultExcitation("iepe")] })}>Ajouter excitation</button>}
+    <EditorCard title="Alimentation et conditionnement du capteur">
+      <div className="domainBanner">
+        <strong>Ce n’est pas le signal d’essai</strong>
+        <span>Il s’agit de l’énergie ou du conditionnement nécessaire au capteur : courant IEPE, tension de pont ou amplificateur de charge.</span>
+      </div>
+      {props.list && <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...props.definition, [props.field]: [...excitations, defaultExcitation("iepe")] })}>Ajouter une alimentation</button>}
       {excitations.map((excitation, index) => (
         <fieldset className="measurementFieldset" key={index}>
-          <legend>{props.list ? `Excitation ${index + 1}` : "Required excitation"}</legend>
+          <legend>{props.list ? `Alimentation ${index + 1}` : "Besoin du capteur"}</legend>
           <label>
-            Kind
+            Type
             <select disabled={props.readOnly} value={s(excitation.excitation_kind ?? "none")} onChange={(event) => update({ ...excitation, excitation_kind: event.target.value }, index)}>
-              {["none", "external", "voltage", "current", "iepe", "bridge", "charge"].map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+              {["none", "external", "voltage", "current", "iepe", "bridge", "charge"].map((kind) => <option key={kind} value={kind}>{excitationKindLabel(kind)}</option>)}
             </select>
           </label>
-          <Field label="Nominal value" value={s(excitation.nominal_value)} disabled={props.readOnly} onChange={(nominal_value) => update({ ...excitation, nominal_value: optionalNumber(nominal_value) }, index)} />
-          <Field label="Unit" value={s(excitation.unit)} disabled={props.readOnly} onChange={(unit) => update({ ...excitation, unit: optionalString(unit) }, index)} />
+          <Field label="Valeur nominale" value={s(excitation.nominal_value)} disabled={props.readOnly} onChange={(nominal_value) => update({ ...excitation, nominal_value: optionalNumber(nominal_value) }, index)} />
+          <Field label="Unité" value={s(excitation.unit)} disabled={props.readOnly} onChange={(unit) => update({ ...excitation, unit: optionalString(unit) }, index)} />
           <label className="checkboxLabel">
             <input type="checkbox" disabled={props.readOnly} checked={Boolean(excitation.external_allowed)} onChange={(event) => update({ ...excitation, external_allowed: event.target.checked }, index)} />
-            External allowed
+            Une source externe est autorisée
           </label>
         </fieldset>
       ))}
@@ -1308,7 +1383,7 @@ function ReferenceEditor(props: {
     <EditorCard title={props.title}>
       <div className="buttonRow">
         <select disabled={props.readOnly} value={selected} onChange={(event) => setSelected(event.target.value)}>
-          <option value="">Approved definition...</option>
+          <option value="">Définition approuvée...</option>
           {props.options.map((option) => (
             <option key={`${option.entity_id}:${option.revision_id}`} value={refText(option)}>
               {option.label} | {option.entity_id}
@@ -1320,12 +1395,12 @@ function ReferenceEditor(props: {
           setSelected("");
         }}>Ajouter</button>
       </div>
-      <StructuredTable columns={["Entity", "Revision", "Approved", ""]}>
+      <StructuredTable columns={["Définition", "Révision", "Approbation requise", ""]}>
         {props.refs.map((ref, index) => (
           <tr key={`${ref.entity_id}-${index}`}>
             <td>{ref.entity_id}</td>
             <td>{ref.revision_id ?? "-"}</td>
-            <td>{ref.require_approved ? "yes" : "no"}</td>
+            <td>{ref.require_approved ? "Oui" : "Non"}</td>
             <td><button disabled={props.readOnly} onClick={() => props.onRefs(props.refs.filter((_, itemIndex) => itemIndex !== index))}>Retirer</button></td>
           </tr>
         ))}
@@ -1345,7 +1420,7 @@ function ReferenceSelect(props: {
     <label>
       {props.label}
       <select disabled={props.readOnly} value={props.value} onChange={(event) => props.onValue(event.target.value)}>
-        <option value="">none</option>
+        <option value="">Aucune</option>
         {props.options.map((option) => (
           <option value={refText(option)} key={`${option.entity_id}:${option.revision_id}`}>
             {option.label} | {option.entity_id}
@@ -1359,12 +1434,29 @@ function ReferenceSelect(props: {
 function ChainSummary(props: { definition: MeasurementEngineeringDefinition }) {
   return (
     <div className="chainSummary">
-      <span>DAQ channel<br /><strong>{refText(props.definition.daq_channel_profile_ref)}</strong></span>
-      <span>sensor electrical signal<br /><strong>{refText(props.definition.sensor_definition_ref)}</strong></span>
-      <span>scaling profile<br /><strong>{refText(props.definition.scaling_profile_ref)}</strong></span>
-      <span>correction curve<br /><strong>{refs(props.definition.correction_curve_refs).map(refText).join(", ") || "-"}</strong></span>
-      <span>engineering output<br /><strong>{s(props.definition.output_channel_name)} [{s(props.definition.output_unit)}]</strong></span>
+      <span>Voie DAQ<br /><strong>{refText(props.definition.daq_channel_profile_ref)}</strong></span>
+      <span>Signal électrique du capteur<br /><strong>{refText(props.definition.sensor_definition_ref)}</strong></span>
+      <span>Conversion temporelle<br /><strong>{refText(props.definition.scaling_profile_ref)}</strong></span>
+      <span>Réponse fréquentielle<br /><strong>{refs(props.definition.correction_curve_refs).map(refText).join(", ") || "-"}</strong></span>
+      <span>Résultat physique<br /><strong>{s(props.definition.output_channel_name)} [{s(props.definition.output_unit)}]</strong></span>
     </div>
+  );
+}
+
+function FrequencyCoverage(props: { definition: MeasurementEngineeringDefinition }) {
+  const points = curvePoints(props.definition.points);
+  const frequencies = points.map((point) => axisNumber(point, "frequency")).filter(Number.isFinite);
+  const values = curveValues(props.definition);
+  const amplitude = values.find((value) => s(value.component || "amplitude") === "amplitude");
+  const phase = values.find((value) => s(value.component) === "phase");
+  if (frequencies.length === 0) return null;
+  return (
+    <dl className="frequencyCoverage">
+      <div><dt>Fmin</dt><dd>{Math.min(...frequencies).toLocaleString("fr-FR")} Hz</dd></div>
+      <div><dt>Fmax</dt><dd>{Math.max(...frequencies).toLocaleString("fr-FR")} Hz</dd></div>
+      <div><dt>Amplitude</dt><dd>{amplitude ? correctionOperationLabel(s(amplitude.operation || "add")) : "Non définie"}</dd></div>
+      <div><dt>Phase</dt><dd>{phase ? "Compensée" : "Non utilisée"}</dd></div>
+    </dl>
   );
 }
 
@@ -1417,7 +1509,6 @@ function defaultSensor(entityId: string, label: string, approved: ApprovedOption
     sensor_definition_id: entityId,
     manufacturer: "Demo",
     model_name: label,
-    variant: "lab-console",
     sensor_family: "current_probe",
     physical_input_quantity: "current",
     engineering_output_quantity: "current",
@@ -1448,8 +1539,10 @@ function defaultScaling(entityId: string, label: string): MeasurementEngineering
     input_unit: "V",
     output_quantity: "current",
     output_unit: "A",
+    signal_representation: "time_domain_samples",
     scaling_kind: "linear",
     parameters: { scale: 100, offset: 0 },
+    input_limits: { minimum: -10, maximum: 10, handling: "warn" },
     validity_domain: {},
     source_reference: "lab-console",
     metadata: { created_from: "lab_console" }
@@ -1462,13 +1555,14 @@ function defaultCurve(entityId: string, label: string): MeasurementEngineeringDe
     curve_id: entityId,
     curve_type: "cable_loss",
     label,
+    signal_representation: "frequency_domain_spectrum",
     independent_axes: [{ axis: "frequency", quantity: "frequency", unit: "Hz" }],
-    dependent_values: [{ value_id: "correction_db", quantity: "dimensionless", unit: "dB" }],
-    units: { frequency: "Hz", correction_db: "dB" },
+    dependent_values: [{ value_id: "amplitude_correction_db", quantity: "dimensionless", unit: "dB", component: "amplitude", operation: "add" }],
+    units: { frequency: "Hz", amplitude_correction_db: "dB" },
     points: [
-      { axis_values: { frequency: 10000000 }, values: { correction_db: 0.2 } },
-      { axis_values: { frequency: 100000000 }, values: { correction_db: 1.0 } },
-      { axis_values: { frequency: 1000000000 }, values: { correction_db: 3.0 } }
+      { axis_values: { frequency: 10000000 }, values: { amplitude_correction_db: 0.2 } },
+      { axis_values: { frequency: 100000000 }, values: { amplitude_correction_db: 1.0 } },
+      { axis_values: { frequency: 1000000000 }, values: { amplitude_correction_db: 3.0 } }
     ],
     interpolation: "log_x_linear_y",
     extrapolation_policy: "warn",
@@ -1585,11 +1679,8 @@ function applyCurveCsv(
   onError: (message: string | null) => void
 ) {
   try {
-    const valueId = s(curveValues(definition)[0]?.value_id ?? "correction_db");
-    const points = parseTwoColumnCsv(csv, "frequency_hz", valueId).map(([frequency, value]) => ({
-      axis_values: { frequency },
-      values: { [valueId]: value }
-    }));
+    const valueIds = curveValues(definition).map((value) => s(value.value_id));
+    const points = parseFrequencyResponseCsv(csv, valueIds);
     onDefinition({ ...definition, points: points.sort((a, b) => a.axis_values.frequency - b.axis_values.frequency) });
   } catch (error) {
     onError(errorMessage(error));
@@ -1597,13 +1688,39 @@ function applyCurveCsv(
 }
 
 function exportCurveCsv(definition: MeasurementEngineeringDefinition) {
-  const valueId = s(curveValues(definition)[0]?.value_id ?? "correction_db");
+  const valueIds = curveValues(definition).map((value) => s(value.value_id));
   return [
-    `frequency_hz,${valueId}`,
+    `frequency_hz,${valueIds.join(",")}`,
     ...curvePoints(definition.points)
       .sort((a, b) => axisNumber(a, "frequency") - axisNumber(b, "frequency"))
-      .map((point) => `${axisNumber(point, "frequency")},${valueNumber(point, valueId)}`)
+      .map((point) => [axisNumber(point, "frequency"), ...valueIds.map((valueId) => valueNumber(point, valueId))].join(","))
   ].join("\n");
+}
+
+function parseFrequencyResponseCsv(csv: string, valueIds: string[]): CurvePoint[] {
+  const lines = csv
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length < 2) throw new Error("Le CSV doit contenir un en-tête et au moins une ligne.");
+  const headers = lines[0].split(",").map((item) => item.trim());
+  const frequencyIndex = headers.indexOf("frequency_hz");
+  const valueIndexes = valueIds.map((valueId) => headers.indexOf(valueId));
+  if (frequencyIndex < 0 || valueIndexes.some((index) => index < 0)) {
+    throw new Error(`L’en-tête CSV doit contenir frequency_hz et ${valueIds.join(", ")}.`);
+  }
+  const seen = new Set<number>();
+  return lines.slice(1).map((line, rowIndex) => {
+    const cells = line.split(",").map((item) => item.trim());
+    const frequency = Number(cells[frequencyIndex]);
+    const values = Object.fromEntries(valueIds.map((valueId, index) => [valueId, Number(cells[valueIndexes[index]])]));
+    if (!Number.isFinite(frequency) || Object.values(values).some((value) => !Number.isFinite(value))) {
+      throw new Error(`La ligne CSV ${rowIndex + 2} contient une valeur non numérique.`);
+    }
+    if (seen.has(frequency)) throw new Error(`La ligne CSV ${rowIndex + 2} duplique la fréquence ${frequency} Hz.`);
+    seen.add(frequency);
+    return { axis_values: { frequency }, values };
+  });
 }
 
 function parseTwoColumnCsv(csv: string, expectedFirst: string, expectedSecond: string): Array<[number, number]> {
@@ -1679,8 +1796,11 @@ function valueNumber(point: CurvePoint, valueId: string) {
   return Number(objectValue(point.values)[valueId] ?? 0);
 }
 
-function newCurvePoint(valueId: string): CurvePoint {
-  return { axis_values: { frequency: 1000000 }, values: { [valueId]: 0 } };
+function newCurvePoint(valueIds: string[]): CurvePoint {
+  return {
+    axis_values: { frequency: 1000000 },
+    values: Object.fromEntries(valueIds.map((valueId) => [valueId, 0]))
+  };
 }
 
 function refs(value: unknown): DefinitionReference[] {
@@ -1760,6 +1880,122 @@ function s(value: unknown): string {
   return String(value);
 }
 
+function humanMeasurementLabel(value: string) {
+  const labels: Record<string, string> = {
+    current_probe: "Pince / sonde de courant",
+    voltage_probe: "Sonde de tension",
+    field_probe: "Sonde de champ",
+    receiving_antenna: "Antenne de réception",
+    transmitting_antenna: "Antenne d’émission",
+    accelerometer: "Accéléromètre",
+    microphone: "Microphone",
+    thermocouple: "Thermocouple",
+    pressure_sensor: "Capteur de pression",
+    photodiode: "Photodiode",
+    strain_gauge: "Jauge de contrainte",
+    generic_transducer: "Transducteur générique",
+    manual_transducer: "Transducteur manuel",
+    analog_input: "Entrée analogique",
+    analog_output: "Sortie analogique",
+    digital_input: "Entrée numérique",
+    digital_output: "Sortie numérique",
+    digital_bidirectional: "Entrée / sortie numérique",
+    counter_input: "Entrée compteur",
+    frequency_input: "Entrée fréquencemètre",
+    trigger_input: "Entrée de déclenchement",
+    trigger_output: "Sortie de déclenchement",
+    can_bus_channel: "Voie bus CAN",
+    software_channel: "Canal logiciel",
+    single_ended: "Asymétrique",
+    differential: "Différentiel",
+    pseudo_differential: "Pseudo-différentiel",
+    current_loop: "Boucle de courant",
+    bridge_quarter: "Quart de pont",
+    bridge_half: "Demi-pont",
+    bridge_full: "Pont complet",
+    analog_voltage: "Tension analogique",
+    analog_current: "Courant analogique",
+    analog_charge: "Charge analogique",
+    digital_logic: "Logique numérique",
+    mechanical: "Mécanique",
+    environmental: "Environnement",
+    software: "Données logicielles"
+  };
+  return labels[value] ?? value.replaceAll("_", " ");
+}
+
+function scalingKindLabel(value: string) {
+  return {
+    identity: "Identité",
+    linear: "Gain et offset",
+    two_point: "Étalonnage en deux points",
+    polynomial: "Polynôme",
+    lookup_table: "Table de correspondance",
+    piecewise_linear: "Linéaire par morceaux",
+    expression: "Expression contrôlée"
+  }[value] ?? humanMeasurementLabel(value);
+}
+
+function curveTypeLabel(value: string) {
+  return {
+    antenna_factor: "Facteur d’antenne",
+    cable_loss: "Pertes de câble",
+    amplifier_gain: "Gain d’amplificateur",
+    attenuator_loss: "Pertes d’atténuateur",
+    current_probe_transfer: "Transfert de sonde de courant",
+    voltage_probe_transfer: "Transfert de sonde de tension",
+    sensor_frequency_response: "Réponse fréquentielle de capteur",
+    phase_response: "Réponse de phase",
+    linearity_correction: "Correction de linéarité",
+    uncertainty: "Incertitude",
+    vswr: "ROS / VSWR",
+    s_parameter_magnitude: "Module de paramètre S",
+    site_characterization: "Caractérisation de site",
+    generic_correction: "Correction générique"
+  }[value] ?? humanMeasurementLabel(value);
+}
+
+function correctionOperationLabel(value: string) {
+  return {
+    add: "Ajouter à la mesure",
+    subtract: "Soustraire de la mesure",
+    multiply: "Multiplier la mesure",
+    divide: "Diviser la mesure"
+  }[value] ?? humanMeasurementLabel(value);
+}
+
+function interpolationLabel(value: string) {
+  return {
+    linear_x_linear_y: "Linéaire en fréquence et en valeur",
+    log_x_linear_y: "Logarithmique en fréquence",
+    linear_x_log_y: "Logarithmique en valeur",
+    nearest: "Point le plus proche",
+    step_previous: "Palier précédent",
+    step_next: "Palier suivant"
+  }[value] ?? humanMeasurementLabel(value);
+}
+
+function extrapolationLabel(value: string) {
+  return {
+    forbidden: "Interdite hors bande",
+    clamp: "Borner à Fmin / Fmax",
+    warn: "Autoriser avec avertissement",
+    allow: "Autoriser"
+  }[value] ?? humanMeasurementLabel(value);
+}
+
+function excitationKindLabel(value: string) {
+  return {
+    none: "Aucune alimentation",
+    external: "Conditionnement externe",
+    voltage: "Tension constante",
+    current: "Courant constant",
+    iepe: "Courant IEPE / ICP",
+    bridge: "Alimentation de pont",
+    charge: "Amplificateur de charge"
+  }[value] ?? humanMeasurementLabel(value);
+}
+
 function generatedEntityId(space: MeasurementSpace) {
   const prefix = {
     sensors: "SNS",
@@ -1773,11 +2009,11 @@ function generatedEntityId(space: MeasurementSpace) {
 
 function defaultLabel(space: MeasurementSpace, entityId: string) {
   const label = {
-    sensors: "Current Probe 10mV/A",
-    scaling: "Current probe 10 mV/A",
-    curves: "Cable loss curve",
-    daq: "Analog input +/-10 V",
-    recipes: "current_A logical channel"
+    sensors: "Pince de courant 10 mV/A",
+    scaling: "Conversion 10 mV/A",
+    curves: "Pertes du câble RF",
+    daq: "Entrée analogique +/-10 V",
+    recipes: "Chaîne courant_A"
   }[space];
   return `${label} ${entityId.slice(-4)}`;
 }

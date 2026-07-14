@@ -83,7 +83,17 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.14.0`.
+Current software version: `0.15.0`.
+
+Version `0.15.0` replaces the ambiguous measurement-engineering vocabulary
+with a signal-centered model. Equipment definitions now expose inputs, outputs,
+and revision-pinned signal paths. Time-sampled data uses controlled conversions
+with gain, offset, and overload/clipping bounds; spectra use frequency responses
+with explicit amplitude correction and optional phase correction. LAB CONSOLE
+presents these concepts as `Signaux et corrections`, `Conversions temporelles`,
+and `Réponses fréquentielles`. This release defines and validates correction
+contracts; it does not yet acquire samples, apply corrections at runtime, bind
+them directly to a serialized asset, or replace metrology evidence.
 
 Version `0.14.0` gives the Equipment Repository a universal editable `Général`
 category inherited by all equipment families, explicit required/optional field
@@ -144,7 +154,7 @@ metadata as a runtime driver. It is still not a physical fleet deployment
 system, certified hardware driver package, acquisition engine, RBAC domain,
 or full sensor/DAQ scaling model.
 
-Recommended next vertical: `0.14.1 - Station Connections And Physical
+Recommended next vertical: `0.16.0 - Station Connections And Physical
 Measurement Chain Drafting`.
 
 Version `0.11.0` delivers the first Equipment Definition Catalog and Driver

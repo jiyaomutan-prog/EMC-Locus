@@ -144,6 +144,12 @@ Deliverables:
   required/optional form semantics, field maintenance, and the first
   serial-numbered material registration path backed by metrology. It does not
   yet provide station connections or a physical measurement-chain builder.
+- `0.15.0` refounds the correction vocabulary and contract around signal
+  physics: equipment inputs and outputs, revision-pinned signal paths,
+  time-domain sample conversions with gain/offset and clipping limits, and
+  spectrum-domain frequency responses with explicit amplitude and optional
+  phase correction. It validates controlled references but does not execute
+  acquisition or apply corrections to live data.
 
 ## Phase 3: Measurement Runtime
 

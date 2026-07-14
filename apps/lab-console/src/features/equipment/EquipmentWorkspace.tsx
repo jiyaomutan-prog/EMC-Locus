@@ -24,7 +24,14 @@ import {
   Trash2
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, equipmentApi, metrologyApi, type OperationContext } from "../../api";
+import {
+  ApiError,
+  equipmentApi,
+  measurementEngineeringApi,
+  metrologyApi,
+  type MeasurementEngineeringConfig,
+  type OperationContext
+} from "../../api";
 import type {
   CommunicationProviderStatus,
   DriverActionDefinition,
@@ -41,12 +48,16 @@ import type {
   EquipmentFileReference,
   EquipmentClass,
   EquipmentRegistries,
+  EquipmentSignalPathDefinition,
   EquipmentModelAggregate,
   EquipmentModelDefinition,
   EquipmentModelRevision,
   EquipmentValidationResult,
   FunctionalRole,
+  MeasurementEngineeringAggregate,
   SignalDomain,
+  SignalPortDefinition,
+  SignalTransformationKind,
   TechnologyTag
 } from "../../models/equipment";
 import type { MetrologyInstrument, RegisterMetrologyInstrumentInput } from "../../models/metrology";
@@ -86,10 +97,10 @@ type DriverSection =
 
 const measurementSpaces: Array<[EquipmentSpace, string]> = [
   ["sensors", "Capteurs / transducteurs"],
-  ["scaling", "Profils de scaling"],
-  ["curves", "Courbes d'ingénierie"],
+  ["scaling", "Conversions temporelles"],
+  ["curves", "Réponses fréquentielles"],
   ["daq", "Voies DAQ"],
-  ["recipes", "Recettes d'acquisition"]
+  ["recipes", "Chaînes d'acquisition"]
 ];
 
 const modelSections: Array<[ModelSection, string]> = [
@@ -97,8 +108,8 @@ const modelSections: Array<[ModelSection, string]> = [
   ["identification", "Identification"],
   ["category_template", "Categorie et formulaire"],
   ["characteristics", "Caracteristiques"],
-  ["ports_connections", "Ports et connexions"],
-  ["measurement_corrections", "Mesure / corrections"],
+  ["ports_connections", "Entrées et sorties"],
+  ["measurement_corrections", "Chemins du signal"],
   ["control_drivers", "Pilotage / drivers"],
   ["documents", "Documents"],
   ["revisions_audit", "Revisions et audit"],
@@ -150,6 +161,26 @@ const context: OperationContext = {
   reason: "operation LAB CONSOLE equipment"
 };
 
+const sampleConversionConfig: MeasurementEngineeringConfig = {
+  collection: "scaling-profiles",
+  validationCollection: "scaling-profile-definitions",
+  operationPrefix: "scaling-profile"
+};
+
+const frequencyResponseConfig: MeasurementEngineeringConfig = {
+  collection: "engineering-curves",
+  validationCollection: "engineering-curve-definitions",
+  operationPrefix: "engineering-curve"
+};
+
+interface SignalTransformationOption {
+  transformation_kind: SignalTransformationKind;
+  entity_id: string;
+  revision_id: string;
+  definition_checksum: string;
+  label: string;
+}
+
 export function EquipmentWorkspace() {
   const [space, setSpace] = useState<EquipmentSpace>("catalog");
   const [models, setModels] = useState<EquipmentModelAggregate[]>([]);
@@ -160,6 +191,8 @@ export function EquipmentWorkspace() {
   const [categoryTree, setCategoryTree] = useState<EquipmentCategory[]>([]);
   const [fieldDefinitions, setFieldDefinitions] = useState<EquipmentFieldDefinition[]>([]);
   const [instruments, setInstruments] = useState<MetrologyInstrument[]>([]);
+  const [sampleConversions, setSampleConversions] = useState<MeasurementEngineeringAggregate[]>([]);
+  const [frequencyResponses, setFrequencyResponses] = useState<MeasurementEngineeringAggregate[]>([]);
   const [query, setQuery] = useState("");
   const [rootFilter, setRootFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -198,7 +231,17 @@ export function EquipmentWorkspace() {
     setLoadState((current) => current === "ready" ? "ready" : "loading");
     setOperationError(null);
     try {
-      const [modelList, driverList, providerList, categoryList, treeList, fieldsList, instrumentList] = await Promise.all([
+      const [
+        modelList,
+        driverList,
+        providerList,
+        categoryList,
+        treeList,
+        fieldsList,
+        instrumentList,
+        sampleConversionList,
+        frequencyResponseList
+      ] = await Promise.all([
         equipmentApi.listModels({
           q: query.trim(),
           manufacturer: manufacturerFilter.trim(),
@@ -216,7 +259,9 @@ export function EquipmentWorkspace() {
         equipmentApi.listCategories(true),
         equipmentApi.categoryTree(true),
         equipmentApi.listFieldDefinitions("equipment_model", true),
-        metrologyApi.listInstruments()
+        metrologyApi.listInstruments(),
+        measurementEngineeringApi.list(sampleConversionConfig),
+        measurementEngineeringApi.list(frequencyResponseConfig)
       ]);
       const registryList = await equipmentApi.registries();
       setModels(modelList.equipment_models);
@@ -226,6 +271,8 @@ export function EquipmentWorkspace() {
       setCategoryTree(treeList.categories);
       setFieldDefinitions(fieldsList.field_definitions);
       setInstruments(instrumentList.instruments);
+      setSampleConversions(sampleConversionList.items);
+      setFrequencyResponses(frequencyResponseList.items);
       setRegistries(registryList);
       setLoadState("ready");
     } catch (error) {
@@ -250,6 +297,10 @@ export function EquipmentWorkspace() {
   }, [refresh]);
 
   const approvedModels = models.filter((model) => model.current_approved_revision);
+  const signalTransformationOptions = [
+    ...approvedSignalTransformationOptions(sampleConversions, "sample_conversion"),
+    ...approvedSignalTransformationOptions(frequencyResponses, "frequency_response")
+  ];
   const generalCategory = categoryTree.find((category) => category.category_id === "general_equipment");
   const familyCategoryTree = generalCategory?.children ?? categoryTree.filter((category) => category.category_id !== "general_equipment");
   const modelReadOnly = selectedModelRevision?.status !== "draft";
@@ -616,7 +667,7 @@ export function EquipmentWorkspace() {
             aria-current={measurementSpaceActive ? "page" : undefined}
             onClick={() => setSpace("sensors")}
           >
-            <Cpu size={17} /> Ingénierie de mesure
+            <Cpu size={17} /> Signaux et corrections
           </button>
           <button
             className={space === "drivers" ? "active" : ""}
@@ -634,7 +685,7 @@ export function EquipmentWorkspace() {
           </button>
         </nav>
         {measurementSpaceActive && (
-          <nav className="equipmentSubnav" aria-label="Domaines d'ingenierie de mesure">
+          <nav className="equipmentSubnav" aria-label="Définitions des signaux et corrections">
             {measurementSpaces.map(([key, label]) => (
               <button key={key} className={space === key ? "active" : ""} onClick={() => setSpace(key)}>
                 {label}
@@ -825,6 +876,7 @@ export function EquipmentWorkspace() {
             revisions={modelRevisions}
             audit={modelAudit}
             validation={modelValidation}
+            signalTransformationOptions={signalTransformationOptions}
             jsonDraft={modelJsonDraft}
             onSection={setModelSection}
             onDefinition={updateModel}
@@ -1958,6 +2010,7 @@ function ModelStudio(props: {
   revisions: EquipmentModelRevision[];
   audit: EquipmentAuditEvent[];
   validation: EquipmentValidationResult | null;
+  signalTransformationOptions: SignalTransformationOption[];
   jsonDraft: string;
   onSection: (section: ModelSection) => void;
   onDefinition: (definition: EquipmentModelDefinition) => void;
@@ -2085,7 +2138,15 @@ function ModelStudio(props: {
             </EditorCard>
           )}
           {props.section === "ports_connections" && (
-            <EditorCard title="Port Topology">
+            <EditorCard title="Entrées et sorties du modèle">
+              <SignalPortCards
+                ports={definition.signal_ports}
+                registries={props.registries}
+                readOnly={props.readOnly}
+                onPorts={(signal_ports) => props.onDefinition({ ...definition, signal_ports })}
+              />
+              <details className="technicalDisclosure">
+                <summary>Paramètres électriques avancés</summary>
               <StructuredTable columns={["ID", "Label", "Direction", "Flow", "Domain", "Tags", "Req.", "Connector", "Quantity", "Unit", "Impedance", "Fmin", "Fmax", "Vmax", "Imax", "Pmax", "Comment"]}>
                 {definition.signal_ports.map((port, index) => (
                   <tr key={port.port_id}>
@@ -2121,15 +2182,22 @@ function ModelStudio(props: {
                   </tr>
                 ))}
               </StructuredTable>
+              </details>
               <div className="buttonRow">
-                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, ...defaultRfThroughPair(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["rf"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["rf_50_ohm"]) as TechnologyTag[] })}>Ajouter RF through pair</button>
-                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultRfSourceOutput(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["rf"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["rf_50_ohm"]) as TechnologyTag[] })}>Ajouter RF source output</button>
-                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultRfSinkInput(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["rf"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["rf_50_ohm"]) as TechnologyTag[] })}>Ajouter RF sink input</button>
-                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultCommunicationPort(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["ethernet"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["ethernet"]) as TechnologyTag[] })}>Ajouter communication port</button>
-                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultAnalogInputPort(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["analog_voltage"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["voltage_input"]) as TechnologyTag[] })}>Ajouter measurement input</button>
-                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultTriggerInput(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["trigger"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["trigger"]) as TechnologyTag[] })}>Ajouter trigger input</button>
-                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultFieldSidePort(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["environmental"]) as SignalDomain[] })}>Ajouter field-side port</button>
-                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultCanBusPort(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["can_bus"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["can_bus"]) as TechnologyTag[] })}>Ajouter CAN bus</button>
+                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, ...defaultRfThroughPair(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["rf"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["rf_50_ohm"]) as TechnologyTag[] })}>Ajouter un passage RF</button>
+                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultRfSourceOutput(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["rf"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["rf_50_ohm"]) as TechnologyTag[] })}>Ajouter une sortie RF</button>
+                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultRfSinkInput(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["rf"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["rf_50_ohm"]) as TechnologyTag[] })}>Ajouter une entrée RF</button>
+                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultAnalogInputPort(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["analog_voltage"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["voltage_input"]) as TechnologyTag[] })}>Ajouter une entrée analogique</button>
+                <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultSoftwareOutput(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["software"]) as SignalDomain[] })}>Ajouter une sortie de mesure</button>
+                <details className="inlineMenu">
+                  <summary>Autres ports</summary>
+                  <div className="buttonRow">
+                    <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultCommunicationPort(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["ethernet"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["ethernet"]) as TechnologyTag[] })}>Communication</button>
+                    <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultTriggerInput(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["trigger"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["trigger"]) as TechnologyTag[] })}>Déclenchement</button>
+                    <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultFieldSidePort(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["environmental"]) as SignalDomain[] })}>Capteur / terrain</button>
+                    <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, signal_ports: [...definition.signal_ports, defaultCanBusPort(definition.signal_ports.length + 1)], signal_domains: mergeTokens(definition.signal_domains, ["can_bus"]) as SignalDomain[], technology_tags: mergeTokens(definition.technology_tags ?? [], ["can_bus"]) as TechnologyTag[] })}>Bus CAN</button>
+                  </div>
+                </details>
               </div>
             </EditorCard>
           )}
@@ -2155,9 +2223,13 @@ function ModelStudio(props: {
             </EditorCard>
           )}
           {props.section === "measurement_corrections" && (
-            <EditorCard title="Mesure / corrections">
-              <p>Les capteurs, profils de scaling et courbes d'ingenierie restent geres dans les espaces Capteurs, Profils de scaling et Courbes d'ingenierie.</p>
-            </EditorCard>
+            <SignalPathEditor
+              paths={definition.signal_paths ?? []}
+              ports={definition.signal_ports}
+              transformationOptions={props.signalTransformationOptions}
+              readOnly={props.readOnly}
+              onPaths={(signal_paths) => props.onDefinition({ ...definition, signal_paths })}
+            />
           )}
           {props.section === "documents" && (
             <EditorCard title="Documents">
@@ -2205,6 +2277,195 @@ function DriverTree(props: {
       })}
     </aside>
   );
+}
+
+function SignalPortCards(props: {
+  ports: SignalPortDefinition[];
+  registries: EquipmentRegistries | null;
+  readOnly: boolean;
+  onPorts: (ports: SignalPortDefinition[]) => void;
+}) {
+  if (props.ports.length === 0) {
+    return (
+      <div className="compactEmpty">
+        <strong>Aucune entrée ou sortie définie</strong>
+        <span>Ajoutez les points où un signal physique ou logique entre dans l’équipement et en ressort.</span>
+      </div>
+    );
+  }
+  return (
+    <div className="signalPortList">
+      {props.ports.map((port, index) => (
+        <section className="signalPortRow" key={port.port_id}>
+          <div className="signalPortHeading">
+            <strong>{port.label || port.port_id}</strong>
+            <span>{portDirectionLabel(port.directionality)} · {humanLabel(port.signal_domain)}</span>
+            <button
+              className="iconButton danger"
+              type="button"
+              title="Supprimer ce port"
+              aria-label={`Supprimer le port ${port.label || port.port_id}`}
+              disabled={props.readOnly}
+              onClick={() => props.onPorts(props.ports.filter((_, itemIndex) => itemIndex !== index))}
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
+          <div className="signalPortFields">
+            <Field label="Nom" value={port.label} disabled={props.readOnly} onChange={(label) => props.onPorts(replaceAt(props.ports, index, { ...port, label }))} />
+            <label>
+              Sens du signal
+              <select disabled={props.readOnly} value={port.directionality} onChange={(event) => props.onPorts(replaceAt(props.ports, index, { ...port, directionality: event.target.value as typeof port.directionality }))}>
+                {(props.registries?.port_directionalities ?? []).map((item) => <option key={item.code} value={item.code}>{portDirectionLabel(item.code)}</option>)}
+              </select>
+            </label>
+            <label>
+              Domaine
+              <select disabled={props.readOnly} value={port.signal_domain} onChange={(event) => props.onPorts(replaceAt(props.ports, index, { ...port, signal_domain: event.target.value as SignalDomain }))}>
+                {(props.registries?.signal_domains ?? []).map((item) => <option key={item.code} value={item.code}>{item.label || humanLabel(item.code)}</option>)}
+              </select>
+            </label>
+            <Field label="Connecteur" value={port.connector_type ?? ""} disabled={props.readOnly} onChange={(connector_type) => props.onPorts(replaceAt(props.ports, index, { ...port, connector_type: optionalString(connector_type) }))} />
+            <Field label="Grandeur" value={humanLabel(port.quantity)} disabled={props.readOnly} onChange={(quantity) => props.onPorts(replaceAt(props.ports, index, { ...port, quantity: quantity as typeof port.quantity }))} />
+            <Field label="Unité" value={port.unit} disabled={props.readOnly} onChange={(unit) => props.onPorts(replaceAt(props.ports, index, { ...port, unit }))} />
+            <Field label="Fmin (Hz)" value={port.frequency_min?.toString() ?? ""} disabled={props.readOnly} onChange={(value) => props.onPorts(replaceAt(props.ports, index, { ...port, frequency_min: optionalNumber(value) }))} />
+            <Field label="Fmax (Hz)" value={port.frequency_max?.toString() ?? ""} disabled={props.readOnly} onChange={(value) => props.onPorts(replaceAt(props.ports, index, { ...port, frequency_max: optionalNumber(value) }))} />
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function SignalPathEditor(props: {
+  paths: EquipmentSignalPathDefinition[];
+  ports: SignalPortDefinition[];
+  transformationOptions: SignalTransformationOption[];
+  readOnly: boolean;
+  onPaths: (paths: EquipmentSignalPathDefinition[]) => void;
+}) {
+  const usablePorts = props.ports.filter((port) => !["communication", "control"].includes(port.directionality));
+  const inputPorts = usablePorts.filter((port) => ["input", "bidirectional", "through"].includes(port.directionality));
+  const outputPorts = usablePorts.filter((port) => ["output", "bidirectional", "through"].includes(port.directionality));
+
+  function addPath() {
+    const input = inputPorts[0];
+    const output = outputPorts.find((port) => port.port_id !== input?.port_id);
+    if (!input || !output) return;
+    props.onPaths([
+      ...props.paths,
+      {
+        path_id: `signal_path_${props.paths.length + 1}`,
+        label: "Chemin de mesure",
+        input_port_id: input.port_id,
+        output_port_id: output.port_id,
+        transformations: []
+      }
+    ]);
+  }
+
+  function setTransformation(
+    pathIndex: number,
+    path: EquipmentSignalPathDefinition,
+    kind: SignalTransformationKind,
+    value: string
+  ) {
+    const otherReferences = path.transformations.filter((reference) => reference.transformation_kind !== kind);
+    const selected = props.transformationOptions.find(
+      (option) => option.transformation_kind === kind && `${option.entity_id}@${option.revision_id}` === value
+    );
+    const transformations = selected
+      ? [...otherReferences, {
+          transformation_kind: selected.transformation_kind,
+          entity_id: selected.entity_id,
+          revision_id: selected.revision_id,
+          definition_checksum: selected.definition_checksum
+        }]
+      : otherReferences;
+    props.onPaths(replaceAt(props.paths, pathIndex, { ...path, transformations }));
+  }
+
+  return (
+    <EditorCard title="Chemins du signal">
+      <div className="signalPathHeader">
+        <p>Chaque chemin relie une entrée à une sortie du modèle et épingle les traitements approuvés qui s’appliquent au signal.</p>
+        <button type="button" disabled={props.readOnly || inputPorts.length === 0 || outputPorts.length === 0} onClick={addPath}>
+          <Plus size={16} /> Ajouter un chemin
+        </button>
+      </div>
+      {props.paths.length === 0 && (
+        <div className="compactEmpty">
+          <strong>Aucun chemin défini</strong>
+          <span>Une entrée et une sortie compatibles sont nécessaires avant d’associer une conversion ou une réponse fréquentielle.</span>
+        </div>
+      )}
+      <div className="signalPathList">
+        {props.paths.map((path, index) => {
+          const sampleConversion = path.transformations.find((item) => item.transformation_kind === "sample_conversion");
+          const frequencyResponse = path.transformations.find((item) => item.transformation_kind === "frequency_response");
+          return (
+            <section className="signalPathRow" key={path.path_id}>
+              <div className="signalPathTitle">
+                <Field label="Nom du chemin" value={path.label} disabled={props.readOnly} onChange={(label) => props.onPaths(replaceAt(props.paths, index, { ...path, label }))} />
+                <button
+                  className="iconButton danger"
+                  type="button"
+                  title="Supprimer ce chemin"
+                  aria-label={`Supprimer le chemin ${path.label}`}
+                  disabled={props.readOnly}
+                  onClick={() => props.onPaths(props.paths.filter((_, itemIndex) => itemIndex !== index))}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+              <div className="signalPathFlow">
+                <label>
+                  Entrée
+                  <select disabled={props.readOnly} value={path.input_port_id} onChange={(event) => props.onPaths(replaceAt(props.paths, index, { ...path, input_port_id: event.target.value }))}>
+                    {inputPorts.map((port) => <option key={port.port_id} value={port.port_id}>{port.label}</option>)}
+                  </select>
+                </label>
+                <span aria-hidden="true">→</span>
+                <label>
+                  Sortie
+                  <select disabled={props.readOnly} value={path.output_port_id} onChange={(event) => props.onPaths(replaceAt(props.paths, index, { ...path, output_port_id: event.target.value }))}>
+                    {outputPorts.map((port) => <option key={port.port_id} value={port.port_id}>{port.label}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="signalTransformationGrid">
+                <label>
+                  Conversion des échantillons
+                  <select disabled={props.readOnly} value={sampleConversion ? `${sampleConversion.entity_id}@${sampleConversion.revision_id}` : ""} onChange={(event) => setTransformation(index, path, "sample_conversion", event.target.value)}>
+                    <option value="">Aucune conversion</option>
+                    {props.transformationOptions.filter((option) => option.transformation_kind === "sample_conversion").map((option) => <option key={option.revision_id} value={`${option.entity_id}@${option.revision_id}`}>{option.label}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Réponse fréquentielle
+                  <select disabled={props.readOnly} value={frequencyResponse ? `${frequencyResponse.entity_id}@${frequencyResponse.revision_id}` : ""} onChange={(event) => setTransformation(index, path, "frequency_response", event.target.value)}>
+                    <option value="">Aucune correction</option>
+                    {props.transformationOptions.filter((option) => option.transformation_kind === "frequency_response").map((option) => <option key={option.revision_id} value={`${option.entity_id}@${option.revision_id}`}>{option.label}</option>)}
+                  </select>
+                </label>
+              </div>
+            </section>
+          );
+        })}
+      </div>
+    </EditorCard>
+  );
+}
+
+function portDirectionLabel(value: string) {
+  return {
+    input: "Entrée",
+    output: "Sortie",
+    bidirectional: "Bidirectionnel",
+    through: "Traversant",
+    control: "Commande",
+    communication: "Communication"
+  }[value] ?? humanLabel(value);
 }
 
 function DriverStudio(props: {
@@ -2605,6 +2866,24 @@ function isEmptyField(value: unknown) {
   return value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
 }
 
+function approvedSignalTransformationOptions(
+  items: MeasurementEngineeringAggregate[],
+  transformation_kind: SignalTransformationKind
+): SignalTransformationOption[] {
+  return items.flatMap((item) => {
+    const revision = item.current_approved_revision;
+    return revision
+      ? [{
+          transformation_kind,
+          entity_id: revision.entity_id,
+          revision_id: revision.revision_id,
+          definition_checksum: revision.definition_checksum,
+          label: revision.label
+        }]
+      : [];
+  });
+}
+
 function defaultSpecification(index: number) {
   return {
     specification_id: `frequency_range_${index}`,
@@ -2619,7 +2898,7 @@ function defaultSpecification(index: number) {
 function defaultRfSinkInput(index: number) {
   return {
     port_id: `rf_input_${index}`,
-    label: `RF sink input ${index}`,
+    label: `Entrée RF ${index}`,
     directionality: "input" as const,
     flow_role: "sink_port" as const,
     signal_domain: "rf" as const,
@@ -2638,7 +2917,7 @@ function defaultRfSinkInput(index: number) {
 function defaultRfSourceOutput(index: number) {
   return {
     port_id: `rf_out_${index}`,
-    label: `RF source output ${index}`,
+    label: `Sortie RF ${index}`,
     directionality: "output" as const,
     flow_role: "source_port" as const,
     signal_domain: "rf" as const,
@@ -2667,7 +2946,9 @@ function defaultRfThroughPair(startIndex: number) {
       technology_tags: ["rf_50_ohm" as const],
       quantity: "power" as const,
       unit: "dBm",
-      impedance: 50
+      impedance: 50,
+      frequency_min: 9000,
+      frequency_max: 1000000000
     },
     {
       port_id: `rf_b_${startIndex + 1}`,
@@ -2680,7 +2961,9 @@ function defaultRfThroughPair(startIndex: number) {
       technology_tags: ["rf_50_ohm" as const],
       quantity: "power" as const,
       unit: "dBm",
-      impedance: 50
+      impedance: 50,
+      frequency_min: 9000,
+      frequency_max: 1000000000
     }
   ];
 }
@@ -2688,7 +2971,7 @@ function defaultRfThroughPair(startIndex: number) {
 function defaultAnalogInputPort(index: number) {
   return {
     port_id: `ai_${index}`,
-    label: `Measurement input ${index}`,
+    label: `Entrée analogique ${index}`,
     directionality: "input" as const,
     flow_role: "measurement_port" as const,
     signal_domain: "analog_voltage" as const,
@@ -2697,6 +2980,21 @@ function defaultAnalogInputPort(index: number) {
     technology_tags: ["voltage_input" as const],
     quantity: "voltage" as const,
     unit: "V"
+  };
+}
+
+function defaultSoftwareOutput(index: number) {
+  return {
+    port_id: `measurement_result_${index}`,
+    label: `Résultat de mesure ${index}`,
+    directionality: "output" as const,
+    flow_role: "transducer_output_port" as const,
+    signal_domain: "software" as const,
+    required: true,
+    connector_type: undefined,
+    technology_tags: [],
+    quantity: "dimensionless" as const,
+    unit: "dimensionless"
   };
 }
 

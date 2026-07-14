@@ -1145,6 +1145,140 @@ td textarea {
   max-width: 760px;
 }
 
+.measurementThreeGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  max-width: 860px;
+}
+
+.domainBanner {
+  align-items: baseline;
+  background: #edf6f2;
+  border-left: 3px solid #347d68;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 9px 11px;
+}
+
+.domainBanner.warning {
+  background: #fff6dc;
+  border-left-color: #b78515;
+}
+
+.domainBanner span {
+  color: #506159;
+}
+
+.formulaStrip {
+  background: #18251f;
+  color: #f3f7f4;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  padding: 9px 11px;
+}
+
+.inlineFieldAction {
+  align-items: end;
+  display: flex;
+}
+
+.frequencyCoverage {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  margin: 0;
+}
+
+.frequencyCoverage div {
+  border-left: 2px solid #7aa28f;
+  padding: 6px 9px;
+}
+
+.frequencyCoverage dt {
+  color: #65736c;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.frequencyCoverage dd {
+  margin: 3px 0 0;
+}
+
+.signalPortList,
+.signalPathList {
+  display: grid;
+  gap: 0;
+}
+
+.signalPortRow,
+.signalPathRow {
+  border-top: 1px solid #d9dfd7;
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+.signalPortRow:first-child,
+.signalPathRow:first-child {
+  border-top: 0;
+}
+
+.signalPortHeading,
+.signalPathTitle,
+.signalPathHeader {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  justify-content: space-between;
+}
+
+.signalPortHeading span {
+  color: #617069;
+  flex: 1;
+}
+
+.signalPortFields,
+.signalTransformationGrid {
+  display: grid;
+  gap: 9px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.signalPathFlow {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
+}
+
+.signalPathFlow > span {
+  color: #347d68;
+  font-size: 20px;
+  padding-bottom: 6px;
+}
+
+.technicalDisclosure,
+.inlineMenu {
+  border-top: 1px solid #d9dfd7;
+  padding-top: 8px;
+}
+
+.technicalDisclosure > summary,
+.inlineMenu > summary {
+  color: #45554d;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 5px 0;
+}
+
+.technicalDisclosure[open] > summary,
+.inlineMenu[open] > summary {
+  margin-bottom: 8px;
+}
+
 .measurementFieldset {
   border: 1px solid #d9dfd7;
   display: grid;
@@ -2101,5 +2235,14 @@ button.textButton {
 
   .wizardStepper li {
     font-size: 11px;
+  }
+
+  .signalPathFlow {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .signalPathFlow > span {
+    display: none;
   }
 }
