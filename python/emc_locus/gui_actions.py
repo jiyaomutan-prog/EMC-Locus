@@ -25,6 +25,7 @@ from .sqlite_repositories import (
     optional_text_or_empty,
     optional_text_or_none,
     require_non_empty,
+    require_sha256_digest,
     serviceability_from_legacy_availability,
     validate_service_schedule_block,
 )
@@ -315,6 +316,7 @@ def register_metrology_instrument(
     serviceability_reason = serviceability_reason or ""
     capabilities_json = _normalized_json(capabilities_json, "capabilities_json")
     uncertainty_json = _normalized_json(uncertainty_json, "uncertainty_json")
+    checksum = _optional_sha256_manifest_value(checksum)
     calibration_period_months = _positive_optional_int(
         calibration_period_months,
         "calibration_period_months",
@@ -507,6 +509,7 @@ def record_metrology_calibration(
     provider = require_non_empty(provider, "provider")
     status_at_import = require_non_empty(status_at_import, "status_at_import")
     uncertainty_json = _normalized_json(uncertainty_json, "uncertainty_json")
+    checksum = _optional_sha256_manifest_value(checksum)
 
     if _has_text(agent_url):
         event_id = f"CAL-{asset_id}-{certificate_reference}"
@@ -632,6 +635,7 @@ def attach_metrology_document(
     title = require_non_empty(title, "title")
     file_reference = require_non_empty(file_reference, "file_reference")
     uploaded_by = require_non_empty(uploaded_by, "uploaded_by")
+    checksum = _optional_sha256_manifest_value(checksum)
 
     repository = MetrologyRepository(Path(metrology_db), Path(migrations_root))
     repository.initialize()
@@ -2214,7 +2218,13 @@ def _sha256_manifest_value(value: str) -> str:
     checksum = value.strip()
     if checksum.lower().startswith("sha256:"):
         checksum = checksum[7:]
-    return checksum
+    return require_sha256_digest(checksum, "checksum")
+
+
+def _optional_sha256_manifest_value(value: str | None) -> str | None:
+    if not _has_text(value):
+        return None
+    return _sha256_manifest_value(str(value))
 
 
 def _add_months(value: date, months: int) -> date:

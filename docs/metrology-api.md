@@ -181,4 +181,9 @@ the original rows.
 Document attachment remains split: calibration events can carry certificate
 document manifests through `document_manifest_json`, but standalone instrument
 document attachment is still a legacy SQLite form until a dedicated agent route
-is added.
+is added. The Python local action and repository paths apply the same
+canonical document checksum rule as the agent: optional certificate or
+instrument-document checksums must be unprefixed 64-character lowercase
+hexadecimal SHA-256 digests before they are stored. The operator action layer
+accepts an optional `sha256:` prefix on input and stores the canonical
+unprefixed digest.

@@ -8,6 +8,13 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Rejected non-canonical metrology document checksum evidence in Python local
+  actions and direct SQLite repository calls, so calibration certificates and
+  standalone instrument documents cannot persist uppercase or shortened
+  SHA-256 digests outside the Rust agent path.
+
 ## [0.13.3] - 2026-07-14
 
 ### Changed

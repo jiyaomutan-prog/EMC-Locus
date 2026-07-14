@@ -776,6 +776,61 @@ class MetrologyRepositoryTests(unittest.TestCase):
             self.assertEqual(manifest["local_reference"], "legacy/cert.pdf")
             self.assertEqual(manifest["sha256"], "a" * 64)
 
+    def test_metrology_repository_rejects_noncanonical_document_checksums(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            database_path = Path(temporary_directory) / "metrology.sqlite"
+            repository = MetrologyRepository(database_path, Path("storage/sqlite"))
+            repository.initialize()
+
+            with self.assertRaises(ValueError):
+                repository.register_instrument(
+                    asset_id="BAD-CHECKSUM-REG",
+                    family="Receiver",
+                    manufacturer="Example",
+                    model="RX",
+                    serial_number="REG-001",
+                    calibration_requirement="required",
+                    category_code="emi_receiver",
+                    certificate_reference="CERT-BAD",
+                    calibrated_at="2026-06-01",
+                    due_at="2027-06-01",
+                    provider="cal.lab",
+                    checksum="A" * 64,
+                )
+            self.assertIsNone(repository.get_instrument("BAD-CHECKSUM-REG"))
+
+            repository.register_instrument(
+                asset_id="DOC-CHECKSUM-001",
+                family="Receiver",
+                manufacturer="Example",
+                model="RX",
+                serial_number="DOC-001",
+                calibration_requirement="required",
+                category_code="emi_receiver",
+            )
+
+            with self.assertRaises(ValueError):
+                repository.add_calibration_record(
+                    asset_id="DOC-CHECKSUM-001",
+                    certificate_reference="CERT-UPPER",
+                    calibrated_at="2026-06-01",
+                    due_at="2027-06-01",
+                    provider="cal.lab",
+                    checksum="B" * 64,
+                )
+            self.assertIsNone(repository.latest_calibration_record("DOC-CHECKSUM-001"))
+
+            with self.assertRaises(ValueError):
+                repository.add_instrument_document(
+                    asset_id="DOC-CHECKSUM-001",
+                    document_kind="datasheet",
+                    title="Uppercase datasheet checksum",
+                    file_reference="docs/datasheet.pdf",
+                    uploaded_by="metrology.admin",
+                    checksum="C" * 64,
+                )
+            self.assertEqual(repository.list_instrument_documents("DOC-CHECKSUM-001"), [])
+
 
 class ProjectRepositoryScheduleTests(unittest.TestCase):
     def _insert_corrupted_service_schedule_item(
@@ -4706,6 +4761,62 @@ class GuiActionTests(unittest.TestCase):
 
             repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
             self.assertIsNone(repository.get_instrument("BAD-CERT"))
+
+    def test_metrology_actions_reject_noncanonical_document_checksums(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            metrology_db = Path(temporary_directory) / "metrology.sqlite"
+
+            with self.assertRaises(ValueError):
+                register_metrology_instrument(
+                    metrology_db=metrology_db,
+                    asset_id="BAD-ACTION-CHECKSUM",
+                    family="Receiver",
+                    manufacturer="Example",
+                    model="RX",
+                    serial_number="BAD-ACTION",
+                    category_code="emi_receiver",
+                    certificate_reference="CERT-BAD-ACTION",
+                    calibrated_at="2026-06-01",
+                    provider="cal.lab",
+                    checksum="sha256:" + "A" * 64,
+                )
+
+            repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
+            repository.initialize()
+            self.assertIsNone(repository.get_instrument("BAD-ACTION-CHECKSUM"))
+
+            register_metrology_instrument(
+                metrology_db=metrology_db,
+                asset_id="ACTION-CHECKSUM-001",
+                family="Receiver",
+                manufacturer="Example",
+                model="RX",
+                serial_number="ACTION-001",
+                category_code="emi_receiver",
+            )
+
+            with self.assertRaises(ValueError):
+                record_metrology_calibration(
+                    metrology_db=metrology_db,
+                    asset_id="ACTION-CHECKSUM-001",
+                    certificate_reference="CERT-BAD-CAL",
+                    calibrated_at="2026-06-01",
+                    provider="cal.lab",
+                    checksum="B" * 64,
+                )
+            self.assertIsNone(repository.latest_calibration_record("ACTION-CHECKSUM-001"))
+
+            with self.assertRaises(ValueError):
+                attach_metrology_document(
+                    metrology_db=metrology_db,
+                    asset_id="ACTION-CHECKSUM-001",
+                    document_kind="datasheet",
+                    title="Bad checksum",
+                    file_reference="docs/bad.pdf",
+                    uploaded_by="metrology.admin",
+                    checksum="C" * 64,
+                )
+            self.assertEqual(repository.list_instrument_documents("ACTION-CHECKSUM-001"), [])
 
     def test_record_metrology_calibration_updates_existing_asset_and_bootstrap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

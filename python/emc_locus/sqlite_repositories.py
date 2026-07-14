@@ -59,6 +59,7 @@ _PACKAGE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SIGNAL_REFERENCE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SOFTWARE_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 _SHA256_CHECKSUM = re.compile(r"^sha256:[0-9a-f]{64}$")
+_SHA256_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _SCHEDULE_LOCAL_DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$")
 _UTC_EVIDENCE_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 _PROJECT_STAGE_FLOW = (
@@ -367,6 +368,7 @@ class MetrologyRepository(SQLiteDomainRepository):
         """Register an instrument and optional initial calibration atomically."""
 
         now = utc_timestamp()
+        checksum = optional_sha256_digest(checksum, "checksum")
         serviceability_status = serviceability_status or serviceability_from_legacy_availability(
             availability
         )
@@ -462,6 +464,7 @@ class MetrologyRepository(SQLiteDomainRepository):
         file_reference: str | None = None,
         checksum: str | None = None,
     ) -> None:
+        checksum = optional_sha256_digest(checksum, "checksum")
         with closing(self.connect()) as connection:
             with connection:
                 connection.execute(
@@ -506,6 +509,7 @@ class MetrologyRepository(SQLiteDomainRepository):
         revision: str | None = None,
         applies_to_function: str | None = None,
     ) -> int:
+        checksum = optional_sha256_digest(checksum, "checksum")
         with closing(self.connect()) as connection:
             with connection:
                 cursor = connection.execute(
@@ -789,6 +793,7 @@ class MetrologyRepository(SQLiteDomainRepository):
         file_reference: str | None,
         checksum: str | None,
     ) -> bool:
+        checksum = optional_sha256_digest(checksum, "checksum")
         with closing(self.connect()) as connection:
             with connection:
                 cursor = connection.execute(
@@ -4023,6 +4028,21 @@ def require_sha256_checksum(value: str, field_name: str) -> str:
     if not _SHA256_CHECKSUM.fullmatch(trimmed):
         raise ValueError(f"{field_name} must be a sha256 checksum")
     return trimmed
+
+
+def require_sha256_digest(value: str, field_name: str) -> str:
+    trimmed = require_non_empty(value, field_name)
+    if not _SHA256_DIGEST.fullmatch(trimmed):
+        raise ValueError(
+            f"{field_name} must be a lowercase 64-character SHA-256 digest"
+        )
+    return trimmed
+
+
+def optional_sha256_digest(value: str | None, field_name: str) -> str | None:
+    if value is None or not str(value).strip():
+        return None
+    return require_sha256_digest(str(value), field_name)
 
 
 def validate_sync_checkpoint_direction(value: str) -> str:

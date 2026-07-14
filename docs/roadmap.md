@@ -455,6 +455,10 @@ Deliverables:
 - service-schedule inserts now compare overlap windows against normalized
   persisted timestamps, so whitespace-padded imported rows still reserve their
   operator and location consistently with list-read normalization.
+- Python local metrology actions and direct repository writes now reject
+  non-canonical certificate and instrument-document checksum evidence, keeping
+  legacy SQLite document attachments aligned with the agent's lowercase
+  SHA-256 digest contract.
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;
