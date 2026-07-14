@@ -137,6 +137,9 @@ catalog operations can enter the same local outbox as project, metrology and
 template operations.
 The Python adapter validates payload and snapshot checksum evidence as
 canonical `sha256:<64 lowercase hex characters>` before insert or replay.
+Snapshot conflict detection revalidates the persisted local and reference
+snapshot checksums before comparison, so imported or constraint-bypassed rows
+cannot open conflicts with non-canonical digest evidence.
 
 The Rust core now mirrors these storage concepts with update bundles, semantic
 software versions, package signatures, compatibility-range validation,

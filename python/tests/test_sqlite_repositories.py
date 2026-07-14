@@ -6000,6 +6000,76 @@ class SyncRepositoryTests(unittest.TestCase):
                     reference_snapshot_id="snap-project-006-reference",
                 )
 
+    def test_rejects_corrupted_snapshot_checksums_before_conflict_detection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = SyncRepository(
+                Path(temporary_directory) / "sync.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            with closing(repository.connect()) as connection:
+                with connection:
+                    connection.execute("PRAGMA ignore_check_constraints = ON")
+                    connection.execute(
+                        """
+                        INSERT INTO sync_entity_snapshots (
+                            snapshot_id,
+                            domain,
+                            entity_type,
+                            entity_id,
+                            revision,
+                            snapshot_checksum,
+                            payload_json,
+                            captured_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, '{}', ?)
+                        """,
+                        (
+                            "snap-project-corrupt-local",
+                            "project_records",
+                            "project",
+                            "CEM-2026-CORRUPT",
+                            "rev-local",
+                            "sha256:" + "A" * 64,
+                            "2026-07-01T08:00:00Z",
+                        ),
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO sync_entity_snapshots (
+                            snapshot_id,
+                            domain,
+                            entity_type,
+                            entity_id,
+                            revision,
+                            snapshot_checksum,
+                            payload_json,
+                            captured_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, '{}', ?)
+                        """,
+                        (
+                            "snap-project-corrupt-reference",
+                            "project_records",
+                            "project",
+                            "CEM-2026-CORRUPT",
+                            "rev-reference",
+                            "sha256:d123456789abcdefd123456789abcdefd123456789abcdefd123456789abcdef",
+                            "2026-07-01T08:05:00Z",
+                        ),
+                    )
+                    connection.execute("PRAGMA ignore_check_constraints = OFF")
+
+            with self.assertRaisesRegex(ValueError, "local_snapshot_checksum"):
+                repository.record_snapshot_conflict(
+                    conflict_id="conflict-corrupt-snapshot",
+                    local_snapshot_id="snap-project-corrupt-local",
+                    reference_snapshot_id="snap-project-corrupt-reference",
+                )
+
+            self.assertEqual(repository.conflict_count(), 0)
+
     def test_suggests_conflict_action_plan_without_resolving(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = SyncRepository(

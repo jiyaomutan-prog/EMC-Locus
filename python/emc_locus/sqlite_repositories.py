@@ -3218,10 +3218,15 @@ class SyncRepository(SQLiteDomainRepository):
                     or local_snapshot["entity_id"] != reference_snapshot["entity_id"]
                 ):
                     raise ValueError("snapshots do not describe the same entity")
-                if (
-                    local_snapshot["snapshot_checksum"]
-                    == reference_snapshot["snapshot_checksum"]
-                ):
+                local_snapshot_checksum = require_sha256_checksum(
+                    str(local_snapshot["snapshot_checksum"]),
+                    "local_snapshot_checksum",
+                )
+                reference_snapshot_checksum = require_sha256_checksum(
+                    str(reference_snapshot["snapshot_checksum"]),
+                    "reference_snapshot_checksum",
+                )
+                if local_snapshot_checksum == reference_snapshot_checksum:
                     return False
 
                 connection.execute(

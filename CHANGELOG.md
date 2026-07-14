@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected non-canonical synchronization snapshot checksums during Python
+  conflict detection, preventing imported or constraint-bypassed snapshot rows
+  from opening conflicts with invalid `sha256:` evidence.
 - Rejected non-canonical instrument-observation checksum lookups in the Python
   measurement-data repository, keeping runtime traceability reads aligned with
   the canonical lowercase `sha256:` evidence stored by observation writes.

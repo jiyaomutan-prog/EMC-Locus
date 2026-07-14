@@ -470,6 +470,9 @@ Deliverables:
 - Python update-catalog writes now reject signed package checksums unless they
   use canonical `sha256:<64 lowercase hex characters>` evidence before install
   validation or bootstrap views consume the package metadata.
+- Python synchronization conflict detection now revalidates stored local and
+  reference snapshot checksums before comparing them, so imported snapshot rows
+  cannot create conflicts with non-canonical digest evidence.
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

@@ -160,6 +160,9 @@ traceability.
 Operation journal payload checksums and entity snapshot checksums must use
 canonical `sha256:<64 lowercase hex characters>` evidence before they are
 stored, so replay baselines and conflict comparisons do not mix digest casing.
+When conflict detection reads existing local/reference snapshots, the Python
+adapter revalidates both stored checksums before comparison to reject corrupted
+or constraint-bypassed snapshot evidence.
 
 ## Field Workflow
 
