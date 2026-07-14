@@ -330,6 +330,10 @@ The Rust core now binds accepted measurement-run plans to simulated execution:
 - raw datasets are attached to the same run reference;
 - finishing execution requires at least one raw dataset.
 
+Python runtime traceability lookups require instrument-observation checksums to
+use canonical `sha256:<64 lowercase hex characters>` evidence before querying
+stored command/response rows.
+
 This creates the first controlled bridge from pre-run validation to executable
 runtime evidence.
 

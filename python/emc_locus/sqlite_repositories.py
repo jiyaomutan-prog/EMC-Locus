@@ -1896,7 +1896,7 @@ class MeasurementDataRepository(SQLiteDomainRepository):
         self,
         observation_checksum: str,
     ) -> dict[str, object] | None:
-        observation_checksum = require_non_empty(
+        observation_checksum = require_sha256_checksum(
             observation_checksum, "observation_checksum"
         )
         with closing(self.connect()) as connection:

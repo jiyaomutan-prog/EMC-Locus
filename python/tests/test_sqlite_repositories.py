@@ -284,6 +284,14 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
             self.assertEqual(latest_by_instrument["RX-001"]["id"], second_id)
             self.assertEqual(latest_by_instrument["GEN-001"]["id"], generator_id)
 
+            with self.assertRaisesRegex(ValueError, "observation_checksum"):
+                repository.get_instrument_observation_by_checksum(
+                    "sha256:" + "A" * 64
+                )
+
+            with self.assertRaisesRegex(ValueError, "observation_checksum"):
+                repository.get_instrument_observation_by_checksum("sha256:too-short")
+
             with self.assertRaises(sqlite3.IntegrityError):
                 repository.record_instrument_observation(
                     project_code="CEM-OBS-001",

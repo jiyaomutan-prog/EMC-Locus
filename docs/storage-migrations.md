@@ -115,6 +115,8 @@ processing graph lineage, result artifacts, and dataset retention evidence.
 The Python adapter requires dataset, processing-graph, source-dataset, and
 result-artifact checksums to use canonical
 `sha256:<64 lowercase hex characters>` evidence before insertion.
+Instrument-observation checksum lookups require the same canonical prefixed
+lowercase form before runtime traceability rows are queried.
 
 ### Update Catalog
 

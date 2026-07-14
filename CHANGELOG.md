@@ -10,6 +10,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected non-canonical instrument-observation checksum lookups in the Python
+  measurement-data repository, keeping runtime traceability reads aligned with
+  the canonical lowercase `sha256:` evidence stored by observation writes.
 - Rejected non-canonical test-method revision checksums in the Python
   test-definition repository before draft creation or approval can persist
   shortened or uppercase `sha256:` evidence.
