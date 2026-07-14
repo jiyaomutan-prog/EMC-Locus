@@ -459,6 +459,9 @@ Deliverables:
   non-canonical certificate and instrument-document checksum evidence, keeping
   legacy SQLite document attachments aligned with the agent's lowercase
   SHA-256 digest contract.
+- Python update-catalog writes now reject signed package checksums unless they
+  use canonical `sha256:<64 lowercase hex characters>` evidence before install
+  validation or bootstrap views consume the package metadata.
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

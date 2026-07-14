@@ -3573,7 +3573,7 @@ class UpdateCatalogRepository(SQLiteDomainRepository):
         compatibility_range = require_non_empty(
             compatibility_range, "compatibility_range"
         )
-        signed_checksum = require_non_empty(signed_checksum, "signed_checksum")
+        signed_checksum = require_sha256_checksum(signed_checksum, "signed_checksum")
 
         with closing(self.connect()) as connection:
             with connection:

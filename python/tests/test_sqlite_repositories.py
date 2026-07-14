@@ -4127,7 +4127,7 @@ class GuiBootstrapTests(unittest.TestCase):
                 package_version="0.1.0",
                 component="instrument_driver",
                 compatibility_range="0.1.0..0.1.9",
-                signed_checksum="sha256:driver001",
+                signed_checksum="sha256:" + "d" * 64,
             )
 
             payload = build_bootstrap(
@@ -5141,7 +5141,7 @@ class GuiActionTests(unittest.TestCase):
                 package_version="0.2.0",
                 component="instrument_driver",
                 compatibility_range="0.1.0..0.1.9",
-                signed_checksum="sha256:driver020",
+                signed_checksum="sha256:" + "e" * 64,
             )
 
             validation = record_update_validation_action(
@@ -5964,7 +5964,7 @@ class UpdateCatalogRepositoryTests(unittest.TestCase):
                 package_version="0.2.0",
                 component="core_application",
                 compatibility_range="0.1.0..0.1.9",
-                signed_checksum="sha256:core-020",
+                signed_checksum="sha256:" + "a" * 64,
             )
             evidence_id = repository.record_install_validation(
                 package_name="emc-locus-core",
@@ -6013,7 +6013,25 @@ class UpdateCatalogRepositoryTests(unittest.TestCase):
                     package_version="0.2.0",
                     component="core_application",
                     compatibility_range="0.1.0..0.1.9",
-                    signed_checksum="sha256:core-020",
+                    signed_checksum="sha256:" + "b" * 64,
+                )
+
+            with self.assertRaisesRegex(ValueError, "signed_checksum"):
+                repository.add_update_package(
+                    package_name="emc-locus-core",
+                    package_version="0.2.0",
+                    component="core_application",
+                    compatibility_range="0.1.0..0.1.9",
+                    signed_checksum="sha256:" + "B" * 64,
+                )
+
+            with self.assertRaisesRegex(ValueError, "signed_checksum"):
+                repository.add_update_package(
+                    package_name="emc-locus-core",
+                    package_version="0.2.0",
+                    component="core_application",
+                    compatibility_range="0.1.0..0.1.9",
+                    signed_checksum="sha256:too-short",
                 )
 
             repository.add_update_package(
@@ -6021,7 +6039,7 @@ class UpdateCatalogRepositoryTests(unittest.TestCase):
                 package_version="0.2.0",
                 component="core_application",
                 compatibility_range="0.1.0..0.1.9",
-                signed_checksum="sha256:core-020",
+                signed_checksum="sha256:" + "c" * 64,
                 offline_install_allowed=False,
             )
             evidence_id = repository.record_install_validation(

@@ -135,6 +135,9 @@ rollback references, and install-plan gates. Python persistence APIs map package
 metadata into `update_packages`, store gate results in
 `update_install_validation_evidence`, and can link accepted evidence to
 `update_install_records`.
+The Python update-catalog adapter requires signed package checksums to use
+canonical `sha256:<64 lowercase hex characters>` evidence before inserting
+package metadata.
 
 ## Cross-Domain Links
 
