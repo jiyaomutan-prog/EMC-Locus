@@ -21,6 +21,11 @@ from .sqlite_repositories import (
 
 BootstrapData = dict[str, list[Any]]
 
+
+def _fixture_checksum(digit: str) -> str:
+    return "sha256:" + digit * 64
+
+
 FALLBACK_BOOTSTRAP: BootstrapData = {
     "projects": [
         {
@@ -78,10 +83,34 @@ FALLBACK_BOOTSTRAP: BootstrapData = {
         ["daq_chassis", "data_monitoring", "DAQ chassis and modules", "required", "data_acquisition"],
     ],
     "methods": [
-        ["EN61000-4-6-CS", "Conducted immunity", "frequency_sweep", "approved", "sha256:methodA"],
-        ["RAIL-HARM-01", "Railway harmonics", "mixed_time_frequency", "approved", "sha256:railH"],
-        ["INRUSH-DAQ-01", "Inrush current", "time_series", "draft", "sha256:inrushD"],
-        ["AXLE-COUNT-01", "Axle counter", "event_triggered", "approved", "sha256:axle"],
+        [
+            "EN61000-4-6-CS",
+            "Conducted immunity",
+            "frequency_sweep",
+            "approved",
+            _fixture_checksum("a"),
+        ],
+        [
+            "RAIL-HARM-01",
+            "Railway harmonics",
+            "mixed_time_frequency",
+            "approved",
+            _fixture_checksum("b"),
+        ],
+        [
+            "INRUSH-DAQ-01",
+            "Inrush current",
+            "time_series",
+            "draft",
+            _fixture_checksum("c"),
+        ],
+        [
+            "AXLE-COUNT-01",
+            "Axle counter",
+            "event_triggered",
+            "approved",
+            _fixture_checksum("d"),
+        ],
     ],
     "test_categories": [
         ["emission", "", "Emission", "active"],
@@ -96,9 +125,27 @@ FALLBACK_BOOTSTRAP: BootstrapData = {
         ["PLAN-002", "CEM-2026-001", "Immunite rayonnee", "immunity_radiated", "2026-07-02T13:00", "2026-07-02T17:00", "operator.two", "Chambre", "confirmed"],
     ],
     "datasets": [
-        ["RUN-001", "raw_signal", "data/RUN-001/raw.opendata", "sha256:raw001", "Immutable"],
-        ["RUN-001", "processed_signal", "data/RUN-001/current_fft.csv", "sha256:fft001", "Linked"],
-        ["RUN-004", "raw_sweep", "data/RUN-004/sweep.csv", "sha256:sweep004", "Immutable"],
+        [
+            "RUN-001",
+            "raw_signal",
+            "data/RUN-001/raw.opendata",
+            _fixture_checksum("1"),
+            "Immutable",
+        ],
+        [
+            "RUN-001",
+            "processed_signal",
+            "data/RUN-001/current_fft.csv",
+            _fixture_checksum("2"),
+            "Linked",
+        ],
+        [
+            "RUN-004",
+            "raw_sweep",
+            "data/RUN-004/sweep.csv",
+            _fixture_checksum("3"),
+            "Immutable",
+        ],
     ],
     "updates": [
         ["emc-locus-core", "0.2.0", "Signed", "Compatible", "offline_bundle"],

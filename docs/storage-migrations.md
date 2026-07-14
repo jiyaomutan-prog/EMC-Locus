@@ -108,6 +108,9 @@ demo models, demo sensors, demo drivers, or demo acquisition recipes.
 
 Owns immutable raw and processed dataset records, signal channel metadata,
 processing graph lineage, result artifacts, and dataset retention evidence.
+The Python adapter requires dataset, processing-graph, source-dataset, and
+result-artifact checksums to use canonical
+`sha256:<64 lowercase hex characters>` evidence before insertion.
 
 ### Update Catalog
 

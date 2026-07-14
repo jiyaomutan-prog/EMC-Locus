@@ -1723,6 +1723,7 @@ class MeasurementDataRepository(SQLiteDomainRepository):
         checksum: str,
         immutable: bool = True,
     ) -> int:
+        checksum = require_sha256_checksum(checksum, "checksum")
         with closing(self.connect()) as connection:
             with connection:
                 cursor = connection.execute(
@@ -1766,6 +1767,7 @@ class MeasurementDataRepository(SQLiteDomainRepository):
         return row_to_dict(row)
 
     def get_dataset_by_checksum(self, checksum: str) -> dict[str, object] | None:
+        checksum = require_sha256_checksum(checksum, "checksum")
         with closing(self.connect()) as connection:
             row = connection.execute(
                 "SELECT * FROM datasets WHERE checksum = ? ORDER BY id LIMIT 1",
@@ -2134,6 +2136,7 @@ class MeasurementDataRepository(SQLiteDomainRepository):
         checksum: str,
     ) -> int:
         _validate_processing_graph_operations_json(operations_json)
+        checksum = require_sha256_checksum(checksum, "checksum")
 
         with closing(self.connect()) as connection:
             with connection:
@@ -2190,6 +2193,12 @@ class MeasurementDataRepository(SQLiteDomainRepository):
             raise ValueError(f"invalid processing graph status: {status}")
         _validate_processing_graph_operations_json(operations_json)
         software_version = require_non_empty(software_version, "software_version")
+        graph_checksum = require_sha256_checksum(graph_checksum, "graph_checksum")
+        if source_dataset_checksum is not None:
+            source_dataset_checksum = require_sha256_checksum(
+                source_dataset_checksum,
+                "source_dataset_checksum",
+            )
 
         with closing(self.connect()) as connection:
             with connection:
@@ -2200,7 +2209,10 @@ class MeasurementDataRepository(SQLiteDomainRepository):
                 if dataset is None:
                     raise ValueError("source dataset does not exist")
 
-                stored_dataset_checksum = str(dataset["checksum"])
+                stored_dataset_checksum = require_sha256_checksum(
+                    str(dataset["checksum"]),
+                    "stored_dataset_checksum",
+                )
                 if source_dataset_checksum is None:
                     source_dataset_checksum = stored_dataset_checksum
                 elif source_dataset_checksum != stored_dataset_checksum:
@@ -2305,6 +2317,7 @@ class MeasurementDataRepository(SQLiteDomainRepository):
             field_name="output signal reference",
         )
         _validate_raw_lineage_json(raw_lineage_json)
+        checksum = require_sha256_checksum(checksum, "checksum")
 
         with closing(self.connect()) as connection:
             with connection:
@@ -2449,6 +2462,7 @@ class MeasurementDataRepository(SQLiteDomainRepository):
         file_reference: str,
         checksum: str,
     ) -> int:
+        checksum = require_sha256_checksum(checksum, "checksum")
         with closing(self.connect()) as connection:
             with connection:
                 cursor = connection.execute(

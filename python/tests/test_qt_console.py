@@ -72,7 +72,15 @@ class QtConsoleTests(unittest.TestCase):
                         "method": "Inrush",
                     }
                 ],
-                "datasets": [["RUN-QT-001", "raw_signal", "raw.opendata", "sha256:raw", "Immutable"]],
+                "datasets": [
+                    [
+                        "RUN-QT-001",
+                        "raw_signal",
+                        "raw.opendata",
+                        "sha256:" + "1" * 64,
+                        "Immutable",
+                    ]
+                ],
                 "instruments": [
                     [
                         "DAQ-001",
@@ -251,7 +259,15 @@ class QtConsoleTests(unittest.TestCase):
         model = build_console_view_model(
             {
                 "projects": [{"code": "ARCHIVED", "stage": "Archived"}],
-                "datasets": [["RUN-QT-002", "processed_signal", "out.csv", "sha256:out", "deleted"]],
+                "datasets": [
+                    [
+                        "RUN-QT-002",
+                        "processed_signal",
+                        "out.csv",
+                        "sha256:" + "2" * 64,
+                        "deleted",
+                    ]
+                ],
                 "updates": [["core", "0.1.0", "Signed", "Installed", "offline_bundle"]],
             }
         )

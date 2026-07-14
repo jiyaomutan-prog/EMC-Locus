@@ -154,6 +154,9 @@ Deliverables:
 - SQLite measurement-data adapter; initial Python adapter added;
 - data-retention policy hooks; initial Rust workflow, SQLite evidence, and
   Python adapter APIs added.
+- Python measurement-data writes now reject non-canonical dataset,
+  processing-graph, and result-artifact checksums before lineage evidence is
+  persisted.
 
 ## Phase 4: Reporting Pipeline
 

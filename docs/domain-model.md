@@ -120,6 +120,8 @@ Important fields:
 Immutable raw datasets require a reviewed retention workflow before deletion.
 The current core model records deletion requests, approvals, rejections, and
 executed deletion events with actor and reason evidence.
+Python measurement-data writes require dataset checksums to use canonical
+`sha256:<64 lowercase hex characters>` evidence before persistence.
 
 ### Signal Processing Graph
 
@@ -143,6 +145,8 @@ The Rust core now provides a persistable processing-graph instance model. The
 SQLite measurement-data repository can store and retrieve revisioned graph
 instances with source dataset checksum verification and link result artifacts
 back to graph revisions.
+Python processing-graph and result-artifact writes use the same canonical
+`sha256:<64 lowercase hex characters>` checksum format.
 
 ### Report
 

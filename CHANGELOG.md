@@ -10,6 +10,10 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Rejected non-canonical measurement-data checksum evidence in Python dataset,
+  processing-graph, and result-artifact writes, so laboratory data lineage
+  cannot persist uppercase or shortened `sha256:` values through the local
+  adapter.
 - Rejected non-canonical metrology document checksum evidence in Python local
   actions and direct SQLite repository calls, so calibration certificates and
   standalone instrument documents cannot persist uppercase or shortened

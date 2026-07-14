@@ -35,6 +35,10 @@ from emc_locus import (
 )
 
 
+def _checksum(digit: str) -> str:
+    return "sha256:" + digit * 64
+
+
 class MeasurementDataRepositoryTests(unittest.TestCase):
     def test_records_reviewed_retention_workflow(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -50,7 +54,7 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                 measurement_run_reference="RUN-001",
                 kind="raw_signal",
                 file_reference="data/RUN-001/raw.opendata",
-                checksum="sha256:raw001",
+                checksum=_checksum("1"),
             )
 
             self.assertEqual(
@@ -132,7 +136,7 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                         "RUN-001",
                         "raw_signal",
                         "data/RUN-001/raw.opendata",
-                        "sha256:raw001",
+                        _checksum("1"),
                         "1970-01-01T00:00:00Z",
                         1,
                     ),
@@ -324,7 +328,7 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                 measurement_run_reference="RUN-FFT-001",
                 kind="raw_signal",
                 file_reference="data/RUN-FFT-001/raw.opendata",
-                checksum="sha256:rawfft001",
+                checksum=_checksum("2"),
             )
             first_revision_id = repository.add_processing_graph_instance(
                 source_dataset_id=dataset_id,
@@ -333,8 +337,8 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                 operations_json='{"nodes": ["fft_current"]}',
                 created_by="signal.engineer",
                 software_version="0.1.0",
-                graph_checksum="sha256:graphfft001",
-                source_dataset_checksum="sha256:rawfft001",
+                graph_checksum=_checksum("3"),
+                source_dataset_checksum=_checksum("2"),
             )
             second_revision_id = repository.add_processing_graph_instance(
                 source_dataset_id=dataset_id,
@@ -343,7 +347,7 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                 operations_json='{"nodes": ["hann_window", "fft_current"]}',
                 created_by="technical.reviewer",
                 software_version="0.1.1",
-                graph_checksum="sha256:graphfft002",
+                graph_checksum=_checksum("4"),
             )
 
             first_revision = repository.get_processing_graph_instance(first_revision_id)
@@ -357,7 +361,7 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                 output_signal_reference="current_l1_fft",
                 artifact_kind="processed_signal",
                 file_reference="data/RUN-FFT-001/current_l1_fft.csv",
-                checksum="sha256:resultfft001",
+                checksum=_checksum("5"),
                 raw_lineage_json='["current_l1"]',
             )
             execution_id = repository.add_processing_graph_execution(
@@ -375,7 +379,7 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
 
             self.assertEqual(
                 first_revision["source_dataset_checksum"],
-                "sha256:rawfft001",
+                _checksum("2"),
             )
             self.assertEqual(first_revision["graph_revision"], "A")
             self.assertEqual(second_revision["id"], second_revision_id)
@@ -399,8 +403,8 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                     operations_json="{}",
                     created_by="signal.engineer",
                     software_version="0.1.2",
-                    graph_checksum="sha256:graphfft003",
-                    source_dataset_checksum="sha256:wrong",
+                    graph_checksum=_checksum("6"),
+                    source_dataset_checksum=_checksum("7"),
                 )
 
             with self.assertRaisesRegex(
@@ -412,7 +416,7 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                     graph_reference="legacy-invalid-json",
                     operations_json='{"nodes": [',
                     created_by="signal.engineer",
-                    checksum="sha256:legacyinvalidjson",
+                    checksum=_checksum("8"),
                 )
 
             with self.assertRaisesRegex(
@@ -426,7 +430,7 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                     operations_json='"fft_current"',
                     created_by="signal.engineer",
                     software_version="0.1.2",
-                    graph_checksum="sha256:graphfft003",
+                    graph_checksum=_checksum("6"),
                 )
 
             with self.assertRaises(ValueError):
@@ -437,7 +441,7 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                     operations_json="{}",
                     created_by="signal.engineer",
                     software_version=" ",
-                    graph_checksum="sha256:graphfft003",
+                    graph_checksum=_checksum("6"),
                 )
 
             with self.assertRaises(ValueError):
@@ -446,7 +450,7 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                     output_signal_reference="raw_copy",
                     artifact_kind="raw_signal",
                     file_reference="data/RUN-FFT-001/raw-copy.opendata",
-                    checksum="sha256:rawcopy001",
+                    checksum=_checksum("9"),
                 )
 
             with self.assertRaises(ValueError):
@@ -455,7 +459,7 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                     output_signal_reference="current l1 fft",
                     artifact_kind="processed_signal",
                     file_reference="data/RUN-FFT-001/current-l1-fft.csv",
-                    checksum="sha256:invalidsignalref",
+                    checksum=_checksum("a"),
                     raw_lineage_json='["current_l1"]',
                 )
 
@@ -465,7 +469,7 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                     output_signal_reference="current_l1_fft_invalid_lineage",
                     artifact_kind="processed_signal",
                     file_reference="data/RUN-FFT-001/current-l1-fft-invalid.csv",
-                    checksum="sha256:invalidlineage",
+                    checksum=_checksum("b"),
                     raw_lineage_json='{"source": "current_l1"}',
                 )
 
@@ -475,7 +479,7 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                     output_signal_reference="current_l1_fft_invalid_signal",
                     artifact_kind="processed_signal",
                     file_reference="data/RUN-FFT-001/current-l1-fft-invalid-signal.csv",
-                    checksum="sha256:invalidlineagesignal",
+                    checksum=_checksum("c"),
                     raw_lineage_json='["current l1"]',
                 )
 
@@ -545,6 +549,87 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
                     status="failed",
                     output_artifact_count=1,
                 )
+
+    def test_rejects_noncanonical_measurement_checksums(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = MeasurementDataRepository(
+                Path(temporary_directory) / "measurement_data.sqlite",
+                Path("storage/sqlite"),
+            )
+            repository.initialize()
+
+            with self.assertRaisesRegex(ValueError, "checksum"):
+                repository.add_dataset(
+                    project_code="CEM-CHECKSUM-001",
+                    campaign_reference="CAMP-CHECKSUM-001",
+                    measurement_run_reference="RUN-CHECKSUM-001",
+                    kind="raw_signal",
+                    file_reference="data/RUN-CHECKSUM-001/raw.opendata",
+                    checksum="sha256:too-short",
+                )
+
+            dataset_id = repository.add_dataset(
+                project_code="CEM-CHECKSUM-001",
+                campaign_reference="CAMP-CHECKSUM-001",
+                measurement_run_reference="RUN-CHECKSUM-001",
+                kind="raw_signal",
+                file_reference="data/RUN-CHECKSUM-001/raw.opendata",
+                checksum=_checksum("d"),
+            )
+
+            with self.assertRaisesRegex(ValueError, "graph_checksum"):
+                repository.add_processing_graph_instance(
+                    source_dataset_id=dataset_id,
+                    graph_reference="checksum-graph",
+                    graph_revision="A",
+                    operations_json="{}",
+                    created_by="signal.engineer",
+                    software_version="0.1.0",
+                    graph_checksum="sha256:" + "A" * 64,
+                )
+
+            instance_id = repository.add_processing_graph_instance(
+                source_dataset_id=dataset_id,
+                graph_reference="checksum-graph",
+                graph_revision="A",
+                operations_json="{}",
+                created_by="signal.engineer",
+                software_version="0.1.0",
+                graph_checksum=_checksum("e"),
+            )
+
+            with self.assertRaisesRegex(ValueError, "checksum"):
+                repository.add_processing_graph_instance_artifact(
+                    processing_graph_instance_id=instance_id,
+                    output_signal_reference="current_l1_fft",
+                    artifact_kind="processed_signal",
+                    file_reference="data/RUN-CHECKSUM-001/current_l1_fft.csv",
+                    checksum="sha256:too-short",
+                    raw_lineage_json='["current_l1"]',
+                )
+
+            graph_id = repository.add_processing_graph(
+                source_dataset_id=dataset_id,
+                graph_reference="legacy-checksum-graph",
+                operations_json="{}",
+                created_by="signal.engineer",
+                checksum=_checksum("f"),
+            )
+
+            with self.assertRaisesRegex(ValueError, "checksum"):
+                repository.add_result_artifact(
+                    processing_graph_id=graph_id,
+                    artifact_kind="processed_signal",
+                    file_reference="data/RUN-CHECKSUM-001/result.csv",
+                    checksum="sha256:too-short",
+                )
+
+            self.assertEqual(repository.dataset_count(), 1)
+            self.assertEqual(
+                repository.processing_graph_instance_artifacts(instance_id),
+                [],
+            )
+            self.assertEqual(repository.result_artifacts(graph_id), [])
 
 
 class MetrologyRepositoryTests(unittest.TestCase):
@@ -4107,7 +4192,7 @@ class GuiBootstrapTests(unittest.TestCase):
                 measurement_run_reference="RUN-BOOT-001",
                 kind="raw_signal",
                 file_reference="data/RUN-BOOT-001/raw.opendata",
-                checksum="sha256:rawboot001",
+                checksum=_checksum("d"),
             )
             measurement_data.record_instrument_observation(
                 project_code="CEM-BOOT-001",
@@ -5095,7 +5180,7 @@ class GuiActionTests(unittest.TestCase):
                 measurement_run_reference="RUN-ACT-001",
                 kind="raw_signal",
                 file_reference="data/RUN-ACT-001/raw.opendata",
-                checksum="sha256:rawact001",
+                checksum=_checksum("e"),
             )
 
             request = record_dataset_retention_action(
