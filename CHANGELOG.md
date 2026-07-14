@@ -40,6 +40,8 @@ change should remain traceable through Git history, session logs, and this file.
   measured correction of every physical item.
 - Prevented imported corrections from becoming usable before explicit review
   and approval.
+- Fixed the isolated E2E runner on clean CI checkouts where the `data` parent
+  directory does not exist yet.
 
 ## [0.17.0] - 2026-07-14
 
