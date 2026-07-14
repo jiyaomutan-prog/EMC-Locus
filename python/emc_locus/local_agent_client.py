@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 import json
 from typing import Any
@@ -1572,6 +1573,32 @@ class LocalAgentClient:
             f"/api/v1/metrology/instruments/{quote(asset_id)}/calibrations",
         )
 
+    def list_asset_characterizations(self, asset_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/metrology/instruments/{quote(asset_id)}/characterizations",
+        )
+
+    def get_asset_characterization(
+        self,
+        asset_id: str,
+        characterization_id: str,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/metrology/instruments/{quote(asset_id)}/characterizations/{quote(characterization_id)}",
+        )
+
+    def asset_characterization_audit_events(
+        self,
+        asset_id: str,
+        characterization_id: str,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/metrology/instruments/{quote(asset_id)}/characterizations/{quote(characterization_id)}/audit-events",
+        )
+
     def get_metrology_calibration_status(
         self,
         asset_id: str,
@@ -1706,6 +1733,73 @@ class LocalAgentClient:
             "POST",
             f"/api/v1/metrology/instruments/{quote(asset_id)}/calibrations",
             payload,
+        )
+
+    def record_asset_characterization(
+        self,
+        *,
+        asset_id: str,
+        characterization_id: str,
+        performed_on: str,
+        valid_until: str,
+        provider: str,
+        method_reference: str,
+        definition: dict[str, Any],
+        recorded_by: str,
+        actor: str,
+        reason: str,
+        decision: str = "conforming",
+        certificate_reference: str | None = None,
+        document_manifest: dict[str, Any] | None = None,
+        comment: str | None = None,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "asset-characterization",
+            characterization_id,
+        )
+        payload: dict[str, Any] = {
+            "characterization_id": characterization_id,
+            "performed_on": performed_on,
+            "valid_until": valid_until,
+            "provider": provider,
+            "method_reference": method_reference,
+            "decision": decision,
+            "definition": definition,
+            "recorded_by": recorded_by,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "certificate_reference", certificate_reference)
+        if document_manifest is not None:
+            payload["document_manifest"] = document_manifest
+        _put_optional(payload, "comment", comment)
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/metrology/instruments/{quote(asset_id)}/characterizations",
+            payload,
+        )
+
+    def upload_metrology_file(
+        self,
+        *,
+        original_filename: str,
+        mime_type: str,
+        content: bytes,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "POST",
+            "/api/v1/metrology/files",
+            {
+                "original_filename": original_filename,
+                "mime_type": mime_type,
+                "content_base64": base64.b64encode(content).decode("ascii"),
+            },
         )
 
     def set_metrology_serviceability(

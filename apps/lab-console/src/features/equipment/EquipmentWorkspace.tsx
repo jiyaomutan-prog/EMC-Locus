@@ -63,6 +63,7 @@ import type {
 } from "../../models/equipment";
 import type { MetrologyInstrument, RegisterMetrologyInstrumentInput } from "../../models/metrology";
 import { MeasurementEngineeringPanel } from "./MeasurementEngineeringPanel";
+import { PhysicalAssetMetrologyPanel } from "./PhysicalAssetMetrologyPanel";
 
 type EquipmentSpace =
   | "admin"
@@ -611,10 +612,14 @@ export function EquipmentWorkspace() {
   }
 
   async function registerPhysicalAsset(input: RegisterMetrologyInstrumentInput) {
-    await runOperation(async () => {
+    setOperationError(null);
+    try {
       await metrologyApi.registerInstrument(input);
       await refresh();
-    });
+    } catch (error) {
+      setOperationError(errorMessage(error));
+      throw error;
+    }
   }
 
   function updateModel(next: EquipmentModelDefinition) {
@@ -934,11 +939,11 @@ export function EquipmentWorkspace() {
       )}
 
       {space === "assets" && loadState === "ready" && (
-        <PhysicalAssetsPanel
+        <PhysicalAssetMetrologyPanel
           instruments={instruments}
           approvedModels={approvedModels}
           categories={categories}
-          onRegister={(input) => void registerPhysicalAsset(input)}
+          onRegister={registerPhysicalAsset}
           onOpenCatalog={() => setSpace("catalog")}
         />
       )}
@@ -1000,160 +1005,6 @@ function SignalCorrectionOverview(props: { onSelect: (space: EquipmentSpace) => 
         <button type="button" className="secondary" onClick={() => props.onSelect("recipes")}>Assembler une chaîne d’acquisition</button>
       </div>
     </section>
-  );
-}
-
-function PhysicalAssetsPanel(props: {
-  instruments: MetrologyInstrument[];
-  approvedModels: EquipmentModelAggregate[];
-  categories: EquipmentCategory[];
-  onRegister: (input: RegisterMetrologyInstrumentInput) => void;
-  onOpenCatalog: () => void;
-}) {
-  const [modelId, setModelId] = useState("");
-  const [assetId, setAssetId] = useState("");
-  const [serialNumber, setSerialNumber] = useState("");
-  const [partNumber, setPartNumber] = useState("");
-  const [calibrationRequirement, setCalibrationRequirement] = useState<MetrologyInstrument["calibration_requirement"]>("required");
-  const [calibrationPeriod, setCalibrationPeriod] = useState("12");
-  const [warningDays, setWarningDays] = useState("45");
-  const [serviceability, setServiceability] = useState<MetrologyInstrument["serviceability_status"]>("usable");
-  const [notes, setNotes] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!modelId && props.approvedModels.length > 0) {
-      setModelId(props.approvedModels[0].identity.equipment_model_id);
-    }
-  }, [modelId, props.approvedModels]);
-
-  const selectedModel = props.approvedModels.find((model) => model.identity.equipment_model_id === modelId);
-  const approvedRevision = selectedModel?.current_approved_revision;
-  const calibrationApplies = calibrationRequirement !== "not_required";
-
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setFormError(null);
-    if (!selectedModel || !approvedRevision) {
-      setFormError("Choisissez un modèle approuvé.");
-      return;
-    }
-    if (!assetId.trim() || !serialNumber.trim()) {
-      setFormError("Le numéro d’inventaire et le numéro de série sont obligatoires.");
-      return;
-    }
-    const period = calibrationApplies ? optionalNumber(calibrationPeriod) : undefined;
-    const warning = calibrationApplies ? optionalNumber(warningDays) : undefined;
-    props.onRegister({
-      asset_id: assetId.trim(),
-      family: selectedModel.identity.root_category_id ?? selectedModel.identity.category_code,
-      equipment_model_id: selectedModel.identity.equipment_model_id,
-      equipment_model_revision_id: approvedRevision.revision_id,
-      equipment_model_checksum: approvedRevision.definition_checksum,
-      manufacturer: selectedModel.identity.manufacturer,
-      model: selectedModel.identity.model_name,
-      serial_number: serialNumber.trim(),
-      part_number: optionalString(partNumber),
-      calibration_requirement: calibrationRequirement,
-      calibration_period_months: period,
-      calibration_due_warning_days: warning,
-      serviceability_status: serviceability,
-      serviceability_reason: "Enregistrement initial depuis LAB CONSOLE",
-      capabilities: approvedRevision.definition.capabilities,
-      metrology_notes: notes.trim(),
-      actor: "metrology.operator",
-      reason: "enregistrement d'un matériel réel depuis le catalogue"
-    });
-  }
-
-  return (
-    <div className="equipmentLayout physicalAssetsLayout">
-      <aside className="equipmentList physicalAssetList">
-        <div className="listHeader">
-          <h2>Matériels</h2>
-          <span>{props.instruments.length}</span>
-        </div>
-        {props.instruments.length === 0 && (
-          <div className="compactEmpty">
-            <strong>Aucun matériel enregistré</strong>
-            <span>Créez le premier exemplaire depuis un modèle approuvé.</span>
-          </div>
-        )}
-        {props.instruments.map((instrument) => {
-          const calibration = instrument.latest_calibration_event ?? instrument.latest_calibration;
-          return (
-            <div className="physicalAssetRow" key={instrument.asset_id}>
-              <strong>{instrument.asset_id}</strong>
-              <span>{instrument.manufacturer} {instrument.model}</span>
-              <small>N° de série {instrument.serial_number}</small>
-              <span className="listItemMeta">
-                <span className={`status ${instrument.serviceability_status}`}>{serviceabilityLabel(instrument.serviceability_status)}</span>
-                <small>{calibration ? `Échéance ${formatDate(calibration.due_at)}` : "Aucun étalonnage"}</small>
-              </span>
-            </div>
-          );
-        })}
-      </aside>
-      <section className="equipmentStudio">
-        <div className="studioHeader">
-          <div>
-            <p className="eyebrow">Registre métrologique</p>
-            <h2>Enregistrer un matériel réel</h2>
-          </div>
-        </div>
-        <form className="physicalAssetForm" onSubmit={submit}>
-          {formError && <p className="errorText">{formError}</p>}
-          {props.approvedModels.length === 0 && (
-            <div className="workflowNotice">
-              <div>
-                <strong>Aucun modèle approuvé n’est disponible</strong>
-                <p>Un matériel réel doit être rattaché à un modèle commun approuvé.</p>
-              </div>
-              <button type="button" onClick={props.onOpenCatalog}>Ouvrir le catalogue</button>
-            </div>
-          )}
-          <section className="editorCard">
-            <h2>Modèle et identification</h2>
-            <div className="formGrid">
-              <label>
-                <FieldCaption label="Modèle d'équipement" required />
-                <select value={modelId} onChange={(event) => setModelId(event.target.value)}>
-                  <option value="">Choisir un modèle approuvé</option>
-                  {props.approvedModels.map((model) => (
-                    <option key={model.identity.equipment_model_id} value={model.identity.equipment_model_id}>
-                      {model.identity.manufacturer} {model.identity.model_name} - {categoryPathLabel(props.categories, model.identity.category_code)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label><FieldCaption label="Numéro d’inventaire" required /><input value={assetId} onChange={(event) => setAssetId(event.target.value)} placeholder="ex. SA-001" /></label>
-              <label><FieldCaption label="Numéro de série" required /><input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} /></label>
-              <label><FieldCaption label="Part number" /><input value={partNumber} onChange={(event) => setPartNumber(event.target.value)} /></label>
-            </div>
-            {selectedModel && (
-              <dl className="businessSummary">
-                <dt>Fabricant</dt><dd>{selectedModel.identity.manufacturer}</dd>
-                <dt>Modèle</dt><dd>{selectedModel.identity.model_name}</dd>
-                <dt>Révision approuvée</dt><dd>{approvedRevision?.revision_number ?? "-"}</dd>
-              </dl>
-            )}
-          </section>
-          <section className="editorCard">
-            <h2>Aptitude et étalonnage</h2>
-            <div className="formGrid">
-              <label><FieldCaption label="Exigence d'étalonnage" required /><select value={calibrationRequirement} onChange={(event) => setCalibrationRequirement(event.target.value as typeof calibrationRequirement)}><option value="required">Requis</option><option value="conditional">Selon utilisation</option><option value="not_required">Non applicable</option></select></label>
-              {calibrationApplies && <label><FieldCaption label="Périodicité (mois)" required /><input type="number" min="1" value={calibrationPeriod} onChange={(event) => setCalibrationPeriod(event.target.value)} /></label>}
-              {calibrationApplies && <label><FieldCaption label="Alerte avant échéance (jours)" required /><input type="number" min="1" value={warningDays} onChange={(event) => setWarningDays(event.target.value)} /></label>}
-              <label><FieldCaption label="État de service" required /><select value={serviceability} onChange={(event) => setServiceability(event.target.value as typeof serviceability)}><option value="usable">Utilisable</option><option value="restricted">Utilisation restreinte</option><option value="out_of_service">Hors service</option><option value="retired">Retiré</option></select></label>
-            </div>
-            <label>Notes métrologiques<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
-          </section>
-          <div className="buttonRow">
-            <button type="submit" disabled={!selectedModel}><PackagePlus size={16} /> Enregistrer le matériel</button>
-          </div>
-        </form>
-      </section>
-    </div>
   );
 }
 
@@ -2884,15 +2735,6 @@ function inheritedFieldOrigin(field: EquipmentEffectiveTemplate["fields"][number
   const labels = field.inherited_from_category_ids
     .map((categoryId) => categories.find((category) => category.category_id === categoryId)?.label ?? categoryId);
   return labels.length > 0 ? labels.join(" > ") : "Herite";
-}
-
-function serviceabilityLabel(status: MetrologyInstrument["serviceability_status"]) {
-  return {
-    usable: "Utilisable",
-    restricted: "Restreint",
-    out_of_service: "Hors service",
-    retired: "Retire"
-  }[status];
 }
 
 function formatFileSize(sizeBytes: number) {

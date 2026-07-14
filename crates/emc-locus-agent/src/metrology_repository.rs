@@ -72,6 +72,28 @@ pub struct StoredCalibrationEvent {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredAssetCharacterization {
+    pub characterization_id: String,
+    pub asset_id: String,
+    pub characterization_kind: String,
+    pub label: String,
+    pub performed_on: String,
+    pub valid_until: String,
+    pub provider: String,
+    pub method_reference: String,
+    pub decision: String,
+    pub definition_schema_version: String,
+    pub definition_json: String,
+    pub definition_checksum: String,
+    pub certificate_reference: Option<String>,
+    pub document_manifest_json: Option<String>,
+    pub comment: String,
+    pub recorded_at: String,
+    pub recorded_by: String,
+    pub revision: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredMetrologyOperation {
     pub operation_id: String,
     pub entity_id: String,
@@ -134,6 +156,27 @@ pub struct NewCalibrationEventRecord<'a> {
     pub traceability_reference: Option<&'a str>,
     pub comment: &'a str,
     pub document_manifest_json: Option<&'a str>,
+    pub recorded_at: &'a str,
+    pub recorded_by: &'a str,
+    pub revision: &'a str,
+}
+
+pub struct NewAssetCharacterizationRecord<'a> {
+    pub characterization_id: &'a str,
+    pub asset_id: &'a str,
+    pub characterization_kind: &'a str,
+    pub label: &'a str,
+    pub performed_on: &'a str,
+    pub valid_until: &'a str,
+    pub provider: &'a str,
+    pub method_reference: &'a str,
+    pub decision: &'a str,
+    pub definition_schema_version: &'a str,
+    pub definition_json: &'a str,
+    pub definition_checksum: &'a str,
+    pub certificate_reference: Option<&'a str>,
+    pub document_manifest_json: Option<&'a str>,
+    pub comment: &'a str,
     pub recorded_at: &'a str,
     pub recorded_by: &'a str,
     pub revision: &'a str,
@@ -238,6 +281,7 @@ fn ensure_metrology_tables(connection: &Connection) -> Result<(), AgentError> {
         "instruments",
         "calibration_records",
         "calibration_events",
+        "asset_characterization_events",
         "instrument_documents",
         "metrology_audit_events",
     ] {
@@ -527,6 +571,86 @@ pub fn load_calibration_event(
         .map_err(|error| AgentError::new("metrology_calibration_query_failed", error.to_string()))
 }
 
+pub fn load_asset_characterizations(
+    connection: &Connection,
+    asset_id: &str,
+) -> Result<Vec<StoredAssetCharacterization>, AgentError> {
+    let mut statement = connection
+        .prepare(concat!(
+            "SELECT characterization_id, asset_id, characterization_kind, label, performed_on, ",
+            "valid_until, provider, method_reference, decision, definition_schema_version, ",
+            "definition_json, definition_checksum, certificate_reference, document_manifest_json, ",
+            "comment, recorded_at, recorded_by, revision ",
+            "FROM asset_characterization_events WHERE asset_id = ?1 ",
+            "ORDER BY performed_on DESC, recorded_at DESC, characterization_id DESC"
+        ))
+        .map_err(|error| {
+            AgentError::new("metrology_characterization_query_failed", error.to_string())
+        })?;
+    let rows = statement
+        .query_map(params![asset_id], stored_asset_characterization_from_row)
+        .map_err(|error| {
+            AgentError::new("metrology_characterization_query_failed", error.to_string())
+        })?;
+    let mut characterizations = Vec::new();
+    for row in rows {
+        characterizations.push(row.map_err(|error| {
+            AgentError::new("metrology_characterization_query_failed", error.to_string())
+        })?);
+    }
+    Ok(characterizations)
+}
+
+pub fn load_asset_characterization(
+    connection: &Connection,
+    characterization_id: &str,
+) -> Result<Option<StoredAssetCharacterization>, AgentError> {
+    connection
+        .query_row(
+            concat!(
+                "SELECT characterization_id, asset_id, characterization_kind, label, performed_on, ",
+                "valid_until, provider, method_reference, decision, definition_schema_version, ",
+                "definition_json, definition_checksum, certificate_reference, document_manifest_json, ",
+                "comment, recorded_at, recorded_by, revision ",
+                "FROM asset_characterization_events WHERE characterization_id = ?1"
+            ),
+            params![characterization_id],
+            stored_asset_characterization_from_row,
+        )
+        .optional()
+        .map_err(|error| {
+            AgentError::new(
+                "metrology_characterization_query_failed",
+                error.to_string(),
+            )
+        })
+}
+
+fn stored_asset_characterization_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<StoredAssetCharacterization> {
+    Ok(StoredAssetCharacterization {
+        characterization_id: row.get(0)?,
+        asset_id: row.get(1)?,
+        characterization_kind: row.get(2)?,
+        label: row.get(3)?,
+        performed_on: row.get(4)?,
+        valid_until: row.get(5)?,
+        provider: row.get(6)?,
+        method_reference: row.get(7)?,
+        decision: row.get(8)?,
+        definition_schema_version: row.get(9)?,
+        definition_json: row.get(10)?,
+        definition_checksum: row.get(11)?,
+        certificate_reference: row.get(12)?,
+        document_manifest_json: row.get(13)?,
+        comment: row.get(14)?,
+        recorded_at: row.get(15)?,
+        recorded_by: row.get(16)?,
+        revision: row.get(17)?,
+    })
+}
+
 fn stored_calibration_event_from_row(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<StoredCalibrationEvent> {
@@ -625,6 +749,50 @@ pub fn insert_calibration_event(
             ],
         )
         .map_err(|error| AgentError::new("metrology_calibration_write_failed", error.to_string()))?;
+    Ok(())
+}
+
+pub fn insert_asset_characterization(
+    connection: &Connection,
+    input: NewAssetCharacterizationRecord<'_>,
+) -> Result<(), AgentError> {
+    connection
+        .execute(
+            concat!(
+                "INSERT INTO asset_characterization_events (characterization_id, asset_id, ",
+                "characterization_kind, label, performed_on, valid_until, provider, ",
+                "method_reference, decision, definition_schema_version, definition_json, ",
+                "definition_checksum, certificate_reference, document_manifest_json, comment, ",
+                "recorded_at, recorded_by, revision) ",
+                "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"
+            ),
+            params![
+                input.characterization_id,
+                input.asset_id,
+                input.characterization_kind,
+                input.label,
+                input.performed_on,
+                input.valid_until,
+                input.provider,
+                input.method_reference,
+                input.decision,
+                input.definition_schema_version,
+                input.definition_json,
+                input.definition_checksum,
+                input.certificate_reference,
+                input.document_manifest_json,
+                input.comment,
+                input.recorded_at,
+                input.recorded_by,
+                input.revision,
+            ],
+        )
+        .map_err(|error| {
+            AgentError::new(
+                "metrology_characterization_write_failed",
+                error.to_string(),
+            )
+        })?;
     Ok(())
 }
 

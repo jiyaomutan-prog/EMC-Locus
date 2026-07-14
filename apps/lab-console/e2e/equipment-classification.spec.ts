@@ -146,7 +146,7 @@ test("equipment repository UX manages nested categories, fields and model creati
   expect((await approveResponse).ok()).toBeTruthy();
 
   await page.getByRole("button", { name: "Matériels réels" }).click();
-  const approvedModelSelect = page.getByLabel(/Modèle d'équipement/);
+  const approvedModelSelect = page.getByLabel(/Modèle d.équipement/);
   await expect(approvedModelSelect.locator(`option[value="${modelId}"]`)).toHaveCount(1);
   await approvedModelSelect.selectOption(modelId);
   const assetId = `ASSET-RF-LNA-${suffix}`;
@@ -159,7 +159,7 @@ test("equipment repository UX manages nested categories, fields and model creati
   );
   await page.getByRole("button", { name: "Enregistrer le matériel" }).click();
   expect((await assetResponse).ok()).toBeTruthy();
-  await expect(page.getByText(assetId)).toBeVisible();
+  await expect(page.getByRole("heading", { name: assetId })).toBeVisible();
 
   const asset = await request.get(`/api/v1/metrology/instruments/${assetId}`);
   expect(asset.ok()).toBeTruthy();

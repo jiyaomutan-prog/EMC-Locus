@@ -65,12 +65,12 @@ use crate::{
         UpdateDriverDefinitionCounts, UpdateEquipmentCategoryRecord,
         UpdateEquipmentFieldDefinitionRecord, UpdateModelDefinitionCounts, UpdateStatusInput,
     },
+    file_store::{store_content_addressed_file, FileStorePolicy, StoreLocalFileInput},
     measurement_engineering_repository::{
         load_measurement_engineering_revision, MeasurementEngineeringStorageKind,
     },
     render_json, AgentError,
 };
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use emc_locus_core::equipment::{
     simulate_driver_action, AccessProviderKind, CommunicationInterfaceDefinition,
     DefinitionValidationIssue, DriverProfileDefinition, DriverSimulationScenario, EquipmentClass,
@@ -86,7 +86,6 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
     path::Path,
 };
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
@@ -210,80 +209,24 @@ pub struct StoreEquipmentFileInput {
     pub content_base64: String,
 }
 
-const MAX_EQUIPMENT_FILE_SIZE_BYTES: usize = 20 * 1024 * 1024;
-
 pub fn store_equipment_file(
     storage_root: &Path,
     input: StoreEquipmentFileInput,
 ) -> Result<String, AgentError> {
-    let filename = input.original_filename.trim();
-    if filename.is_empty()
-        || filename.len() > 255
-        || filename.contains(['/', '\\', '\0'])
-        || filename == "."
-        || filename == ".."
-    {
-        return Err(AgentError::new(
-            "invalid_equipment_file",
-            "original_filename must be a safe file name",
-        ));
-    }
-    let mime_type = input.mime_type.trim();
-    if mime_type.is_empty()
-        || mime_type.len() > 127
-        || !mime_type.contains('/')
-        || mime_type.chars().any(char::is_whitespace)
-    {
-        return Err(AgentError::new(
-            "invalid_equipment_file",
-            "mime_type must be a valid non-empty media type",
-        ));
-    }
-    let content = BASE64_STANDARD
-        .decode(input.content_base64.trim())
-        .map_err(|_| AgentError::new("invalid_equipment_file", "content_base64 is invalid"))?;
-    if content.is_empty() {
-        return Err(AgentError::new(
-            "invalid_equipment_file",
-            "the uploaded file must not be empty",
-        ));
-    }
-    if content.len() > MAX_EQUIPMENT_FILE_SIZE_BYTES {
-        return Err(AgentError::new(
-            "equipment_file_too_large",
-            format!(
-                "the uploaded file exceeds the {} byte limit",
-                MAX_EQUIPMENT_FILE_SIZE_BYTES
-            ),
-        ));
-    }
-
-    let digest = format!("{:x}", Sha256::digest(&content));
-    let relative_storage_key = format!("objects/equipment/{}/{}", &digest[..2], digest);
-    let object_path = storage_root.join(&relative_storage_key);
-    let parent = object_path.parent().ok_or_else(|| {
-        AgentError::new("equipment_file_store_failed", "object path has no parent")
-    })?;
-    fs::create_dir_all(parent)
-        .map_err(|error| AgentError::new("equipment_file_store_failed", error.to_string()))?;
-    if !object_path.exists() {
-        let temporary_path = parent.join(format!(".{digest}.upload"));
-        fs::write(&temporary_path, &content)
-            .map_err(|error| AgentError::new("equipment_file_store_failed", error.to_string()))?;
-        fs::rename(&temporary_path, &object_path)
-            .map_err(|error| AgentError::new("equipment_file_store_failed", error.to_string()))?;
-    }
-
-    Ok(render_json(&json!({
-        "file": {
-            "object_id": format!("sha256:{digest}"),
-            "original_filename": filename,
-            "mime_type": mime_type,
-            "size_bytes": content.len(),
-            "sha256": digest,
-            "storage_key": relative_storage_key
-        }
-    })))
+    store_content_addressed_file(
+        storage_root,
+        StoreLocalFileInput {
+            original_filename: input.original_filename,
+            mime_type: input.mime_type,
+            content_base64: input.content_base64,
+        },
+        FileStorePolicy {
+            namespace: "equipment",
+            invalid_code: "invalid_equipment_file",
+            too_large_code: "equipment_file_too_large",
+            store_failed_code: "equipment_file_store_failed",
+        },
+    )
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

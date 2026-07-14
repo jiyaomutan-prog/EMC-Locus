@@ -4,6 +4,7 @@ mod document_service;
 mod equipment_dto;
 mod equipment_repository;
 mod equipment_service;
+mod file_store;
 mod local_api;
 mod measurement_engineering_dto;
 mod measurement_engineering_repository;
@@ -908,7 +909,7 @@ mod tests {
                 .find(|domain| domain.domain == "metrology")
                 .unwrap()
                 .schema_version,
-            Some(8)
+            Some(9)
         );
         assert_eq!(
             second_report

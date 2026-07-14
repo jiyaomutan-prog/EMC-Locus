@@ -285,6 +285,45 @@ CREATE TABLE measurement_runs (
 );
 ```
 
+### asset_characterization_events
+
+Migration `storage/sqlite/metrology/0009_asset_characterizations.sql` adds an
+append-only result for a correction measured on one physical asset:
+
+```sql
+CREATE TABLE asset_characterization_events (
+    characterization_id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL REFERENCES instruments(asset_id),
+    characterization_kind TEXT NOT NULL,
+    label TEXT NOT NULL,
+    performed_on TEXT NOT NULL,
+    valid_until TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    method_reference TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    definition_schema_version TEXT NOT NULL,
+    definition_json TEXT NOT NULL,
+    definition_checksum TEXT NOT NULL,
+    certificate_reference TEXT,
+    document_manifest_json TEXT,
+    comment TEXT NOT NULL DEFAULT '',
+    recorded_at TEXT NOT NULL,
+    recorded_by TEXT NOT NULL,
+    revision TEXT NOT NULL
+);
+```
+
+`definition_json` is canonical typed JSON for either a time-sample conversion
+or a frequency response. `definition_checksum` is a canonical prefixed SHA-256
+digest. Corrections shared by all assets of a model remain revisioned in
+`equipment.sqlite`; measured values for one serial number live only in this
+metrology event table. The file manifest is metadata only. Uploaded bytes are
+content-addressed below `objects/metrology/` rather than stored in SQLite.
+
+Characterization insertion and its `metrology_audit_events` plus sync outbox
+evidence are one transaction. The table is immutable in 0.16.0: a later
+measurement creates another event instead of replacing the previous result.
+
 ### standards
 
 ```sql

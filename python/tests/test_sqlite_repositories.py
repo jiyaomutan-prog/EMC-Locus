@@ -824,7 +824,10 @@ class MetrologyRepositoryTests(unittest.TestCase):
                     ("LEGACY-001",),
                 ).fetchall()
 
-            self.assertEqual([row["version"] for row in version_rows], [1, 2, 3, 4, 5, 6, 7, 8])
+            self.assertEqual(
+                [row["version"] for row in version_rows],
+                [1, 2, 3, 4, 5, 6, 7, 8, 9],
+            )
             column_names = {row["name"] for row in instrument_columns}
             self.assertIn("category_code", column_names)
             self.assertIn("part_number", column_names)

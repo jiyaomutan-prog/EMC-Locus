@@ -8,6 +8,41 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-07-14
+
+### Added
+
+- Added typed, canonical, immutable metrology characterizations for one
+  physical asset, covering time-sample gain/offset/limits and
+  frequency-dependent amplitude with optional phase.
+- Added metrology migration 9, characterization read/write/audit routes,
+  content-addressed proof upload, Python client methods, and atomic audit plus
+  outbox evidence.
+- Added an asset-centered LAB CONSOLE dossier where a metrologist can record,
+  review, and reload serial-specific characterizations and their evidence.
+- Added a real Playwright characterization workflow and expanded 1440 x 900 and
+  1280 x 720 visual acceptance to the physical-asset dossier and entry form.
+
+### Changed
+
+- Replaced the former registration-only `Matériels réels` screen with one
+  workflow joining asset registration, metrology status, characterization
+  history, guided entry, and traceability.
+- Reused the typed signal-physics contracts for asset results while keeping
+  reusable model corrections in `equipment.sqlite` and serial-specific
+  evidence in `metrology.sqlite`.
+- Generalized local content-addressed file storage so equipment documentation
+  and metrology evidence retain separate namespaces and error contracts.
+
+### Fixed
+
+- Scoped characterization audit lookup to the asset in the request path,
+  preventing a journal from being read through another asset dossier.
+- Updated storage initialization expectations and CLI usage for metrology
+  schema version 9 and the new characterization commands.
+- Removed a sticky form action bar that obscured characterization fields at
+  the supported 1280 x 720 viewport.
+
 ## [0.15.1] - 2026-07-14
 
 ### Added

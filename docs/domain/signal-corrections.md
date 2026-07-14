@@ -16,9 +16,9 @@ interprétée. Par exemple :
     -> courant calculé en ampères
 
 Ces définitions appartiennent au modèle commun. Une valeur caractérisée pour
-un numéro de série précis appartient au registre métrologique et devra, dans
-une verticale ultérieure, pouvoir surcharger la valeur du modèle avec une
-preuve d’étalonnage contrôlée.
+un numéro de série précis appartient au registre métrologique. Depuis 0.16.0,
+le métrologue peut enregistrer cette valeur, sa validité, son incertitude et sa
+preuve dans le dossier du matériel réel.
 
 ## Conversion temporelle
 
@@ -65,7 +65,8 @@ pas le signal d’essai appliqué à l’équipement sous test.
 
 ## Frontière actuelle
 
-La version 0.15.1 définit, valide, révise et relie ces contrats. Elle ne les
-applique pas encore à une acquisition réelle, ne calcule pas de FFT et ne
-permet pas encore au métrologue de créer une correction propre à un numéro de
-série depuis un certificat.
+La version 0.16.0 définit, valide et conserve aussi les caractérisations propres
+à un numéro de série. Elle ne les applique pas encore à une acquisition réelle,
+ne calcule pas de FFT et ne choisit pas automatiquement entre la correction du
+modèle et les événements métrologiques disponibles. Une future préparation
+d’essai devra figer explicitement la caractérisation retenue et son empreinte.

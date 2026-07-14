@@ -83,7 +83,17 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.15.1`.
+Current software version: `0.16.0`.
+
+Version `0.16.0` adds the first serial-specific correction workflow to the
+physical asset dossier. A metrologist can record either a time-sample
+conversion or a frequency response for one inventory/serial number, including
+validity, decision, uncertainty, method, certificate reference, and uploaded
+content-addressed evidence. The Rust agent validates canonical typed JSON and
+persists the immutable event, audit, and outbox atomically. LAB CONSOLE exposes
+the workflow from `Matériels réels`, with exact 1440 x 900 and 1280 x 720 visual
+acceptance. This release does not yet apply the correction to live acquisition
+or choose it automatically during test preparation.
 
 Version `0.15.1` makes the signal-correction workflow readable without the
 former measurement-engineering vocabulary. LAB CONSOLE first asks whether

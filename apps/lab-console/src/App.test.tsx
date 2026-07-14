@@ -333,6 +333,85 @@ describe("LAB CONSOLE", () => {
     expect(body.equipment_model_checksum).toBe(equipmentModelFixture().current_approved_revision?.definition_checksum);
   });
 
+  test("records and displays a frequency response for a physical asset", async () => {
+    const instrument = metrologyInstrumentFixture();
+    const characterizations: Array<Record<string, unknown>> = [];
+    const collectionPath = `/api/v1/metrology/instruments/${instrument.asset_id}/characterizations`;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/health") return jsonResponse(healthFixture);
+      if (path === "/api/v1/storage/status") return jsonResponse(storageFixture);
+      if (path === "/api/v1/test-templates") return jsonResponse({ test_templates: [templateFixture()] });
+      if (path === "/api/v1/equipment/registries") return jsonResponse(equipmentRegistriesFixture());
+      if (path === "/api/v1/equipment/classification-presets") return jsonResponse({ presets: [] });
+      if (path === "/api/v1/equipment-models" || path.startsWith("/api/v1/equipment-models?")) {
+        return jsonResponse({ equipment_models: [equipmentModelFixture()] });
+      }
+      if (path === "/api/v1/driver-profiles") return jsonResponse({ driver_profiles: [] });
+      if (path === "/api/v1/equipment/communication-providers") return jsonResponse({ providers: [] });
+      if (path === "/api/v1/metrology/instruments") return jsonResponse({ instruments: [instrument] });
+      if (path === collectionPath && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        const characterization = {
+          characterization_id: body.characterization_id,
+          asset_id: instrument.asset_id,
+          characterization_kind: body.definition.correction.correction_kind,
+          label: body.definition.label,
+          performed_on: body.performed_on,
+          valid_until: body.valid_until,
+          provider: body.provider,
+          method_reference: body.method_reference,
+          decision: body.decision,
+          definition_schema_version: body.definition.definition_schema_version,
+          definition: body.definition,
+          definition_checksum: `sha256:${"c".repeat(64)}`,
+          certificate_reference: body.certificate_reference ?? null,
+          document_manifest: body.document_manifest ?? null,
+          comment: body.comment ?? "",
+          recorded_at: "2026-07-14T20:00:00Z",
+          recorded_by: body.recorded_by,
+          revision: "rev-0001"
+        };
+        characterizations.push(characterization);
+        return jsonResponse({ characterization });
+      }
+      if (path === collectionPath) {
+        return jsonResponse({ asset_id: instrument.asset_id, characterizations });
+      }
+      if (path.startsWith(`${collectionPath}/`) && path.endsWith("/audit-events")) {
+        return jsonResponse({ audit_events: [] });
+      }
+      return mockBaseApiResponse(path, init);
+    });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Équipements" }));
+    await user.click(await screen.findByRole("button", { name: "Matériels réels" }));
+    expect(await screen.findByRole("heading", { name: instrument.asset_id })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Ajouter une caractérisation" }));
+    expect(await screen.findByRole("heading", { name: "Ajouter une caractérisation" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/Laboratoire ou prestataire/), "Laboratoire interne");
+    await user.type(screen.getByLabelText(/Méthode utilisée/), "MET-RF-CABLE-001");
+    await user.clear(screen.getByLabelText(/Tableau mesuré/));
+    await user.type(
+      screen.getByLabelText(/Tableau mesuré/),
+      "frequence_hz,amplitude_db\n1000000,0.15\n1000000000,2.8"
+    );
+    await user.click(screen.getByRole("button", { name: "Enregistrer la caractérisation" }));
+
+    expect(await screen.findByRole("heading", { name: "Pertes mesurées" })).toBeInTheDocument();
+    expect(screen.getByText("2 points, de 1 MHz à 1 GHz")).toBeInTheDocument();
+    const request = fetchMock.mock.calls.find(([path, options]) =>
+      String(path) === collectionPath && (options as RequestInit | undefined)?.method === "POST"
+    );
+    const body = JSON.parse(String((request?.[1] as RequestInit).body));
+    expect(body.definition.correction.correction_kind).toBe("frequency_response");
+    expect(body.definition.correction.correction.points).toHaveLength(2);
+    expect(body.provider).toBe("Laboratoire interne");
+  });
+
   test("filters equipment catalog and creates a model from a category template", async () => {
     const createdModel = rfCableModelFixture();
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1275,6 +1354,37 @@ function driverProfileFixture() {
   };
 }
 
+function metrologyInstrumentFixture() {
+  return {
+    asset_id: "RF-CABLE-001",
+    family: "passive_rf_component",
+    category_code: "rf_cable",
+    equipment_model_id: "EQM-RF-CABLE-DEMO",
+    equipment_model_revision_id: "EQM-RF-CABLE-DEMO-rev-0001",
+    equipment_model_checksum: `sha256:${"a".repeat(64)}`,
+    manufacturer: "Huber+Suhner",
+    model: "Sucoflex 104",
+    serial_number: "RF-24017",
+    part_number: "22510146",
+    serviceability_status: "usable",
+    serviceability_reason: "Contrôle visuel conforme",
+    calibration_requirement: "required",
+    calibration_period_months: 12,
+    calibration_due_warning_days: 45,
+    metrology_notes: "Câble de référence",
+    created_at: "2026-07-14T00:00:00Z",
+    updated_at: "2026-07-14T00:00:00Z",
+    revision: "rev-0001",
+    latest_calibration: {
+      calibrated_at: "2026-07-01",
+      due_at: "2027-07-01",
+      certificate_reference: "CERT-RF-2026-017",
+      revision: "rev-0001"
+    },
+    latest_calibration_event: null
+  };
+}
+
 function mockBaseApiResponse(path: string, init?: RequestInit) {
   if (path === "/api/v1/health") return jsonResponse(healthFixture);
   if (path === "/api/v1/storage/status") return jsonResponse(storageFixture);
@@ -1285,6 +1395,12 @@ function mockBaseApiResponse(path: string, init?: RequestInit) {
   if (path.startsWith("/api/v1/equipment/categories")) return jsonResponse({ categories: equipmentCategoriesFixture() });
   if (path.startsWith("/api/v1/equipment/field-definitions")) return jsonResponse({ field_definitions: equipmentFieldDefinitionsFixture() });
   if (path === "/api/v1/metrology/instruments") return jsonResponse({ instruments: [] });
+  if (path.includes("/api/v1/metrology/instruments/") && path.endsWith("/audit-events")) {
+    return jsonResponse({ audit_events: [] });
+  }
+  if (path.includes("/api/v1/metrology/instruments/") && path.endsWith("/characterizations")) {
+    return jsonResponse({ asset_id: "", characterizations: [] });
+  }
   if (path === "/api/v1/scaling-profiles") {
     return jsonResponse({ aggregate_kind: "scaling-profiles", collection_key: "items", items: [] });
   }

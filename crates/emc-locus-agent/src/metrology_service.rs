@@ -1,21 +1,26 @@
+use crate::file_store::{store_content_addressed_file, FileStorePolicy, StoreLocalFileInput};
 use crate::metrology_dto::{
-    calibration_event_dto, instrument_dto, CalibrationEventEnvelopeDto, CalibrationEventListDto,
-    CalibrationStatusDto, InstrumentEnvelopeDto, InstrumentListDto, MetrologyAuditEventDto,
-    MetrologyAuditEventsDto, ReadinessInstrumentResultDto, ReadinessIssueDto, ReadinessReportDto,
+    asset_characterization_dto, calibration_event_dto, instrument_dto, AssetCharacterizationDto,
+    AssetCharacterizationEnvelopeDto, AssetCharacterizationListDto, CalibrationEventEnvelopeDto,
+    CalibrationEventListDto, CalibrationStatusDto, InstrumentEnvelopeDto, InstrumentListDto,
+    MetrologyAuditEventDto, MetrologyAuditEventsDto, ReadinessInstrumentResultDto,
+    ReadinessIssueDto, ReadinessReportDto,
 };
 use crate::metrology_repository::{
-    ensure_metrology_operation_replay, existing_metrology_operation, insert_calibration_event,
-    insert_instrument, insert_metrology_audit_event, insert_metrology_sync_operation,
+    ensure_metrology_operation_replay, existing_metrology_operation, insert_asset_characterization,
+    insert_calibration_event, insert_instrument, insert_metrology_audit_event,
+    insert_metrology_sync_operation, load_asset_characterization, load_asset_characterizations,
     load_calibration_event, load_calibration_events, load_instrument, load_instruments,
     load_latest_calibration_event, load_latest_calibration_record, load_metrology_audit_events,
     next_metrology_audit_sequence, open_metrology_connection, open_metrology_connection_with_sync,
     update_instrument_serviceability, MetrologyAuditEventInput, MetrologyOperationFingerprintInput,
-    MetrologySyncOperationInput, NewCalibrationEventRecord, NewInstrumentRecord,
-    StoredCalibrationEvent, StoredInstrument,
+    MetrologySyncOperationInput, NewAssetCharacterizationRecord, NewCalibrationEventRecord,
+    NewInstrumentRecord, StoredAssetCharacterization, StoredCalibrationEvent, StoredInstrument,
 };
 use crate::{render_json, AgentError};
 use emc_locus_core::{
-    DomainError, InstrumentCode, MetrologyDate, DEFAULT_CALIBRATION_DUE_SOON_WARNING_DAYS,
+    AssetCharacterizationDefinition, DomainError, InstrumentCode, MetrologyDate,
+    DEFAULT_CALIBRATION_DUE_SOON_WARNING_DAYS,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -62,6 +67,30 @@ pub struct RecordCalibrationInput {
     pub document_manifest_json: Option<String>,
     pub recorded_by: String,
     pub context: MetrologyOperationContext,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordAssetCharacterizationInput {
+    pub characterization_id: String,
+    pub asset_id: String,
+    pub performed_on: String,
+    pub valid_until: String,
+    pub provider: String,
+    pub method_reference: String,
+    pub decision: String,
+    pub definition_json: String,
+    pub certificate_reference: Option<String>,
+    pub document_manifest_json: Option<String>,
+    pub comment: String,
+    pub recorded_by: String,
+    pub context: MetrologyOperationContext,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoreMetrologyFileInput {
+    pub original_filename: String,
+    pub mime_type: String,
+    pub content_base64: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -398,6 +427,217 @@ pub fn record_metrology_calibration(
     }))
 }
 
+pub fn record_asset_characterization(
+    storage_root: &Path,
+    input: RecordAssetCharacterizationInput,
+) -> Result<String, AgentError> {
+    validate_operation_context(&input.context)?;
+    require_non_empty(&input.provider, "provider")?;
+    require_non_empty(&input.method_reference, "method_reference")?;
+    require_non_empty(&input.recorded_by, "recorded_by")?;
+    validate_characterization_decision(&input.decision)?;
+    validate_characterization_document_manifest(input.document_manifest_json.as_deref())?;
+
+    let performed_on = parse_metrology_date(&input.performed_on, "performed_on")?;
+    let valid_until = parse_metrology_date(&input.valid_until, "valid_until")?;
+    if valid_until < performed_on {
+        return Err(AgentError::new(
+            "invalid_asset_characterization",
+            "valid_until must be on or after performed_on",
+        ));
+    }
+
+    let definition = AssetCharacterizationDefinition::from_json_str(&input.definition_json)
+        .map_err(|issue| invalid_asset_characterization(vec![issue]))?;
+    let canonical = definition
+        .canonicalize()
+        .map_err(invalid_asset_characterization)?;
+    if canonical.characterization_id != input.characterization_id.trim() {
+        return Err(AgentError::new(
+            "invalid_asset_characterization",
+            "characterization_id must match the definition",
+        ));
+    }
+    if canonical.asset_id != input.asset_id.trim() {
+        return Err(AgentError::new(
+            "invalid_asset_characterization",
+            "asset_id must match the definition",
+        ));
+    }
+
+    let payload_json = asset_characterization_payload_json(&input, &canonical);
+    let mut connection = open_metrology_connection_with_sync(storage_root)?;
+    if load_instrument(&connection, &canonical.asset_id)?.is_none() {
+        return Err(AgentError::new(
+            "metrology_instrument_not_found",
+            format!("instrument does not exist: {}", canonical.asset_id),
+        ));
+    }
+    if let Some(operation) = existing_metrology_operation(&connection, &input.context.operation_id)?
+    {
+        ensure_metrology_operation_replay(
+            &operation,
+            &input.context.operation_id,
+            MetrologyOperationFingerprintInput {
+                entity_type: "asset_characterization",
+                entity_id: &canonical.characterization_id,
+                operation_kind: "asset_characterization_recorded",
+                base_revision: "rev-0000",
+                actor_id: &input.context.actor,
+                device_id: &input.context.device_id,
+                correlation_id: &input.context.correlation_id,
+                payload_json: &payload_json,
+            },
+        )?;
+        let stored = load_asset_characterization(&connection, &canonical.characterization_id)?
+            .ok_or_else(|| {
+                AgentError::new(
+                    "operation_replay_missing_entity",
+                    "operation exists but asset characterization is missing",
+                )
+            })?;
+        return render_asset_characterization(&stored);
+    }
+    if load_asset_characterization(&connection, &canonical.characterization_id)?.is_some() {
+        return Err(AgentError::new(
+            "asset_characterization_already_exists",
+            format!(
+                "asset characterization already exists: {}",
+                canonical.characterization_id
+            ),
+        ));
+    }
+
+    let recorded_at = utc_timestamp()?;
+    let revision = revision_for(
+        "asset_characterization",
+        &canonical.characterization_id,
+        &recorded_at,
+    );
+    let sequence = next_metrology_audit_sequence(
+        &connection,
+        "asset_characterization",
+        &canonical.characterization_id,
+    )?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    insert_asset_characterization(
+        &transaction,
+        NewAssetCharacterizationRecord {
+            characterization_id: &canonical.characterization_id,
+            asset_id: &canonical.asset_id,
+            characterization_kind: canonical.kind.as_str(),
+            label: &canonical.label,
+            performed_on: input.performed_on.trim(),
+            valid_until: input.valid_until.trim(),
+            provider: input.provider.trim(),
+            method_reference: input.method_reference.trim(),
+            decision: input.decision.trim(),
+            definition_schema_version: &canonical.definition_schema_version,
+            definition_json: &canonical.canonical_json,
+            definition_checksum: &canonical.definition_checksum,
+            certificate_reference: trimmed_optional(input.certificate_reference.as_deref()),
+            document_manifest_json: trimmed_optional(input.document_manifest_json.as_deref()),
+            comment: input.comment.trim(),
+            recorded_at: &recorded_at,
+            recorded_by: input.recorded_by.trim(),
+            revision: &revision,
+        },
+    )?;
+    write_metrology_audit_and_outbox(
+        &transaction,
+        MetrologyAuditWrite {
+            entity_type: "asset_characterization",
+            entity_id: &canonical.characterization_id,
+            sequence,
+            action: "asset_characterization_recorded",
+            base_revision: "rev-0000",
+            resulting_revision: &revision,
+            context: &input.context,
+            payload_json: &payload_json,
+            timestamp: &recorded_at,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+
+    let connection = open_metrology_connection(storage_root)?;
+    let stored = load_asset_characterization(&connection, &canonical.characterization_id)?
+        .ok_or_else(|| {
+            AgentError::new(
+                "metrology_characterization_query_failed",
+                "asset characterization was not readable after insert",
+            )
+        })?;
+    render_asset_characterization(&stored)
+}
+
+pub fn store_metrology_file(
+    storage_root: &Path,
+    input: StoreMetrologyFileInput,
+) -> Result<String, AgentError> {
+    store_content_addressed_file(
+        storage_root,
+        StoreLocalFileInput {
+            original_filename: input.original_filename,
+            mime_type: input.mime_type,
+            content_base64: input.content_base64,
+        },
+        FileStorePolicy {
+            namespace: "metrology",
+            invalid_code: "invalid_metrology_file",
+            too_large_code: "metrology_file_too_large",
+            store_failed_code: "metrology_file_store_failed",
+        },
+    )
+}
+
+pub fn list_asset_characterizations(
+    storage_root: &Path,
+    asset_id: &str,
+) -> Result<String, AgentError> {
+    let connection = open_metrology_connection(storage_root)?;
+    let instrument = load_instrument(&connection, asset_id)?.ok_or_else(|| {
+        AgentError::new(
+            "metrology_instrument_not_found",
+            format!("instrument does not exist: {asset_id}"),
+        )
+    })?;
+    let records = load_asset_characterizations(&connection, &instrument.asset_id)?;
+    let characterizations = records
+        .iter()
+        .map(asset_characterization_dto_from_stored)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(render_json(&AssetCharacterizationListDto {
+        asset_id: instrument.asset_id,
+        characterizations,
+    }))
+}
+
+pub fn get_asset_characterization(
+    storage_root: &Path,
+    asset_id: &str,
+    characterization_id: &str,
+) -> Result<String, AgentError> {
+    let connection = open_metrology_connection(storage_root)?;
+    let stored =
+        load_asset_characterization(&connection, characterization_id)?.ok_or_else(|| {
+            AgentError::new(
+                "asset_characterization_not_found",
+                format!("asset characterization does not exist: {characterization_id}"),
+            )
+        })?;
+    if stored.asset_id != asset_id {
+        return Err(AgentError::new(
+            "asset_characterization_not_found",
+            format!("asset characterization does not belong to instrument: {asset_id}"),
+        ));
+    }
+    render_asset_characterization(&stored)
+}
+
 pub fn list_metrology_calibrations(
     storage_root: &Path,
     asset_id: &str,
@@ -693,6 +933,16 @@ fn validate_calibration_decision(value: &str) -> Result<(), AgentError> {
     }
 }
 
+fn validate_characterization_decision(value: &str) -> Result<(), AgentError> {
+    match value.trim() {
+        "conforming" | "nonconforming" | "indeterminate" | "not_assessed" => Ok(()),
+        other => Err(AgentError::new(
+            "invalid_asset_characterization",
+            format!("unknown characterization decision: {other}"),
+        )),
+    }
+}
+
 fn validate_optional_calibration_decision(
     value: Option<&str>,
     field: &'static str,
@@ -824,6 +1074,129 @@ fn calibration_event_payload_json(input: &RecordCalibrationInput) -> String {
     }))
 }
 
+fn asset_characterization_payload_json(
+    input: &RecordAssetCharacterizationInput,
+    canonical: &emc_locus_core::CanonicalAssetCharacterizationDefinition,
+) -> String {
+    let definition = serde_json::from_str::<Value>(&canonical.canonical_json)
+        .expect("canonical asset characterization must be valid JSON");
+    let document_manifest =
+        trimmed_optional(input.document_manifest_json.as_deref()).map(|value| {
+            serde_json::from_str::<Value>(value)
+                .expect("validated asset characterization manifest must be valid JSON")
+        });
+    render_json(&serde_json::json!({
+        "characterization_id": canonical.characterization_id,
+        "asset_id": canonical.asset_id,
+        "characterization_kind": canonical.kind.as_str(),
+        "label": canonical.label,
+        "performed_on": input.performed_on.trim(),
+        "valid_until": input.valid_until.trim(),
+        "provider": input.provider.trim(),
+        "method_reference": input.method_reference.trim(),
+        "decision": input.decision.trim(),
+        "definition": definition,
+        "definition_checksum": canonical.definition_checksum,
+        "certificate_reference": trimmed_optional(input.certificate_reference.as_deref()),
+        "document_manifest": document_manifest,
+        "comment": input.comment.trim(),
+        "recorded_by": input.recorded_by.trim(),
+    }))
+}
+
+fn render_asset_characterization(
+    record: &StoredAssetCharacterization,
+) -> Result<String, AgentError> {
+    Ok(render_json(&AssetCharacterizationEnvelopeDto {
+        characterization: asset_characterization_dto_from_stored(record)?,
+    }))
+}
+
+fn asset_characterization_dto_from_stored(
+    record: &StoredAssetCharacterization,
+) -> Result<AssetCharacterizationDto, AgentError> {
+    let definition = AssetCharacterizationDefinition::from_json_str(&record.definition_json)
+        .map_err(|issue| characterization_storage_invalid(issue.message))?;
+    let canonical = definition.canonicalize().map_err(|issues| {
+        characterization_storage_invalid(format!(
+            "stored characterization definition violates {} invariant(s)",
+            issues.len()
+        ))
+    })?;
+    if canonical.characterization_id != record.characterization_id
+        || canonical.asset_id != record.asset_id
+        || canonical.kind.as_str() != record.characterization_kind
+        || canonical.label != record.label
+        || canonical.definition_schema_version != record.definition_schema_version
+        || canonical.canonical_json != record.definition_json
+        || canonical.definition_checksum != record.definition_checksum
+    {
+        return Err(characterization_storage_invalid(
+            "stored characterization columns do not match the canonical definition",
+        ));
+    }
+    let performed_on = parse_metrology_date(&record.performed_on, "performed_on")
+        .map_err(|error| characterization_storage_invalid(error.message))?;
+    let valid_until = parse_metrology_date(&record.valid_until, "valid_until")
+        .map_err(|error| characterization_storage_invalid(error.message))?;
+    if valid_until < performed_on {
+        return Err(characterization_storage_invalid(
+            "stored characterization validity precedes its measurement date",
+        ));
+    }
+    if !matches!(
+        record.decision.as_str(),
+        "conforming" | "nonconforming" | "indeterminate" | "not_assessed"
+    ) || [
+        record.provider.as_str(),
+        record.method_reference.as_str(),
+        record.recorded_by.as_str(),
+        record.revision.as_str(),
+    ]
+    .iter()
+    .any(|value| value.trim().is_empty())
+    {
+        return Err(characterization_storage_invalid(
+            "stored characterization traceability fields are invalid",
+        ));
+    }
+    validate_characterization_document_manifest(record.document_manifest_json.as_deref())
+        .map_err(|error| characterization_storage_invalid(error.message))?;
+    let definition = serde_json::from_str::<Value>(&canonical.canonical_json)
+        .expect("canonical asset characterization must be valid JSON");
+    let document_manifest = record
+        .document_manifest_json
+        .as_deref()
+        .map(|value| {
+            serde_json::from_str::<Value>(value).map_err(|error| {
+                AgentError::new(
+                    "metrology_characterization_storage_invalid",
+                    format!("stored characterization document manifest is invalid: {error}"),
+                )
+            })
+        })
+        .transpose()?;
+    Ok(asset_characterization_dto(
+        record,
+        definition,
+        document_manifest,
+    ))
+}
+
+fn characterization_storage_invalid(message: impl Into<String>) -> AgentError {
+    AgentError::new("metrology_characterization_storage_invalid", message)
+}
+
+fn invalid_asset_characterization(
+    issues: Vec<emc_locus_core::DefinitionValidationIssue>,
+) -> AgentError {
+    AgentError::with_details(
+        "invalid_asset_characterization",
+        "asset characterization definition is invalid",
+        serde_json::json!({ "issues": issues }),
+    )
+}
+
 fn serviceability_payload_json(input: &SetServiceabilityInput) -> String {
     render_json(&serde_json::json!({
         "asset_id": input.asset_id.trim(),
@@ -891,6 +1264,84 @@ fn validate_document_manifest(value: Option<&str>) -> Result<(), AgentError> {
     let parsed = validate_json_object(value, "document_manifest_json")?;
     if let Some(sha256) = parsed.get("sha256").and_then(Value::as_str) {
         validate_sha256(sha256)?;
+    }
+    Ok(())
+}
+
+fn validate_characterization_document_manifest(value: Option<&str>) -> Result<(), AgentError> {
+    let Some(value) = trimmed_optional(value) else {
+        return Ok(());
+    };
+    let parsed = serde_json::from_str::<Value>(value)
+        .map_err(|error| AgentError::new("invalid_asset_characterization", error.to_string()))?;
+    let object = parsed.as_object().ok_or_else(|| {
+        AgentError::new(
+            "invalid_asset_characterization",
+            "document_manifest must be a JSON object",
+        )
+    })?;
+    let required_text = |field: &str| -> Result<&str, AgentError> {
+        object
+            .get(field)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                AgentError::new(
+                    "invalid_asset_characterization",
+                    format!("document_manifest.{field} is required"),
+                )
+            })
+    };
+    let object_id = required_text("object_id")?;
+    let filename = required_text("original_filename")?;
+    let mime_type = required_text("mime_type")?;
+    let checksum = required_text("sha256")?;
+    let storage_key = required_text("storage_key")?;
+    if filename.contains(['/', '\\', '\0']) || filename == "." || filename == ".." {
+        return Err(AgentError::new(
+            "invalid_asset_characterization",
+            "document_manifest.original_filename must be a safe file name",
+        ));
+    }
+    if !mime_type.contains('/') || mime_type.chars().any(char::is_whitespace) {
+        return Err(AgentError::new(
+            "invalid_asset_characterization",
+            "document_manifest.mime_type must be a valid media type",
+        ));
+    }
+    if object
+        .get("size_bytes")
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0)
+        .is_none()
+    {
+        return Err(AgentError::new(
+            "invalid_asset_characterization",
+            "document_manifest.size_bytes must be a positive integer",
+        ));
+    }
+    if validate_sha256(checksum).is_err() {
+        return Err(AgentError::new(
+            "invalid_asset_characterization",
+            "document_manifest.sha256 must be a 64-character lowercase hexadecimal SHA-256",
+        ));
+    }
+    if object_id != format!("sha256:{checksum}") {
+        return Err(AgentError::new(
+            "invalid_asset_characterization",
+            "document_manifest.object_id must match document_manifest.sha256",
+        ));
+    }
+    if !storage_key.starts_with("objects/")
+        || storage_key.contains("..")
+        || storage_key.contains('\\')
+        || !storage_key.ends_with(checksum)
+    {
+        return Err(AgentError::new(
+            "invalid_asset_characterization",
+            "document_manifest.storage_key must be a content-addressed local object key",
+        ));
     }
     Ok(())
 }
@@ -1286,6 +1737,71 @@ mod tests {
 
         assert_eq!(error.code, "metrology_instrument_not_found");
         remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn rejects_characterization_storage_with_mismatched_checksum() {
+        let definition_json = serde_json::json!({
+            "definition_schema_version": "emc-locus.asset-characterization-definition.v1",
+            "characterization_id": "CHAR-STORAGE-001",
+            "asset_id": "SA-001",
+            "label": "Measured cable loss",
+            "correction": {
+                "correction_kind": "frequency_response",
+                "correction": {
+                    "definition_schema_version": "emc-locus.engineering-curve-definition.v1",
+                    "curve_id": "CHAR-STORAGE-001",
+                    "curve_type": "cable_loss",
+                    "label": "Measured cable loss",
+                    "signal_representation": "frequency_domain_spectrum",
+                    "independent_axes": [{"axis":"frequency","quantity":"frequency","unit":"Hz"}],
+                    "dependent_values": [{
+                        "value_id":"amplitude",
+                        "quantity":"dimensionless",
+                        "unit":"dB",
+                        "component":"amplitude",
+                        "operation":"add"
+                    }],
+                    "points": [
+                        {"axis_values":{"frequency":1000000.0},"values":{"amplitude":0.2}},
+                        {"axis_values":{"frequency":1000000000.0},"values":{"amplitude":3.0}}
+                    ],
+                    "interpolation":"log_x_linear_y",
+                    "extrapolation_policy":"forbidden"
+                }
+            }
+        })
+        .to_string();
+        let canonical = AssetCharacterizationDefinition::from_json_str(&definition_json)
+            .unwrap()
+            .canonicalize()
+            .unwrap();
+        let mut stored = StoredAssetCharacterization {
+            characterization_id: canonical.characterization_id.clone(),
+            asset_id: canonical.asset_id.clone(),
+            characterization_kind: canonical.kind.as_str().to_owned(),
+            label: canonical.label.clone(),
+            performed_on: "2026-07-01".to_owned(),
+            valid_until: "2027-07-01".to_owned(),
+            provider: "Internal laboratory".to_owned(),
+            method_reference: "MET-RF-CABLE-001".to_owned(),
+            decision: "conforming".to_owned(),
+            definition_schema_version: canonical.definition_schema_version.clone(),
+            definition_json: canonical.canonical_json,
+            definition_checksum: canonical.definition_checksum,
+            certificate_reference: None,
+            document_manifest_json: None,
+            comment: String::new(),
+            recorded_at: "2026-07-14T00:00:00Z".to_owned(),
+            recorded_by: "metrology.admin".to_owned(),
+            revision: "rev-0001".to_owned(),
+        };
+        assert!(asset_characterization_dto_from_stored(&stored).is_ok());
+
+        stored.definition_checksum = format!("sha256:{}", "f".repeat(64));
+        let error = asset_characterization_dto_from_stored(&stored).unwrap_err();
+
+        assert_eq!(error.code, "metrology_characterization_storage_invalid");
     }
 
     fn insert_instrument_with_calibration(connection: &rusqlite::Connection) {

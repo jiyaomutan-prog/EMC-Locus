@@ -1,7 +1,8 @@
 use crate::metrology_repository::{
-    StoredCalibrationEvent, StoredCalibrationRecord, StoredInstrument,
+    StoredAssetCharacterization, StoredCalibrationEvent, StoredCalibrationRecord, StoredInstrument,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct InstrumentDto {
@@ -51,6 +52,39 @@ pub struct CalibrationEventListDto {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CalibrationEventEnvelopeDto {
     pub calibration_event: CalibrationEventDto,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AssetCharacterizationDto {
+    pub characterization_id: String,
+    pub asset_id: String,
+    pub characterization_kind: String,
+    pub label: String,
+    pub performed_on: String,
+    pub valid_until: String,
+    pub provider: String,
+    pub method_reference: String,
+    pub decision: String,
+    pub definition_schema_version: String,
+    pub definition: Value,
+    pub definition_checksum: String,
+    pub certificate_reference: Option<String>,
+    pub document_manifest: Option<Value>,
+    pub comment: String,
+    pub recorded_at: String,
+    pub recorded_by: String,
+    pub revision: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AssetCharacterizationEnvelopeDto {
+    pub characterization: AssetCharacterizationDto,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AssetCharacterizationListDto {
+    pub asset_id: String,
+    pub characterizations: Vec<AssetCharacterizationDto>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -230,6 +264,33 @@ pub(crate) fn calibration_event_dto(record: &StoredCalibrationEvent) -> Calibrat
         traceability_reference: record.traceability_reference.clone(),
         comment: record.comment.clone(),
         document_manifest_json: record.document_manifest_json.clone(),
+        recorded_at: record.recorded_at.clone(),
+        recorded_by: record.recorded_by.clone(),
+        revision: record.revision.clone(),
+    }
+}
+
+pub(crate) fn asset_characterization_dto(
+    record: &StoredAssetCharacterization,
+    definition: Value,
+    document_manifest: Option<Value>,
+) -> AssetCharacterizationDto {
+    AssetCharacterizationDto {
+        characterization_id: record.characterization_id.clone(),
+        asset_id: record.asset_id.clone(),
+        characterization_kind: record.characterization_kind.clone(),
+        label: record.label.clone(),
+        performed_on: record.performed_on.clone(),
+        valid_until: record.valid_until.clone(),
+        provider: record.provider.clone(),
+        method_reference: record.method_reference.clone(),
+        decision: record.decision.clone(),
+        definition_schema_version: record.definition_schema_version.clone(),
+        definition,
+        definition_checksum: record.definition_checksum.clone(),
+        certificate_reference: record.certificate_reference.clone(),
+        document_manifest,
+        comment: record.comment.clone(),
         recorded_at: record.recorded_at.clone(),
         recorded_by: record.recorded_by.clone(),
         revision: record.revision.clone(),

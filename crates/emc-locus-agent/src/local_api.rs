@@ -50,8 +50,9 @@ use crate::measurement_engineering_service::{
     ReplaceMeasurementEngineeringDefinitionInput, TransitionMeasurementEngineeringRevisionInput,
 };
 use crate::metrology_service::{
-    AssessReadinessInput, MetrologyOperationContext, RecordCalibrationInput,
-    RegisterInstrumentInput, SetServiceabilityInput,
+    store_metrology_file, AssessReadinessInput, MetrologyOperationContext,
+    RecordAssetCharacterizationInput, RecordCalibrationInput, RegisterInstrumentInput,
+    SetServiceabilityInput, StoreMetrologyFileInput,
 };
 use crate::project_agent::{
     AdvanceToTestPlanningInput, CompleteReviewItemInput, CreateProjectInput,
@@ -439,6 +440,25 @@ fn route_api_request(
             storage_root: config.storage_root.clone(),
         });
     }
+    if parts.as_slice() == ["api", "v1", "metrology", "files"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return store_metrology_file(
+            &config.storage_root,
+            StoreMetrologyFileInput {
+                original_filename: required_file_string(
+                    &payload,
+                    "original_filename",
+                    "invalid_metrology_file",
+                )?,
+                mime_type: required_file_string(&payload, "mime_type", "invalid_metrology_file")?,
+                content_base64: required_file_string(
+                    &payload,
+                    "content_base64",
+                    "invalid_metrology_file",
+                )?,
+            },
+        );
+    }
     if parts.as_slice() == ["api", "v1", "sync", "outbox"] && method == "GET" {
         return run_sync_command(AgentCommand::Sync {
             action: SyncAction::Outbox,
@@ -538,9 +558,17 @@ fn route_api_request(
         return store_equipment_file(
             &config.storage_root,
             StoreEquipmentFileInput {
-                original_filename: required_string(&payload, "original_filename")?,
-                mime_type: required_string(&payload, "mime_type")?,
-                content_base64: required_string(&payload, "content_base64")?,
+                original_filename: required_file_string(
+                    &payload,
+                    "original_filename",
+                    "invalid_equipment_file",
+                )?,
+                mime_type: required_file_string(&payload, "mime_type", "invalid_equipment_file")?,
+                content_base64: required_file_string(
+                    &payload,
+                    "content_base64",
+                    "invalid_equipment_file",
+                )?,
             },
         );
     }
@@ -1089,6 +1117,56 @@ fn route_api_request(
                 storage_root: config.storage_root.clone(),
             })
         }
+        ["api", "v1", "metrology", "instruments", asset_id, "characterizations"]
+            if method == "GET" =>
+        {
+            run_metrology_command(AgentCommand::Metrology {
+                action: MetrologyAction::ListCharacterizations {
+                    asset_id: (*asset_id).to_owned(),
+                },
+                storage_root: config.storage_root.clone(),
+            })
+        }
+        ["api", "v1", "metrology", "instruments", asset_id, "characterizations"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            run_metrology_command(AgentCommand::Metrology {
+                action: MetrologyAction::RecordCharacterization(Box::new(
+                    record_asset_characterization_input(asset_id, &payload)?,
+                )),
+                storage_root: config.storage_root.clone(),
+            })
+        }
+        ["api", "v1", "metrology", "instruments", asset_id, "characterizations", characterization_id]
+            if method == "GET" =>
+        {
+            run_metrology_command(AgentCommand::Metrology {
+                action: MetrologyAction::GetCharacterization {
+                    asset_id: (*asset_id).to_owned(),
+                    characterization_id: (*characterization_id).to_owned(),
+                },
+                storage_root: config.storage_root.clone(),
+            })
+        }
+        ["api", "v1", "metrology", "instruments", asset_id, "characterizations", characterization_id, "audit-events"]
+            if method == "GET" =>
+        {
+            run_metrology_command(AgentCommand::Metrology {
+                action: MetrologyAction::GetCharacterization {
+                    asset_id: (*asset_id).to_owned(),
+                    characterization_id: (*characterization_id).to_owned(),
+                },
+                storage_root: config.storage_root.clone(),
+            })?;
+            run_metrology_command(AgentCommand::Metrology {
+                action: MetrologyAction::AuditEvents {
+                    entity_type: "asset_characterization".to_owned(),
+                    entity_id: (*characterization_id).to_owned(),
+                },
+                storage_root: config.storage_root.clone(),
+            })
+        }
         ["api", "v1", "metrology", "instruments", asset_id, "status"] if method == "GET" => {
             let checked_on = required_query_value(query, "checked_on")?;
             run_metrology_command(AgentCommand::Metrology {
@@ -1261,6 +1339,31 @@ fn record_calibration_input(
             .get("document_manifest")
             .map(render_json)
             .or_else(|| optional_string(payload, "document_manifest_json")),
+        recorded_by: required_string(payload, "recorded_by")?,
+        context: operation_context(payload)?,
+    })
+}
+
+fn record_asset_characterization_input(
+    asset_id: &str,
+    payload: &Value,
+) -> Result<RecordAssetCharacterizationInput, AgentError> {
+    Ok(RecordAssetCharacterizationInput {
+        characterization_id: required_string(payload, "characterization_id")?,
+        asset_id: asset_id.to_owned(),
+        performed_on: required_string(payload, "performed_on")?,
+        valid_until: required_string(payload, "valid_until")?,
+        provider: required_string(payload, "provider")?,
+        method_reference: required_string(payload, "method_reference")?,
+        decision: optional_string(payload, "decision").unwrap_or_else(|| "conforming".to_owned()),
+        definition_json: required_json_or_string(payload, "definition", "definition_json")?,
+        certificate_reference: optional_string(payload, "certificate_reference"),
+        document_manifest_json: payload
+            .get("document_manifest")
+            .filter(|value| !value.is_null())
+            .map(render_json)
+            .or_else(|| optional_string(payload, "document_manifest_json")),
+        comment: optional_string(payload, "comment").unwrap_or_default(),
         recorded_by: required_string(payload, "recorded_by")?,
         context: operation_context(payload)?,
     })
@@ -2068,6 +2171,18 @@ fn required_string(payload: &Value, key: &'static str) -> Result<String, AgentEr
     })
 }
 
+fn required_file_string(
+    payload: &Value,
+    key: &'static str,
+    error_code: &'static str,
+) -> Result<String, AgentError> {
+    payload
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| AgentError::new(error_code, format!("{key} must be a string")))
+}
+
 fn required_query_value(query: &str, key: &'static str) -> Result<String, AgentError> {
     for pair in query.split('&').filter(|pair| !pair.is_empty()) {
         let (candidate, value) = pair.split_once('=').unwrap_or((pair, ""));
@@ -2227,7 +2342,8 @@ fn status_for_error(code: &str) -> u16 {
         | "measurement_engineering_not_found"
         | "measurement_engineering_revision_not_found"
         | "signal_transformation_reference_not_found"
-        | "metrology_instrument_not_found" => 404,
+        | "metrology_instrument_not_found"
+        | "asset_characterization_not_found" => 404,
         "contract_review_incomplete"
         | "invalid_project_transition"
         | "project_already_exists"
@@ -2275,7 +2391,8 @@ fn status_for_error(code: &str) -> u16 {
         | "attached_document_already_exists"
         | "operation_replay_mismatch"
         | "metrology_instrument_already_exists"
-        | "metrology_calibration_already_exists" => 409,
+        | "metrology_calibration_already_exists"
+        | "asset_characterization_already_exists" => 409,
         "storage_not_initialized" | "lab_console_build_missing" => 503,
         "invalid_json_body"
         | "missing_json_field"
@@ -2313,11 +2430,13 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_stable_id"
         | "invalid_measurement_engineering_definition"
         | "invalid_metrology_calibration"
+        | "invalid_asset_characterization"
+        | "invalid_metrology_file"
         | "invalid_metrology_instrument"
         | "invalid_metrology_readiness"
         | "unknown_execution_mode"
         | "unknown_contract_review_item" => 400,
-        "equipment_file_too_large" => 413,
+        "equipment_file_too_large" | "metrology_file_too_large" => 413,
         _ => 500,
     }
 }
@@ -3555,7 +3674,7 @@ mod tests {
     }
 
     #[test]
-    fn local_api_stores_equipment_files_by_sha256() {
+    fn local_api_stores_domain_files_by_sha256() {
         let storage_root = temporary_storage_root("agent-api-equipment-files");
         let config = ApiServerConfig {
             bind: "127.0.0.1:0".to_owned(),
@@ -3600,6 +3719,41 @@ mod tests {
         );
         assert_eq!(unsafe_name.status, 400, "{}", unsafe_name.body);
         assert!(unsafe_name.body.contains("invalid_equipment_file"));
+
+        let metrology_evidence = handle_api_request(
+            "POST",
+            "/api/v1/metrology/files",
+            &json!({
+                "original_filename": "certificate.pdf",
+                "mime_type": "application/pdf",
+                "content_base64": "JVBERi0xLjQK"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(
+            metrology_evidence.status, 200,
+            "{}",
+            metrology_evidence.body
+        );
+        let metrology_body: Value = serde_json::from_str(&metrology_evidence.body).unwrap();
+        let metrology_storage_key = metrology_body["file"]["storage_key"].as_str().unwrap();
+        assert!(metrology_storage_key.starts_with("objects/metrology/"));
+        assert!(storage_root.join(metrology_storage_key).is_file());
+
+        let empty_metrology_file = handle_api_request(
+            "POST",
+            "/api/v1/metrology/files",
+            &json!({
+                "original_filename": "empty.pdf",
+                "mime_type": "application/pdf",
+                "content_base64": ""
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(empty_metrology_file.status, 400);
+        assert!(empty_metrology_file.body.contains("invalid_metrology_file"));
 
         remove_temporary_storage_root(&storage_root);
     }
@@ -5439,7 +5593,7 @@ mod tests {
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
             lab_console_dist: repo_root().join("apps/lab-console/dist"),
-            max_requests: Some(15),
+            max_requests: Some(22),
         });
 
         let health = wait_for_http(&first_address, "/api/v1/health");
@@ -5473,6 +5627,146 @@ mod tests {
         );
         assert_eq!(registered.0, 200);
         assert!(registered.1.contains("\"asset_id\":\"SA-E2E-001\""));
+
+        let characterization_body = r#"{
+            "characterization_id": "CHAR-SA-E2E-001-2026",
+            "performed_on": "2026-06-30",
+            "valid_until": "2027-06-30",
+            "provider": "Internal metrology laboratory",
+            "method_reference": "MET-RF-CABLE-001",
+            "decision": "conforming",
+            "definition": {
+                "definition_schema_version": "emc-locus.asset-characterization-definition.v1",
+                "characterization_id": "CHAR-SA-E2E-001-2026",
+                "asset_id": "SA-E2E-001",
+                "label": "Measured cable loss",
+                "correction": {
+                    "correction_kind": "frequency_response",
+                    "correction": {
+                        "definition_schema_version": "emc-locus.engineering-curve-definition.v1",
+                        "curve_id": "CHAR-SA-E2E-001-2026",
+                        "curve_type": "cable_loss",
+                        "label": "Measured cable loss",
+                        "signal_representation": "frequency_domain_spectrum",
+                        "independent_axes": [{"axis":"frequency","quantity":"frequency","unit":"Hz"}],
+                        "dependent_values": [{
+                            "value_id":"amplitude",
+                            "quantity":"dimensionless",
+                            "unit":"dB",
+                            "component":"amplitude",
+                            "operation":"add"
+                        }],
+                        "points": [
+                            {"axis_values":{"frequency":1000000.0},"values":{"amplitude":0.4}},
+                            {"axis_values":{"frequency":1000000000.0},"values":{"amplitude":3.2}}
+                        ],
+                        "interpolation":"log_x_linear_y",
+                        "extrapolation_policy":"forbidden"
+                    }
+                },
+                "uncertainty": {
+                    "expanded_uncertainty": 0.2,
+                    "unit": "dB",
+                    "coverage_factor": 2.0,
+                    "confidence_level_percent": 95.0
+                }
+            },
+            "certificate_reference": "CHAR-CERT-SA-E2E-001-2026",
+            "document_manifest": {
+                "object_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "original_filename": "characterization-certificate.pdf",
+                "mime_type": "application/pdf",
+                "size_bytes": 12,
+                "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "storage_key": "objects/metrology/dd/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "recorded_by": "metrology.admin",
+            "actor": "metrology.admin",
+            "reason": "record measured cable loss",
+            "operation_id": "op-e2e-metrology-characterization"
+        }"#;
+        let characterization = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/metrology/instruments/SA-E2E-001/characterizations",
+            characterization_body,
+        );
+        assert_eq!(characterization.0, 200, "{}", characterization.1);
+        assert!(characterization
+            .1
+            .contains("\"characterization_kind\":\"frequency_response\""));
+        assert!(characterization
+            .1
+            .contains("\"definition_checksum\":\"sha256:"));
+
+        let invalid_manifest = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/metrology/instruments/SA-E2E-001/characterizations",
+            &characterization_body.replace(
+                "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            ),
+        );
+        assert_eq!(invalid_manifest.0, 400);
+        assert!(invalid_manifest
+            .1
+            .contains("invalid_asset_characterization"));
+
+        let characterization_replay = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/metrology/instruments/SA-E2E-001/characterizations",
+            characterization_body,
+        );
+        assert_eq!(characterization_replay.0, 200);
+
+        let characterization_conflict = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/metrology/instruments/SA-E2E-001/characterizations",
+            &characterization_body.replace("MET-RF-CABLE-001", "MET-RF-CABLE-CONFLICT"),
+        );
+        assert_eq!(characterization_conflict.0, 409);
+        assert!(characterization_conflict
+            .1
+            .contains("operation_replay_mismatch"));
+
+        let characterization_list = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/metrology/instruments/SA-E2E-001/characterizations",
+            "",
+        );
+        assert_eq!(characterization_list.0, 200);
+        assert_eq!(
+            characterization_list
+                .1
+                .matches("\"characterization_id\"")
+                .count(),
+            2
+        );
+
+        let characterization_audit = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/metrology/instruments/SA-E2E-001/characterizations/CHAR-SA-E2E-001-2026/audit-events",
+            "",
+        );
+        assert_eq!(characterization_audit.0, 200);
+        assert!(characterization_audit
+            .1
+            .contains("\"action\":\"asset_characterization_recorded\""));
+        let wrong_asset_audit = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/metrology/instruments/SA-OTHER/characterizations/CHAR-SA-E2E-001-2026/audit-events",
+            "",
+        );
+        assert_eq!(wrong_asset_audit.0, 404);
+        assert!(wrong_asset_audit
+            .1
+            .contains("asset_characterization_not_found"));
 
         let missing = http_request(
             "POST",
@@ -5656,7 +5950,10 @@ mod tests {
         assert!(outbox
             .1
             .contains("\"operation_kind\":\"calibration_recorded\""));
-        assert_eq!(outbox.1.matches("\"operation_id\"").count(), 4);
+        assert!(outbox
+            .1
+            .contains("\"operation_kind\":\"asset_characterization_recorded\""));
+        assert_eq!(outbox.1.matches("\"operation_id\"").count(), 5);
         first_server
             .join()
             .expect("server thread panicked")
@@ -5669,7 +5966,7 @@ mod tests {
             storage_root: storage_root.clone(),
             migrations_root,
             lab_console_dist: repo_root().join("apps/lab-console/dist"),
-            max_requests: Some(5),
+            max_requests: Some(7),
         });
         assert_eq!(wait_for_http(&second_address, "/api/v1/health").0, 200);
         let reloaded = http_request(
@@ -5695,14 +5992,34 @@ mod tests {
             "",
         );
         let reloaded_outbox = http_request("GET", &second_address, "/api/v1/sync/outbox", "");
+        let reloaded_characterizations = http_request(
+            "GET",
+            &second_address,
+            "/api/v1/metrology/instruments/SA-E2E-001/characterizations",
+            "",
+        );
+        let reloaded_characterization_audit = http_request(
+            "GET",
+            &second_address,
+            "/api/v1/metrology/instruments/SA-E2E-001/characterizations/CHAR-SA-E2E-001-2026/audit-events",
+            "",
+        );
         assert_eq!(reloaded.0, 200);
         assert_eq!(reloaded_ready.0, 200);
         assert_eq!(reloaded_audit.0, 200);
         assert_eq!(reloaded_outbox.0, 200);
+        assert_eq!(reloaded_characterizations.0, 200);
+        assert_eq!(reloaded_characterization_audit.0, 200);
         assert!(reloaded.1.contains("\"asset_id\":\"SA-E2E-001\""));
         assert!(reloaded_ready.1.contains("\"ready\":true"));
         assert!(reloaded_audit.1.contains("\"instrument_registered\""));
         assert!(reloaded_outbox.1.contains("\"domain\":\"metrology\""));
+        assert!(reloaded_characterizations
+            .1
+            .contains("\"characterization_id\":\"CHAR-SA-E2E-001-2026\""));
+        assert!(reloaded_characterization_audit
+            .1
+            .contains("\"asset_characterization_recorded\""));
         second_server
             .join()
             .expect("server thread panicked")

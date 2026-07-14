@@ -4,7 +4,16 @@ Date: 2026-07-14
 
 Baseline reviewed: `0.13.2` plus the post-release planning fixes on `main`
 
-Latest corrective implementation release: `0.15.1`
+Latest corrective implementation release: `0.16.0`
+
+## Follow-up In 0.16.0
+
+`Matériels réels` now opens a metrologist's dossier instead of a standalone
+registration form. The selected inventory/serial number keeps its status,
+model reference, characterization history, guided time/frequency entry,
+uncertainty and uploaded evidence in one workflow. The 1280 x 720 review also
+removed an obscuring sticky action bar and retained a compact three-column
+status summary.
 
 ## Follow-up In 0.15.1
 

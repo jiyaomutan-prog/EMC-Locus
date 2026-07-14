@@ -2210,6 +2210,368 @@ button.textButton {
   align-self: stretch;
 }
 
+.physicalAssetsLayout {
+  grid-template-columns: 286px minmax(0, 1fr);
+}
+
+.physicalAssetList .fullWidthAction {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 36px;
+  width: 100%;
+}
+
+.physicalAssetList .physicalAssetRow {
+  align-items: stretch;
+  display: grid;
+  gap: 4px;
+  justify-items: stretch;
+  width: 100%;
+}
+
+.physicalAssetRow strong,
+.physicalAssetRow > span,
+.physicalAssetRow > small {
+  text-align: left;
+}
+
+.assetRecordHeader p:last-child {
+  color: #617068;
+  margin: 5px 0 0;
+}
+
+.assetSummaryBand {
+  background: #eaf1ee;
+  border: 1px solid #cad8d2;
+  border-radius: 6px;
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 12px 0 14px;
+  overflow: hidden;
+}
+
+.assetSummaryBand > div {
+  background: #f8faf9;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 11px 13px;
+}
+
+.assetSummaryBand > div + div {
+  border-left: 1px solid #cad8d2;
+}
+
+.assetSummaryBand span,
+.assetSummaryBand small {
+  color: #617068;
+  overflow-wrap: anywhere;
+}
+
+.assetSummaryBand span {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.sectionTitleRow {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.sectionTitleRow h2,
+.sectionTitleRow h3,
+.sectionTitleRow p {
+  margin: 0;
+}
+
+.sectionTitleRow p:not(.eyebrow) {
+  color: #617068;
+  margin-top: 5px;
+}
+
+.countBadge {
+  align-items: center;
+  background: #e5f2eb;
+  border: 1px solid #b5d3bf;
+  color: #17422d;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  justify-content: center;
+  min-height: 28px;
+  min-width: 30px;
+  padding: 4px 8px;
+}
+
+.workflowEmpty {
+  align-items: center;
+  background: #f6f8f6;
+  border: 1px dashed #aebcb5;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 18px;
+}
+
+.workflowEmpty strong,
+.workflowEmpty p {
+  margin: 0;
+}
+
+.workflowEmpty p {
+  color: #617068;
+  margin-top: 4px;
+}
+
+.assetCharacterizationLayout {
+  border-top: 1px solid #d9dfd7;
+  display: grid;
+  gap: 0;
+  grid-template-columns: minmax(210px, 250px) minmax(0, 1fr);
+  margin-top: 4px;
+  padding-top: 12px;
+}
+
+.characterizationList {
+  border-right: 1px solid #d9dfd7;
+  display: grid;
+  gap: 5px;
+  padding-right: 10px;
+}
+
+.characterizationList button {
+  align-items: flex-start;
+  background: transparent;
+  border-color: transparent;
+  color: #1b261f;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  justify-items: start;
+  padding: 9px;
+  text-align: left;
+}
+
+.characterizationList button:hover {
+  background: #f2f6f4;
+}
+
+.characterizationList button.active {
+  background: #e5f2eb;
+  border-color: #b5d3bf;
+}
+
+.characterizationList button span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.characterizationList button strong,
+.characterizationList button small {
+  overflow-wrap: anywhere;
+}
+
+.characterizationDetail {
+  display: grid;
+  gap: 13px;
+  min-width: 0;
+  padding: 2px 4px 2px 16px;
+}
+
+.characterizationDetail > header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.characterizationDetail h3 {
+  font-size: 17px;
+  margin: 3px 0 0;
+}
+
+.characterizationDetail details {
+  border-top: 1px solid #d9dfd7;
+  padding-top: 9px;
+}
+
+.characterizationDetail summary {
+  color: #4f5e57;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.characterizationDetail details h4 {
+  margin-bottom: 6px;
+}
+
+.businessSummary.compact {
+  font-size: 12px;
+  grid-template-columns: 110px minmax(0, 1fr);
+  margin-top: 10px;
+}
+
+.correctionResultSummary {
+  background: #edf5f0;
+  border-left: 4px solid #2f6f5e;
+  display: grid;
+  gap: 4px;
+  padding: 11px 12px;
+}
+
+.correctionResultSummary small,
+.uncertaintyStatement {
+  color: #53635b;
+}
+
+.uncertaintyStatement,
+.documentEvidence {
+  margin: 0;
+}
+
+.documentEvidence {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+}
+
+.characterizationForm {
+  display: grid;
+  gap: 14px;
+}
+
+.characterizationForm .editorCard {
+  gap: 14px;
+}
+
+.characterizationForm .formGrid {
+  max-width: none;
+}
+
+.signalModeControl {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.signalModeControl button {
+  align-items: flex-start;
+  background: #fff;
+  border-color: #cbd5d1;
+  color: #24312a;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 20px minmax(0, 1fr);
+  justify-items: start;
+  min-height: 72px;
+  padding: 11px;
+  text-align: left;
+}
+
+.signalModeControl button.active {
+  background: #e5f2eb;
+  border-color: #80ac97;
+  box-shadow: inset 3px 0 #2f6f5e;
+}
+
+.signalModeControl button span {
+  display: grid;
+  gap: 4px;
+}
+
+.signalModeControl button small,
+.contextHint {
+  color: #617068;
+}
+
+.contextHint {
+  margin: 0;
+}
+
+.compactGrid {
+  grid-template-columns: repeat(3, minmax(190px, 1fr));
+}
+
+.checkboxField {
+  align-items: center;
+  align-self: end;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.checkboxField input {
+  min-height: auto;
+}
+
+.csvInput {
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  min-height: 126px;
+  width: 100%;
+}
+
+.frequencyPreview {
+  align-items: center;
+  background: #f6f8f6;
+  border: 1px solid #d9dfd7;
+  display: grid;
+  gap: 4px 14px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 9px 11px;
+}
+
+.frequencyPreview small {
+  color: #617068;
+  grid-column: 2;
+}
+
+.fileField input {
+  padding: 4px;
+}
+
+.fileField small {
+  color: #617068;
+}
+
+.stickyActions {
+  background: #f8faf9;
+  border: 1px solid #d9dfd7;
+  justify-content: flex-end;
+  padding: 9px;
+}
+
+.requiredMark {
+  background: #fff0ed;
+  border: 1px solid #d7a098;
+  color: #7b241c;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 4px;
+}
+
+.operationError {
+  align-items: center;
+  background: #fff0ed;
+  border: 1px solid #d7a098;
+  color: #7b241c;
+  display: flex;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 9px 11px;
+}
+
+@media (max-width: 1280px) {
+  .compactGrid {
+    grid-template-columns: repeat(2, minmax(190px, 1fr));
+  }
+}
+
 @media (min-width: 1680px) {
   .studioLayout,
   .equipmentStudioLayout {
@@ -2300,6 +2662,22 @@ button.textButton {
   .sectionNav button {
     flex: 0 0 auto;
   }
+
+  .physicalAssetsLayout,
+  .assetCharacterizationLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .characterizationList {
+    border-bottom: 1px solid #d9dfd7;
+    border-right: 0;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    padding: 0 0 10px;
+  }
+
+  .characterizationDetail {
+    padding: 14px 2px 2px;
+  }
 }
 
 @media (max-width: 720px) {
@@ -2377,5 +2755,28 @@ button.textButton {
 
   .signalPathFlow > span {
     display: none;
+  }
+
+  .signalModeControl,
+  .compactGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .workflowEmpty {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .workflowEmpty button {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+
+  .assetSummaryBand {
+    grid-template-columns: 1fr;
+  }
+
+  .assetSummaryBand > div + div {
+    border-left: 0;
+    border-top: 1px solid #cad8d2;
   }
 }

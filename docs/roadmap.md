@@ -155,6 +155,11 @@ Deliverables:
   identities and checksums from ordinary work, gives approved references and
   history business labels, and validates the main paths at 1440 x 900 and
   1280 x 720. It changes no correction runtime or acquisition capability.
+- `0.16.0` delivers serial-specific metrology characterizations: the
+  metrologist opens one physical asset, records an immutable time conversion
+  or frequency response with validity, uncertainty and uploaded evidence, and
+  retrieves its audit/outbox history after restart. The execution runtime does
+  not yet select or apply these corrections automatically.
 
 ## Phase 3: Measurement Runtime
 

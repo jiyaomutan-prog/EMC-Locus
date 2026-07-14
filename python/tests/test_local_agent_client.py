@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import unittest
 from unittest.mock import patch
@@ -1598,6 +1599,15 @@ class LocalAgentClientTests(unittest.TestCase):
             "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001/calibrations": {
                 "calibration_events": []
             },
+            "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001/characterizations": {
+                "characterizations": []
+            },
+            "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001/characterizations/CHAR-001": {
+                "characterization": {"characterization_id": "CHAR-001"}
+            },
+            "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001/characterizations/CHAR-001/audit-events": {
+                "audit_events": []
+            },
             "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001/status?checked_on=2026-07-01": {
                 "calibration_status": "valid"
             },
@@ -1628,6 +1638,22 @@ class LocalAgentClientTests(unittest.TestCase):
             )
             self.assertEqual(
                 client.list_metrology_calibrations("SA-READ-001")["calibration_events"],
+                [],
+            )
+            self.assertEqual(
+                client.list_asset_characterizations("SA-READ-001")["characterizations"],
+                [],
+            )
+            self.assertEqual(
+                client.get_asset_characterization("SA-READ-001", "CHAR-001")[
+                    "characterization"
+                ]["characterization_id"],
+                "CHAR-001",
+            )
+            self.assertEqual(
+                client.asset_characterization_audit_events("SA-READ-001", "CHAR-001")[
+                    "audit_events"
+                ],
                 [],
             )
             self.assertEqual(
@@ -1663,6 +1689,21 @@ class LocalAgentClientTests(unittest.TestCase):
                 ),
                 (
                     "GET",
+                    "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001/characterizations",
+                    None,
+                ),
+                (
+                    "GET",
+                    "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001/characterizations/CHAR-001",
+                    None,
+                ),
+                (
+                    "GET",
+                    "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001/characterizations/CHAR-001/audit-events",
+                    None,
+                ),
+                (
+                    "GET",
                     "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-READ-001/status?checked_on=2026-07-01",
                     None,
                 ),
@@ -1683,6 +1724,68 @@ class LocalAgentClientTests(unittest.TestCase):
                 ),
             ],
         )
+
+    def test_records_asset_characterization_and_uploads_metrology_evidence(self) -> None:
+        captured: list[tuple[str, str, dict[str, object]]] = []
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            body = json.loads(request.data.decode("utf-8"))
+            captured.append((request.get_method(), request.full_url, body))
+            if request.full_url.endswith("/api/v1/metrology/files"):
+                return _FakeResponse({"file": {"original_filename": body["original_filename"]}})
+            return _FakeResponse(
+                {"characterization": {"characterization_id": body["characterization_id"]}}
+            )
+
+        definition = {
+            "definition_schema_version": "emc-locus.asset-characterization-definition.v1",
+            "characterization_id": "CHAR-PY-001",
+            "asset_id": "SA-PY-001",
+            "label": "Measured cable loss",
+            "correction": {
+                "correction_kind": "frequency_response",
+                "correction": {"curve_id": "CHAR-PY-001"},
+            },
+        }
+        client = LocalAgentClient("http://127.0.0.1:8765")
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            uploaded = client.upload_metrology_file(
+                original_filename="certificate.pdf",
+                mime_type="application/pdf",
+                content=b"certificate-evidence",
+            )
+            recorded = client.record_asset_characterization(
+                asset_id="SA-PY-001",
+                characterization_id="CHAR-PY-001",
+                performed_on="2026-07-14",
+                valid_until="2027-07-14",
+                provider="Internal laboratory",
+                method_reference="MET-RF-CABLE-001",
+                definition=definition,
+                recorded_by="metrology.operator",
+                actor="metrology.operator",
+                reason="record measured loss",
+                certificate_reference="CERT-PY-001",
+                document_manifest=uploaded["file"],
+                operation_id="op-char-py-001",
+            )
+
+        self.assertEqual(recorded["characterization"]["characterization_id"], "CHAR-PY-001")
+        self.assertEqual(captured[0][0:2], (
+            "POST",
+            "http://127.0.0.1:8765/api/v1/metrology/files",
+        ))
+        self.assertEqual(
+            base64.b64decode(str(captured[0][2]["content_base64"])),
+            b"certificate-evidence",
+        )
+        self.assertEqual(captured[1][0:2], (
+            "POST",
+            "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-PY-001/characterizations",
+        ))
+        self.assertEqual(captured[1][2]["definition"], definition)
+        self.assertEqual(captured[1][2]["document_manifest"], uploaded["file"])
+        self.assertEqual(captured[1][2]["operation_id"], "op-char-py-001")
 
 
 class GuiActionAgentPathTests(unittest.TestCase):

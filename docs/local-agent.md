@@ -86,6 +86,9 @@ cargo run -q -p emc-locus-agent -- metrology list-instruments --storage-root dat
 cargo run -q -p emc-locus-agent -- metrology get-instrument --storage-root data\agent --asset-id SA-001
 cargo run -q -p emc-locus-agent -- metrology record-calibration --storage-root data\agent --asset-id SA-001 --event-id CAL-SA-001-2026 --certificate-reference CERT-SA-001-2026 --calibrated-at 2026-06-30 --due-at 2027-06-30 --provider "Accredited Lab" --decision conforming --uncertainty-summary-json "{\"level_db\":0.6}" --recorded-by metrology.admin --actor metrology.admin --reason "Annual calibration" --operation-id op-cal-SA-001-2026
 cargo run -q -p emc-locus-agent -- metrology list-calibrations --storage-root data\agent --asset-id SA-001
+cargo run -q -p emc-locus-agent -- metrology record-characterization --storage-root data\agent --asset-id SA-001 --characterization-id CHAR-SA-001-2026 --performed-on 2026-07-01 --valid-until 2027-07-01 --provider "Internal laboratory" --method-reference MET-RF-CABLE-001 --definition-json "{...}" --recorded-by metrology.admin --actor metrology.admin --reason "Annual characterization" --operation-id op-char-SA-001-2026
+cargo run -q -p emc-locus-agent -- metrology list-characterizations --storage-root data\agent --asset-id SA-001
+cargo run -q -p emc-locus-agent -- metrology get-characterization --storage-root data\agent --asset-id SA-001 --characterization-id CHAR-SA-001-2026
 cargo run -q -p emc-locus-agent -- metrology status --storage-root data\agent --asset-id SA-001 --checked-on 2026-07-01
 cargo run -q -p emc-locus-agent -- metrology readiness --storage-root data\agent --asset-ids SA-001 --execution-mode accredited --checked-on 2026-07-01
 cargo run -q -p emc-locus-agent -- metrology set-serviceability --storage-root data\agent --asset-id SA-001 --serviceability-status out_of_service --serviceability-reason "Damaged connector" --actor metrology.admin --reason "Quarantine" --operation-id op-service-SA-001
@@ -235,6 +238,11 @@ POST /api/v1/metrology/instruments
 GET  /api/v1/metrology/instruments/{asset_id}
 GET  /api/v1/metrology/instruments/{asset_id}/calibrations
 POST /api/v1/metrology/instruments/{asset_id}/calibrations
+GET  /api/v1/metrology/instruments/{asset_id}/characterizations
+POST /api/v1/metrology/instruments/{asset_id}/characterizations
+GET  /api/v1/metrology/instruments/{asset_id}/characterizations/{characterization_id}
+GET  /api/v1/metrology/instruments/{asset_id}/characterizations/{characterization_id}/audit-events
+POST /api/v1/metrology/files
 GET  /api/v1/metrology/instruments/{asset_id}/status?checked_on=YYYY-MM-DD
 POST /api/v1/metrology/instruments/{asset_id}/serviceability
 POST /api/v1/metrology/readiness
@@ -272,6 +280,14 @@ Version `0.6.5` makes migrated metrology write routes require operation context
 `device_id`). Successful writes add a metrology audit row and a pending
 `sync_operations` outbox row atomically. `POST /api/v1/metrology/readiness`
 returns ready/not-ready, per-instrument statuses, blocking issues, and warnings.
+
+Version `0.16.0` adds immutable serial-specific characterization routes. The
+Rust core validates and canonicalizes time conversions or frequency responses;
+the service persists the definition checksum, validity, uncertainty, evidence
+manifest, audit event, and pending outbox row atomically. `POST
+/api/v1/metrology/files` stores characterization evidence by content hash below
+the local storage root. LAB CONSOLE exposes the workflow from the selected
+physical asset rather than as another generic correction library.
 
 ## Python And Qt Client Path
 

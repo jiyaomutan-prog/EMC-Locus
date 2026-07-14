@@ -1,9 +1,11 @@
 use super::{AgentCommand, AgentError};
 use crate::metrology_service::{
-    assess_metrology_readiness, get_metrology_calibration_status, list_metrology_audit_events,
-    list_metrology_calibrations, record_metrology_calibration, register_metrology_instrument,
+    assess_metrology_readiness, get_asset_characterization, get_metrology_calibration_status,
+    list_asset_characterizations, list_metrology_audit_events, list_metrology_calibrations,
+    record_asset_characterization, record_metrology_calibration, register_metrology_instrument,
     set_metrology_serviceability, AssessReadinessInput, MetrologyOperationContext,
-    RecordCalibrationInput, RegisterInstrumentInput, SetServiceabilityInput,
+    RecordAssetCharacterizationInput, RecordCalibrationInput, RegisterInstrumentInput,
+    SetServiceabilityInput,
 };
 use crate::{get_metrology_instrument, list_metrology_instruments};
 use std::{collections::BTreeMap, path::PathBuf};
@@ -18,6 +20,14 @@ pub enum MetrologyAction {
     RecordCalibration(Box<RecordCalibrationInput>),
     ListCalibrations {
         asset_id: String,
+    },
+    RecordCharacterization(Box<RecordAssetCharacterizationInput>),
+    ListCharacterizations {
+        asset_id: String,
+    },
+    GetCharacterization {
+        asset_id: String,
+        characterization_id: String,
     },
     Status {
         asset_id: String,
@@ -97,6 +107,31 @@ where
         "list-calibrations" => MetrologyAction::ListCalibrations {
             asset_id: required_value(&mut flags, "--asset-id")?,
         },
+        "record-characterization" => {
+            MetrologyAction::RecordCharacterization(Box::new(RecordAssetCharacterizationInput {
+                characterization_id: required_value(&mut flags, "--characterization-id")?,
+                asset_id: required_value(&mut flags, "--asset-id")?,
+                performed_on: required_value(&mut flags, "--performed-on")?,
+                valid_until: required_value(&mut flags, "--valid-until")?,
+                provider: required_value(&mut flags, "--provider")?,
+                method_reference: required_value(&mut flags, "--method-reference")?,
+                decision: optional_value(&mut flags, "--decision")
+                    .unwrap_or_else(|| "conforming".to_owned()),
+                definition_json: required_value(&mut flags, "--definition-json")?,
+                certificate_reference: optional_value(&mut flags, "--certificate-reference"),
+                document_manifest_json: optional_value(&mut flags, "--document-manifest-json"),
+                comment: optional_value(&mut flags, "--comment").unwrap_or_default(),
+                recorded_by: required_value(&mut flags, "--recorded-by")?,
+                context: operation_context_from_flags(&mut flags)?,
+            }))
+        }
+        "list-characterizations" => MetrologyAction::ListCharacterizations {
+            asset_id: required_value(&mut flags, "--asset-id")?,
+        },
+        "get-characterization" => MetrologyAction::GetCharacterization {
+            asset_id: required_value(&mut flags, "--asset-id")?,
+            characterization_id: required_value(&mut flags, "--characterization-id")?,
+        },
         "status" => MetrologyAction::Status {
             asset_id: required_value(&mut flags, "--asset-id")?,
             checked_on: required_value(&mut flags, "--checked-on")?,
@@ -157,6 +192,16 @@ pub fn run_metrology_command(command: AgentCommand) -> Result<String, AgentError
             MetrologyAction::ListCalibrations { asset_id } => {
                 list_metrology_calibrations(&storage_root, &asset_id)
             }
+            MetrologyAction::RecordCharacterization(input) => {
+                record_asset_characterization(&storage_root, *input)
+            }
+            MetrologyAction::ListCharacterizations { asset_id } => {
+                list_asset_characterizations(&storage_root, &asset_id)
+            }
+            MetrologyAction::GetCharacterization {
+                asset_id,
+                characterization_id,
+            } => get_asset_characterization(&storage_root, &asset_id, &characterization_id),
             MetrologyAction::Status {
                 asset_id,
                 checked_on,

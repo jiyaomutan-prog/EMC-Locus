@@ -41,7 +41,10 @@ import type {
   MeasurementEngineeringRevision
 } from "./models/equipment";
 import type {
+  AssetCharacterization,
+  MetrologyAuditEvent,
   MetrologyInstrument,
+  RecordAssetCharacterizationInput,
   RegisterMetrologyInstrumentInput
 } from "./models/metrology";
 
@@ -601,6 +604,32 @@ export const metrologyApi = {
     post<{ instrument: MetrologyInstrument }>("/api/v1/metrology/instruments", {
       ...input,
       operation_id: operationId("metrology-register", input.asset_id)
+    }),
+  listCharacterizations: (assetId: string) =>
+    request<{ asset_id: string; characterizations: AssetCharacterization[] }>(
+      `/api/v1/metrology/instruments/${encodeURIComponent(assetId)}/characterizations`
+    ),
+  getCharacterization: (assetId: string, characterizationId: string) =>
+    request<{ characterization: AssetCharacterization }>(
+      `/api/v1/metrology/instruments/${encodeURIComponent(assetId)}/characterizations/${encodeURIComponent(characterizationId)}`
+    ),
+  recordCharacterization: (assetId: string, input: RecordAssetCharacterizationInput) =>
+    post<{ characterization: AssetCharacterization }>(
+      `/api/v1/metrology/instruments/${encodeURIComponent(assetId)}/characterizations`,
+      {
+        ...input,
+        operation_id: operationId("asset-characterization", input.characterization_id)
+      }
+    ),
+  characterizationAudit: (assetId: string, characterizationId: string) =>
+    request<{ audit_events: MetrologyAuditEvent[] }>(
+      `/api/v1/metrology/instruments/${encodeURIComponent(assetId)}/characterizations/${encodeURIComponent(characterizationId)}/audit-events`
+    ),
+  uploadFile: async (file: File) =>
+    post<{ file: EquipmentFileReference }>("/api/v1/metrology/files", {
+      original_filename: file.name,
+      mime_type: file.type || "application/octet-stream",
+      content_base64: await fileToBase64(file)
     })
 };
 

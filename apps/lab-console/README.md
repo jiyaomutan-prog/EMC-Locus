@@ -1,7 +1,7 @@
 # EMC Locus LAB CONSOLE
 
 LAB CONSOLE is the browser application for laboratory management workflows. In
-0.15.1 it provides Template Studio v1 plus the Equipment workspace in a focused,
+0.16.0 it provides Template Studio v1 plus the Equipment workspace in a focused,
 responsive application shell. Active navigation is limited to implemented
 workflows, Equipment commands are contextual, the model wizard is presented as
 a modal task, and normal revision views favor laboratory labels and lifecycle
@@ -11,8 +11,9 @@ signal and correction editors remain available.
 
 The Equipment workspace uses signal-facing language: time-domain sample
 conversion, frequency response, sensor power/conditioning, equipment ports, and
-signal paths. Internal API collection names remain stable machine identifiers;
-they are not used as operator terminology.
+signal paths. `Matériels réels` also opens the selected asset's metrology dossier
+and its serial-specific characterizations. Internal API collection names remain
+stable machine identifiers; they are not used as operator terminology.
 
 ## Runtime
 
@@ -58,6 +59,24 @@ evidence unless the workflow and lockfile policy are deliberately migrated.
 
 Vite proxies `/api` to `http://127.0.0.1:8765` during development. Production
 does not use a Node server.
+
+## Scope In 0.16.0
+
+Physical-asset metrology changes:
+
+- one asset-centered dossier with serviceability, calibration, model reference,
+  and characterization history;
+- guided choice between a time conversion and a frequency response;
+- validity, decision, method, uncertainty, certificate reference, and uploaded
+  evidence recorded with the serial-specific result;
+- readable applicability and correction summaries with audit/checksum evidence
+  progressively disclosed;
+- end-to-end persistence, audit, outbox, reload, and exact desktop viewport
+  acceptance.
+
+Still not implemented: runtime correction selection or application, real
+acquisition, station wiring, FFT, reporting, authentication/RBAC, and central
+sync.
 
 ## Scope In 0.15.1
 
