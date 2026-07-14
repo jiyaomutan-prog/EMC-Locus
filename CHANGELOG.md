@@ -14,6 +14,9 @@ change should remain traceable through Git history, session logs, and this file.
   status vocabulary before reporting operator or location conflicts, so
   constraint-bypassed rows with unknown statuses surface as workflow
   corruption instead of ordinary resource reservations.
+- Included non-text imported service-schedule statuses in overlap-candidate
+  revalidation, preventing corrupted active planning rows from being ignored
+  before a conflicting operator or location reservation is inserted.
 
 ## [0.15.0] - 2026-07-14
 

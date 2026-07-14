@@ -477,6 +477,9 @@ Deliverables:
 - service-schedule inserts now revalidate imported overlap-candidate statuses
   before reporting resource conflicts, so unknown persisted workflow states
   remain visible as data corruption.
+- service-schedule inserts now include non-text imported statuses in overlap
+  revalidation as corrupted active candidates, preventing hidden resource
+  collisions from constraint-bypassed rows.
 - Python local metrology actions and direct repository writes now reject
   non-canonical certificate and instrument-document checksum evidence, keeping
   legacy SQLite document attachments aligned with the agent's lowercase

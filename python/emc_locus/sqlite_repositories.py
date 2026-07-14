@@ -1431,8 +1431,10 @@ class ProjectRepository(SQLiteDomainRepository):
             """
             SELECT item_code, assigned_operator, location, status
             FROM service_schedule_items
-            WHERE typeof(status) = 'text'
-              AND TRIM(status) NOT IN ('completed', 'cancelled')
+            WHERE (
+                  typeof(status) != 'text'
+                  OR TRIM(status) NOT IN ('completed', 'cancelled')
+              )
               AND typeof(planned_start_at) = 'text'
               AND typeof(planned_end_at) = 'text'
               AND TRIM(planned_start_at) < ?
