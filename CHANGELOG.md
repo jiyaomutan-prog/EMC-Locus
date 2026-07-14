@@ -8,8 +8,38 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-07-14
+
+### Added
+
+- Added a signal-correction decision screen that directs the operator either
+  to time-sampled conversion or to spectrum-frequency compensation from the
+  representation of the measured data.
+- Added Playwright UX acceptance at exactly 1440 x 900 and 1280 x 720,
+  including screenshots, horizontal-overflow checks, and assertions that
+  internal identifiers and server vocabulary stay out of the normal workflow.
+
+### Changed
+
+- Reworked the measurement-definition studios around concrete French names,
+  mandatory descriptive labels, generated internal identities, readable
+  approved references, business revision history, and a concise change log.
+- Clarified sensor power and conditioning as the current, voltage, bridge,
+  IEPE, or charge conditioning required by the sensor, not the stimulus
+  applied to the equipment under test.
+- Changed correction CSV headings to `frequence_hz`, `amplitude_db`,
+  `phase_deg`, `valeur_brute`, and `valeur_physique` while continuing to
+  accept the previous machine headings on import.
+- Simplified the method-library first screen and creation flow so users see
+  methods, categories, states, and names instead of templates, API storage,
+  manually entered actors, or technical identifiers.
+
 ### Fixed
 
+- Removed invented source references and placeholder SHA-256 evidence from new
+  time conversions and frequency responses.
+- Serialized Playwright workers against the shared reset SQLite agent,
+  eliminating database interference between otherwise independent workflows.
 - Revalidated imported service-schedule overlap candidates with the canonical
   status vocabulary before reporting operator or location conflicts, so
   constraint-bypassed rows with unknown statuses surface as workflow

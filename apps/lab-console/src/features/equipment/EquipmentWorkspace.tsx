@@ -1,4 +1,5 @@
 import {
+  Activity,
   AlertTriangle,
   Boxes,
   ChevronDown,
@@ -68,6 +69,7 @@ type EquipmentSpace =
   | "catalog"
   | "assets"
   | "drivers"
+  | "signals"
   | "sensors"
   | "scaling"
   | "curves"
@@ -305,7 +307,7 @@ export function EquipmentWorkspace() {
   const familyCategoryTree = generalCategory?.children ?? categoryTree.filter((category) => category.category_id !== "general_equipment");
   const modelReadOnly = selectedModelRevision?.status !== "draft";
   const driverReadOnly = selectedDriverRevision?.status !== "draft";
-  const measurementSpaceActive = measurementSpaces.some(([key]) => key === space);
+  const measurementSpaceActive = space === "signals" || measurementSpaces.some(([key]) => key === space);
   const activeCatalogFilterCount = [
     query.trim(),
     manufacturerFilter.trim(),
@@ -665,7 +667,7 @@ export function EquipmentWorkspace() {
           <button
             className={measurementSpaceActive ? "active" : ""}
             aria-current={measurementSpaceActive ? "page" : undefined}
-            onClick={() => setSpace("sensors")}
+            onClick={() => setSpace("signals")}
           >
             <Cpu size={17} /> Signaux et corrections
           </button>
@@ -686,6 +688,9 @@ export function EquipmentWorkspace() {
         </nav>
         {measurementSpaceActive && (
           <nav className="equipmentSubnav" aria-label="Définitions des signaux et corrections">
+            <button className={space === "signals" ? "active" : ""} onClick={() => setSpace("signals")}>
+              Choisir
+            </button>
             {measurementSpaces.map(([key, label]) => (
               <button key={key} className={space === key ? "active" : ""} onClick={() => setSpace(key)}>
                 {label}
@@ -934,7 +939,12 @@ export function EquipmentWorkspace() {
           approvedModels={approvedModels}
           categories={categories}
           onRegister={(input) => void registerPhysicalAsset(input)}
+          onOpenCatalog={() => setSpace("catalog")}
         />
+      )}
+
+      {space === "signals" && loadState === "ready" && (
+        <SignalCorrectionOverview onSelect={setSpace} />
       )}
 
       {["sensors", "scaling", "curves", "daq", "recipes"].includes(space) && (
@@ -957,11 +967,48 @@ export function EquipmentWorkspace() {
   );
 }
 
+function SignalCorrectionOverview(props: { onSelect: (space: EquipmentSpace) => void }) {
+  return (
+    <section className="signalOverview">
+      <header className="signalOverviewHeader">
+        <p className="eyebrow">Définitions communes aux modèles</p>
+        <h2>Comment le signal est-il exploité ?</h2>
+        <p>
+          Choisissez le traitement d’après les données fournies par l’équipement.
+          Une valeur propre à un numéro de série relève du registre métrologique.
+        </p>
+      </header>
+      <div className="signalDecisionGrid">
+        <button type="button" className="signalDecision" onClick={() => props.onSelect("scaling")}>
+          <SlidersHorizontal size={24} />
+          <span>
+            <strong>Je traite des échantillons temporels</strong>
+            <small>Définir un gain, un offset et les limites de surcharge ou d’écrêtage.</small>
+          </span>
+        </button>
+        <button type="button" className="signalDecision" onClick={() => props.onSelect("curves")}>
+          <Activity size={24} />
+          <span>
+            <strong>Je corrige un spectre en fréquence</strong>
+            <small>Définir une correction d’amplitude et, si nécessaire, de phase selon la fréquence.</small>
+          </span>
+        </button>
+      </div>
+      <div className="signalSupportActions" aria-label="Autres définitions de la chaîne de mesure">
+        <button type="button" className="secondary" onClick={() => props.onSelect("sensors")}>Décrire un capteur</button>
+        <button type="button" className="secondary" onClick={() => props.onSelect("daq")}>Décrire une voie DAQ</button>
+        <button type="button" className="secondary" onClick={() => props.onSelect("recipes")}>Assembler une chaîne d’acquisition</button>
+      </div>
+    </section>
+  );
+}
+
 function PhysicalAssetsPanel(props: {
   instruments: MetrologyInstrument[];
   approvedModels: EquipmentModelAggregate[];
   categories: EquipmentCategory[];
   onRegister: (input: RegisterMetrologyInstrumentInput) => void;
+  onOpenCatalog: () => void;
 }) {
   const [modelId, setModelId] = useState("");
   const [assetId, setAssetId] = useState("");
@@ -992,7 +1039,7 @@ function PhysicalAssetsPanel(props: {
       return;
     }
     if (!assetId.trim() || !serialNumber.trim()) {
-      setFormError("La référence du matériel et le numéro de série sont obligatoires.");
+      setFormError("Le numéro d’inventaire et le numéro de série sont obligatoires.");
       return;
     }
     const period = calibrationApplies ? optionalNumber(calibrationPeriod) : undefined;
@@ -1056,6 +1103,15 @@ function PhysicalAssetsPanel(props: {
         </div>
         <form className="physicalAssetForm" onSubmit={submit}>
           {formError && <p className="errorText">{formError}</p>}
+          {props.approvedModels.length === 0 && (
+            <div className="workflowNotice">
+              <div>
+                <strong>Aucun modèle approuvé n’est disponible</strong>
+                <p>Un matériel réel doit être rattaché à un modèle commun approuvé.</p>
+              </div>
+              <button type="button" onClick={props.onOpenCatalog}>Ouvrir le catalogue</button>
+            </div>
+          )}
           <section className="editorCard">
             <h2>Modèle et identification</h2>
             <div className="formGrid">
@@ -1070,7 +1126,7 @@ function PhysicalAssetsPanel(props: {
                   ))}
                 </select>
               </label>
-              <label><FieldCaption label="Référence du matériel" required /><input value={assetId} onChange={(event) => setAssetId(event.target.value)} placeholder="ex. SA-001" /></label>
+              <label><FieldCaption label="Numéro d’inventaire" required /><input value={assetId} onChange={(event) => setAssetId(event.target.value)} placeholder="ex. SA-001" /></label>
               <label><FieldCaption label="Numéro de série" required /><input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} /></label>
               <label><FieldCaption label="Part number" /><input value={partNumber} onChange={(event) => setPartNumber(event.target.value)} /></label>
             </div>
@@ -1841,7 +1897,7 @@ function ChoiceListEditor(props: {
 }
 
 function TemplatePreview(props: { template: EquipmentEffectiveTemplate | null; values?: Record<string, unknown>; showDiagnostics?: boolean }) {
-  if (!props.template) return <p>Aucun template charge.</p>;
+  if (!props.template) return <p>Aucun formulaire disponible.</p>;
   return (
     <div className="templatePreview">
       <strong>{props.template.category_path.map((category) => category.label).join(" > ")}</strong>
@@ -2602,13 +2658,13 @@ function ProviderList(props: { providers: CommunicationProviderStatus[] }) {
 export function ValidationPanel(props: { validation: EquipmentValidationResult | null }) {
   return (
     <aside className="validationPanel">
-      <h2>Validation</h2>
-      {!props.validation && <p>Aucun verdict serveur courant.</p>}
-      {props.validation?.valid && <p className="validationOk"><CheckCircle2 size={16} /> Definition valide</p>}
+      <h2>Vérification</h2>
+      {!props.validation && <p>Aucune vérification effectuée.</p>}
+      {props.validation?.valid && <p className="validationOk"><CheckCircle2 size={16} /> Définition prête à être soumise</p>}
       {props.validation && !props.validation.valid && (
         <ul>
           {props.validation.issues.map((issue) => (
-            <li key={`${issue.code}-${issue.path}`}><strong>{issue.code}</strong><span>{issue.path}</span><p>{issue.message}</p></li>
+            <li key={`${issue.code}-${issue.path}`}><p>{validationIssueMessage(issue.code, issue.message)}</p></li>
           ))}
         </ul>
       )}
@@ -2621,11 +2677,11 @@ export function RevisionTable<T extends EquipmentModelRevision | DriverProfileRe
   onOpen: (revision: T) => void;
 }) {
   return (
-    <EditorCard title="Revisions">
-      <StructuredTable columns={["No", "Revision", "Status", "Parent", "Checksum", "Created", "Submitted", "Approved", ""]}>
+    <EditorCard title="Historique des révisions">
+      <StructuredTable columns={["Révision", "État", "Créée le", "Soumise le", "Approuvée le", ""]}>
         {props.revisions.map((revision) => (
           <tr key={revision.revision_id}>
-            <td>{revision.revision_number}</td><td className="mono">{revision.revision_id}</td><td>{revision.status}</td><td>{revision.parent_revision_id ?? "-"}</td><td><code>{revision.definition_checksum}</code></td><td>{formatDate(revision.created_at)}</td><td>{formatDate(revision.submitted_at)}</td><td>{formatDate(revision.approved_at)}</td><td><button onClick={() => props.onOpen(revision)}>Ouvrir</button></td>
+            <td>{revision.revision_number}</td><td><span className={"status " + revision.status}>{humanStatus(revision.status)}</span></td><td>{formatDate(revision.created_at)}</td><td>{formatDate(revision.submitted_at)}</td><td>{formatDate(revision.approved_at)}</td><td><button onClick={() => props.onOpen(revision)}>Ouvrir</button></td>
           </tr>
         ))}
       </StructuredTable>
@@ -2635,10 +2691,10 @@ export function RevisionTable<T extends EquipmentModelRevision | DriverProfileRe
 
 export function AuditTable(props: { audit: EquipmentAuditEvent[] }) {
   return (
-    <EditorCard title="Audit">
-      <StructuredTable columns={["Date", "Action", "Actor", "Reason", "Operation", "Checksum"]}>
+    <EditorCard title="Journal des modifications">
+      <StructuredTable columns={["Date", "Modification", "Réalisée par", "Justification"]}>
         {props.audit.map((event) => (
-          <tr key={event.audit_id}><td>{formatDate(event.occurred_at)}</td><td>{event.action}</td><td>{event.actor}</td><td>{event.reason}</td><td>{event.operation_id}</td><td><code>{event.new_definition_checksum ?? "-"}</code></td></tr>
+          <tr key={event.audit_id}><td>{formatDate(event.occurred_at)}</td><td>{auditActionLabel(event.action)}</td><td>{actorLabel(event.actor)}</td><td>{event.reason}</td></tr>
         ))}
       </StructuredTable>
     </EditorCard>
@@ -2763,6 +2819,48 @@ function humanLabel(value: string | null | undefined) {
 
 function humanStatus(value: string | undefined) {
   return humanLabel(value ?? "no_revision");
+}
+
+function validationIssueMessage(code: string, message: string) {
+  if (code.includes("required") || code.includes("missing")) {
+    return "Renseignez les informations obligatoires indiquées dans le formulaire.";
+  }
+  if (code.includes("range") || code.includes("minimum") || code.includes("maximum")) {
+    return "Vérifiez les bornes de la plage : le minimum doit être inférieur au maximum.";
+  }
+  if (code.includes("unit")) {
+    return "Vérifiez que les unités correspondent aux grandeurs choisies.";
+  }
+  if (code.includes("reference")) {
+    return "Choisissez une définition approuvée et encore disponible.";
+  }
+  if (code.includes("duplicate")) {
+    return "Une même valeur est présente plusieurs fois. Supprimez le doublon.";
+  }
+  return message;
+}
+
+function auditActionLabel(action: string) {
+  const labels: Record<string, string> = {
+    created: "Création du brouillon",
+    definition_replaced: "Mise à jour du brouillon",
+    submitted_for_review: "Soumission pour revue",
+    approved: "Approbation",
+    revision_created: "Création d’une nouvelle révision",
+    suspended: "Suspension",
+    retired: "Retrait"
+  };
+  return labels[action] ?? humanLabel(action);
+}
+
+function actorLabel(actor: string) {
+  const labels: Record<string, string> = {
+    "lab-console": "Opérateur LAB CONSOLE",
+    "lab.operator": "Opérateur laboratoire",
+    "metrology.operator": "Opérateur métrologie",
+    "quality.reviewer": "Responsable qualité"
+  };
+  return labels[actor] ?? actor.replaceAll(".", " ");
 }
 
 function fieldTypeLabel(type: EquipmentFieldDataType) {

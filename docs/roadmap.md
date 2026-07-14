@@ -150,6 +150,11 @@ Deliverables:
   spectrum-domain frequency responses with explicit amplitude and optional
   phase correction. It validates controlled references but does not execute
   acquisition or apply corrections to live data.
+- `0.15.1` completes the operator-language correction: LAB CONSOLE asks for
+  the measured-data representation before opening a form, removes generated
+  identities and checksums from ordinary work, gives approved references and
+  history business labels, and validates the main paths at 1440 x 900 and
+  1280 x 720. It changes no correction runtime or acquisition capability.
 
 ## Phase 3: Measurement Runtime
 

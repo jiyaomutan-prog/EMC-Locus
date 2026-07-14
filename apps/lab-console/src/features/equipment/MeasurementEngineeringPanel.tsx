@@ -46,6 +46,7 @@ type MeasurementSpace =
 
 type StudioSection =
   | "general"
+  | "source"
   | "physical"
   | "electrical"
   | "excitation"
@@ -70,6 +71,8 @@ interface MeasurementStudioConfig extends MeasurementEngineeringConfig {
   title: string;
   listTitle: string;
   createLabel: string;
+  createNameLabel: string;
+  createPlaceholder: string;
   emptyDetail: string;
   sections: Array<[StudioSection, string]>;
 }
@@ -83,6 +86,8 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     title: "Capteurs et transducteurs",
     listTitle: "Définitions de capteurs",
     createLabel: "Nouveau capteur",
+    createNameLabel: "Fabricant et modèle",
+    createPlaceholder: "ex. Tekbox TBCP1-200",
     emptyDetail: "Sélectionnez ou créez une définition de capteur ou de transducteur.",
     sections: [
       ["general", "Identification"],
@@ -104,9 +109,12 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     title: "Conversions temporelles",
     listTitle: "Conversions des échantillons",
     createLabel: "Nouvelle conversion",
+    createNameLabel: "Nom de la conversion",
+    createPlaceholder: "ex. Sensibilité 10 mV/A",
     emptyDetail: "Sélectionnez ou créez une conversion appliquée aux échantillons temporels.",
     sections: [
       ["general", "Identification"],
+      ["source", "Provenance"],
       ["physical", "Entrée / sortie"],
       ["method", "Gain et offset"],
       ["limits", "Surcharge / écrêtage"],
@@ -125,9 +133,12 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     title: "Réponses fréquentielles",
     listTitle: "Corrections amplitude / phase",
     createLabel: "Nouvelle réponse",
+    createNameLabel: "Nom de la correction",
+    createPlaceholder: "ex. Pertes du câble RF 5 m",
     emptyDetail: "Sélectionnez ou créez une correction en fonction de la fréquence.",
     sections: [
       ["general", "Identification"],
+      ["source", "Provenance"],
       ["axes", "Grandeurs corrigées"],
       ["table", "Amplitude / phase"],
       ["evaluation", "Vérification ponctuelle"],
@@ -144,6 +155,8 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     title: "Entrées / sorties DAQ",
     listTitle: "Profils de voies DAQ",
     createLabel: "Nouvelle voie DAQ",
+    createNameLabel: "Nom de la voie",
+    createPlaceholder: "ex. Entrée analogique ±10 V",
     emptyDetail: "Sélectionnez ou créez un profil d’entrée ou de sortie de numériseur.",
     sections: [
       ["general", "Identification"],
@@ -164,6 +177,8 @@ const configs: Record<MeasurementSpace, MeasurementStudioConfig> = {
     title: "Chaînes d'acquisition",
     listTitle: "Chaînes d'acquisition",
     createLabel: "Nouvelle chaîne",
+    createNameLabel: "Nom de la chaîne",
+    createPlaceholder: "ex. Mesure du courant d’appel",
     emptyDetail: "Sélectionnez ou créez une chaîne reliant capteur, voie DAQ et traitements.",
     sections: [
       ["general", "Identification"],
@@ -212,6 +227,17 @@ const sensorFamilies = [
   "strain_gauge",
   "generic_transducer",
   "manual_transducer"
+];
+
+const sensorTechnologyTags = [
+  "voltage_input",
+  "current_input",
+  "charge_input",
+  "iepe",
+  "bridge",
+  "rf_50_ohm",
+  "thermocouple",
+  "rtd"
 ];
 
 const quantities: PhysicalQuantity[] = [
@@ -297,7 +323,6 @@ export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSp
   const [validation, setValidation] = useState<EquipmentValidationResult | null>(null);
   const [section, setSection] = useState<StudioSection>("general");
   const [jsonDraft, setJsonDraft] = useState("");
-  const [newEntityId, setNewEntityId] = useState("");
   const [newLabel, setNewLabel] = useState("");
   const [curveCsv, setCurveCsv] = useState("");
   const [lookupCsv, setLookupCsv] = useState("");
@@ -400,8 +425,12 @@ export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSp
   }
 
   async function createDraft() {
-    const entityId = newEntityId.trim() || generatedEntityId(activeSpace);
-    const label = newLabel.trim() || defaultLabel(activeSpace, entityId);
+    const label = newLabel.trim();
+    if (!label) {
+      setOperationError(`Indiquez ${activeConfig.createNameLabel.toLocaleLowerCase("fr-FR")} avant de créer le brouillon.`);
+      return;
+    }
+    const entityId = generatedEntityId(activeSpace);
     const draft = defaultMeasurementDefinition(activeSpace, entityId, label, approvedOptions);
     await runOperation(async () => {
       const result = await measurementEngineeringApi.create(activeConfig, {
@@ -411,7 +440,6 @@ export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSp
       });
       await refreshLists();
       await openItem(activeConfig, operationAggregate(result), result.revision);
-      setNewEntityId("");
       setNewLabel("");
     });
   }
@@ -515,7 +543,7 @@ export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSp
         <div>
           <p className="eyebrow">Signaux et corrections</p>
           <h2>{activeConfig.title}</h2>
-          <p className="workspaceMeta">{items.length} définition{items.length > 1 ? "s" : ""}</p>
+          <p className="workspaceMeta">{items.length} définition{items.length !== 1 ? "s" : ""}</p>
         </div>
         <button className="iconButton secondary" onClick={() => void refreshLists()} title="Rafraichir les definitions" aria-label="Rafraichir les definitions">
           <RefreshCw size={16} />
@@ -523,12 +551,11 @@ export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSp
       </div>
 
       <div className="toolbar measurementCreateBar">
-        <Field label="Libellé / modèle" value={newLabel} onChange={setNewLabel} />
-        <details className="advancedOptions compactAdvanced">
-          <summary>Identifiant personnalisé</summary>
-          <Field label="Nouvel ID" value={newEntityId} onChange={setNewEntityId} />
-        </details>
-        <button onClick={() => void createDraft()}>
+        <label>
+          {activeConfig.createNameLabel}
+          <input value={newLabel} placeholder={activeConfig.createPlaceholder} onChange={(event) => setNewLabel(event.target.value)} />
+        </label>
+        <button disabled={!newLabel.trim()} onClick={() => void createDraft()}>
           <Plus size={16} /> {activeConfig.createLabel}
         </button>
       </div>
@@ -549,6 +576,7 @@ export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSp
             title={activeConfig.listTitle}
             items={items}
             selected={selected}
+            emptyDetail={activeConfig.emptyDetail}
             onOpen={(item) => void openItem(activeConfig, item)}
           />
           <section className="equipmentStudio">
@@ -567,7 +595,7 @@ export function MeasurementEngineeringPanel(props: { initialSpace: MeasurementSp
                   </div>
                   <div className="headerActions">
                     <button className="secondary" onClick={() => void validateDefinition()}>
-                      <CheckCircle2 size={16} /> Valider
+                      <CheckCircle2 size={16} /> Vérifier la définition
                     </button>
                     {revision.status === "draft" && (
                       <>
@@ -651,12 +679,13 @@ function MeasurementList(props: {
   title: string;
   items: MeasurementEngineeringAggregate[];
   selected: MeasurementEngineeringAggregate | null;
+  emptyDetail: string;
   onOpen: (item: MeasurementEngineeringAggregate) => void;
 }) {
   return (
     <aside className="equipmentList">
       <h2>{props.title}</h2>
-      {props.items.length === 0 && <p>Aucune definition.</p>}
+      {props.items.length === 0 && <p className="emptyListMessage">{props.emptyDetail}</p>}
       {props.items.map((item) => {
         const revision = item.latest_revision ?? item.current_approved_revision;
         return (
@@ -680,11 +709,11 @@ function MeasurementList(props: {
 function measurementStatusLabel(status?: string) {
   if (status === "draft") return "Brouillon";
   if (status === "under_review") return "En revue";
-  if (status === "approved") return "Approuve";
-  if (status === "superseded") return "Remplace";
+  if (status === "approved") return "Approuvé";
+  if (status === "superseded") return "Remplacé";
   if (status === "suspended") return "Suspendu";
-  if (status === "retired") return "Retire";
-  return "Sans revision";
+  if (status === "retired") return "Retiré";
+  return "Sans révision";
 }
 
 function StudioSectionRenderer(props: {
@@ -806,7 +835,6 @@ function SensorSections(props: SectionProps & { approvedOptions: ApprovedOptions
   if (props.section === "general") {
     return (
       <EditorCard title="Identification">
-        <Field label="Identifiant interne" value={s(d.sensor_definition_id)} disabled onChange={() => undefined} />
         <Field label="Fabricant" value={s(d.manufacturer)} disabled={props.readOnly} onChange={(manufacturer) => props.onDefinition({ ...d, manufacturer })} />
         <Field label="Modèle" value={s(d.model_name)} disabled={props.readOnly} onChange={(model_name) => props.onDefinition({ ...d, model_name })} />
         <label>
@@ -815,7 +843,7 @@ function SensorSections(props: SectionProps & { approvedOptions: ApprovedOptions
             {sensorFamilies.map((family) => <option key={family} value={family}>{humanMeasurementLabel(family)}</option>)}
           </select>
         </label>
-        <Field label="Technologies" value={stringArray(d.technology_tags).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, technology_tags: splitTokens(value) })} />
+        <TechnologyChoices values={stringArray(d.technology_tags)} readOnly={props.readOnly} onValues={(technology_tags) => props.onDefinition({ ...d, technology_tags })} />
       </EditorCard>
     );
   }
@@ -892,9 +920,14 @@ function ScalingSections(props: SectionProps & {
           <strong>Signal temporel échantillonné</strong>
           <span>Conversion d’une valeur brute vers une grandeur physique.</span>
         </div>
-        <Field label="Identifiant interne" value={s(d.scaling_profile_id)} disabled onChange={() => undefined} />
         <Field label="Nom de la conversion" value={s(d.label)} disabled={props.readOnly} onChange={(label) => props.onDefinition({ ...d, label })} />
-        <Field label="Source métrologique ou documentaire" value={s(d.source_reference)} disabled={props.readOnly} onChange={(source_reference) => props.onDefinition({ ...d, source_reference: optionalString(source_reference) })} />
+      </EditorCard>
+    );
+  }
+  if (props.section === "source") {
+    return (
+      <EditorCard title="Provenance de la conversion">
+        <Field label="Certificat, fiche technique ou méthode source" value={s(d.source_reference)} disabled={props.readOnly} onChange={(source_reference) => props.onDefinition({ ...d, source_reference: optionalString(source_reference) })} />
       </EditorCard>
     );
   }
@@ -921,10 +954,10 @@ function ScalingSections(props: SectionProps & {
         <Field label="Gain / facteur" value={s(parameters.scale)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, scale: optionalNumber(value) } })} />
         <Field label="Offset" value={s(parameters.offset ?? 0)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, offset: optionalNumber(value) ?? 0 } })} />
         <div className="measurementFourGrid">
-          <Field label="Input point 1" value={s(parameters.input_point_1)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, input_point_1: optionalNumber(value) } })} />
-          <Field label="Output point 1" value={s(parameters.output_point_1)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, output_point_1: optionalNumber(value) } })} />
-          <Field label="Input point 2" value={s(parameters.input_point_2)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, input_point_2: optionalNumber(value) } })} />
-          <Field label="Output point 2" value={s(parameters.output_point_2)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, output_point_2: optionalNumber(value) } })} />
+          <Field label="Valeur brute 1" value={s(parameters.input_point_1)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, input_point_1: optionalNumber(value) } })} />
+          <Field label="Valeur physique 1" value={s(parameters.output_point_1)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, output_point_1: optionalNumber(value) } })} />
+          <Field label="Valeur brute 2" value={s(parameters.input_point_2)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, input_point_2: optionalNumber(value) } })} />
+          <Field label="Valeur physique 2" value={s(parameters.output_point_2)} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, output_point_2: optionalNumber(value) } })} />
         </div>
         <Field label="Coefficients polynomiaux" value={numberArray(parameters.coefficients).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...d, parameters: { ...parameters, coefficients: numberList(value) } })} />
       </EditorCard>
@@ -963,7 +996,7 @@ function ScalingSections(props: SectionProps & {
           <button onClick={props.onExportLookupCsv}><Download size={16} /> Exporter CSV</button>
           <button disabled={props.readOnly} onClick={props.onApplyLookupCsv}><FileSpreadsheet size={16} /> Importer CSV</button>
         </div>
-        <textarea value={props.lookupCsv} onChange={(event) => props.onLookupCsv(event.target.value)} placeholder="input,output" />
+        <textarea value={props.lookupCsv} onChange={(event) => props.onLookupCsv(event.target.value)} placeholder="valeur_brute,valeur_physique" />
         <StructuredTable columns={["Entrée", "Sortie"]}>
           {scalingPoints(parameters.points).map((point, index) => (
             <tr key={index}>
@@ -1002,7 +1035,6 @@ function CurveSections(props: SectionProps & {
           <strong>Spectre fréquentiel</strong>
           <span>Compensation d’amplitude et, si nécessaire, de phase en fonction de la fréquence.</span>
         </div>
-        <Field label="Identifiant interne" value={s(d.curve_id)} disabled onChange={() => undefined} />
         <Field label="Nom de la réponse" value={s(d.label)} disabled={props.readOnly} onChange={(label) => props.onDefinition({ ...d, label })} />
         <label>
           Type de réponse
@@ -1010,8 +1042,17 @@ function CurveSections(props: SectionProps & {
             {curveTypes.map((type) => <option key={type} value={type}>{curveTypeLabel(type)}</option>)}
           </select>
         </label>
-        <Field label="Document source" value={s(d.source_document_reference)} disabled={props.readOnly} onChange={(source_document_reference) => props.onDefinition({ ...d, source_document_reference: optionalString(source_document_reference) })} />
-        <Field label="Empreinte SHA-256 de la source" value={s(d.source_checksum)} disabled={props.readOnly} onChange={(source_checksum) => props.onDefinition({ ...d, source_checksum: optionalString(source_checksum) })} />
+      </EditorCard>
+    );
+  }
+  if (props.section === "source") {
+    return (
+      <EditorCard title="Provenance de la réponse">
+        <Field label="Certificat, caractérisation ou fiche technique" value={s(d.source_document_reference)} disabled={props.readOnly} onChange={(source_document_reference) => props.onDefinition({ ...d, source_document_reference: optionalString(source_document_reference) })} />
+        <details className="advancedOptions">
+          <summary>Détails techniques du document</summary>
+          <Field label="Empreinte de contrôle SHA-256" value={s(d.source_checksum)} disabled={props.readOnly} onChange={(source_checksum) => props.onDefinition({ ...d, source_checksum: optionalString(source_checksum) })} />
+        </details>
       </EditorCard>
     );
   }
@@ -1026,7 +1067,6 @@ function CurveSections(props: SectionProps & {
         <div className="measurementThreeGrid">
           <Field label="Axe" value="Fréquence" disabled onChange={() => undefined} />
           <Field label="Unité de fréquence" value={s(axis.unit)} disabled={props.readOnly} onChange={(unit) => props.onDefinition({ ...d, independent_axes: [{ axis: "frequency", quantity: "frequency", unit }] })} />
-          <Field label="ID amplitude" value={amplitudeValueId} disabled={props.readOnly} onChange={(value_id) => props.onDefinition({ ...d, dependent_values: [{ ...amplitude, value_id }, ...(phase ? [phase] : [])], units: { frequency: s(axis.unit || "Hz"), [value_id]: amplitude.unit, ...(phase ? { [s(phase.value_id)]: phase.unit } : {}) } })} />
           <Field label="Unité d’amplitude" value={s(amplitude.unit)} disabled={props.readOnly} onChange={(unit) => props.onDefinition({ ...d, dependent_values: [{ ...amplitude, unit }, ...(phase ? [phase] : [])], units: { ...objectValue(d.units), [amplitudeValueId]: unit } })} />
           <label>
             Opération sur l’amplitude
@@ -1042,7 +1082,6 @@ function CurveSections(props: SectionProps & {
         </div>
         {phase && (
           <div className="measurementThreeGrid">
-            <Field label="ID phase" value={s(phase.value_id)} disabled={props.readOnly} onChange={(value_id) => props.onDefinition({ ...d, dependent_values: [amplitude, { ...phase, value_id }] })} />
             <Field label="Unité de phase" value={s(phase.unit)} disabled={props.readOnly} onChange={(unit) => props.onDefinition({ ...d, dependent_values: [amplitude, { ...phase, unit }], units: { ...objectValue(d.units), [s(phase.value_id)]: unit } })} />
             <label>
               Opération sur la phase
@@ -1060,7 +1099,7 @@ function CurveSections(props: SectionProps & {
           </select>
         </label>
         <label>
-          Extrapolation
+          En dehors de la plage définie
           <select disabled={props.readOnly} value={s(d.extrapolation_policy)} onChange={(event) => props.onDefinition({ ...d, extrapolation_policy: event.target.value })}>
             {["forbidden", "clamp", "warn", "allow"].map((mode) => <option key={mode} value={mode}>{extrapolationLabel(mode)}</option>)}
           </select>
@@ -1083,9 +1122,9 @@ function CurveSections(props: SectionProps & {
             <input type="file" accept=".csv,text/csv" disabled={props.readOnly} onChange={(event) => event.target.files?.[0] && props.onImportCurveFile(event.target.files[0])} />
           </label>
         </div>
-        <textarea value={props.curveCsv} onChange={(event) => props.onCurveCsv(event.target.value)} placeholder={`frequency_hz,${valueIds.join(",")}`} />
+        <textarea value={props.curveCsv} onChange={(event) => props.onCurveCsv(event.target.value)} placeholder={curveCsvHeader(d)} />
         <CurvePlot definition={d} />
-        <StructuredTable columns={["Fréquence (Hz)", ...valueIds]}>
+        <StructuredTable columns={["Fréquence (Hz)", ...values.map(curveValueLabel)]}>
           {curvePoints(d.points).map((point, index) => (
             <tr key={index}>
               <td><input disabled={props.readOnly} value={axisNumber(point, "frequency")} onChange={(event) => props.onDefinition({ ...d, points: replaceAt(curvePoints(d.points), index, { ...point, axis_values: { ...objectValue(point.axis_values), frequency: numberOrZero(event.target.value) } }) })} /></td>
@@ -1102,11 +1141,18 @@ function CurveSections(props: SectionProps & {
       <button onClick={props.onEvaluateCurve}><CheckCircle2 size={16} /> Calculer la correction</button>
       {props.curveEvaluation && (
         <dl>
-          <dt>Valeurs</dt><dd>{JSON.stringify(props.curveEvaluation.values)}</dd>
-          <dt>Interpolation</dt><dd>{props.curveEvaluation.interpolation}</dd>
-          <dt>Extrapolation</dt><dd>{props.curveEvaluation.extrapolated ? "Oui" : "Non"}</dd>
-          <dt>Source</dt><dd className="mono">{props.curveEvaluation.source_revision_id}</dd>
-          <dt>Checksum</dt><dd><code>{props.curveEvaluation.source_checksum}</code></dd>
+          {Object.entries(props.curveEvaluation.values).map(([valueId, value]) => (
+            <div key={valueId}><dt>{curveValueIdLabel(valueId)}</dt><dd>{String(value)}</dd></div>
+          ))}
+          <dt>Interpolation</dt><dd>{interpolationLabel(props.curveEvaluation.interpolation)}</dd>
+          <dt>Hors plage définie</dt><dd>{props.curveEvaluation.extrapolated ? "Oui" : "Non"}</dd>
+          <details className="advancedOptions">
+            <summary>Détails techniques du calcul</summary>
+            <dl>
+              <dt>Révision source</dt><dd className="mono">{props.curveEvaluation.source_revision_id}</dd>
+              <dt>Empreinte de contrôle</dt><dd><code>{props.curveEvaluation.source_checksum}</code></dd>
+            </dl>
+          </details>
         </dl>
       )}
     </EditorCard>
@@ -1118,7 +1164,6 @@ function DaqSections(props: SectionProps) {
   if (props.section === "general") {
     return (
       <EditorCard title="Identification">
-        <Field label="Identifiant interne" value={s(d.daq_channel_profile_id)} disabled onChange={() => undefined} />
         <Field label="Nom de la voie" value={s(d.label)} disabled={props.readOnly} onChange={(label) => props.onDefinition({ ...d, label })} />
         <label>
           Type de voie
@@ -1171,7 +1216,6 @@ function RecipeSections(props: SectionProps & { approvedOptions: ApprovedOptions
   if (props.section === "general") {
     return (
       <EditorCard title="Identification">
-        <Field label="Identifiant interne" value={s(d.recipe_id)} disabled onChange={() => undefined} />
         <Field label="Nom de la chaîne" value={s(d.label)} disabled={props.readOnly} onChange={(label) => props.onDefinition({ ...d, label })} />
         <Field label="Nom du canal résultat" value={s(d.output_channel_name)} disabled={props.readOnly} onChange={(output_channel_name) => props.onDefinition({ ...d, output_channel_name })} />
         <QuantitySelect label="Grandeur de sortie" value={s(d.output_quantity)} disabled={props.readOnly} onChange={(output_quantity) => props.onDefinition({ ...d, output_quantity })} />
@@ -1182,7 +1226,7 @@ function RecipeSections(props: SectionProps & { approvedOptions: ApprovedOptions
   if (props.section === "chain") {
     return (
       <EditorCard title="Chaîne de mesure">
-        <ChainSummary definition={d} />
+        <ChainSummary definition={d} approvedOptions={props.approvedOptions} />
         <ReferenceSelect label="Voie DAQ" value={refText(d.daq_channel_profile_ref)} options={props.approvedOptions.daq} readOnly={props.readOnly} onValue={(value) => props.onDefinition({ ...d, daq_channel_profile_ref: refFromText(value) })} />
         <ReferenceSelect label="Capteur / transducteur" value={refText(d.sensor_definition_ref)} options={props.approvedOptions.sensors} readOnly={props.readOnly} onValue={(value) => props.onDefinition({ ...d, sensor_definition_ref: value ? refFromText(value) : undefined })} />
         <ReferenceSelect label="Conversion temporelle" value={refText(d.scaling_profile_ref)} options={props.approvedOptions.scalings} readOnly={props.readOnly} onValue={(value) => props.onDefinition({ ...d, scaling_profile_ref: value ? refFromText(value) : undefined })} />
@@ -1195,15 +1239,15 @@ function RecipeSections(props: SectionProps & { approvedOptions: ApprovedOptions
       <Field label="Fréquence d’échantillonnage (éch/s)" value={s(d.sample_rate)} disabled={props.readOnly} onChange={(sample_rate) => props.onDefinition({ ...d, sample_rate: numberOrZero(sample_rate) })} />
       <SupportedRangeTable ranges={[supportedRange(d.range)]} readOnly={props.readOnly} onRanges={(ranges) => props.onDefinition({ ...d, range: ranges[0] })} />
       <label>
-        Coupling
+        Couplage
         <select disabled={props.readOnly} value={s(d.coupling)} onChange={(event) => props.onDefinition({ ...d, coupling: event.target.value })}>
-          {["dc", "ac", "gnd"].map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+          {["dc", "ac", "gnd"].map((mode) => <option key={mode} value={mode}>{humanMeasurementLabel(mode)}</option>)}
         </select>
       </label>
       <label>
-        Input mode
+        Mode d’entrée
         <select disabled={props.readOnly} value={s(d.input_mode)} onChange={(event) => props.onDefinition({ ...d, input_mode: event.target.value })}>
-          {inputModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+          {inputModes.map((mode) => <option key={mode} value={mode}>{humanMeasurementLabel(mode)}</option>)}
         </select>
       </label>
     </EditorCard>
@@ -1215,15 +1259,12 @@ function MeasurementRevisionTable(props: {
   onOpen: (revision: MeasurementEngineeringRevision) => void;
 }) {
   return (
-    <EditorCard title="Revisions">
-      <StructuredTable columns={["No", "Revision", "Status", "Parent", "Checksum", "Created", "Submitted", "Approved", ""]}>
+    <EditorCard title="Historique des révisions">
+      <StructuredTable columns={["Révision", "État", "Créée le", "Soumise le", "Approuvée le", ""]}>
         {props.revisions.map((revision) => (
           <tr key={revision.revision_id}>
             <td>{revision.revision_number}</td>
-            <td className="mono">{revision.revision_id}</td>
-            <td>{revision.status}</td>
-            <td>{revision.parent_revision_id ?? "-"}</td>
-            <td><code>{revision.definition_checksum}</code></td>
+            <td><span className={"status " + revision.status}>{measurementStatusLabel(revision.status)}</span></td>
             <td>{formatDate(revision.created_at)}</td>
             <td>{formatDate(revision.submitted_at)}</td>
             <td>{formatDate(revision.approved_at)}</td>
@@ -1253,6 +1294,36 @@ interface DefinitionOption {
   entity_id: string;
   revision_id: string;
   label: string;
+  revision_number: number;
+}
+
+function TechnologyChoices(props: {
+  values: string[];
+  readOnly: boolean;
+  onValues: (values: string[]) => void;
+}) {
+  return (
+    <fieldset className="measurementFieldset">
+      <legend>Technologies du signal</legend>
+      <div className="checkboxGrid compactChoiceGrid">
+        {sensorTechnologyTags.map((tag) => (
+          <label key={tag}>
+            <input
+              type="checkbox"
+              disabled={props.readOnly}
+              checked={props.values.includes(tag)}
+              onChange={(event) => props.onValues(
+                event.target.checked
+                  ? [...props.values, tag]
+                  : props.values.filter((value) => value !== tag)
+              )}
+            />
+            {humanMeasurementLabel(tag)}
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
 }
 
 function QuantitySelect(props: {
@@ -1386,7 +1457,7 @@ function ReferenceEditor(props: {
           <option value="">Définition approuvée...</option>
           {props.options.map((option) => (
             <option key={`${option.entity_id}:${option.revision_id}`} value={refText(option)}>
-              {option.label} | {option.entity_id}
+              {option.label} — révision {option.revision_number}
             </option>
           ))}
         </select>
@@ -1395,12 +1466,11 @@ function ReferenceEditor(props: {
           setSelected("");
         }}>Ajouter</button>
       </div>
-      <StructuredTable columns={["Définition", "Révision", "Approbation requise", ""]}>
+      <StructuredTable columns={["Définition approuvée", "Révision", ""]}>
         {props.refs.map((ref, index) => (
           <tr key={`${ref.entity_id}-${index}`}>
-            <td>{ref.entity_id}</td>
-            <td>{ref.revision_id ?? "-"}</td>
-            <td>{ref.require_approved ? "Oui" : "Non"}</td>
+            <td>{optionForReference(ref, props.options)?.label ?? "Définition indisponible"}</td>
+            <td>{optionForReference(ref, props.options)?.revision_number ?? "-"}</td>
             <td><button disabled={props.readOnly} onClick={() => props.onRefs(props.refs.filter((_, itemIndex) => itemIndex !== index))}>Retirer</button></td>
           </tr>
         ))}
@@ -1423,7 +1493,7 @@ function ReferenceSelect(props: {
         <option value="">Aucune</option>
         {props.options.map((option) => (
           <option value={refText(option)} key={`${option.entity_id}:${option.revision_id}`}>
-            {option.label} | {option.entity_id}
+            {option.label} — révision {option.revision_number}
           </option>
         ))}
       </select>
@@ -1431,13 +1501,13 @@ function ReferenceSelect(props: {
   );
 }
 
-function ChainSummary(props: { definition: MeasurementEngineeringDefinition }) {
+function ChainSummary(props: { definition: MeasurementEngineeringDefinition; approvedOptions: ApprovedOptions }) {
   return (
     <div className="chainSummary">
-      <span>Voie DAQ<br /><strong>{refText(props.definition.daq_channel_profile_ref)}</strong></span>
-      <span>Signal électrique du capteur<br /><strong>{refText(props.definition.sensor_definition_ref)}</strong></span>
-      <span>Conversion temporelle<br /><strong>{refText(props.definition.scaling_profile_ref)}</strong></span>
-      <span>Réponse fréquentielle<br /><strong>{refs(props.definition.correction_curve_refs).map(refText).join(", ") || "-"}</strong></span>
+      <span>Voie DAQ<br /><strong>{referenceLabel(props.definition.daq_channel_profile_ref, props.approvedOptions.daq)}</strong></span>
+      <span>Signal électrique du capteur<br /><strong>{referenceLabel(props.definition.sensor_definition_ref, props.approvedOptions.sensors)}</strong></span>
+      <span>Conversion temporelle<br /><strong>{referenceLabel(props.definition.scaling_profile_ref, props.approvedOptions.scalings)}</strong></span>
+      <span>Réponse fréquentielle<br /><strong>{refs(props.definition.correction_curve_refs).map((ref) => referenceLabel(ref, props.approvedOptions.curves)).join(", ") || "Aucune"}</strong></span>
       <span>Résultat physique<br /><strong>{s(props.definition.output_channel_name)} [{s(props.definition.output_unit)}]</strong></span>
     </div>
   );
@@ -1464,7 +1534,7 @@ function CurvePlot(props: { definition: MeasurementEngineeringDefinition }) {
   const points = curvePoints(props.definition.points);
   const valueId = s(curveValues(props.definition)[0]?.value_id ?? "correction_db");
   if (points.length < 2) {
-    return <div className="notice">At least two points are needed for the 1D plot.</div>;
+    return <div className="notice">Au moins deux points sont nécessaires pour tracer la réponse.</div>;
   }
   const xs = points.map((point) => axisNumber(point, "frequency"));
   const ys = points.map((point) => valueNumber(point, valueId));
@@ -1544,7 +1614,6 @@ function defaultScaling(entityId: string, label: string): MeasurementEngineering
     parameters: { scale: 100, offset: 0 },
     input_limits: { minimum: -10, maximum: 10, handling: "warn" },
     validity_domain: {},
-    source_reference: "lab-console",
     metadata: { created_from: "lab_console" }
   };
 }
@@ -1568,8 +1637,6 @@ function defaultCurve(entityId: string, label: string): MeasurementEngineeringDe
     extrapolation_policy: "warn",
     validity_domain: {},
     conditions: {},
-    source_document_reference: "lab-console",
-    source_checksum: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     metadata: { created_from: "lab_console" }
   };
 }
@@ -1636,7 +1703,8 @@ function approvedRefs(items: MeasurementEngineeringAggregate[]): DefinitionOptio
     .map((revision) => ({
       entity_id: revision.entity_id,
       revision_id: revision.revision_id,
-      label: revision.label
+      label: revision.label,
+      revision_number: revision.revision_number
     }));
 }
 
@@ -1647,7 +1715,11 @@ function applyLookupCsv(
   onError: (message: string | null) => void
 ) {
   try {
-    const points = parseTwoColumnCsv(csv, "input", "output").map(([input, output]) => ({ input, output }));
+    const points = parseTwoColumnCsv(
+      csv,
+      ["valeur_brute", "input"],
+      ["valeur_physique", "output"]
+    ).map(([input, output]) => ({ input, output }));
     onDefinition({
       ...definition,
       scaling_kind: "lookup_table",
@@ -1665,7 +1737,7 @@ function applyLookupCsv(
 
 function exportLookupCsv(definition: MeasurementEngineeringDefinition) {
   return [
-    "input,output",
+    "valeur_brute,valeur_physique",
     ...scalingPoints(objectValue(definition.parameters).points)
       .sort((a, b) => a.input - b.input)
       .map((point) => `${point.input},${point.output}`)
@@ -1679,8 +1751,8 @@ function applyCurveCsv(
   onError: (message: string | null) => void
 ) {
   try {
-    const valueIds = curveValues(definition).map((value) => s(value.value_id));
-    const points = parseFrequencyResponseCsv(csv, valueIds);
+    const values = curveValues(definition);
+    const points = parseFrequencyResponseCsv(csv, values);
     onDefinition({ ...definition, points: points.sort((a, b) => a.axis_values.frequency - b.axis_values.frequency) });
   } catch (error) {
     onError(errorMessage(error));
@@ -1688,26 +1760,29 @@ function applyCurveCsv(
 }
 
 function exportCurveCsv(definition: MeasurementEngineeringDefinition) {
-  const valueIds = curveValues(definition).map((value) => s(value.value_id));
+  const values = curveValues(definition);
+  const valueIds = values.map((value) => s(value.value_id));
   return [
-    `frequency_hz,${valueIds.join(",")}`,
+    curveCsvHeader(definition),
     ...curvePoints(definition.points)
       .sort((a, b) => axisNumber(a, "frequency") - axisNumber(b, "frequency"))
       .map((point) => [axisNumber(point, "frequency"), ...valueIds.map((valueId) => valueNumber(point, valueId))].join(","))
   ].join("\n");
 }
 
-function parseFrequencyResponseCsv(csv: string, valueIds: string[]): CurvePoint[] {
+function parseFrequencyResponseCsv(csv: string, values: Array<Record<string, unknown>>): CurvePoint[] {
+  const valueIds = values.map((value) => s(value.value_id));
+  const friendlyHeaders = values.map(curveCsvColumn);
   const lines = csv
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
   if (lines.length < 2) throw new Error("Le CSV doit contenir un en-tête et au moins une ligne.");
   const headers = lines[0].split(",").map((item) => item.trim());
-  const frequencyIndex = headers.indexOf("frequency_hz");
-  const valueIndexes = valueIds.map((valueId) => headers.indexOf(valueId));
+  const frequencyIndex = firstHeaderIndex(headers, ["frequence_hz", "frequency_hz"]);
+  const valueIndexes = valueIds.map((valueId, index) => firstHeaderIndex(headers, [friendlyHeaders[index], valueId]));
   if (frequencyIndex < 0 || valueIndexes.some((index) => index < 0)) {
-    throw new Error(`L’en-tête CSV doit contenir frequency_hz et ${valueIds.join(", ")}.`);
+    throw new Error(`L’en-tête CSV doit contenir ${["frequence_hz", ...friendlyHeaders].join(", ")}.`);
   }
   const seen = new Set<number>();
   return lines.slice(1).map((line, rowIndex) => {
@@ -1723,17 +1798,17 @@ function parseFrequencyResponseCsv(csv: string, valueIds: string[]): CurvePoint[
   });
 }
 
-function parseTwoColumnCsv(csv: string, expectedFirst: string, expectedSecond: string): Array<[number, number]> {
+function parseTwoColumnCsv(csv: string, firstAliases: string[], secondAliases: string[]): Array<[number, number]> {
   const lines = csv
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  if (lines.length < 2) throw new Error("CSV must include a header and at least one row.");
+  if (lines.length < 2) throw new Error("Le CSV doit contenir un en-tête et au moins une ligne.");
   const headers = lines[0].split(",").map((item) => item.trim());
-  const firstIndex = headers.indexOf(expectedFirst);
-  const secondIndex = headers.indexOf(expectedSecond);
+  const firstIndex = firstHeaderIndex(headers, firstAliases);
+  const secondIndex = firstHeaderIndex(headers, secondAliases);
   if (firstIndex < 0 || secondIndex < 0) {
-    throw new Error(`CSV header must include ${expectedFirst} and ${expectedSecond}.`);
+    throw new Error(`L’en-tête CSV doit contenir ${firstAliases[0]} et ${secondAliases[0]}.`);
   }
   const seen = new Set<number>();
   return lines.slice(1).map((line, rowIndex) => {
@@ -1741,14 +1816,42 @@ function parseTwoColumnCsv(csv: string, expectedFirst: string, expectedSecond: s
     const first = Number(cells[firstIndex]);
     const second = Number(cells[secondIndex]);
     if (!Number.isFinite(first) || !Number.isFinite(second)) {
-      throw new Error(`CSV row ${rowIndex + 2} contains a non-numeric value.`);
+      throw new Error(`La ligne CSV ${rowIndex + 2} contient une valeur non numérique.`);
     }
     if (seen.has(first)) {
-      throw new Error(`CSV row ${rowIndex + 2} duplicates x=${first}.`);
+      throw new Error(`La ligne CSV ${rowIndex + 2} duplique la valeur brute ${first}.`);
     }
     seen.add(first);
     return [first, second];
   });
+}
+
+function firstHeaderIndex(headers: string[], aliases: string[]) {
+  return aliases.map((alias) => headers.indexOf(alias)).find((index) => index >= 0) ?? -1;
+}
+
+function curveCsvHeader(definition: MeasurementEngineeringDefinition) {
+  return ["frequence_hz", ...curveValues(definition).map(curveCsvColumn)].join(",");
+}
+
+function curveCsvColumn(value: Record<string, unknown>, index: number) {
+  const component = s(value.component || "amplitude");
+  if (component === "amplitude") return "amplitude_db";
+  if (component === "phase") return "phase_deg";
+  return "valeur_" + (index + 1);
+}
+
+function curveValueLabel(value: Record<string, unknown>) {
+  const component = s(value.component || "amplitude");
+  const unit = s(value.unit);
+  const label = component === "phase" ? "Correction de phase" : "Correction d’amplitude";
+  return label + (unit ? " (" + unit + ")" : "");
+}
+
+function curveValueIdLabel(valueId: string) {
+  if (valueId.toLocaleLowerCase().includes("phase")) return "Correction de phase";
+  if (valueId.toLocaleLowerCase().includes("amplitude")) return "Correction d’amplitude";
+  return humanMeasurementLabel(valueId);
 }
 
 function curveAxes(definition: MeasurementEngineeringDefinition) {
@@ -1810,6 +1913,21 @@ function refs(value: unknown): DefinitionReference[] {
 
 function refFromOption(option: DefinitionOption): DefinitionReference {
   return { entity_id: option.entity_id, revision_id: option.revision_id, require_approved: true };
+}
+
+function optionForReference(value: unknown, options: DefinitionOption[]) {
+  const ref = value as Partial<DefinitionReference> | undefined;
+  if (!ref?.entity_id) return undefined;
+  return options.find((option) => (
+    option.entity_id === ref.entity_id
+    && (!ref.revision_id || option.revision_id === ref.revision_id)
+  ));
+}
+
+function referenceLabel(value: unknown, options: DefinitionOption[]) {
+  if (!value) return "Aucune";
+  const option = optionForReference(value, options);
+  return option ? option.label + " — révision " + option.revision_number : "Définition indisponible";
 }
 
 function refText(value: unknown): string {
@@ -1916,6 +2034,13 @@ function humanMeasurementLabel(value: string) {
     analog_voltage: "Tension analogique",
     analog_current: "Courant analogique",
     analog_charge: "Charge analogique",
+    voltage_input: "Entrée en tension",
+    current_input: "Entrée en courant",
+    charge_input: "Entrée de charge",
+    iepe: "IEPE / ICP",
+    bridge: "Pont de jauges",
+    rf_50_ohm: "RF 50 Ω",
+    rtd: "Sonde résistive RTD",
     digital_logic: "Logique numérique",
     mechanical: "Mécanique",
     environmental: "Environnement",
@@ -2004,18 +2129,7 @@ function generatedEntityId(space: MeasurementSpace) {
     daq: "DAQ",
     recipes: "REC"
   }[space];
-  return `${prefix}-LAB-${Date.now().toString(36).toUpperCase()}`;
-}
-
-function defaultLabel(space: MeasurementSpace, entityId: string) {
-  const label = {
-    sensors: "Pince de courant 10 mV/A",
-    scaling: "Conversion 10 mV/A",
-    curves: "Pertes du câble RF",
-    daq: "Entrée analogique +/-10 V",
-    recipes: "Chaîne courant_A"
-  }[space];
-  return `${label} ${entityId.slice(-4)}`;
+  return prefix + "-LAB-" + crypto.randomUUID().slice(0, 8).toUpperCase();
 }
 
 function formatDate(value?: string | null) {
@@ -2033,7 +2147,14 @@ async function readFile(file: File): Promise<string> {
 
 function errorMessage(error: unknown) {
   if (error instanceof ApiError) {
-    return `${error.code}: ${error.message}`;
+    const messages: Record<string, string> = {
+      measurement_engineering_definition_checksum_mismatch: "Cette définition a été modifiée ailleurs. Rechargez-la avant de reprendre vos changements.",
+      measurement_engineering_revision_immutable: "Cette révision ne peut plus être modifiée. Créez une nouvelle révision pour la faire évoluer.",
+      measurement_engineering_active_draft_exists: "Un brouillon existe déjà pour cette définition.",
+      measurement_engineering_reference_not_approved: "La définition associée doit être approuvée avant de pouvoir être utilisée.",
+      measurement_engineering_invalid_definition: "La définition contient des valeurs incomplètes ou incohérentes."
+    };
+    return messages[error.code] ?? error.message;
   }
   if (error instanceof Error) return error.message;
   return String(error);

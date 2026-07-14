@@ -83,7 +83,19 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.15.0`.
+Current software version: `0.15.1`.
+
+Version `0.15.1` makes the signal-correction workflow readable without the
+former measurement-engineering vocabulary. LAB CONSOLE first asks whether
+the equipment supplies time samples or a frequency spectrum, then opens the
+appropriate conversion or compensation form. Internal identities, checksums,
+and storage terms no longer dominate creation, revision, reference, or audit
+views. Exact 1440 x 900 and 1280 x 720 Playwright acceptance now guards the
+main method and signal-correction paths.
+The French domain note
+[`docs/domain/signal-corrections.md`](docs/domain/signal-corrections.md)
+defines the operator vocabulary and the boundary with serialized metrology
+assets.
 
 Version `0.15.0` replaces the ambiguous measurement-engineering vocabulary
 with a signal-centered model. Equipment definitions now expose inputs, outputs,

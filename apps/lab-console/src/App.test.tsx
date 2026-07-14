@@ -100,7 +100,7 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Aucun template")).toBeInTheDocument();
+    expect(await screen.findByText("Aucune méthode d’essai")).toBeInTheDocument();
     expect(screen.queryByText("CEM-2026-001")).not.toBeInTheDocument();
     expect(screen.queryByText("Client demo")).not.toBeInTheDocument();
   });
@@ -111,7 +111,7 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await screen.findByText("Aucun template");
+    await screen.findByText("Aucune méthode d’essai");
     expect(screen.getByText("Métrologie")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Métrologie" })).not.toBeInTheDocument();
 
@@ -131,7 +131,7 @@ describe("LAB CONSOLE", () => {
     render(<App />);
 
     expect(await screen.findByText("Inrush current template")).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Recherche template"), "inrush");
+    await user.type(screen.getByLabelText("Rechercher une méthode"), "inrush");
     expect(screen.getByText("TT-LAB-001")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Continuer le brouillon" }));
 
@@ -150,11 +150,11 @@ describe("LAB CONSOLE", () => {
     await user.click(await screen.findByRole("button", { name: "Continuer le brouillon" }));
     await user.click(screen.getByRole("button", { name: "Variables" }));
     await user.click(screen.getByRole("button", { name: "Ajouter une variable" }));
-    await user.click(screen.getByRole("button", { name: /Valider/ }));
-    expect(await screen.findByText("Definition valide")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Vérifier la définition/ }));
+    expect(await screen.findByText("Définition prête à être soumise")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Sauvegarder/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/definition"), expect.any(Object)));
-    await user.click(screen.getByRole("button", { name: /Valider/ }));
+    await user.click(screen.getByRole("button", { name: /Vérifier la définition/ }));
     await user.click(screen.getByRole("button", { name: /Soumettre/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("submit-for-review"), expect.any(Object)));
   });
@@ -200,18 +200,17 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: /Creer/ }));
-    await user.type(screen.getByLabelText("Identifiant"), "TT-NEW-001");
-    await user.type(screen.getByLabelText("Titre bibliotheque"), "New template");
-    await user.click(screen.getByRole("button", { name: "Creer le brouillon" }));
+    await user.click(await screen.findByRole("button", { name: /Créer une méthode/ }));
+    expect(screen.queryByLabelText("Identifiant")).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Nom de la méthode"), "New template");
+    await user.click(screen.getByRole("button", { name: "Créer le brouillon" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/test-templates", expect.objectContaining({ method: "POST" })));
 
     await user.click(screen.getByRole("button", { name: /Bibliothèque/ }));
-    await user.click(screen.getByRole("button", { name: /Cloner/ }));
-    await user.selectOptions(screen.getByLabelText("Source approuvee"), "TT-LAB-001|TT-LAB-001-rev-0001");
-    await user.type(screen.getByLabelText("Nouvel identifiant"), "TT-CLONE-001");
-    await user.type(screen.getByLabelText("Nouveau titre bibliotheque"), "Clone template");
-    await user.click(screen.getByRole("button", { name: "Cloner vers un nouveau template" }));
+    await user.click(screen.getByRole("button", { name: /Dupliquer/ }));
+    await user.selectOptions(screen.getByLabelText("Méthode source"), "TT-LAB-001|TT-LAB-001-rev-0001");
+    await user.type(screen.getByLabelText("Nom de la copie"), "Clone template");
+    await user.click(screen.getByRole("button", { name: "Créer la copie" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/clone"), expect.objectContaining({ method: "POST" })));
   });
 
@@ -315,7 +314,7 @@ describe("LAB CONSOLE", () => {
 
     await user.click(await screen.findByRole("button", { name: "Équipements" }));
     await user.click(await screen.findByRole("button", { name: "Matériels réels" }));
-    await user.type(screen.getByLabelText(/Référence du matériel/), "SA-LAB-001");
+    await user.type(screen.getByLabelText(/Numéro d’inventaire/), "SA-LAB-001");
     await user.type(screen.getByLabelText(/Numéro de série/), "SN-7788");
     await user.type(screen.getByLabelText(/Part number/), "PN-NRP6AN");
     await user.click(screen.getByRole("button", { name: "Enregistrer le matériel" }));
@@ -424,7 +423,7 @@ describe("LAB CONSOLE", () => {
     expect(screen.getByDisplayValue("RF_A")).toBeInTheDocument();
     expect(screen.getByDisplayValue("RF_B")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Valider/ }));
-    expect(await screen.findByText("Definition valide")).toBeInTheDocument();
+    expect(await screen.findByText("Définition prête à être soumise")).toBeInTheDocument();
   });
 
   test("administers nested categories with contextual actions and generated field codes", async () => {
@@ -650,6 +649,9 @@ describe("LAB CONSOLE", () => {
 
     await user.click(await screen.findByRole("button", { name: "Équipements" }));
     await user.click(await screen.findByRole("button", { name: "Signaux et corrections" }));
+    expect(await screen.findByRole("heading", { name: "Comment le signal est-il exploité ?" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /échantillons temporels/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /spectre en fréquence/ })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Réponses fréquentielles" }));
     await user.click(await screen.findByRole("button", { name: /Demo RF cable loss/ }));
     expect(screen.getByText("Spectre fréquentiel")).toBeInTheDocument();
@@ -657,18 +659,18 @@ describe("LAB CONSOLE", () => {
     await user.click(screen.getByRole("button", { name: "Amplitude / phase" }));
     expect(await screen.findByRole("img", { name: "1D curve plot" })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText("frequency_hz,correction_db"), {
-      target: { value: "frequency_hz,correction_db\n10000000,0.2\n100000000,1.25\n1000000000,3.8" }
+    fireEvent.change(screen.getByPlaceholderText("frequence_hz,amplitude_db"), {
+      target: { value: "frequence_hz,amplitude_db\n10000000,0.2\n100000000,1.25\n1000000000,3.8" }
     });
     await user.click(screen.getByRole("button", { name: /Importer CSV/ }));
     await user.click(screen.getByRole("button", { name: "Vérification ponctuelle" }));
     await user.clear(screen.getByLabelText("Fréquence (Hz)"));
     await user.type(screen.getByLabelText("Fréquence (Hz)"), "100000000");
     await user.click(screen.getByRole("button", { name: /Calculer la correction/ }));
-    expect(await screen.findByText(/log_x_linear_y/)).toBeInTheDocument();
+    expect(await screen.findByText("Logarithmique en fréquence")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Valider/ }));
-    expect(await screen.findByText("Definition valide")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Vérifier la définition/ }));
+    expect(await screen.findByText("Définition prête à être soumise")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Sauvegarder/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/definition"), expect.objectContaining({ method: "PUT" })));
     await user.click(screen.getByRole("button", { name: /Soumettre/ }));
@@ -710,11 +712,11 @@ describe("LAB CONSOLE", () => {
     await user.click(screen.getByRole("button", { name: "Surcharge / écrêtage" }));
     expect(screen.getByText(/plage exploitable avant saturation/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Table de conversion" }));
-    expect(screen.getByPlaceholderText("input,output")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("valeur_brute,valeur_physique")).toBeInTheDocument();
 
     await user.click(screen.getAllByRole("button", { name: "Réponses fréquentielles" })[0]);
     expect(await screen.findByText("Aucune définition ouverte")).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("input,output")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("valeur_brute,valeur_physique")).not.toBeInTheDocument();
 
     await user.click(screen.getAllByRole("button", { name: "Voies DAQ" })[0]);
     await user.click(await screen.findByRole("button", { name: /Demo DAQ AI/ }));

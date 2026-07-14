@@ -57,10 +57,10 @@ const upcomingModules = ["Métrologie", "Planification", "Campagnes", "Rapports"
 const statusLabels: Record<RevisionStatus, string> = {
   draft: "Brouillon",
   under_review: "En revue",
-  approved: "Approuve",
-  superseded: "Supersede",
+  approved: "Approuvé",
+  superseded: "Remplacé",
   suspended: "Suspendu",
-  retired: "Retire"
+  retired: "Retiré"
 };
 
 const statusOrder: RevisionStatus[] = [
@@ -106,6 +106,10 @@ interface CloneFormState {
   category_code: string;
   actor: string;
   reason: string;
+}
+
+function generatedTemplateId() {
+  return "TT-LAB-" + crypto.randomUUID().slice(0, 8).toUpperCase();
 }
 
 export function App() {
@@ -389,9 +393,10 @@ export function App() {
   async function createTemplate() {
     setOperationError(null);
     try {
-      const definitionForCreate = defaultTemplateDefinition(createForm.title || createForm.template_id);
+      const templateId = generatedTemplateId();
+      const definitionForCreate = defaultTemplateDefinition(createForm.title);
       const result = await api.createTemplate({
-        template_id: createForm.template_id,
+        template_id: templateId,
         title: createForm.title,
         category_code: createForm.category_code,
         definition: definitionForCreate,
@@ -411,7 +416,7 @@ export function App() {
     try {
       const result = await api.cloneTemplate(cloneForm.source_template_id, {
         source_revision_id: cloneForm.source_revision_id,
-        new_template_id: cloneForm.new_template_id,
+        new_template_id: generatedTemplateId(),
         title: cloneForm.title,
         category_code: cloneForm.category_code || undefined,
         actor: cloneForm.actor,
@@ -499,7 +504,7 @@ export function App() {
                 ? "Référentiel, signaux et corrections"
                 : activeView === "system"
                   ? "Diagnostic local"
-                  : "Définitions et révisions"}
+                  : "Référentiel des méthodes"}
             </p>
             <h1>
               {activeView === "studio"
@@ -630,10 +635,10 @@ function LibraryView(props: {
         <label className="searchBox">
           <Search size={16} />
           <input
-            aria-label="Recherche template"
+            aria-label="Rechercher une méthode"
             value={props.query}
             onChange={(event) => props.onQueryChange(event.target.value)}
-            placeholder="Recherche"
+            placeholder="Nom ou catégorie"
           />
         </label>
         <select
@@ -641,10 +646,10 @@ function LibraryView(props: {
           value={props.categoryFilter}
           onChange={(event) => props.onCategoryChange(event.target.value)}
         >
-          <option value="all">Toutes categories</option>
+          <option value="all">Toutes les catégories</option>
           {props.categories.map((category) => (
             <option key={category} value={category}>
-              {category}
+              {methodCategoryLabel(category)}
             </option>
           ))}
         </select>
@@ -653,7 +658,7 @@ function LibraryView(props: {
           value={props.statusFilter}
           onChange={(event) => props.onStatusChange(event.target.value)}
         >
-          <option value="all">Tous statuts</option>
+          <option value="all">Tous les états</option>
           {statusOrder.map((status) => (
             <option key={status} value={status}>
               {statusLabels[status]}
@@ -661,33 +666,37 @@ function LibraryView(props: {
           ))}
         </select>
         <select aria-label="Tri" value={props.sort} onChange={(event) => props.onSortChange(event.target.value)}>
-          <option value="updated_desc">Derniere modification</option>
-          <option value="title_asc">Titre bibliotheque</option>
-          <option value="category_asc">Categorie</option>
-          <option value="revision_desc">Revision</option>
+          <option value="updated_desc">Dernière modification</option>
+          <option value="title_asc">Nom de la méthode</option>
+          <option value="category_asc">Catégorie</option>
+          <option value="revision_desc">Révision</option>
         </select>
         <button onClick={props.onRefresh}>
-          <RefreshCw size={16} /> Rafraichir
+          <RefreshCw size={16} /> Rafraîchir
         </button>
         <button onClick={() => props.onCreateMode("create")}>
-          <ClipboardCheck size={16} /> Creer
+          <ClipboardCheck size={16} /> Créer une méthode
         </button>
         <button onClick={() => props.onCreateMode("clone")} disabled={cloneSources.length === 0}>
-          <Copy size={16} /> Cloner
+          <Copy size={16} /> Dupliquer
         </button>
       </div>
-      {props.operationError && <StateBlock title="Erreur operation" detail={props.operationError} tone="bad" />}
+      {props.operationError && <StateBlock title="Opération refusée" detail={props.operationError} tone="bad" />}
 
       {props.creationMode === "create" && (
         <div className="actionPanel">
-          <h2>Creation vide</h2>
-          <TextInput label="Identifiant" value={props.createForm.template_id} onChange={(template_id) => props.onCreateFormChange({ ...props.createForm, template_id })} />
-          <TextInput label="Titre bibliotheque" value={props.createForm.title} onChange={(title) => props.onCreateFormChange({ ...props.createForm, title })} />
-          <TextInput label="Categorie" value={props.createForm.category_code} onChange={(category_code) => props.onCreateFormChange({ ...props.createForm, category_code })} />
-          <TextInput label="Acteur saisi manuellement" value={props.createForm.actor} onChange={(actor) => props.onCreateFormChange({ ...props.createForm, actor })} />
-          <TextInput label="Raison" value={props.createForm.reason} onChange={(reason) => props.onCreateFormChange({ ...props.createForm, reason })} />
+          <h2>Nouvelle méthode</h2>
+          <TextInput label="Nom de la méthode" value={props.createForm.title} onChange={(title) => props.onCreateFormChange({ ...props.createForm, title })} />
+          <label>
+            Catégorie
+            <select value={props.createForm.category_code} onChange={(event) => props.onCreateFormChange({ ...props.createForm, category_code: event.target.value })}>
+              {methodCategoryChoices(props.categories, props.createForm.category_code).map((category) => (
+                <option key={category} value={category}>{methodCategoryLabel(category)}</option>
+              ))}
+            </select>
+          </label>
           <div className="buttonRow">
-            <button onClick={props.onCreate}>Creer le brouillon</button>
+            <button disabled={!props.createForm.title.trim()} onClick={props.onCreate}>Créer le brouillon</button>
             <button className="secondary" onClick={() => props.onCreateMode("none")}>Annuler</button>
           </div>
         </div>
@@ -695,9 +704,9 @@ function LibraryView(props: {
 
       {props.creationMode === "clone" && (
         <div className="actionPanel">
-          <h2>Clonage serveur</h2>
+          <h2>Dupliquer une méthode approuvée</h2>
           <label>
-            Source approuvee
+            Méthode source
             <select
               value={`${props.cloneForm.source_template_id}|${props.cloneForm.source_revision_id}`}
               onChange={(event) => {
@@ -705,32 +714,28 @@ function LibraryView(props: {
                 props.onCloneFormChange({ ...props.cloneForm, source_template_id, source_revision_id });
               }}
             >
-              <option value="|">Selectionner</option>
+              <option value="|">Sélectionner une méthode</option>
               {cloneSources.map((template) => (
                 <option
                   key={template.identity.template_id}
                   value={`${template.identity.template_id}|${template.current_approved_revision?.revision_id ?? ""}`}
                 >
-                  {template.identity.template_id} - {template.current_approved_revision?.revision_id}
+                  {template.identity.title} — révision {template.current_approved_revision?.revision_number}
                 </option>
               ))}
             </select>
           </label>
-          <TextInput label="Nouvel identifiant" value={props.cloneForm.new_template_id} onChange={(new_template_id) => props.onCloneFormChange({ ...props.cloneForm, new_template_id })} />
-          <TextInput label="Nouveau titre bibliotheque" value={props.cloneForm.title} onChange={(title) => props.onCloneFormChange({ ...props.cloneForm, title })} />
-          <TextInput label="Nouvelle categorie optionnelle" value={props.cloneForm.category_code} onChange={(category_code) => props.onCloneFormChange({ ...props.cloneForm, category_code })} />
-          <TextInput label="Acteur saisi manuellement" value={props.cloneForm.actor} onChange={(actor) => props.onCloneFormChange({ ...props.cloneForm, actor })} />
-          <TextInput label="Raison" value={props.cloneForm.reason} onChange={(reason) => props.onCloneFormChange({ ...props.cloneForm, reason })} />
+          <TextInput label="Nom de la copie" value={props.cloneForm.title} onChange={(title) => props.onCloneFormChange({ ...props.cloneForm, title })} />
           <div className="buttonRow">
-            <button onClick={props.onClone}>Cloner vers un nouveau template</button>
+            <button disabled={!props.cloneForm.source_revision_id || !props.cloneForm.title.trim()} onClick={props.onClone}>Créer la copie</button>
             <button className="secondary" onClick={() => props.onCreateMode("none")}>Annuler</button>
           </div>
         </div>
       )}
 
-      {props.loadState === "loading" && <StateBlock title="Chargement" detail="Lecture de l'API locale." />}
-      {props.loadState === "error" && <StateBlock title="Erreur reseau" detail={props.loadError ?? "API indisponible."} tone="bad" />}
-      {props.loadState === "empty" && <StateBlock title="Aucun template" detail="La bibliotheque API ne contient aucun template." />}
+      {props.loadState === "loading" && <StateBlock title="Chargement" detail="Lecture des méthodes enregistrées localement." />}
+      {props.loadState === "error" && <StateBlock title="Service local indisponible" detail={props.loadError ?? "Impossible de lire les méthodes."} tone="bad" />}
+      {props.loadState === "empty" && <StateBlock title="Aucune méthode d’essai" detail="Aucune méthode n’est encore enregistrée. Créez la première méthode." />}
 
       {props.templates.length > 0 && (
         <div className="templateGrid">
@@ -745,7 +750,7 @@ function LibraryView(props: {
                   </div>
                   {visibleRevision && <StatusBadge status={visibleRevision.status} />}
                 </div>
-                <span className="pill templateCategory">{humanizeCode(template.identity.category_code)}</span>
+                <span className="pill templateCategory">{methodCategoryLabel(template.identity.category_code)}</span>
                 <dl className="templateSummary">
                   <dt>Révision</dt>
                   <dd>{visibleRevision ? visibleRevision.revision_number : "-"}</dd>
@@ -820,7 +825,7 @@ function StudioView(props: {
         </div>
         <div className="headerActions">
           <button className="secondary" onClick={props.onValidate}>
-            <CheckCircle2 size={16} /> Valider
+            <CheckCircle2 size={16} /> Vérifier la définition
           </button>
           {props.revision.status === "draft" && (
             <>
@@ -1215,21 +1220,17 @@ function AdvancedJson(props: { definition: TestTemplateDefinition; validation: V
 function ValidationPanel(props: { validation: ValidationResult | null; readOnly: boolean; dirty: boolean }) {
   return (
     <aside className="validationPanel">
-      <h2>Validation</h2>
-      {props.readOnly && <p className="notice">Revision en lecture seule.</p>}
-      {props.dirty && <p className="notice">Modifications non sauvegardees.</p>}
-      {!props.validation && <p>Aucun verdict serveur courant.</p>}
+      <h2>Vérification</h2>
+      {props.readOnly && <p className="notice">Révision en lecture seule.</p>}
+      {props.dirty && <p className="notice">Modifications non sauvegardées.</p>}
+      {!props.validation && <p>Aucune vérification effectuée.</p>}
       {props.validation?.valid && (
-        <p className="validationOk"><CheckCircle2 size={16} /> Definition valide</p>
+        <p className="validationOk"><CheckCircle2 size={16} /> Définition prête à être soumise</p>
       )}
       {props.validation && !props.validation.valid && (
         <ul>
           {props.validation.issues.map((issue) => (
-            <li key={`${issue.code}-${issue.path}`}>
-              <strong>{issue.code}</strong>
-              <span>{issue.path}</span>
-              <p>{issue.message}</p>
-            </li>
+            <li key={`${issue.code}-${issue.path}`}><p>{issue.message}</p></li>
           ))}
         </ul>
       )}
@@ -1367,6 +1368,27 @@ function formatDate(value?: string | null) {
 function humanizeCode(value: string) {
   const normalized = value.replaceAll("_", " ").trim();
   return normalized ? normalized.charAt(0).toLocaleUpperCase("fr-FR") + normalized.slice(1) : "Sans catégorie";
+}
+
+function methodCategoryChoices(categories: string[], current: string) {
+  return Array.from(new Set([
+    current,
+    "emission_frequency_domain",
+    "emission_transient_time_domain",
+    "immunity_conducted",
+    "immunity_radiated",
+    ...categories
+  ].filter(Boolean)));
+}
+
+function methodCategoryLabel(value: string) {
+  const labels: Record<string, string> = {
+    emission_frequency_domain: "Émissions fréquentielles",
+    emission_transient_time_domain: "Émissions temporelles",
+    immunity_conducted: "Immunité conduite",
+    immunity_radiated: "Immunité rayonnée"
+  };
+  return labels[value] ?? humanizeCode(value);
 }
 
 function errorMessage(error: unknown) {

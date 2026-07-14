@@ -1115,6 +1115,131 @@ td textarea {
   gap: 14px;
 }
 
+.signalOverview {
+  background: #fff;
+  border: 1px solid #d9e0dd;
+  border-radius: 6px;
+  display: grid;
+  gap: 22px;
+  padding: 24px;
+}
+
+.signalOverviewHeader {
+  max-width: 780px;
+}
+
+.signalOverviewHeader h2 {
+  font-size: 24px;
+  margin: 5px 0 8px;
+}
+
+.signalOverviewHeader > p:last-child {
+  color: #53615a;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.signalDecisionGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.signalDecision {
+  align-items: flex-start;
+  background: #f8faf9;
+  border-color: #cbd8d3;
+  color: #17211c;
+  display: flex;
+  gap: 13px;
+  justify-content: flex-start;
+  min-height: 118px;
+  padding: 18px;
+  text-align: left;
+}
+
+.signalDecision:hover {
+  background: #edf5f2;
+  border-color: #7ba99e;
+}
+
+.signalDecision svg {
+  color: #0d756b;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.signalDecision span {
+  display: grid;
+  gap: 7px;
+}
+
+.signalDecision strong {
+  font-size: 16px;
+}
+
+.signalDecision small {
+  color: #53615a;
+  line-height: 1.45;
+}
+
+.signalSupportActions {
+  border-top: 1px solid #e1e6e3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 16px;
+}
+
+.workflowNotice {
+  align-items: center;
+  background: #fff7e1;
+  border: 1px solid #e2c56e;
+  border-radius: 6px;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 13px 15px;
+}
+
+.workflowNotice p {
+  color: #67531d;
+  margin: 4px 0 0;
+}
+
+.checkboxGrid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.checkboxGrid label {
+  align-items: center;
+  background: #f8faf9;
+  border: 1px solid #d9e0dd;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: row;
+  font-weight: 500;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.checkboxGrid input {
+  margin: 0;
+  width: auto;
+}
+
+.compactChoiceGrid {
+  margin-top: 4px;
+}
+
+.emptyListMessage {
+  color: #68746c;
+  line-height: 1.45;
+  padding: 4px 2px;
+}
+
 .measurementHeader {
   align-items: center;
   background: #fff;
@@ -2240,6 +2365,14 @@ button.textButton {
   .signalPathFlow {
     align-items: stretch;
     grid-template-columns: 1fr;
+  }
+
+  .signalDecisionGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .signalOverview {
+    padding: 18px;
   }
 
   .signalPathFlow > span {

@@ -1,13 +1,13 @@
 # EMC Locus LAB CONSOLE
 
 LAB CONSOLE is the browser application for laboratory management workflows. In
-0.15.0 it provides Template Studio v1 plus the Equipment workspace in a focused,
+0.15.1 it provides Template Studio v1 plus the Equipment workspace in a focused,
 responsive application shell. Active navigation is limited to implemented
 workflows, Equipment commands are contextual, the model wizard is presented as
 a modal task, and normal revision views favor laboratory labels and lifecycle
 states over technical identifiers. Category administration, revisioned
 equipment models, driver profiles, communication-provider status, and
-measurement-engineering editors remain available.
+signal and correction editors remain available.
 
 The Equipment workspace uses signal-facing language: time-domain sample
 conversion, frequency response, sensor power/conditioning, equipment ports, and
@@ -58,6 +58,20 @@ evidence unless the workflow and lockfile policy are deliberately migrated.
 
 Vite proxies `/api` to `http://127.0.0.1:8765` during development. Production
 does not use a Node server.
+
+## Scope In 0.15.1
+
+Experience corrections:
+
+- a first decision between time-sampled conversion and spectrum-frequency
+  compensation;
+- descriptive names required at creation while internal identities are
+  generated automatically;
+- readable approved-reference labels, revision history, and change journal;
+- French CSV headings for values handled by laboratory users;
+- exact 1440 x 900 and 1280 x 720 Playwright acceptance screenshots.
+
+The typed 0.15.0 domain contracts and API routes remain unchanged.
 
 ## Scope In 0.15.0
 
@@ -117,8 +131,8 @@ Still not implemented:
 
 Functional:
 
-- grouped Equipment navigation for Referentiel, Ingenierie de mesure, Pilotage,
-  and A venir;
+- grouped Equipment navigation for the equipment catalog, signal corrections,
+  drivers/actions, and repository administration;
 - category tree rows with indentation, expand/collapse, folder icons,
   selection state, hover state, keyboard selection, and contextual `...`
   actions;
@@ -168,17 +182,18 @@ Still not implemented:
 Functional:
 
 - Capteurs / transducteurs studio with structured physical input, electrical
-  output, excitation, scaling references, correction references, revision
-  history, audit, and advanced JSON sections;
-- Profils de scaling studio with linear, two-point, polynomial, lookup-table,
-  piecewise, and expression definitions, including lookup CSV paste/export;
-- Courbes d'ingenierie studio with curve type, axes, table editor, CSV
+  output, sensor power/conditioning, conversion references, frequency-response
+  references, revision history, audit, and advanced JSON sections;
+- Conversions temporelles studio with linear, two-point, polynomial,
+  lookup-table, piecewise, and expression definitions, including lookup CSV
+  paste/export;
+- Reponses frequentielles studio with response type, axes, table editor, CSV
   paste/import/export, simple 1D SVG plot, validation, and deterministic
   evaluation through the agent;
 - Voies DAQ studio with channel kind, signal domain, input modes, ranges,
-  sampling, coupling, triggering, synchronization, and excitation fields;
-- Recettes d'acquisition studio with a readable DAQ -> sensor electrical signal
-  -> scaling -> correction -> engineering output chain summary;
+  sampling, coupling, triggering, synchronization, and sensor-power fields;
+- Chaines d'acquisition studio with a readable DAQ -> sensor electrical signal
+  -> time conversion -> frequency response -> result chain summary;
 - public-API demo seed support through `-SeedMeasurementDemo`.
 
 Still not implemented:
@@ -226,7 +241,7 @@ Not implemented:
 - execution package freezing;
 - instrument control;
 - acquisition;
-- complete sensor scaling and engineering curves;
+- richer time-conversion and frequency-response definitions;
 - measurement-chain builder;
 - physical asset fleet redesign;
 - certified hardware providers;

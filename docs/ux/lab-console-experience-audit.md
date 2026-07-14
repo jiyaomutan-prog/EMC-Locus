@@ -4,7 +4,20 @@ Date: 2026-07-14
 
 Baseline reviewed: `0.13.2` plus the post-release planning fixes on `main`
 
-Implementation release: `0.13.3`
+Latest corrective implementation release: `0.15.1`
+
+## Follow-up In 0.15.1
+
+The signal-correction follow-up removes the remaining abstract entry point.
+Operators first choose whether they are converting time samples or compensating
+a frequency spectrum. Creation requires a descriptive name while internal
+identities are generated; controlled references and history display names and
+revision numbers; sensor excitation is explained as power and conditioning.
+
+The method-library empty state, filters, creation, and duplication also use
+method vocabulary rather than template or API vocabulary. Playwright now
+captures and checks the main method and correction paths at exactly 1440 x 900
+and 1280 x 720 with no page-level horizontal overflow.
 
 ## Audit Method
 
@@ -85,9 +98,7 @@ and icon-only actions have accessible names and tooltips.
 
 ## Remaining UX Debt
 
-- Template library creation still exposes more quality-context fields than a
-  future authenticated identity model should require from a normal operator.
-- Several deep method and measurement editors still use technical enum labels
+- Deep method editing still exposes technical enum labels and identifiers
   because the underlying controlled vocabularies do not yet expose localized
   display metadata.
 - The method editor needs task-oriented section grouping and richer graphical

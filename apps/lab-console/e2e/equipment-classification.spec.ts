@@ -150,7 +150,7 @@ test("equipment repository UX manages nested categories, fields and model creati
   await expect(approvedModelSelect.locator(`option[value="${modelId}"]`)).toHaveCount(1);
   await approvedModelSelect.selectOption(modelId);
   const assetId = `ASSET-RF-LNA-${suffix}`;
-  await page.getByLabel(/Référence du matériel/).fill(assetId);
+  await page.getByLabel(/Numéro d’inventaire/).fill(assetId);
   await page.getByLabel(/Numéro de série/).fill(`SN-${suffix}`);
   await page.getByLabel(/Part number/).fill("LNA-40DB");
   const assetResponse = page.waitForResponse((response) =>

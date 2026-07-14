@@ -17,6 +17,7 @@ dist/
 node_modules/
 playwright-report/
 test-results/
+.codex/
 *.egg-info/
 !apps/lab-console/dist/
 !apps/lab-console/dist/**

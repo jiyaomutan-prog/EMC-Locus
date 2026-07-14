@@ -1,22 +1,22 @@
 import { expect, test } from "@playwright/test";
 
 test("template studio workflow persists through API", async ({ page, request }) => {
-  const templateId = "E2E-LAB-001";
+  let templateId = "";
 
   await page.goto("/lab/");
   await expect(page.getByRole("heading", { name: "Méthodes d'essai" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Aucun template" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Aucune méthode d’essai" })).toBeVisible();
 
-  await page.getByRole("button", { name: /^Creer$/ }).click();
-  await page.getByLabel("Identifiant").fill(templateId);
-  await page.getByLabel("Titre").fill("E2E LAB template");
-  await page.getByRole("textbox", { name: "Categorie" }).fill("emission_transient_time_domain");
+  await page.getByRole("button", { name: "Créer une méthode" }).click();
+  await page.getByLabel("Nom de la méthode").fill("E2E LAB template");
+  await page.getByRole("combobox", { name: "Catégorie" }).selectOption("emission_transient_time_domain");
   const createResponsePromise = page.waitForResponse((response) =>
     response.url().endsWith("/api/v1/test-templates") && response.request().method() === "POST"
   );
-  await page.getByRole("button", { name: "Creer le brouillon" }).click();
+  await page.getByRole("button", { name: "Créer le brouillon" }).click();
   const createResponse = await createResponsePromise;
-  expect(createResponse.ok(), await createResponse.text()).toBeTruthy();
+  expect(createResponse.ok()).toBeTruthy();
+  templateId = (await createResponse.json()).test_template.identity.template_id;
 
   await expect(page.getByText("Éditeur de méthode")).toBeVisible();
   await expect(page.getByRole("heading", { name: "E2E LAB template" })).toBeVisible();
@@ -26,8 +26,8 @@ test("template studio workflow persists through API", async ({ page, request }) 
   await expect(page.getByRole("textbox", { name: "Variable 2 ID" })).toHaveValue("variable_2");
   await expect(page.locator(".saveState.dirty")).toHaveText("Modifications non sauvegardees");
 
-  await page.getByRole("button", { name: /Valider/ }).click();
-  await expect(page.getByText("Definition valide")).toBeVisible();
+  await page.getByRole("button", { name: /Vérifier la définition/ }).click();
+  await expect(page.getByText("Définition prête à être soumise")).toBeVisible();
 
   const saveResponse = page.waitForResponse((response) =>
     response.url().includes(`/api/v1/test-templates/${templateId}/revisions/`) &&
@@ -50,7 +50,7 @@ test("template studio workflow persists through API", async ({ page, request }) 
   );
   await page.getByRole("button", { name: /Approuver/ }).click();
   await approveResponse;
-  await expect(page.getByText("Approuve")).toBeVisible();
+  await expect(page.getByText("Approuvé")).toBeVisible();
 
   const deriveResponse = page.waitForResponse((response) =>
     response.url().endsWith(`/api/v1/test-templates/${templateId}/revisions`) &&
