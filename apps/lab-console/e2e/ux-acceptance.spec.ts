@@ -113,7 +113,7 @@ test("main operator paths stay clear at supported desktop sizes", async ({ page,
     await page.getByRole("button", { name: /spectre en fréquence/ }).click();
     const label = `Pertes câble RF contrôle ${size}`;
     await page.getByLabel("Nom de la correction").fill(label);
-    await page.getByRole("button", { name: "Nouvelle réponse" }).click();
+    await page.getByRole("button", { name: "Nouvelle correction" }).click();
     await expect(page.locator(".equipmentStudio").getByRole("heading", { name: label })).toBeVisible();
     await expect(page.getByText("Identifiant interne")).toHaveCount(0);
     await expect(page.getByText("Identifiant personnalisé")).toHaveCount(0);
@@ -131,7 +131,7 @@ test("main operator paths stay clear at supported desktop sizes", async ({ page,
 
     await page.getByRole("button", { name: "Ajouter une caractérisation" }).click();
     await expect(page.getByRole("heading", { name: "Ajouter une caractérisation" })).toBeVisible();
-    await expect(page.getByText("Réponse fréquentielle", { exact: true })).toBeVisible();
+    await expect(page.getByText("Correction selon la fréquence", { exact: true })).toBeVisible();
     await assertNoHorizontalOverflow(page);
     await capture(page, testInfo, `nouvelle-caracterisation-${size}.png`);
   }

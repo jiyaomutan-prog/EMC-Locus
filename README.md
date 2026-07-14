@@ -84,7 +84,19 @@ This repository is at foundation stage. The current focus is product framing,
 domain modeling, and an implementation skeleton that can grow into tested Rust
 and Python modules.
 
-Current software version: `0.17.0`.
+Current software version: `0.18.0`.
+
+Version `0.18.0` separates a model's correction requirement, its optional
+nominal value, the immutable calibration or characterization of one serialized
+material, and the reviewed assignment that makes that value usable. The Rust
+core now resolves corrections deterministically for a date, execution context,
+signal path and conditions such as antenna polarization. LAB CONSOLE starts
+from `Matériels réels`: it explains missing evidence, previews a time
+conversion or frequency correction, records validity and proof, submits it for
+review, activates it explicitly and shows whether the material is ready. A
+calibrated value visibly takes precedence over a nominal model value. This
+release resolves and previews the selected correction; it still does not apply
+it to acquired data.
 
 Version `0.17.0` adds the first revisioned physical measurement-setup workflow
 to Locus Test Station. An operator selects real serial-numbered materials,
@@ -387,6 +399,10 @@ biconical antenna, RF cable, RF amplifier, IEPE accelerometer, DAQ analog
 input, and a logical `current_A` acquisition recipe. `-Rebuild`
 rebuilds the React application when Node/npm is available; normal release launch
 uses the committed `apps/lab-console/dist` bundle and does not require Node.
+`-StorageRootPath`, `-CargoTargetDirectory` and `-StateName` allow an automated
+or parallel session to isolate persistence, build output and process state; the
+launcher smoke suite uses these options and never resets the normal
+`data/local-agent` root or rebuilds its running executable.
 `start-full-demo` opens LAB CONSOLE and then launches TEST CONSOLE Qt against
 the same local storage. `start-qt-demo -Mode Static` now uses
 `apps/qt-console/demo/bootstrap.json`, a strict JSON fixture owned by the Qt

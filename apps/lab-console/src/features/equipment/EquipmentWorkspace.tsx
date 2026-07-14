@@ -35,6 +35,7 @@ import {
 } from "../../api";
 import type {
   CommunicationProviderStatus,
+  CorrectionRequirementDefinition,
   DriverActionDefinition,
   DriverProfileAggregate,
   DriverProfileDefinition,
@@ -100,8 +101,8 @@ type DriverSection =
 
 const measurementSpaces: Array<[EquipmentSpace, string]> = [
   ["sensors", "Capteurs / transducteurs"],
-  ["scaling", "Conversions temporelles"],
-  ["curves", "Réponses fréquentielles"],
+  ["scaling", "Conversions du signal brut"],
+  ["curves", "Corrections selon la fréquence"],
   ["daq", "Voies DAQ"],
   ["recipes", "Chaînes d'acquisition"]
 ];
@@ -112,7 +113,7 @@ const modelSections: Array<[ModelSection, string]> = [
   ["category_template", "Categorie et formulaire"],
   ["characteristics", "Caracteristiques"],
   ["ports_connections", "Entrées et sorties"],
-  ["measurement_corrections", "Chemins du signal"],
+  ["measurement_corrections", "Entrées, sorties et corrections"],
   ["control_drivers", "Pilotage / drivers"],
   ["documents", "Documents"],
   ["revisions_audit", "Revisions et audit"],
@@ -942,6 +943,7 @@ export function EquipmentWorkspace() {
         <PhysicalAssetMetrologyPanel
           instruments={instruments}
           approvedModels={approvedModels}
+          nominalCorrections={[...sampleConversions, ...frequencyResponses]}
           categories={categories}
           onRegister={registerPhysicalAsset}
           onOpenCatalog={() => setSpace("catalog")}
@@ -2266,36 +2268,107 @@ function SignalPathEditor(props: {
         label: "Chemin de mesure",
         input_port_id: input.port_id,
         output_port_id: output.port_id,
-        transformations: []
+        transformations: [],
+        correction_requirements: []
       }
     ]);
   }
 
-  function setTransformation(
+  function updateRequirement(
     pathIndex: number,
     path: EquipmentSignalPathDefinition,
-    kind: SignalTransformationKind,
-    value: string
+    requirementIndex: number,
+    requirement: CorrectionRequirementDefinition
   ) {
-    const otherReferences = path.transformations.filter((reference) => reference.transformation_kind !== kind);
-    const selected = props.transformationOptions.find(
-      (option) => option.transformation_kind === kind && `${option.entity_id}@${option.revision_id}` === value
-    );
-    const transformations = selected
-      ? [...otherReferences, {
-          transformation_kind: selected.transformation_kind,
-          entity_id: selected.entity_id,
-          revision_id: selected.revision_id,
-          definition_checksum: selected.definition_checksum
-        }]
-      : otherReferences;
-    props.onPaths(replaceAt(props.paths, pathIndex, { ...path, transformations }));
+    props.onPaths(replaceAt(props.paths, pathIndex, {
+      ...path,
+      correction_requirements: replaceAt(
+        path.correction_requirements ?? [],
+        requirementIndex,
+        requirement
+      )
+    }));
+  }
+
+  function addRequirement(pathIndex: number, path: EquipmentSignalPathDefinition, kind: SignalTransformationKind) {
+    const input = props.ports.find((port) => port.port_id === path.input_port_id);
+    const output = props.ports.find((port) => port.port_id === path.output_port_id);
+    const requirements = path.correction_requirements ?? [];
+    const correction_kind = kind === "sample_conversion"
+      ? "raw_signal_conversion"
+      : "frequency_dependent_correction";
+    const requirement: CorrectionRequirementDefinition = {
+      requirement_id: `${path.path_id}_${kind}_${requirements.length + 1}`,
+      display_name: kind === "sample_conversion" ? "Conversion du signal brut" : "Correction en fréquence",
+      description: kind === "sample_conversion"
+        ? "Convertir les échantillons bruts en grandeur physique."
+        : "Compenser l'amplitude selon la fréquence.",
+      signal_path_id: path.path_id,
+      correction_kind,
+      physical_purpose: kind === "sample_conversion"
+        ? "Appliquer la sensibilité, l'offset et les limites du matériel."
+        : "Compenser la réponse amplitude-fréquence de la chaîne.",
+      operation: kind === "sample_conversion" ? "multiply" : "add",
+      input_quantity: input?.quantity ?? "dimensionless",
+      output_quantity: output?.quantity ?? input?.quantity ?? "dimensionless",
+      expected_unit: kind === "sample_conversion" ? (output?.unit ?? "dimensionless") : "dB",
+      required_for_use: true,
+      asset_specific_policy: "asset_required",
+      conditions: {}
+    };
+    props.onPaths(replaceAt(props.paths, pathIndex, {
+      ...path,
+      correction_requirements: [...requirements, requirement]
+    }));
+  }
+
+  function migrateLegacyReferences(pathIndex: number, path: EquipmentSignalPathDefinition) {
+    const input = props.ports.find((port) => port.port_id === path.input_port_id);
+    const output = props.ports.find((port) => port.port_id === path.output_port_id);
+    const migrated = (path.transformations ?? []).map((reference, index): CorrectionRequirementDefinition => {
+      const correction_kind = reference.transformation_kind === "sample_conversion"
+        ? "raw_signal_conversion"
+        : "frequency_dependent_correction";
+      return {
+        requirement_id: `${path.path_id}_migrated_${index + 1}`,
+        display_name: reference.transformation_kind === "sample_conversion"
+          ? "Conversion nominale du modèle"
+          : "Réponse fréquentielle nominale",
+        description: "Exigence migrée depuis un ancien lien de correction.",
+        signal_path_id: path.path_id,
+        correction_kind,
+        physical_purpose: reference.transformation_kind === "sample_conversion"
+          ? "Convertir le signal brut en grandeur physique."
+          : "Compenser la réponse amplitude-fréquence du modèle.",
+        operation: reference.transformation_kind === "sample_conversion" ? "multiply" : "add",
+        input_quantity: input?.quantity ?? "dimensionless",
+        output_quantity: output?.quantity ?? input?.quantity ?? "dimensionless",
+        expected_unit: reference.transformation_kind === "sample_conversion"
+          ? (output?.unit ?? "dimensionless")
+          : "dB",
+        required_for_use: true,
+        asset_specific_policy: "model_value_allowed",
+        model_default_reference: {
+          correction_kind,
+          definition_id: reference.entity_id,
+          revision_id: reference.revision_id,
+          definition_checksum: reference.definition_checksum,
+          quality: "model_characterization"
+        },
+        conditions: {}
+      };
+    });
+    props.onPaths(replaceAt(props.paths, pathIndex, {
+      ...path,
+      transformations: [],
+      correction_requirements: migrated
+    }));
   }
 
   return (
-    <EditorCard title="Chemins du signal">
+    <EditorCard title="Entrées, sorties et corrections attendues">
       <div className="signalPathHeader">
-        <p>Chaque chemin relie une entrée à une sortie du modèle et épingle les traitements approuvés qui s’appliquent au signal.</p>
+        <p>Chaque chemin relie une entrée à une sortie et indique les corrections nécessaires pour exploiter le signal.</p>
         <button type="button" disabled={props.readOnly || inputPorts.length === 0 || outputPorts.length === 0} onClick={addPath}>
           <Plus size={16} /> Ajouter un chemin
         </button>
@@ -2308,8 +2381,8 @@ function SignalPathEditor(props: {
       )}
       <div className="signalPathList">
         {props.paths.map((path, index) => {
-          const sampleConversion = path.transformations.find((item) => item.transformation_kind === "sample_conversion");
-          const frequencyResponse = path.transformations.find((item) => item.transformation_kind === "frequency_response");
+          const requirements = path.correction_requirements ?? [];
+          const legacyReferences = path.transformations ?? [];
           return (
             <section className="signalPathRow" key={path.path_id}>
               <div className="signalPathTitle">
@@ -2340,21 +2413,77 @@ function SignalPathEditor(props: {
                   </select>
                 </label>
               </div>
-              <div className="signalTransformationGrid">
-                <label>
-                  Conversion des échantillons
-                  <select disabled={props.readOnly} value={sampleConversion ? `${sampleConversion.entity_id}@${sampleConversion.revision_id}` : ""} onChange={(event) => setTransformation(index, path, "sample_conversion", event.target.value)}>
-                    <option value="">Aucune conversion</option>
-                    {props.transformationOptions.filter((option) => option.transformation_kind === "sample_conversion").map((option) => <option key={option.revision_id} value={`${option.entity_id}@${option.revision_id}`}>{option.label}</option>)}
-                  </select>
-                </label>
-                <label>
-                  Réponse fréquentielle
-                  <select disabled={props.readOnly} value={frequencyResponse ? `${frequencyResponse.entity_id}@${frequencyResponse.revision_id}` : ""} onChange={(event) => setTransformation(index, path, "frequency_response", event.target.value)}>
-                    <option value="">Aucune correction</option>
-                    {props.transformationOptions.filter((option) => option.transformation_kind === "frequency_response").map((option) => <option key={option.revision_id} value={`${option.entity_id}@${option.revision_id}`}>{option.label}</option>)}
-                  </select>
-                </label>
+              {legacyReferences.length > 0 && (
+                <div className="legacyCorrectionNotice">
+                  <AlertTriangle size={17} />
+                  <span>Ancien lien de correction détecté sur ce chemin.</span>
+                  <button type="button" className="secondary" disabled={props.readOnly} onClick={() => migrateLegacyReferences(index, path)}>
+                    Convertir en exigence
+                  </button>
+                </div>
+              )}
+              <div className="correctionRequirementHeader">
+          <strong>Corrections attendues</strong>
+                <div className="buttonRow">
+                  <button type="button" className="secondary" disabled={props.readOnly || legacyReferences.length > 0} onClick={() => addRequirement(index, path, "sample_conversion")}>
+                    <Activity size={15} /> Ajouter une conversion du signal brut
+                  </button>
+                  <button type="button" className="secondary" disabled={props.readOnly || legacyReferences.length > 0} onClick={() => addRequirement(index, path, "frequency_response")}>
+                    <SlidersHorizontal size={15} /> Ajouter une correction selon la fréquence
+                  </button>
+                </div>
+              </div>
+              {requirements.length === 0 && legacyReferences.length === 0 && (
+                <div className="compactEmpty"><strong>Aucune correction requise</strong><span>Le signal peut être utilisé directement sur ce chemin.</span></div>
+              )}
+              <div className="correctionRequirementList">
+                {requirements.map((requirement, requirementIndex) => {
+                  const transformationKind = requirement.correction_kind === "raw_signal_conversion"
+                    ? "sample_conversion"
+                    : "frequency_response";
+                  const nominalValue = requirement.model_default_reference
+                    ? `${requirement.model_default_reference.definition_id}@${requirement.model_default_reference.revision_id}`
+                    : "";
+                  return (
+                    <article className="correctionRequirementCard" key={requirement.requirement_id}>
+                      <header>
+                        <span className="requirementKind">{requirement.correction_kind === "raw_signal_conversion" ? "Signal temporel" : "Spectre fréquentiel"}</span>
+                        <button type="button" className="iconButton danger" title="Supprimer l'exigence" disabled={props.readOnly} onClick={() => props.onPaths(replaceAt(props.paths, index, { ...path, correction_requirements: requirements.filter((_, itemIndex) => itemIndex !== requirementIndex) }))}><Trash2 size={15} /></button>
+                      </header>
+                      <div className="formGrid compactGrid">
+                        <Field label="Que faut-il corriger ?" value={requirement.display_name} disabled={props.readOnly} onChange={(display_name) => updateRequirement(index, path, requirementIndex, { ...requirement, display_name })} />
+                        <label>Quelle opération faut-il appliquer ?<select disabled={props.readOnly} value={requirement.operation} onChange={(event) => updateRequirement(index, path, requirementIndex, { ...requirement, operation: event.target.value as CorrectionRequirementDefinition["operation"] })}><option value="add">Ajouter</option><option value="subtract">Soustraire</option><option value="multiply">Multiplier</option><option value="divide">Diviser</option></select></label>
+                        <Field label="Unité attendue" value={requirement.expected_unit} disabled={props.readOnly} onChange={(expected_unit) => updateRequirement(index, path, requirementIndex, { ...requirement, expected_unit })} />
+                        <label>Chaque exemplaire doit-il avoir sa propre valeur ?<select disabled={props.readOnly} value={requirement.asset_specific_policy} onChange={(event) => updateRequirement(index, path, requirementIndex, { ...requirement, asset_specific_policy: event.target.value as CorrectionRequirementDefinition["asset_specific_policy"] })}><option value="asset_required">Oui, elle est obligatoire</option><option value="asset_preferred">Oui, si elle est disponible</option><option value="model_value_allowed">Non, la valeur du modèle est autorisée</option><option value="model_value_only">Non, toujours utiliser la valeur du modèle</option></select></label>
+                        <label className="checkboxField"><input type="checkbox" disabled={props.readOnly} checked={requirement.required_for_use} onChange={(event) => updateRequirement(index, path, requirementIndex, { ...requirement, required_for_use: event.target.checked })} /> Correction obligatoire avant un essai</label>
+                      </div>
+                      <label>Pourquoi cette correction est-elle nécessaire ?<textarea disabled={props.readOnly} value={requirement.physical_purpose} onChange={(event) => updateRequirement(index, path, requirementIndex, { ...requirement, physical_purpose: event.target.value })} /></label>
+                      <label>Une valeur nominale du modèle peut-elle être utilisée ?
+                        <select disabled={props.readOnly} value={nominalValue} onChange={(event) => {
+                          const selected = props.transformationOptions.find((option) => option.transformation_kind === transformationKind && `${option.entity_id}@${option.revision_id}` === event.target.value);
+                          updateRequirement(index, path, requirementIndex, {
+                            ...requirement,
+                            model_default_reference: selected ? {
+                              correction_kind: requirement.correction_kind,
+                              definition_id: selected.entity_id,
+                              revision_id: selected.revision_id,
+                              definition_checksum: selected.definition_checksum,
+                              quality: "manufacturer_nominal"
+                            } : undefined
+                          });
+                        }}>
+                          <option value="">Aucune valeur nominale</option>
+                          {props.transformationOptions.filter((option) => option.transformation_kind === transformationKind).map((option) => <option key={option.revision_id} value={`${option.entity_id}@${option.revision_id}`}>{option.label}</option>)}
+                        </select>
+                      </label>
+                      <details className="technicalDetails">
+                        <summary>Diagnostic technique</summary>
+                        <p>Informations destinées au support et aux développeurs.</p>
+                        <Field label="Identifiant interne" value={requirement.requirement_id} disabled={props.readOnly} onChange={(requirement_id) => updateRequirement(index, path, requirementIndex, { ...requirement, requirement_id })} />
+                      </details>
+                    </article>
+                  );
+                })}
               </div>
             </section>
           );

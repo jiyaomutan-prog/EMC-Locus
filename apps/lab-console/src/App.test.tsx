@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { App } from "./App";
+import type { EquipmentModelDefinition } from "./models/equipment";
+import type { AssetCorrectionAssignment } from "./models/metrology";
 import {
   auditFixture,
   healthFixture,
@@ -112,8 +114,7 @@ describe("LAB CONSOLE", () => {
     render(<App />);
 
     await screen.findByText("Aucune méthode d’essai");
-    expect(screen.getByText("Métrologie")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Métrologie" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Métrologie")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Réduire la navigation" }));
     expect(screen.getByRole("button", { name: "Déployer la navigation" })).toBeInTheDocument();
@@ -337,6 +338,7 @@ describe("LAB CONSOLE", () => {
     const instrument = metrologyInstrumentFixture();
     const characterizations: Array<Record<string, unknown>> = [];
     const collectionPath = `/api/v1/metrology/instruments/${instrument.asset_id}/characterizations`;
+    const correctionPath = `/api/v1/metrology/instruments/${instrument.asset_id}/corrections`;
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === "/api/v1/health") return jsonResponse(healthFixture);
@@ -350,6 +352,21 @@ describe("LAB CONSOLE", () => {
       if (path === "/api/v1/driver-profiles") return jsonResponse({ driver_profiles: [] });
       if (path === "/api/v1/equipment/communication-providers") return jsonResponse({ providers: [] });
       if (path === "/api/v1/metrology/instruments") return jsonResponse({ instruments: [instrument] });
+      if (path === "/api/v1/metrology/corrections/review-queue") return jsonResponse({ assignments: [] });
+      if (path === correctionPath) return jsonResponse({ assignments: [] });
+      if (path === `${correctionPath}/resolve`) return jsonResponse({
+        asset_id: instrument.asset_id,
+        equipment_model_id: instrument.equipment_model_id,
+        equipment_model_revision_id: instrument.equipment_model_revision_id,
+        equipment_model_checksum: instrument.equipment_model_checksum,
+        report: {
+          asset_id: instrument.asset_id,
+          intended_use_on: "2026-07-14",
+          execution_context: "accredited",
+          ready: true,
+          resolutions: []
+        }
+      });
       if (path === collectionPath && init?.method === "POST") {
         const body = JSON.parse(String(init.body));
         const characterization = {
@@ -358,7 +375,9 @@ describe("LAB CONSOLE", () => {
           characterization_kind: body.definition.correction.correction_kind,
           label: body.definition.label,
           performed_on: body.performed_on,
+          valid_from: body.valid_from ?? body.performed_on,
           valid_until: body.valid_until,
+          source_kind: body.source_kind ?? "characterization",
           provider: body.provider,
           method_reference: body.method_reference,
           decision: body.decision,
@@ -370,7 +389,11 @@ describe("LAB CONSOLE", () => {
           comment: body.comment ?? "",
           recorded_at: "2026-07-14T20:00:00Z",
           recorded_by: body.recorded_by,
-          revision: "rev-0001"
+          revision: "rev-0001",
+          environmental_conditions: body.environmental_conditions ?? {},
+          as_found: body.as_found ?? null,
+          as_left: body.as_left ?? null,
+          adjustment_performed: body.adjustment_performed ?? false
         };
         characterizations.push(characterization);
         return jsonResponse({ characterization });
@@ -399,7 +422,7 @@ describe("LAB CONSOLE", () => {
       screen.getByLabelText(/Tableau mesuré/),
       "frequence_hz,amplitude_db\n1000000,0.15\n1000000000,2.8"
     );
-    await user.click(screen.getByRole("button", { name: "Enregistrer la caractérisation" }));
+    await user.click(screen.getByRole("button", { name: "Enregistrer puis préparer la revue" }));
 
     expect(await screen.findByRole("heading", { name: "Pertes mesurées" })).toBeInTheDocument();
     expect(screen.getByText("2 points, de 1 MHz à 1 GHz")).toBeInTheDocument();
@@ -731,7 +754,7 @@ describe("LAB CONSOLE", () => {
     expect(await screen.findByRole("heading", { name: "Comment le signal est-il exploité ?" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /échantillons temporels/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /spectre en fréquence/ })).toBeInTheDocument();
-    await user.click(await screen.findByRole("button", { name: "Réponses fréquentielles" }));
+    await user.click(await screen.findByRole("button", { name: "Corrections selon la fréquence" }));
     await user.click(await screen.findByRole("button", { name: /Demo RF cable loss/ }));
     expect(screen.getByText("Spectre fréquentiel")).toBeInTheDocument();
     expect(screen.getByText(/Compensation d.amplitude/)).toBeInTheDocument();
@@ -783,7 +806,7 @@ describe("LAB CONSOLE", () => {
     await user.click(await screen.findByRole("button", { name: /Demo Current Probe/ }));
     expect(await screen.findByRole("combobox", { name: "Famille de capteur" })).toHaveValue("current_probe");
 
-    await user.click(screen.getAllByRole("button", { name: "Conversions temporelles" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Conversions du signal brut" })[0]);
     await user.click(await screen.findByRole("button", { name: /Current probe 10 mV/ }));
     expect(screen.getByText("Signal temporel échantillonné")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Gain et offset" }));
@@ -793,7 +816,7 @@ describe("LAB CONSOLE", () => {
     await user.click(screen.getByRole("button", { name: "Table de conversion" }));
     expect(screen.getByPlaceholderText("valeur_brute,valeur_physique")).toBeInTheDocument();
 
-    await user.click(screen.getAllByRole("button", { name: "Réponses fréquentielles" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Corrections selon la fréquence" })[0]);
     expect(await screen.findByText("Aucune définition ouverte")).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("valeur_brute,valeur_physique")).not.toBeInTheDocument();
 
@@ -807,6 +830,188 @@ describe("LAB CONSOLE", () => {
     await user.click(screen.getByRole("button", { name: "Chaîne de mesure" }));
     expect((await screen.findAllByText("Voie DAQ")).length).toBeGreaterThan(0);
     expect(screen.getByText("current_A [A]")).toBeInTheDocument();
+  });
+
+  test("reviews and activates a serial-specific correction from the material record", async () => {
+    const instrument = metrologyInstrumentFixture();
+    const model = equipmentModelFixture();
+    instrument.equipment_model_id = model.identity.equipment_model_id;
+    instrument.equipment_model_revision_id = model.current_approved_revision!.revision_id;
+    instrument.equipment_model_checksum = model.current_approved_revision!.definition_checksum;
+    const definition = model.current_approved_revision!.definition as EquipmentModelDefinition;
+    definition.signal_ports.push({
+      port_id: "measurement_result",
+      label: "Measured result",
+      directionality: "output",
+      flow_role: "measurement_port",
+      signal_domain: "software",
+      quantity: "power",
+      unit: "dBm"
+    });
+    definition.signal_paths = [{
+      path_id: "RF_MEASUREMENT",
+      label: "RF measurement",
+      input_port_id: "rf_input",
+      output_port_id: "measurement_result",
+      transformations: [],
+      correction_requirements: [{
+        requirement_id: "rf_input_loss",
+        display_name: "Pertes du chemin RF",
+        description: "Compensation d'amplitude",
+        signal_path_id: "RF_MEASUREMENT",
+        correction_kind: "frequency_dependent_correction",
+        physical_purpose: "Compenser les pertes entre le connecteur et le plan de référence.",
+        operation: "add",
+        input_quantity: "power",
+        output_quantity: "power",
+        expected_unit: "dB",
+        required_for_use: true,
+        asset_specific_policy: "asset_preferred",
+        model_default_reference: {
+          correction_kind: "frequency_dependent_correction",
+          definition_id: "CURVE-NOMINAL-RF-LOSS",
+          revision_id: "CURVE-NOMINAL-RF-LOSS-rev-0001",
+          definition_checksum: `sha256:${"d".repeat(64)}`,
+          quality: "manufacturer_nominal"
+        },
+        conditions: {}
+      }]
+    }];
+    const characterization = {
+      characterization_id: "CHAR-SA-RF-001",
+      asset_id: instrument.asset_id,
+      characterization_kind: "frequency_response",
+      label: "Pertes mesurées du chemin RF",
+      performed_on: "2026-07-01",
+      valid_from: "2026-07-01",
+      valid_until: "2027-07-01",
+      source_kind: "characterization",
+      provider: "Laboratoire interne",
+      method_reference: "MET-RF-001",
+      decision: "conforming",
+      definition_schema_version: "emc-locus.asset-characterization-definition.v1",
+      definition: {
+        definition_schema_version: "emc-locus.asset-characterization-definition.v1",
+        characterization_id: "CHAR-SA-RF-001",
+        asset_id: instrument.asset_id,
+        label: "Pertes mesurées du chemin RF",
+        correction: { correction_kind: "frequency_response", correction: { points: [] } },
+        conditions: {}
+      },
+      definition_checksum: `sha256:${"c".repeat(64)}`,
+      certificate_reference: "CERT-RF-001",
+      document_manifest: null,
+      comment: "",
+      recorded_at: "2026-07-14T20:00:00Z",
+      recorded_by: "metrology.operator",
+      revision: "rev-characterization",
+      environmental_conditions: {},
+      as_found: null,
+      as_left: null,
+      adjustment_performed: false
+    };
+    let assignment: AssetCorrectionAssignment | null = null;
+    let revision = "rev-draft";
+    const correctionPath = `/api/v1/metrology/instruments/${instrument.asset_id}/corrections`;
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/health") return jsonResponse(healthFixture);
+      if (path === "/api/v1/storage/status") return jsonResponse(storageFixture);
+      if (path === "/api/v1/test-templates") return jsonResponse({ test_templates: [templateFixture()] });
+      if (path === "/api/v1/equipment/registries") return jsonResponse(equipmentRegistriesFixture());
+      if (path === "/api/v1/equipment/classification-presets") return jsonResponse({ presets: [] });
+      if (path === "/api/v1/equipment-models" || path.startsWith("/api/v1/equipment-models?")) return jsonResponse({ equipment_models: [model] });
+      if (path === "/api/v1/driver-profiles") return jsonResponse({ driver_profiles: [] });
+      if (path === "/api/v1/equipment/communication-providers") return jsonResponse({ providers: [] });
+      if (path === "/api/v1/metrology/instruments") return jsonResponse({ instruments: [instrument] });
+      if (path.endsWith("/characterizations")) return jsonResponse({ asset_id: instrument.asset_id, characterizations: [characterization] });
+      if (path.endsWith("/characterizations/CHAR-SA-RF-001/audit-events")) return jsonResponse({ audit_events: [] });
+      if (path === "/api/v1/metrology/corrections/review-queue") return jsonResponse({ assignments: assignment?.status === "waiting_for_review" ? [{ assignment, revision }] : [] });
+      if (path === correctionPath && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        assignment = {
+          assignment_id: body.assignment_id,
+          asset_id: instrument.asset_id,
+          equipment_model_id: instrument.equipment_model_id,
+          equipment_model_revision_id: instrument.equipment_model_revision_id,
+          equipment_model_checksum: instrument.equipment_model_checksum,
+          signal_path_id: body.signal_path_id,
+          requirement_id: body.requirement_id,
+          correction_definition_id: characterization.characterization_id,
+          correction_revision_id: characterization.revision,
+          correction_checksum: characterization.definition_checksum,
+          source_event_id: characterization.characterization_id,
+          source_kind: "characterization",
+          valid_from: characterization.valid_from,
+          valid_until: characterization.valid_until,
+          status: "draft",
+          conditions: {},
+          assigned_at: "2026-07-14T20:00:00Z",
+          assigned_by: "metrology.operator"
+        };
+        revision = "rev-draft";
+        return jsonResponse({ assignment, revision });
+      }
+      if (path === correctionPath) return jsonResponse({ assignments: assignment ? [{ assignment, revision }] : [] });
+      if (path.includes("/transitions/submit-for-review")) {
+        assignment!.status = "waiting_for_review";
+        assignment!.submitted_at = "2026-07-14T20:10:00Z";
+        revision = "rev-review";
+        return jsonResponse({ assignment, revision });
+      }
+      if (path.includes("/transitions/approve-and-activate")) {
+        assignment!.status = "active";
+        assignment!.approved_at = "2026-07-14T20:20:00Z";
+        assignment!.approved_by = "metrology.reviewer";
+        revision = "rev-active";
+        return jsonResponse({ assignment, revision });
+      }
+      if (path === `${correctionPath}/resolve`) {
+        const active = assignment?.status === "active";
+        return jsonResponse({ report: {
+          asset_id: instrument.asset_id,
+          intended_use_on: "2026-07-14",
+          execution_context: "accredited",
+          ready: active,
+          resolutions: [{
+            requirement_id: "rf_input_loss",
+            display_name: "Pertes du chemin RF",
+            signal_path_id: "RF_MEASUREMENT",
+            selected_source: active ? "asset_specific" : "none",
+            reason: active ? "active_asset_correction" : "asset_correction_missing",
+            fallback_used: false,
+            blocking: !active
+          }]
+        } });
+      }
+      return mockBaseApiResponse(path, init);
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Équipements" }));
+    await user.click(await screen.findByRole("button", { name: "Matériels réels" }));
+    expect(await screen.findByText("Correction manquante")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Lier cette preuve" }));
+    await user.click(await screen.findByRole("button", { name: "Soumettre pour revue" }));
+    expect(await screen.findByText(/attend une décision/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Approuver et activer" }));
+    expect(await screen.findByText("Active pour ce matériel")).toBeInTheDocument();
+    expect(screen.getByText("Prêt pour un essai")).toBeInTheDocument();
+    expect(screen.getByText("Valeur propre à ce matériel")).toBeInTheDocument();
+    expect(screen.getByText("Valeur nominale du modèle")).toBeInTheDocument();
+    expect(screen.getByText(/non sélectionnée/)).toBeInTheDocument();
+    const operatorText = document.querySelector(".physicalAssetsLayout")?.textContent ?? "";
+    for (const forbidden of [
+      "EngineeringCurve",
+      "ScalingProfile",
+      "asset_correction_assignment",
+      "definition_checksum",
+      "entity_id"
+    ]) {
+      expect(operatorText).not.toContain(forbidden);
+    }
   });
 });
 
@@ -1400,6 +1605,15 @@ function mockBaseApiResponse(path: string, init?: RequestInit) {
   }
   if (path.includes("/api/v1/metrology/instruments/") && path.endsWith("/characterizations")) {
     return jsonResponse({ asset_id: "", characterizations: [] });
+  }
+  if (path === "/api/v1/metrology/corrections/review-queue") {
+    return jsonResponse({ assignments: [] });
+  }
+  if (path.includes("/api/v1/metrology/instruments/") && path.endsWith("/corrections")) {
+    return jsonResponse({ assignments: [] });
+  }
+  if (path.includes("/api/v1/metrology/instruments/") && path.endsWith("/corrections/resolve")) {
+    return jsonResponse({ report: { asset_id: "", intended_use_on: "2026-07-14", execution_context: "accredited", ready: true, resolutions: [] } });
   }
   if (path === "/api/v1/scaling-profiles") {
     return jsonResponse({ aggregate_kind: "scaling-profiles", collection_key: "items", items: [] });

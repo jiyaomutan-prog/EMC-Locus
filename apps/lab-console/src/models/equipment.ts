@@ -222,12 +222,52 @@ export interface SignalTransformationReference {
   definition_checksum: string;
 }
 
+export type CorrectionRequirementKind =
+  | "raw_signal_conversion"
+  | "frequency_dependent_correction";
+export type AssetSpecificCorrectionPolicy =
+  | "asset_required"
+  | "asset_preferred"
+  | "model_value_allowed"
+  | "model_value_only";
+export type NominalCorrectionQuality =
+  | "manufacturer_nominal"
+  | "manufacturer_typical"
+  | "model_characterization"
+  | "simulation_only";
+
+export interface ModelDefaultCorrectionReference {
+  correction_kind: CorrectionRequirementKind;
+  definition_id: string;
+  revision_id: string;
+  definition_checksum: string;
+  quality: NominalCorrectionQuality;
+}
+
+export interface CorrectionRequirementDefinition {
+  requirement_id: string;
+  display_name: string;
+  description: string;
+  signal_path_id: string;
+  correction_kind: CorrectionRequirementKind;
+  physical_purpose: string;
+  operation: "add" | "subtract" | "multiply" | "divide";
+  input_quantity: PhysicalQuantity;
+  output_quantity: PhysicalQuantity;
+  expected_unit: string;
+  required_for_use: boolean;
+  asset_specific_policy: AssetSpecificCorrectionPolicy;
+  model_default_reference?: ModelDefaultCorrectionReference;
+  conditions?: Record<string, string>;
+}
+
 export interface EquipmentSignalPathDefinition {
   path_id: string;
   label: string;
   input_port_id: string;
   output_port_id: string;
-  transformations: SignalTransformationReference[];
+  transformations?: SignalTransformationReference[];
+  correction_requirements?: CorrectionRequirementDefinition[];
 }
 
 export interface CommunicationInterfaceDefinition {

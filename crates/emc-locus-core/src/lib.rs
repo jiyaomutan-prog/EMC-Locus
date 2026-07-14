@@ -4,6 +4,7 @@
 //! It captures business rules that must remain stable across adapters.
 
 pub mod application_services;
+pub mod asset_corrections;
 pub mod audit;
 pub mod contracts;
 pub mod datasets;
@@ -28,6 +29,7 @@ pub mod traceability;
 pub mod updates;
 
 pub use application_services::*;
+pub use asset_corrections::*;
 pub use audit::*;
 pub use contracts::*;
 pub use datasets::*;

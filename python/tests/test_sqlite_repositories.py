@@ -826,7 +826,7 @@ class MetrologyRepositoryTests(unittest.TestCase):
 
             self.assertEqual(
                 [row["version"] for row in version_rows],
-                [1, 2, 3, 4, 5, 6, 7, 8, 9],
+                [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
             )
             column_names = {row["name"] for row in instrument_columns}
             self.assertIn("category_code", column_names)

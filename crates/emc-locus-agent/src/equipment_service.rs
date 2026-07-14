@@ -73,12 +73,13 @@ use crate::{
 };
 use emc_locus_core::equipment::{
     simulate_driver_action, AccessProviderKind, CommunicationInterfaceDefinition,
-    DefinitionValidationIssue, DriverProfileDefinition, DriverSimulationScenario, EquipmentClass,
-    EquipmentEffectiveFieldRule, EquipmentFieldDataType, EquipmentFieldDefinition,
-    EquipmentFieldScope, EquipmentModelDefinition, EquipmentModelTemplateSnapshot,
-    EquipmentRevisionStatus, FunctionalRole, PhysicalQuantity, PortDirectionality, PortFlowRole,
-    ProtocolKind, SignalDomain, SignalPortDefinition, SignalTransformationKind, TechnologyTag,
-    TransportKind, EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION,
+    CorrectionRequirementKind, DefinitionValidationIssue, DriverProfileDefinition,
+    DriverSimulationScenario, EquipmentClass, EquipmentEffectiveFieldRule, EquipmentFieldDataType,
+    EquipmentFieldDefinition, EquipmentFieldScope, EquipmentModelDefinition,
+    EquipmentModelTemplateSnapshot, EquipmentRevisionStatus, FunctionalRole, PhysicalQuantity,
+    PortDirectionality, PortFlowRole, ProtocolKind, SignalDomain, SignalPortDefinition,
+    SignalTransformationKind, TechnologyTag, TransportKind,
+    EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION,
 };
 use emc_locus_core::measurement_engineering::MeasurementEngineeringAggregateKind;
 use serde::de::DeserializeOwned;
@@ -4837,6 +4838,65 @@ fn validate_signal_transformation_references(
                     json!({
                         "path_id": signal_path.path_id,
                         "entity_id": reference.entity_id,
+                        "revision_id": reference.revision_id,
+                        "expected_checksum": revision.definition_checksum,
+                        "provided_checksum": reference.definition_checksum
+                    }),
+                ));
+            }
+        }
+        for requirement in &signal_path.correction_requirements {
+            let Some(reference) = &requirement.model_default_reference else {
+                continue;
+            };
+            let aggregate_kind = match requirement.correction_kind {
+                CorrectionRequirementKind::RawSignalConversion => {
+                    MeasurementEngineeringAggregateKind::ScalingProfile
+                }
+                CorrectionRequirementKind::FrequencyDependentCorrection => {
+                    MeasurementEngineeringAggregateKind::EngineeringCurve
+                }
+            };
+            let storage_kind = MeasurementEngineeringStorageKind::from_core(aggregate_kind);
+            let revision = load_measurement_engineering_revision(
+                connection,
+                storage_kind,
+                &reference.definition_id,
+                &reference.revision_id,
+            )?
+            .ok_or_else(|| {
+                AgentError::with_details(
+                    "model_default_correction_not_found",
+                    "correction requirement references an unknown nominal model value",
+                    json!({
+                        "path_id": signal_path.path_id,
+                        "requirement_id": requirement.requirement_id,
+                        "definition_id": reference.definition_id,
+                        "revision_id": reference.revision_id
+                    }),
+                )
+            })?;
+            if !matches!(revision.status.as_str(), "approved" | "superseded") {
+                return Err(AgentError::with_details(
+                    "model_default_correction_not_controlled",
+                    "a nominal model value must reference an approved or historically superseded definition",
+                    json!({
+                        "path_id": signal_path.path_id,
+                        "requirement_id": requirement.requirement_id,
+                        "definition_id": reference.definition_id,
+                        "revision_id": reference.revision_id,
+                        "status": revision.status
+                    }),
+                ));
+            }
+            if revision.definition_checksum != reference.definition_checksum {
+                return Err(AgentError::with_details(
+                    "model_default_correction_checksum_mismatch",
+                    "nominal model correction checksum does not match the controlled revision",
+                    json!({
+                        "path_id": signal_path.path_id,
+                        "requirement_id": requirement.requirement_id,
+                        "definition_id": reference.definition_id,
                         "revision_id": reference.revision_id,
                         "expected_checksum": revision.definition_checksum,
                         "provided_checksum": reference.definition_checksum

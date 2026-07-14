@@ -42,6 +42,8 @@ import type {
 } from "./models/equipment";
 import type {
   AssetCharacterization,
+  AssetCorrectionAssignmentEnvelope,
+  AssetCorrectionResolutionReport,
   MetrologyAuditEvent,
   MetrologyInstrument,
   RecordAssetCharacterizationInput,
@@ -625,6 +627,69 @@ export const metrologyApi = {
     request<{ audit_events: MetrologyAuditEvent[] }>(
       `/api/v1/metrology/instruments/${encodeURIComponent(assetId)}/characterizations/${encodeURIComponent(characterizationId)}/audit-events`
     ),
+  listCorrections: (assetId: string) =>
+    request<{ assignments: AssetCorrectionAssignmentEnvelope[] }>(
+      `/api/v1/metrology/instruments/${encodeURIComponent(assetId)}/corrections`
+    ),
+  correctionReviewQueue: () =>
+    request<{ assignments: AssetCorrectionAssignmentEnvelope[] }>(
+      "/api/v1/metrology/corrections/review-queue"
+    ),
+  createCorrection: (
+    assetId: string,
+    input: {
+      assignment_id: string;
+      signal_path_id: string;
+      requirement_id: string;
+      source_event_id: string;
+      valid_from?: string;
+      valid_until?: string;
+      conditions?: Record<string, string>;
+      actor: string;
+      reason: string;
+    }
+  ) =>
+    post<AssetCorrectionAssignmentEnvelope>(
+      `/api/v1/metrology/instruments/${encodeURIComponent(assetId)}/corrections`,
+      {
+        ...input,
+        operation_id: operationId("asset-correction-create", input.assignment_id)
+      }
+    ),
+  transitionCorrection: (
+    assetId: string,
+    assignmentId: string,
+    transition: "submit-for-review" | "approve-and-activate" | "reject" | "request-changes",
+    expectedRevision: string,
+    actor: string,
+    reason: string
+  ) =>
+    post<AssetCorrectionAssignmentEnvelope>(
+      `/api/v1/metrology/instruments/${encodeURIComponent(assetId)}/corrections/${encodeURIComponent(assignmentId)}/transitions/${transition}`,
+      {
+        expected_revision: expectedRevision,
+        actor,
+        reason,
+        operation_id: operationId("asset-correction-transition", `${assignmentId}-${transition}`)
+      }
+    ),
+  resolveCorrections: (
+    assetId: string,
+    intendedUseOn: string,
+    executionContext: "accredited" | "non_accredited" | "investigation" | "simulation",
+    conditions: Record<string, string> = {}
+  ) =>
+    post<{
+      asset_id: string;
+      equipment_model_id: string;
+      equipment_model_revision_id: string;
+      equipment_model_checksum: string;
+      report: AssetCorrectionResolutionReport;
+    }>(`/api/v1/metrology/instruments/${encodeURIComponent(assetId)}/corrections/resolve`, {
+      intended_use_on: intendedUseOn,
+      execution_context: executionContext,
+      conditions
+    }),
   uploadFile: async (file: File) =>
     post<{ file: EquipmentFileReference }>("/api/v1/metrology/files", {
       original_filename: file.name,

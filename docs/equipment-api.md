@@ -267,29 +267,41 @@ Example evaluation request:
 ### Equipment Signal Paths
 
 `EquipmentModelDefinition.signal_paths` binds declared measurement ports to
-controlled corrections:
+typed correction requirements. A requirement describes what a physical item
+must supply; its optional `model_default_reference` is explicitly nominal:
 
 ```json
 {
-  "path_id": "rf_input_to_spectrum",
-  "label": "RF input vers spectre corrigé",
-  "input_port_id": "rf_input",
-  "output_port_id": "measurement_result",
-  "transformations": [
+  "path_id": "rf_a_to_rf_b",
+  "label": "Transmission RF",
+  "input_port_id": "rf_a",
+  "output_port_id": "rf_b",
+  "correction_requirements": [
     {
-      "transformation_kind": "frequency_response",
-      "entity_id": "cable-loss-main",
-      "revision_id": "cable-loss-main-rev-0003",
-      "definition_checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      "requirement_id": "cable_loss",
+      "display_name": "Pertes du câble",
+      "description": "Pertes d'insertion du câble réel",
+      "signal_path_id": "rf_a_to_rf_b",
+      "correction_kind": "frequency_dependent_correction",
+      "physical_purpose": "Compenser les pertes du câble sérialisé.",
+      "operation": "add",
+      "input_quantity": "voltage",
+      "output_quantity": "voltage",
+      "expected_unit": "dB",
+      "required_for_use": true,
+      "asset_specific_policy": "asset_required",
+      "conditions": {}
     }
   ]
 }
 ```
 
-The agent resolves each reference in `equipment.sqlite`. The revision must be
-`approved` or `superseded`, and its canonical checksum must match. Unknown
-references return `404`; uncontrolled revisions and checksum mismatches return
-`409`. Communication-only ports cannot be used as measurement-path endpoints.
+For a nominal default, the nested reference contains a correction kind,
+definition id, revision id, canonical checksum and quality classification. The
+agent requires that revision to be `approved` or `superseded` and verifies its
+checksum. Communication-only ports cannot be path endpoints. A path cannot mix
+legacy `transformations` and `correction_requirements`; historical revisions
+remain readable, while new work uses the requirement contract.
 
 ### DAQ Channel Profiles
 

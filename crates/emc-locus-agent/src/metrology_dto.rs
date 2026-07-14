@@ -61,7 +61,9 @@ pub struct AssetCharacterizationDto {
     pub characterization_kind: String,
     pub label: String,
     pub performed_on: String,
+    pub valid_from: String,
     pub valid_until: String,
+    pub source_kind: String,
     pub provider: String,
     pub method_reference: String,
     pub decision: String,
@@ -74,6 +76,10 @@ pub struct AssetCharacterizationDto {
     pub recorded_at: String,
     pub recorded_by: String,
     pub revision: String,
+    pub environmental_conditions: Value,
+    pub as_found: Option<Value>,
+    pub as_left: Option<Value>,
+    pub adjustment_performed: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -274,6 +280,9 @@ pub(crate) fn asset_characterization_dto(
     record: &StoredAssetCharacterization,
     definition: Value,
     document_manifest: Option<Value>,
+    environmental_conditions: Value,
+    as_found: Option<Value>,
+    as_left: Option<Value>,
 ) -> AssetCharacterizationDto {
     AssetCharacterizationDto {
         characterization_id: record.characterization_id.clone(),
@@ -281,7 +290,9 @@ pub(crate) fn asset_characterization_dto(
         characterization_kind: record.characterization_kind.clone(),
         label: record.label.clone(),
         performed_on: record.performed_on.clone(),
+        valid_from: record.valid_from.clone(),
         valid_until: record.valid_until.clone(),
+        source_kind: record.source_kind.clone(),
         provider: record.provider.clone(),
         method_reference: record.method_reference.clone(),
         decision: record.decision.clone(),
@@ -294,5 +305,9 @@ pub(crate) fn asset_characterization_dto(
         recorded_at: record.recorded_at.clone(),
         recorded_by: record.recorded_by.clone(),
         revision: record.revision.clone(),
+        environmental_conditions,
+        as_found,
+        as_left,
+        adjustment_performed: record.adjustment_performed,
     }
 }

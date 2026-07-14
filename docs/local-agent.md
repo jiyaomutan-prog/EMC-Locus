@@ -155,6 +155,21 @@ bundle is present. A normal launch initializes structural repository defaults
 only; demo data is loaded only by explicit seed switches. Developers can pass `-Rebuild` or run
 `.\scripts\build-lab.ps1` on a machine with npm.
 
+Automated or parallel sessions can isolate both persistence and launcher state:
+
+```powershell
+.\scripts\start-lab.ps1 -Port 8876 -NoBrowser `
+  -StorageRootPath "data\isolated-lab" `
+  -CargoTargetDirectory "target\isolated-lab" `
+  -StateName "agent-isolated-lab"
+.\scripts\stop-agent.ps1 -StateName "agent-isolated-lab"
+```
+
+The default remains `data\local-agent` with state name `agent`. The launcher
+smoke suite uses a unique `data\launcher-smoke-*` root and state name, then
+uses an isolated `target\launcher-smoke-*` build and removes only those verified
+temporary roots.
+
 The implemented routes are:
 
 ```text
@@ -307,6 +322,14 @@ for the planned use date and execution mode. A successful `ready` transition
 makes the revision immutable and writes station audit plus sync outbox evidence
 atomically. `station.sqlite` is a separate local domain; it does not duplicate
 the equipment catalog or metrology record.
+
+Version `0.18.0` adds the reviewed correction link between one physical asset,
+one requirement from its pinned approved model and one immutable calibration or
+characterization event. The agent owns draft/review/activation transitions,
+atomic supersession, audit/outbox and deterministic resolution for an intended
+date, execution context and conditions. LAB CONSOLE consumes these routes from
+the material dossier. Resolution previews the controlled value and readiness;
+it does not apply the correction to measurement data.
 
 ## Python And Qt Client Path
 

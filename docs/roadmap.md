@@ -166,6 +166,12 @@ Deliverables:
   frequency response, receives an explainable readiness verdict, and freezes a
   revision as `Prêt à câbler`. The selected correction is not yet applied to
   acquired or simulated measurement data.
+- `0.18.0` separates correction requirements, nominal model values and reviewed
+  values belonging to one serial number. LAB CONSOLE now drives the missing
+  correction, evidence, review, activation and readiness workflow from the
+  physical material. A deterministic resolver handles validity, context and
+  conditions such as antenna polarization, without applying corrections to
+  acquired data yet.
 
 ## Phase 3: Measurement Runtime
 

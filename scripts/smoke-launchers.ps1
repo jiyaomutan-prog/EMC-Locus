@@ -9,6 +9,10 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Get-LauncherRepoRoot
 $paths = Initialize-LauncherPaths -RepoRoot $RepoRoot
+$smokeId = [guid]::NewGuid().ToString("N")
+$smokeStorageRoot = "data\launcher-smoke-$smokeId"
+$smokeCargoTarget = "target\launcher-smoke-$smokeId"
+$smokeStateName = "agent-smoke-$smokeId"
 $StartLab = Join-Path $PSScriptRoot "start-lab.ps1"
 $StopAgent = Join-Path $PSScriptRoot "stop-agent.ps1"
 $StartQtDemo = Join-Path $PSScriptRoot "start-qt-demo.ps1"
@@ -100,6 +104,51 @@ function Assert-LabAssetServed {
     }
 }
 
+function Start-IsolatedLab {
+    param([int]$Port)
+    & $StartLab `
+        -Port $Port `
+        -NoBrowser `
+        -Reset `
+        -CargoCommand $CargoCommand `
+        -CargoTargetDirectory $smokeCargoTarget `
+        -PythonCommand $PythonCommand `
+        -StorageRootPath $smokeStorageRoot `
+        -StateName $smokeStateName
+}
+
+function Stop-IsolatedLab {
+    & $StopAgent -StateName $smokeStateName
+}
+
+function Remove-IsolatedStorage {
+    $dataRoot = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot "data"))
+    $storageRoot = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $smokeStorageRoot))
+    $expectedPrefix = $dataRoot.TrimEnd('\') + '\'
+    $leaf = Split-Path -Leaf $storageRoot
+    if (-not $storageRoot.StartsWith($expectedPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+        -not $leaf.StartsWith("launcher-smoke-", [System.StringComparison]::Ordinal)) {
+        throw "Refusing to remove non-smoke storage: $storageRoot"
+    }
+    if (Test-Path -LiteralPath $storageRoot) {
+        Remove-Item -LiteralPath $storageRoot -Recurse -Force
+    }
+}
+
+function Remove-IsolatedCargoTarget {
+    $targetRoot = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot "target"))
+    $cargoTarget = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $smokeCargoTarget))
+    $expectedPrefix = $targetRoot.TrimEnd('\') + '\'
+    $leaf = Split-Path -Leaf $cargoTarget
+    if (-not $cargoTarget.StartsWith($expectedPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+        -not $leaf.StartsWith("launcher-smoke-", [System.StringComparison]::Ordinal)) {
+        throw "Refusing to remove non-smoke Cargo target: $cargoTarget"
+    }
+    if (Test-Path -LiteralPath $cargoTarget) {
+        Remove-Item -LiteralPath $cargoTarget -Recurse -Force
+    }
+}
+
 Set-Location $RepoRoot
 $labPort = Get-FreeLoopbackPort
 $busyPort = Get-FreeLoopbackPort
@@ -108,22 +157,22 @@ try {
     Invoke-Step "LAB starts from a path with spaces, serves API, root redirect, SPA, assets, and stops" {
         Push-Location ([System.IO.Path]::GetTempPath())
         try {
-            & $StartLab -Port $labPort -NoBrowser -Reset -CargoCommand $CargoCommand -PythonCommand $PythonCommand
+            Start-IsolatedLab -Port $labPort
         } finally {
             Pop-Location
         }
         $agentUrl = "http://127.0.0.1:$labPort"
         Assert-HttpStatus "$agentUrl/api/v1/health" | Out-Null
-        Assert-AgentStorageRoot -RepoRoot $RepoRoot -AgentUrl $agentUrl -ExpectedStorageRoot "data\local-agent" | Out-Null
+        Assert-AgentStorageRoot -RepoRoot $RepoRoot -AgentUrl $agentUrl -ExpectedStorageRoot $smokeStorageRoot | Out-Null
         Assert-RedirectToLab "$agentUrl/"
         Assert-HttpStatus "$agentUrl/lab/" | Out-Null
         Assert-HttpStatus "$agentUrl/lab/templates/does-not-exist" | Out-Null
         Assert-LabAssetServed -AgentUrl $agentUrl
-        & $StopAgent
+        Stop-IsolatedLab
     }
 
     Invoke-Step "LAB seed uses public API and library data becomes visible through API" {
-        & $StartLab -Port $labPort -NoBrowser -Reset -CargoCommand $CargoCommand -PythonCommand $PythonCommand
+        Start-IsolatedLab -Port $labPort
         try {
             $agentUrl = "http://127.0.0.1:$labPort"
             & $SeedLabDemo -AgentUrl $agentUrl
@@ -135,12 +184,12 @@ try {
                 }
             }
         } finally {
-            & $StopAgent
+            Stop-IsolatedLab
         }
     }
 
     Invoke-Step "Equipment seed uses public API and catalog data becomes visible through API" {
-        & $StartLab -Port $labPort -NoBrowser -Reset -CargoCommand $CargoCommand -PythonCommand $PythonCommand
+        Start-IsolatedLab -Port $labPort
         try {
             $agentUrl = "http://127.0.0.1:$labPort"
             & $SeedEquipmentDemo -AgentUrl $agentUrl
@@ -159,12 +208,12 @@ try {
                 }
             }
         } finally {
-            & $StopAgent
+            Stop-IsolatedLab
         }
     }
 
     Invoke-Step "Measurement engineering seed uses public API and definitions become visible through API" {
-        & $StartLab -Port $labPort -NoBrowser -Reset -CargoCommand $CargoCommand -PythonCommand $PythonCommand
+        Start-IsolatedLab -Port $labPort
         try {
             $agentUrl = "http://127.0.0.1:$labPort"
             & $SeedMeasurementDemo -AgentUrl $agentUrl
@@ -181,7 +230,7 @@ try {
                 throw "Seeded acquisition recipe missing from API library: REC-DEMO-CURRENT-A"
             }
         } finally {
-            & $StopAgent
+            Stop-IsolatedLab
         }
     }
 
@@ -243,7 +292,9 @@ try {
         }
     }
 } finally {
-    & $StopAgent *> $null
+    Stop-IsolatedLab *> $null
+    Remove-IsolatedStorage
+    Remove-IsolatedCargoTarget
 }
 
 Write-Host "Launcher smoke tests passed for $RepoRoot"

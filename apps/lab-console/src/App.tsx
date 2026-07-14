@@ -52,7 +52,7 @@ type StudioSection =
   | "audit"
   | "advanced";
 
-const upcomingModules = ["Métrologie", "Planification", "Campagnes", "Rapports"];
+const upcomingModules = ["Planification", "Campagnes", "Rapports"];
 
 const statusLabels: Record<RevisionStatus, string> = {
   draft: "Brouillon",

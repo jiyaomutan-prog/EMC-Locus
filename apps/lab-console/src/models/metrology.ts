@@ -91,7 +91,9 @@ export interface AssetCharacterization {
   characterization_kind: "time_conversion" | "frequency_response";
   label: string;
   performed_on: string;
+  valid_from: string;
   valid_until: string;
+  source_kind: "calibration" | "characterization" | "verification" | "manufacturer_certificate" | "internal_measurement";
   provider: string;
   method_reference: string;
   decision: "conforming" | "nonconforming" | "indeterminate" | "not_assessed";
@@ -104,12 +106,18 @@ export interface AssetCharacterization {
   recorded_at: string;
   recorded_by: string;
   revision: string;
+  environmental_conditions: Record<string, unknown>;
+  as_found: Record<string, unknown> | null;
+  as_left: Record<string, unknown> | null;
+  adjustment_performed: boolean;
 }
 
 export interface RecordAssetCharacterizationInput {
   characterization_id: string;
   performed_on: string;
+  valid_from?: string;
   valid_until: string;
+  source_kind?: AssetCharacterization["source_kind"];
   provider: string;
   method_reference: string;
   decision: AssetCharacterization["decision"];
@@ -117,9 +125,77 @@ export interface RecordAssetCharacterizationInput {
   certificate_reference?: string;
   document_manifest?: EquipmentFileReference;
   comment?: string;
+  environmental_conditions?: Record<string, unknown>;
+  as_found?: Record<string, unknown>;
+  as_left?: Record<string, unknown>;
+  adjustment_performed?: boolean;
   recorded_by: string;
   actor: string;
   reason: string;
+}
+
+export type AssetCorrectionAssignmentStatus =
+  | "draft"
+  | "waiting_for_review"
+  | "approved"
+  | "active"
+  | "expired"
+  | "superseded"
+  | "rejected";
+
+export interface AssetCorrectionAssignment {
+  assignment_id: string;
+  asset_id: string;
+  equipment_model_id: string;
+  equipment_model_revision_id: string;
+  equipment_model_checksum: string;
+  signal_path_id: string;
+  requirement_id: string;
+  correction_definition_id: string;
+  correction_revision_id: string;
+  correction_checksum: string;
+  source_event_id: string;
+  source_kind: AssetCharacterization["source_kind"];
+  valid_from: string;
+  valid_until?: string;
+  status: AssetCorrectionAssignmentStatus;
+  conditions?: Record<string, string>;
+  assigned_at: string;
+  assigned_by: string;
+  submitted_at?: string;
+  approved_at?: string;
+  approved_by?: string;
+  superseded_by?: string;
+}
+
+export interface AssetCorrectionAssignmentEnvelope {
+  assignment: AssetCorrectionAssignment;
+  revision: string;
+}
+
+export interface CorrectionResolution {
+  requirement_id: string;
+  display_name: string;
+  signal_path_id: string;
+  selected_source: "asset_specific" | "model_nominal" | "none";
+  selected_definition_id?: string;
+  selected_revision_id?: string;
+  selected_checksum?: string;
+  assignment_id?: string;
+  valid_from?: string;
+  valid_until?: string;
+  reason: string;
+  fallback_used: boolean;
+  warning?: string;
+  blocking: boolean;
+}
+
+export interface AssetCorrectionResolutionReport {
+  asset_id: string;
+  intended_use_on: string;
+  execution_context: string;
+  ready: boolean;
+  resolutions: CorrectionResolution[];
 }
 
 export interface MetrologyAuditEvent {

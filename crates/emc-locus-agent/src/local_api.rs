@@ -3,6 +3,14 @@ use super::{
     run_storage_action, run_sync_command, AgentCommand, AgentError, MetrologyAction, ProjectAction,
     StorageAction, SyncAction,
 };
+use crate::asset_correction_service::{
+    approve_and_activate_asset_correction, create_asset_correction_assignment,
+    get_asset_correction_assignment, list_asset_correction_assignments,
+    list_asset_correction_review_queue, reject_asset_correction, request_asset_correction_changes,
+    resolve_material_corrections, submit_asset_correction_for_review,
+    CreateAssetCorrectionAssignmentInput, ResolveMaterialCorrectionsInput,
+    TransitionAssetCorrectionInput,
+};
 use crate::document_service::{
     get_document, list_document_audit_events, list_documents, register_attached_document,
     ListAttachedDocumentsInput, RegisterAttachedDocumentInput,
@@ -1249,6 +1257,81 @@ fn route_api_request(
                 storage_root: config.storage_root.clone(),
             })
         }
+        ["api", "v1", "metrology", "corrections", "review-queue"] if method == "GET" => {
+            list_asset_correction_review_queue(&config.storage_root)
+        }
+        ["api", "v1", "metrology", "instruments", asset_id, "corrections"] if method == "GET" => {
+            list_asset_correction_assignments(&config.storage_root, asset_id)
+        }
+        ["api", "v1", "metrology", "instruments", asset_id, "corrections"] if method == "POST" => {
+            let payload = parse_json_body(body)?;
+            create_asset_correction_assignment(
+                &config.storage_root,
+                create_asset_correction_input(asset_id, &payload)?,
+            )
+        }
+        ["api", "v1", "metrology", "instruments", asset_id, "corrections", assignment_id]
+            if method == "GET" =>
+        {
+            get_asset_correction_assignment(&config.storage_root, asset_id, assignment_id)
+        }
+        ["api", "v1", "metrology", "instruments", asset_id, "corrections", assignment_id, "audit-events"]
+            if method == "GET" =>
+        {
+            get_asset_correction_assignment(&config.storage_root, asset_id, assignment_id)?;
+            run_metrology_command(AgentCommand::Metrology {
+                action: MetrologyAction::AuditEvents {
+                    entity_type: "asset_correction_assignment".to_owned(),
+                    entity_id: (*assignment_id).to_owned(),
+                },
+                storage_root: config.storage_root.clone(),
+            })
+        }
+        ["api", "v1", "metrology", "instruments", asset_id, "corrections", assignment_id, "transitions", "submit-for-review"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            submit_asset_correction_for_review(
+                &config.storage_root,
+                transition_asset_correction_input(asset_id, assignment_id, &payload)?,
+            )
+        }
+        ["api", "v1", "metrology", "instruments", asset_id, "corrections", assignment_id, "transitions", "approve-and-activate"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            approve_and_activate_asset_correction(
+                &config.storage_root,
+                transition_asset_correction_input(asset_id, assignment_id, &payload)?,
+            )
+        }
+        ["api", "v1", "metrology", "instruments", asset_id, "corrections", assignment_id, "transitions", "reject"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            reject_asset_correction(
+                &config.storage_root,
+                transition_asset_correction_input(asset_id, assignment_id, &payload)?,
+            )
+        }
+        ["api", "v1", "metrology", "instruments", asset_id, "corrections", assignment_id, "transitions", "request-changes"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            request_asset_correction_changes(
+                &config.storage_root,
+                transition_asset_correction_input(asset_id, assignment_id, &payload)?,
+            )
+        }
+        ["api", "v1", "metrology", "instruments", asset_id, "corrections", "resolve"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            resolve_material_corrections(
+                &config.storage_root,
+                resolve_material_corrections_input(asset_id, &payload)?,
+            )
+        }
         ["api", "v1", "metrology", "instruments", asset_id, "status"] if method == "GET" => {
             let checked_on = required_query_value(query, "checked_on")?;
             run_metrology_command(AgentCommand::Metrology {
@@ -1430,11 +1513,15 @@ fn record_asset_characterization_input(
     asset_id: &str,
     payload: &Value,
 ) -> Result<RecordAssetCharacterizationInput, AgentError> {
+    let performed_on = required_string(payload, "performed_on")?;
     Ok(RecordAssetCharacterizationInput {
         characterization_id: required_string(payload, "characterization_id")?,
         asset_id: asset_id.to_owned(),
-        performed_on: required_string(payload, "performed_on")?,
+        performed_on: performed_on.clone(),
+        valid_from: optional_string(payload, "valid_from").unwrap_or(performed_on),
         valid_until: required_string(payload, "valid_until")?,
+        source_kind: optional_string(payload, "source_kind")
+            .unwrap_or_else(|| "characterization".to_owned()),
         provider: required_string(payload, "provider")?,
         method_reference: required_string(payload, "method_reference")?,
         decision: optional_string(payload, "decision").unwrap_or_else(|| "conforming".to_owned()),
@@ -1446,6 +1533,23 @@ fn record_asset_characterization_input(
             .map(render_json)
             .or_else(|| optional_string(payload, "document_manifest_json")),
         comment: optional_string(payload, "comment").unwrap_or_default(),
+        environmental_conditions_json: payload
+            .get("environmental_conditions")
+            .filter(|value| !value.is_null())
+            .map(render_json)
+            .or_else(|| optional_string(payload, "environmental_conditions_json"))
+            .unwrap_or_else(|| "{}".to_owned()),
+        as_found_json: payload
+            .get("as_found")
+            .filter(|value| !value.is_null())
+            .map(render_json)
+            .or_else(|| optional_string(payload, "as_found_json")),
+        as_left_json: payload
+            .get("as_left")
+            .filter(|value| !value.is_null())
+            .map(render_json)
+            .or_else(|| optional_string(payload, "as_left_json")),
+        adjustment_performed: optional_bool(payload, "adjustment_performed")?.unwrap_or(false),
         recorded_by: required_string(payload, "recorded_by")?,
         context: operation_context(payload)?,
     })
@@ -1461,6 +1565,79 @@ fn serviceability_input(
         serviceability_reason: required_string(payload, "serviceability_reason")?,
         context: operation_context(payload)?,
     })
+}
+
+fn create_asset_correction_input(
+    asset_id: &str,
+    payload: &Value,
+) -> Result<CreateAssetCorrectionAssignmentInput, AgentError> {
+    Ok(CreateAssetCorrectionAssignmentInput {
+        assignment_id: required_string(payload, "assignment_id")?,
+        asset_id: asset_id.to_owned(),
+        signal_path_id: required_string(payload, "signal_path_id")?,
+        requirement_id: required_string(payload, "requirement_id")?,
+        source_event_id: required_string(payload, "source_event_id")?,
+        valid_from: optional_string(payload, "valid_from"),
+        valid_until: optional_string(payload, "valid_until"),
+        conditions: optional_string_map(payload, "conditions")?,
+        context: operation_context(payload)?,
+    })
+}
+
+fn transition_asset_correction_input(
+    asset_id: &str,
+    assignment_id: &str,
+    payload: &Value,
+) -> Result<TransitionAssetCorrectionInput, AgentError> {
+    Ok(TransitionAssetCorrectionInput {
+        asset_id: asset_id.to_owned(),
+        assignment_id: assignment_id.to_owned(),
+        expected_revision: required_string(payload, "expected_revision")?,
+        context: operation_context(payload)?,
+    })
+}
+
+fn resolve_material_corrections_input(
+    asset_id: &str,
+    payload: &Value,
+) -> Result<ResolveMaterialCorrectionsInput, AgentError> {
+    Ok(ResolveMaterialCorrectionsInput {
+        asset_id: asset_id.to_owned(),
+        intended_use_on: required_string(payload, "intended_use_on")?,
+        execution_context: required_string(payload, "execution_context")?,
+        conditions: optional_string_map(payload, "conditions")?,
+    })
+}
+
+fn optional_string_map(
+    payload: &Value,
+    key: &'static str,
+) -> Result<BTreeMap<String, String>, AgentError> {
+    let Some(value) = payload.get(key) else {
+        return Ok(BTreeMap::new());
+    };
+    let object = value.as_object().ok_or_else(|| {
+        AgentError::with_details(
+            "invalid_json_field",
+            format!("{key} must be an object of string values"),
+            json!({ "field": key }),
+        )
+    })?;
+    object
+        .iter()
+        .map(|(name, value)| {
+            value
+                .as_str()
+                .map(|value| (name.clone(), value.to_owned()))
+                .ok_or_else(|| {
+                    AgentError::with_details(
+                        "invalid_json_field",
+                        format!("{key}.{name} must be a string"),
+                        json!({ "field": format!("{key}.{name}") }),
+                    )
+                })
+        })
+        .collect()
 }
 
 fn readiness_input(payload: &Value) -> Result<AssessReadinessInput, AgentError> {
@@ -2488,6 +2665,9 @@ fn status_for_error(code: &str) -> u16 {
         | "signal_transformation_reference_not_found"
         | "metrology_instrument_not_found"
         | "asset_characterization_not_found"
+        | "asset_correction_not_found"
+        | "asset_correction_model_not_found"
+        | "asset_correction_requirement_not_found"
         | "station_setup_not_found"
         | "station_setup_revision_not_found" => 404,
         "contract_review_incomplete"
@@ -2539,6 +2719,12 @@ fn status_for_error(code: &str) -> u16 {
         | "metrology_instrument_already_exists"
         | "metrology_calibration_already_exists"
         | "asset_characterization_already_exists"
+        | "asset_correction_already_exists"
+        | "asset_correction_revision_conflict"
+        | "asset_correction_transition_conflict"
+        | "asset_correction_model_pin_changed"
+        | "asset_correction_model_pin_mismatch"
+        | "asset_correction_source_pin_mismatch"
         | "station_setup_exists"
         | "station_setup_concurrent_update"
         | "station_setup_revision_not_editable"
@@ -2583,6 +2769,19 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_measurement_engineering_definition"
         | "invalid_metrology_calibration"
         | "invalid_asset_characterization"
+        | "invalid_asset_correction_assignment"
+        | "invalid_asset_correction_resolution"
+        | "asset_correction_model_missing"
+        | "asset_correction_model_invalid"
+        | "asset_correction_source_invalid"
+        | "asset_correction_source_asset_mismatch"
+        | "asset_correction_source_checksum_mismatch"
+        | "asset_correction_source_not_conforming"
+        | "asset_correction_kind_mismatch"
+        | "asset_correction_condition_mismatch"
+        | "invalid_asset_correction_validity"
+        | "asset_correction_validity_exceeds_source"
+        | "equipment_model_corrections_require_upgrade"
         | "invalid_metrology_file"
         | "invalid_metrology_instrument"
         | "invalid_metrology_readiness"
@@ -4051,6 +4250,338 @@ mod tests {
         );
         assert_eq!(immutable.status, 409, "{}", immutable.body);
         assert!(immutable.body.contains("equipment_revision_immutable"));
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn local_api_reviews_and_resolves_serial_specific_rf_cable_correction() {
+        let storage_root = temporary_storage_root("agent-api-asset-correction");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: None,
+        };
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+
+        let mut model = rf_cable_model_definition();
+        model["signal_paths"][0]["correction_requirements"] = json!([{
+            "requirement_id": "rf_through_loss",
+            "display_name": "Pertes d'insertion du câble",
+            "description": "Compensation amplitude en fonction de la fréquence",
+            "signal_path_id": "RF_THROUGH",
+            "correction_kind": "frequency_dependent_correction",
+            "physical_purpose": "Compenser les pertes du câble dans la chaîne de mesure",
+            "operation": "add",
+            "input_quantity": "power",
+            "output_quantity": "power",
+            "expected_unit": "dB",
+            "required_for_use": true,
+            "asset_specific_policy": "asset_required"
+        }]);
+        let (model_revision, model_checksum) = create_and_approve_equipment_model(
+            &config,
+            "EQM-RF-CABLE-CORRECTION",
+            model,
+            "asset-correction-model",
+        );
+        let registered = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments",
+            &json!({
+                "asset_id": "SA-CABLE-CORRECTION-001",
+                "family": "RfCable",
+                "equipment_model_id": "EQM-RF-CABLE-CORRECTION",
+                "equipment_model_revision_id": model_revision,
+                "equipment_model_checksum": model_checksum,
+                "manufacturer": "Demo RF",
+                "model": "Cable 1 GHz",
+                "serial_number": "CAB-CORR-001",
+                "part_number": "RF-CABLE-001",
+                "calibration_requirement": "not_required",
+                "serviceability_status": "usable",
+                "serviceability_reason": "inspection passed",
+                "actor": "metrology.admin",
+                "reason": "register serial cable",
+                "operation_id": "op-correction-register"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(registered.status, 200, "{}", registered.body);
+
+        let missing = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-CABLE-CORRECTION-001/corrections/resolve",
+            &json!({
+                "intended_use_on": "2026-08-01",
+                "execution_context": "accredited",
+                "conditions": {}
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(missing.status, 200, "{}", missing.body);
+        assert!(missing.body.contains("\"ready\":false"));
+        assert!(missing.body.contains("asset_correction_missing"));
+
+        let mut characterization: Value =
+            serde_json::from_str(&station_cable_characterization_body()).unwrap();
+        characterization["characterization_id"] = json!("CHAR-CABLE-CORRECTION-2026");
+        characterization["definition"]["characterization_id"] = json!("CHAR-CABLE-CORRECTION-2026");
+        characterization["definition"]["asset_id"] = json!("SA-CABLE-CORRECTION-001");
+        characterization["definition"]["correction"]["correction"]["curve_id"] =
+            json!("CHAR-CABLE-CORRECTION-2026");
+        characterization["operation_id"] = json!("op-correction-characterization");
+        let recorded = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-CABLE-CORRECTION-001/characterizations",
+            &characterization.to_string(),
+            &config,
+        );
+        assert_eq!(recorded.status, 200, "{}", recorded.body);
+
+        let created = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-CABLE-CORRECTION-001/corrections",
+            &json!({
+                "assignment_id": "CORR-CABLE-001-LOSS-2026",
+                "signal_path_id": "RF_THROUGH",
+                "requirement_id": "rf_through_loss",
+                "source_event_id": "CHAR-CABLE-CORRECTION-2026",
+                "actor": "metrology.technician",
+                "reason": "bind measured cable loss",
+                "operation_id": "op-correction-create"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        let created_json: Value = serde_json::from_str(&created.body).unwrap();
+        let draft_revision = created_json["revision"].as_str().unwrap();
+        assert_eq!(created_json["assignment"]["status"], "draft");
+
+        let submitted = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-CABLE-CORRECTION-001/corrections/CORR-CABLE-001-LOSS-2026/transitions/submit-for-review",
+            &json!({
+                "expected_revision": draft_revision,
+                "actor": "metrology.technician",
+                "reason": "submit measured loss",
+                "operation_id": "op-correction-submit"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(submitted.status, 200, "{}", submitted.body);
+        let submitted_json: Value = serde_json::from_str(&submitted.body).unwrap();
+        let review_revision = submitted_json["revision"].as_str().unwrap();
+        assert_eq!(submitted_json["assignment"]["status"], "waiting_for_review");
+
+        let stale_approval = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-CABLE-CORRECTION-001/corrections/CORR-CABLE-001-LOSS-2026/transitions/approve-and-activate",
+            &json!({
+                "expected_revision": draft_revision,
+                "actor": "metrology.reviewer",
+                "reason": "stale approval",
+                "operation_id": "op-correction-stale-approve"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(stale_approval.status, 409, "{}", stale_approval.body);
+        assert!(stale_approval
+            .body
+            .contains("asset_correction_revision_conflict"));
+
+        let queue = handle_api_request(
+            "GET",
+            "/api/v1/metrology/corrections/review-queue",
+            "",
+            &config,
+        );
+        assert_eq!(queue.status, 200, "{}", queue.body);
+        assert!(queue.body.contains("CORR-CABLE-001-LOSS-2026"));
+
+        let approved = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-CABLE-CORRECTION-001/corrections/CORR-CABLE-001-LOSS-2026/transitions/approve-and-activate",
+            &json!({
+                "expected_revision": review_revision,
+                "actor": "metrology.reviewer",
+                "reason": "evidence reviewed and conforming",
+                "operation_id": "op-correction-approve"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(approved.status, 200, "{}", approved.body);
+        assert!(approved.body.contains("\"status\":\"active\""));
+
+        let resolved = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-CABLE-CORRECTION-001/corrections/resolve",
+            &json!({
+                "intended_use_on": "2026-08-01",
+                "execution_context": "accredited",
+                "conditions": {}
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(resolved.status, 200, "{}", resolved.body);
+        assert!(resolved.body.contains("\"ready\":true"));
+        assert!(resolved
+            .body
+            .contains("\"selected_source\":\"asset_specific\""));
+
+        let mut replacement_characterization: Value =
+            serde_json::from_str(&station_cable_characterization_body()).unwrap();
+        replacement_characterization["characterization_id"] = json!("CHAR-CABLE-CORRECTION-2027");
+        replacement_characterization["definition"]["characterization_id"] =
+            json!("CHAR-CABLE-CORRECTION-2027");
+        replacement_characterization["definition"]["asset_id"] = json!("SA-CABLE-CORRECTION-001");
+        replacement_characterization["definition"]["correction"]["correction"]["curve_id"] =
+            json!("CHAR-CABLE-CORRECTION-2027");
+        replacement_characterization["operation_id"] =
+            json!("op-correction-replacement-characterization");
+        let replacement_recorded = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-CABLE-CORRECTION-001/characterizations",
+            &replacement_characterization.to_string(),
+            &config,
+        );
+        assert_eq!(
+            replacement_recorded.status, 200,
+            "{}",
+            replacement_recorded.body
+        );
+        let replacement_created = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-CABLE-CORRECTION-001/corrections",
+            &json!({
+                "assignment_id": "CORR-CABLE-001-LOSS-2027",
+                "signal_path_id": "RF_THROUGH",
+                "requirement_id": "rf_through_loss",
+                "source_event_id": "CHAR-CABLE-CORRECTION-2027",
+                "actor": "metrology.technician",
+                "reason": "bind replacement measured cable loss",
+                "operation_id": "op-correction-replacement-create"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(
+            replacement_created.status, 200,
+            "{}",
+            replacement_created.body
+        );
+        let replacement_created_json: Value =
+            serde_json::from_str(&replacement_created.body).unwrap();
+        let replacement_draft_revision = replacement_created_json["revision"].as_str().unwrap();
+        let replacement_submitted = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-CABLE-CORRECTION-001/corrections/CORR-CABLE-001-LOSS-2027/transitions/submit-for-review",
+            &json!({
+                "expected_revision": replacement_draft_revision,
+                "actor": "metrology.technician",
+                "reason": "submit replacement loss",
+                "operation_id": "op-correction-replacement-submit"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(
+            replacement_submitted.status, 200,
+            "{}",
+            replacement_submitted.body
+        );
+        let replacement_submitted_json: Value =
+            serde_json::from_str(&replacement_submitted.body).unwrap();
+        let replacement_review_revision = replacement_submitted_json["revision"].as_str().unwrap();
+        let replacement_approved = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-CABLE-CORRECTION-001/corrections/CORR-CABLE-001-LOSS-2027/transitions/approve-and-activate",
+            &json!({
+                "expected_revision": replacement_review_revision,
+                "actor": "metrology.reviewer",
+                "reason": "replacement evidence reviewed and conforming",
+                "operation_id": "op-correction-replacement-approve"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(
+            replacement_approved.status, 200,
+            "{}",
+            replacement_approved.body
+        );
+
+        let assignments = handle_api_request(
+            "GET",
+            "/api/v1/metrology/instruments/SA-CABLE-CORRECTION-001/corrections",
+            "",
+            &config,
+        );
+        assert_eq!(assignments.status, 200, "{}", assignments.body);
+        let assignments_json: Value = serde_json::from_str(&assignments.body).unwrap();
+        let assignment_rows = assignments_json["assignments"].as_array().unwrap();
+        let former = assignment_rows
+            .iter()
+            .find(|row| row["assignment"]["assignment_id"] == "CORR-CABLE-001-LOSS-2026")
+            .unwrap();
+        assert_eq!(former["assignment"]["status"], "superseded");
+        assert_eq!(
+            former["assignment"]["superseded_by"],
+            "CORR-CABLE-001-LOSS-2027"
+        );
+        let replacement_resolution = handle_api_request(
+            "POST",
+            "/api/v1/metrology/instruments/SA-CABLE-CORRECTION-001/corrections/resolve",
+            &json!({
+                "intended_use_on": "2026-08-01",
+                "execution_context": "accredited",
+                "conditions": {}
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(
+            replacement_resolution.status, 200,
+            "{}",
+            replacement_resolution.body
+        );
+        assert!(replacement_resolution
+            .body
+            .contains("CHAR-CABLE-CORRECTION-2027"));
+
+        let audit = handle_api_request(
+            "GET",
+            "/api/v1/metrology/instruments/SA-CABLE-CORRECTION-001/corrections/CORR-CABLE-001-LOSS-2026/audit-events",
+            "",
+            &config,
+        );
+        assert_eq!(audit.status, 200, "{}", audit.body);
+        assert!(audit
+            .body
+            .contains("asset_correction_approved_and_activated"));
+        assert!(audit.body.contains("asset_correction_superseded"));
+        let outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
+        assert_eq!(outbox.status, 200, "{}", outbox.body);
+        assert!(outbox
+            .body
+            .contains("asset_correction_approved_and_activated"));
+        assert!(outbox.body.contains("asset_correction_superseded"));
+        assert!(outbox.body.contains("op-correction-replacement-approve"));
+        assert!(outbox
+            .body
+            .contains("op-correction-replacement-approve:supersede:CORR-CABLE-001-LOSS-2026"));
 
         remove_temporary_storage_root(&storage_root);
     }

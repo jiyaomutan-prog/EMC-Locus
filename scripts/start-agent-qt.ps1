@@ -4,6 +4,9 @@ param(
     [switch]$NoQt,
     [string]$PythonCommand = "py",
     [string]$CargoCommand = "cargo",
+    [string]$CargoTargetDirectory = "target",
+    [string]$StorageRootPath = "data\local-agent",
+    [string]$StateName = "agent",
     [string]$AgentExecutableOverride = "",
     [string[]]$AgentArgumentPrefixOverride = @()
 )
@@ -13,11 +16,16 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Get-LauncherRepoRoot
 $paths = Initialize-LauncherPaths -RepoRoot $RepoRoot
-$RelativeStorageRoot = "data\local-agent"
+$RelativeStorageRoot = $StorageRootPath
 $RelativeMigrationsRoot = "storage\sqlite"
 $StorageRoot = Resolve-LauncherPath -RepoRoot $RepoRoot -Path $RelativeStorageRoot
+$ResolvedCargoTargetDirectory = Resolve-LauncherPath -RepoRoot $RepoRoot -Path $CargoTargetDirectory
 $DataRoot = Resolve-LauncherPath -RepoRoot $RepoRoot -Path "data"
 $AgentUrl = "http://127.0.0.1:$Port"
+
+if ($StateName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') {
+    throw "StateName contains unsupported characters: $StateName"
+}
 
 Assert-CommandAvailable $CargoCommand
 Assert-CommandAvailable $PythonCommand
@@ -50,13 +58,13 @@ if (Test-PortInUse -Port $Port) {
     Write-Host "Using existing EMC Locus agent at $AgentUrl with expected storage."
 } else {
     Write-Host "Building EMC Locus agent..."
-    & $CargoCommand build -q -p emc-locus-agent
+    & $CargoCommand build -q -p emc-locus-agent --target-dir $CargoTargetDirectory
     if ($LASTEXITCODE -ne 0) {
         throw "Cargo build failed."
     }
-    $AgentExe = Join-Path $RepoRoot "target\debug\emc-locus-agent.exe"
+    $AgentExe = Join-Path $ResolvedCargoTargetDirectory "debug\emc-locus-agent.exe"
     if (-not (Test-Path $AgentExe)) {
-        $AgentExe = Join-Path $RepoRoot "target\debug\emc-locus-agent"
+        $AgentExe = Join-Path $ResolvedCargoTargetDirectory "debug\emc-locus-agent"
     }
     if (-not (Test-Path $AgentExe)) {
         throw "Agent executable is missing: $AgentExe"
@@ -94,7 +102,7 @@ if (Test-PortInUse -Port $Port) {
 
     Write-LauncherState `
         -RuntimeRoot $paths.RuntimeRoot `
-        -Name "agent" `
+        -Name $StateName `
         -State @{
             kind = "agent"
             process_id = $process.Id
@@ -113,7 +121,7 @@ if (Test-PortInUse -Port $Port) {
         Assert-AgentStorageRoot -RepoRoot $RepoRoot -AgentUrl $AgentUrl -ExpectedStorageRoot $RelativeStorageRoot | Out-Null
     } catch {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-        Remove-LauncherState -RuntimeRoot $paths.RuntimeRoot -Name "agent"
+        Remove-LauncherState -RuntimeRoot $paths.RuntimeRoot -Name $StateName
         throw
     }
 }

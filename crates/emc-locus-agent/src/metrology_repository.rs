@@ -91,6 +91,12 @@ pub struct StoredAssetCharacterization {
     pub recorded_at: String,
     pub recorded_by: String,
     pub revision: String,
+    pub source_kind: String,
+    pub valid_from: String,
+    pub environmental_conditions_json: String,
+    pub as_found_json: Option<String>,
+    pub as_left_json: Option<String>,
+    pub adjustment_performed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -180,6 +186,12 @@ pub struct NewAssetCharacterizationRecord<'a> {
     pub recorded_at: &'a str,
     pub recorded_by: &'a str,
     pub revision: &'a str,
+    pub source_kind: &'a str,
+    pub valid_from: &'a str,
+    pub environmental_conditions_json: &'a str,
+    pub as_found_json: Option<&'a str>,
+    pub as_left_json: Option<&'a str>,
+    pub adjustment_performed: bool,
 }
 
 pub struct MetrologyOperationFingerprintInput<'a> {
@@ -282,6 +294,7 @@ fn ensure_metrology_tables(connection: &Connection) -> Result<(), AgentError> {
         "calibration_records",
         "calibration_events",
         "asset_characterization_events",
+        "asset_correction_assignments",
         "instrument_documents",
         "metrology_audit_events",
     ] {
@@ -304,6 +317,21 @@ fn ensure_metrology_tables(connection: &Connection) -> Result<(), AgentError> {
             return Err(AgentError::new(
                 "metrology_schema_outdated",
                 format!("missing metrology instruments column {column}"),
+            ));
+        }
+    }
+    for column in [
+        "source_kind",
+        "valid_from",
+        "environmental_conditions_json",
+        "as_found_json",
+        "as_left_json",
+        "adjustment_performed",
+    ] {
+        if !column_exists(connection, "asset_characterization_events", column)? {
+            return Err(AgentError::new(
+                "metrology_schema_outdated",
+                format!("missing asset characterization column {column}"),
             ));
         }
     }
@@ -580,7 +608,8 @@ pub fn load_asset_characterizations(
             "SELECT characterization_id, asset_id, characterization_kind, label, performed_on, ",
             "valid_until, provider, method_reference, decision, definition_schema_version, ",
             "definition_json, definition_checksum, certificate_reference, document_manifest_json, ",
-            "comment, recorded_at, recorded_by, revision ",
+            "comment, recorded_at, recorded_by, revision, source_kind, valid_from, ",
+            "environmental_conditions_json, as_found_json, as_left_json, adjustment_performed ",
             "FROM asset_characterization_events WHERE asset_id = ?1 ",
             "ORDER BY performed_on DESC, recorded_at DESC, characterization_id DESC"
         ))
@@ -611,7 +640,8 @@ pub fn load_asset_characterization(
                 "SELECT characterization_id, asset_id, characterization_kind, label, performed_on, ",
                 "valid_until, provider, method_reference, decision, definition_schema_version, ",
                 "definition_json, definition_checksum, certificate_reference, document_manifest_json, ",
-                "comment, recorded_at, recorded_by, revision ",
+                "comment, recorded_at, recorded_by, revision, source_kind, valid_from, ",
+                "environmental_conditions_json, as_found_json, as_left_json, adjustment_performed ",
                 "FROM asset_characterization_events WHERE characterization_id = ?1"
             ),
             params![characterization_id],
@@ -648,6 +678,12 @@ fn stored_asset_characterization_from_row(
         recorded_at: row.get(15)?,
         recorded_by: row.get(16)?,
         revision: row.get(17)?,
+        source_kind: row.get(18)?,
+        valid_from: row.get(19)?,
+        environmental_conditions_json: row.get(20)?,
+        as_found_json: row.get(21)?,
+        as_left_json: row.get(22)?,
+        adjustment_performed: row.get::<_, u8>(23)? == 1,
     })
 }
 
@@ -763,8 +799,9 @@ pub fn insert_asset_characterization(
                 "characterization_kind, label, performed_on, valid_until, provider, ",
                 "method_reference, decision, definition_schema_version, definition_json, ",
                 "definition_checksum, certificate_reference, document_manifest_json, comment, ",
-                "recorded_at, recorded_by, revision) ",
-                "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"
+                "recorded_at, recorded_by, revision, source_kind, valid_from, ",
+                "environmental_conditions_json, as_found_json, as_left_json, adjustment_performed) ",
+                "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)"
             ),
             params![
                 input.characterization_id,
@@ -785,6 +822,12 @@ pub fn insert_asset_characterization(
                 input.recorded_at,
                 input.recorded_by,
                 input.revision,
+                input.source_kind,
+                input.valid_from,
+                input.environmental_conditions_json,
+                input.as_found_json,
+                input.as_left_json,
+                input.adjustment_performed as u8,
             ],
         )
         .map_err(|error| {

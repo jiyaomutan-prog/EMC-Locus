@@ -58,7 +58,7 @@ test("metrologist records and reloads a serial-specific RF cable response", asyn
     response.url().endsWith(`/api/v1/metrology/instruments/${assetId}/characterizations`) &&
     response.request().method() === "POST"
   );
-  await page.getByRole("button", { name: "Enregistrer la caractérisation" }).click();
+  await page.getByRole("button", { name: "Enregistrer puis préparer la revue" }).click();
   expect((await fileResponse).ok()).toBeTruthy();
   expect((await characterizationResponse).ok()).toBeTruthy();
 

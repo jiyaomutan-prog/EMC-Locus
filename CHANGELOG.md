@@ -8,6 +8,39 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-07-14
+
+### Added
+
+- Added typed equipment-model correction requirements, explicit nominal-value
+  quality and per-serial correction policies in the Rust core.
+- Added immutable correction-source metadata, reviewed material-correction
+  assignments, atomic activation/supersession, audit/outbox evidence and a
+  deterministic context resolver.
+- Added asset-centered LAB CONSOLE workflows for missing corrections, CSV
+  preview, proof upload, review, approval, readiness and calibrated-versus-
+  nominal comparison.
+- Added two real Playwright workflows and twelve reviewed screenshots at
+  1440 x 900 and 1280 x 720.
+
+### Changed
+
+- Reframed model authoring as `Entrées, sorties et corrections attendues` and
+  kept technical identities under progressive disclosure.
+- Extended characterization evidence with source type, validity start,
+  environmental conditions, as-found/as-left results and adjustment evidence.
+- Made the E2E runner use an isolated agent build, port and temporary storage so
+  validation cannot reset the normal local-agent repository.
+- Made launcher smoke tests isolate their Cargo target, storage and process
+  state so they can run beside an active operator session.
+
+### Fixed
+
+- Prevented a generic model correction from being silently treated as the
+  measured correction of every physical item.
+- Prevented imported corrections from becoming usable before explicit review
+  and approval.
+
 ## [0.17.0] - 2026-07-14
 
 ### Added

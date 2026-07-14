@@ -6,18 +6,24 @@ import {
   PackagePlus,
   Plus,
   Radio,
+  Send,
+  ShieldCheck,
   X
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, metrologyApi } from "../../api";
 import type {
   EquipmentCategory,
+  CorrectionRequirementDefinition,
   EquipmentFileReference,
-  EquipmentModelAggregate
+  EquipmentModelAggregate,
+  MeasurementEngineeringAggregate
 } from "../../models/equipment";
 import type {
   AssetCharacterization,
   AssetCharacterizationDefinition,
+  AssetCorrectionAssignmentEnvelope,
+  AssetCorrectionResolutionReport,
   MetrologyAuditEvent,
   MetrologyInstrument,
   RegisterMetrologyInstrumentInput
@@ -26,6 +32,7 @@ import type {
 interface PhysicalAssetMetrologyPanelProps {
   instruments: MetrologyInstrument[];
   approvedModels: EquipmentModelAggregate[];
+  nominalCorrections: MeasurementEngineeringAggregate[];
   categories: EquipmentCategory[];
   onRegister: (input: RegisterMetrologyInstrumentInput) => Promise<void>;
   onOpenCatalog: () => void;
@@ -49,9 +56,13 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
   const [selectedAssetId, setSelectedAssetId] = useState("");
   const [registering, setRegistering] = useState(false);
   const [characterizations, setCharacterizations] = useState<AssetCharacterization[]>([]);
+  const [correctionAssignments, setCorrectionAssignments] = useState<AssetCorrectionAssignmentEnvelope[]>([]);
+  const [correctionResolution, setCorrectionResolution] = useState<AssetCorrectionResolutionReport | null>(null);
+  const [reviewQueue, setReviewQueue] = useState<AssetCorrectionAssignmentEnvelope[]>([]);
   const [selectedCharacterizationId, setSelectedCharacterizationId] = useState("");
   const [audit, setAudit] = useState<MetrologyAuditEvent[]>([]);
   const [creatingCharacterization, setCreatingCharacterization] = useState(false);
+  const [creatingForRequirement, setCreatingForRequirement] = useState<CorrectionRequirementDefinition | null>(null);
   const [loadingCharacterizations, setLoadingCharacterizations] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,17 +76,26 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
   useEffect(() => {
     if (!selectedAssetId) {
       setCharacterizations([]);
+      setCorrectionAssignments([]);
+      setCorrectionResolution(null);
       setSelectedCharacterizationId("");
       return;
     }
     let cancelled = false;
     setLoadingCharacterizations(true);
     setError(null);
-    metrologyApi
-      .listCharacterizations(selectedAssetId)
-      .then((response) => {
+    Promise.all([
+      metrologyApi.listCharacterizations(selectedAssetId),
+      metrologyApi.listCorrections(selectedAssetId),
+      metrologyApi.correctionReviewQueue(),
+      metrologyApi.resolveCorrections(selectedAssetId, todayIso(), "accredited").catch(() => null)
+    ])
+      .then(([response, corrections, queue, resolution]) => {
         if (cancelled) return;
         setCharacterizations(response.characterizations);
+        setCorrectionAssignments(corrections.assignments);
+        setReviewQueue(queue.assignments);
+        setCorrectionResolution(resolution?.report ?? null);
         setSelectedCharacterizationId((current) =>
           response.characterizations.some((item) => item.characterization_id === current)
             ? current
@@ -113,6 +133,11 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
   }, [selectedAssetId, selectedCharacterizationId]);
 
   const selectedAsset = props.instruments.find((item) => item.asset_id === selectedAssetId);
+  const selectedModel = props.approvedModels.find(
+    (item) => item.identity.equipment_model_id === selectedAsset?.equipment_model_id
+  );
+  const correctionRequirements = (selectedModel?.current_approved_revision?.definition.signal_paths ?? [])
+    .flatMap((path) => path.correction_requirements ?? []);
   const selectedCharacterization = characterizations.find(
     (item) => item.characterization_id === selectedCharacterizationId
   );
@@ -122,13 +147,83 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
     setError(null);
     try {
       const response = await metrologyApi.recordCharacterization(selectedAsset.asset_id, input);
-      const refreshed = await metrologyApi.listCharacterizations(selectedAsset.asset_id);
-      setCharacterizations(refreshed.characterizations);
+      if (creatingForRequirement) {
+        await metrologyApi.createCorrection(selectedAsset.asset_id, {
+          assignment_id: newCorrectionAssignmentId(selectedAsset.asset_id, creatingForRequirement.requirement_id),
+          signal_path_id: creatingForRequirement.signal_path_id,
+          requirement_id: creatingForRequirement.requirement_id,
+          source_event_id: response.characterization.characterization_id,
+          conditions: creatingForRequirement.conditions ?? {},
+          actor: "metrology.operator",
+          reason: "liaison de la caractérisation à l'exigence du modèle"
+        });
+      }
+      await refreshCorrectionDossier(selectedAsset.asset_id);
       setSelectedCharacterizationId(response.characterization.characterization_id);
       setCreatingCharacterization(false);
+      setCreatingForRequirement(null);
     } catch (reason) {
       setError(characterizationErrorMessage(reason));
       throw reason;
+    }
+  }
+
+  async function refreshCorrectionDossier(assetId: string) {
+    const [characterizationResponse, correctionResponse, queueResponse, resolutionResponse] = await Promise.all([
+      metrologyApi.listCharacterizations(assetId),
+      metrologyApi.listCorrections(assetId),
+      metrologyApi.correctionReviewQueue(),
+      metrologyApi.resolveCorrections(assetId, todayIso(), "accredited").catch(() => null)
+    ]);
+    setCharacterizations(characterizationResponse.characterizations);
+    setCorrectionAssignments(correctionResponse.assignments);
+    setReviewQueue(queueResponse.assignments);
+    setCorrectionResolution(resolutionResponse?.report ?? null);
+  }
+
+  async function createCorrectionAssignment(requirement: CorrectionRequirementDefinition, sourceEventId: string) {
+    if (!selectedAsset) return;
+    setError(null);
+    try {
+      await metrologyApi.createCorrection(selectedAsset.asset_id, {
+        assignment_id: newCorrectionAssignmentId(selectedAsset.asset_id, requirement.requirement_id),
+        signal_path_id: requirement.signal_path_id,
+        requirement_id: requirement.requirement_id,
+        source_event_id: sourceEventId,
+        conditions: requirement.conditions ?? {},
+        actor: "metrology.operator",
+        reason: "liaison d'une preuve à l'exigence du modèle"
+      });
+      await refreshCorrectionDossier(selectedAsset.asset_id);
+    } catch (reason) {
+      setError(characterizationErrorMessage(reason));
+    }
+  }
+
+  async function transitionCorrection(
+    envelope: AssetCorrectionAssignmentEnvelope,
+    transition: "submit-for-review" | "approve-and-activate" | "reject" | "request-changes"
+  ) {
+    if (!selectedAsset) return;
+    setError(null);
+    try {
+      await metrologyApi.transitionCorrection(
+        selectedAsset.asset_id,
+        envelope.assignment.assignment_id,
+        transition,
+        envelope.revision,
+        transition === "submit-for-review" ? "metrology.operator" : "metrology.reviewer",
+        transition === "submit-for-review"
+          ? "correction prête pour revue"
+          : transition === "approve-and-activate"
+            ? "preuve et domaine de validité vérifiés"
+            : transition === "reject"
+              ? "preuve refusée après revue métrologique"
+              : "correction à compléter"
+      );
+      await refreshCorrectionDossier(selectedAsset.asset_id);
+    } catch (reason) {
+      setError(characterizationErrorMessage(reason));
     }
   }
 
@@ -185,7 +280,13 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
       <section className="equipmentStudio">
         {error && <p className="operationError"><AlertTriangle size={16} /> {error}</p>}
         {registering || !selectedAsset ? (
-          <RegisterPhysicalAssetForm {...props} onRegistered={() => setRegistering(false)} />
+          <RegisterPhysicalAssetForm
+            {...props}
+            onRegistered={(assetId) => {
+              setSelectedAssetId(assetId);
+              setRegistering(false);
+            }}
+          />
         ) : (
           <>
             <header className="studioHeader assetRecordHeader">
@@ -195,7 +296,7 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
                 <p>{selectedAsset.manufacturer} {selectedAsset.model} · N° de série {selectedAsset.serial_number}</p>
               </div>
               {!creatingCharacterization && (
-                <button type="button" onClick={() => setCreatingCharacterization(true)}>
+                <button type="button" onClick={() => { setCreatingForRequirement(null); setCreatingCharacterization(true); }}>
                   <Plus size={16} /> Ajouter une caractérisation
                 </button>
               )}
@@ -203,9 +304,28 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
 
             <AssetSummary asset={selectedAsset} />
 
+            <CorrectionRequirementsPanel
+              requirements={correctionRequirements}
+              assignments={correctionAssignments}
+              resolution={correctionResolution}
+              characterizations={characterizations}
+              reviewQueue={reviewQueue}
+              nominalCorrections={props.nominalCorrections}
+              selectedAssetId={selectedAsset.asset_id}
+              onCreateAssignment={createCorrectionAssignment}
+              onTransition={transitionCorrection}
+              onMeasure={(requirement) => {
+                setCreatingForRequirement(requirement);
+                setCreatingCharacterization(true);
+              }}
+              onOpenCatalog={props.onOpenCatalog}
+            />
+
             {creatingCharacterization ? (
               <CharacterizationForm
                 asset={selectedAsset}
+                initialKind={creatingForRequirement?.correction_kind === "raw_signal_conversion" ? "time_conversion" : "frequency_response"}
+                requirementName={creatingForRequirement?.display_name}
                 onCancel={() => setCreatingCharacterization(false)}
                 onRecord={recordCharacterization}
               />
@@ -226,7 +346,7 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
                       <strong>Aucune correction propre à ce matériel</strong>
                       <p>Ajoutez une caractérisation issue d’un certificat ou d’une mesure interne.</p>
                     </div>
-                    <button type="button" onClick={() => setCreatingCharacterization(true)}>
+                    <button type="button" onClick={() => { setCreatingForRequirement(null); setCreatingCharacterization(true); }}>
                       Ajouter la première
                     </button>
                   </div>
@@ -263,6 +383,159 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
   );
 }
 
+function CorrectionRequirementsPanel(props: {
+  requirements: CorrectionRequirementDefinition[];
+  assignments: AssetCorrectionAssignmentEnvelope[];
+  resolution: AssetCorrectionResolutionReport | null;
+  characterizations: AssetCharacterization[];
+  reviewQueue: AssetCorrectionAssignmentEnvelope[];
+  nominalCorrections: MeasurementEngineeringAggregate[];
+  selectedAssetId: string;
+  onCreateAssignment: (requirement: CorrectionRequirementDefinition, sourceEventId: string) => Promise<void>;
+  onTransition: (
+    assignment: AssetCorrectionAssignmentEnvelope,
+    transition: "submit-for-review" | "approve-and-activate" | "reject" | "request-changes"
+  ) => Promise<void>;
+  onMeasure: (requirement: CorrectionRequirementDefinition) => void;
+  onOpenCatalog: () => void;
+}) {
+  const [selectedSources, setSelectedSources] = useState<Record<string, string>>({});
+  const selectedReviewCount = props.reviewQueue.filter(
+    (item) => item.assignment.asset_id === props.selectedAssetId
+  ).length;
+
+  return (
+    <section className="editorCard correctionReadinessSection">
+      <div className="sectionTitleRow">
+        <div>
+          <p className="eyebrow">Aptitude du signal</p>
+          <h2>Corrections requises par le modèle</h2>
+          <p>Le verdict est calculé pour ce numéro de série, aujourd’hui, en contexte accrédité.</p>
+        </div>
+        <span className={`readinessBadge ${props.resolution?.ready ? "ready" : "blocked"}`}>
+          {props.resolution?.ready ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+          {props.resolution?.ready ? "Prêt pour un essai" : "Non prêt pour un essai"}
+        </span>
+      </div>
+
+      {selectedReviewCount > 0 && (
+        <div className="correctionReviewNotice">
+          <ShieldCheck size={18} />
+          <div><strong>File de revue métrologique</strong><span>{selectedReviewCount} correction{selectedReviewCount > 1 ? "s" : ""} de ce matériel attend{selectedReviewCount > 1 ? "ent" : ""} une décision.</span></div>
+        </div>
+      )}
+
+      {props.requirements.length === 0 && (
+        <div className="workflowEmpty compactWorkflowEmpty">
+          <CheckCircle2 size={22} />
+          <div><strong>Aucune correction exigée par le modèle approuvé</strong><p>Révisez le modèle dans le catalogue si son chemin de signal nécessite une compensation.</p></div>
+          <button type="button" className="secondary" onClick={props.onOpenCatalog}>Ouvrir le modèle</button>
+        </div>
+      )}
+
+      <div className="assetCorrectionTable" role="table" aria-label="Corrections requises">
+        {props.requirements.map((requirement) => {
+          const resolution = props.resolution?.resolutions.find(
+            (item) => item.requirement_id === requirement.requirement_id
+          );
+          const assignment = props.assignments.find((item) =>
+            item.assignment.requirement_id === requirement.requirement_id
+            && !["superseded", "rejected", "expired"].includes(item.assignment.status)
+          );
+          const compatibleSources = props.characterizations.filter((item) =>
+            item.decision === "conforming"
+            && (requirement.correction_kind === "raw_signal_conversion"
+              ? item.characterization_kind === "time_conversion"
+              : item.characterization_kind === "frequency_response")
+          );
+          const selectedSource = selectedSources[requirement.requirement_id]
+            ?? compatibleSources[0]?.characterization_id
+            ?? "";
+          const assignedCharacterization = props.characterizations.find(
+            (item) => item.characterization_id === assignment?.assignment.source_event_id
+          );
+          const nominalSummary = nominalCorrectionSummary(requirement, props.nominalCorrections);
+          const state = resolution?.reason === "asset_correction_expired"
+            ? "expired"
+            : assignment?.assignment.status
+              ?? (resolution?.selected_source === "model_nominal"
+              ? "model_nominal"
+              : "missing");
+          return (
+            <div className="assetCorrectionRow" role="row" key={requirement.requirement_id}>
+              <div className="assetCorrectionIdentity" role="cell">
+                {requirement.correction_kind === "frequency_dependent_correction" ? <Radio size={18} /> : <Activity size={18} />}
+                <div>
+                  <strong>{requirement.display_name}</strong>
+                  <span>{requirement.physical_purpose}</span>
+                  <small>{requirement.operation === "add" ? "Addition" : requirement.operation === "subtract" ? "Soustraction" : requirement.operation === "multiply" ? "Multiplication" : "Division"} · {operatorUnitLabel(requirement.expected_unit)}</small>
+                  {Object.keys(requirement.conditions ?? {}).length > 0 && (
+                    <small>{friendlyConditions(requirement.conditions ?? {})}</small>
+                  )}
+                </div>
+              </div>
+              <div className="assetCorrectionState" role="cell">
+                <span className={`status correction-${state}`}>{correctionAssignmentStatusLabel(state)}</span>
+                {resolution?.warning && <small>{resolution.warning}</small>}
+                {assignment?.assignment.valid_until && <small>Valide jusqu’au {formatDate(assignment.assignment.valid_until)}</small>}
+              </div>
+              <div className="assetCorrectionAction" role="cell">
+                {!assignment && resolution?.selected_source !== "model_nominal" && compatibleSources.length > 0 && (
+                  <>
+                    <select aria-label={`Preuve pour ${requirement.display_name}`} value={selectedSource} onChange={(event) => setSelectedSources((current) => ({ ...current, [requirement.requirement_id]: event.target.value }))}>
+                      {compatibleSources.map((item) => <option key={item.characterization_id} value={item.characterization_id}>{item.label} · {formatDate(item.performed_on)}</option>)}
+                    </select>
+                    <button type="button" onClick={() => void props.onCreateAssignment(requirement, selectedSource)}>Lier cette preuve</button>
+                  </>
+                )}
+                {!assignment && resolution?.selected_source !== "model_nominal" && compatibleSources.length === 0 && (
+                  <button type="button" onClick={() => props.onMeasure(requirement)}><Plus size={15} /> Mesurer cette correction</button>
+                )}
+                {assignment?.assignment.status === "draft" && (
+                  <button type="button" onClick={() => void props.onTransition(assignment, "submit-for-review")}><Send size={15} /> Soumettre pour revue</button>
+                )}
+                {assignment?.assignment.status === "waiting_for_review" && (
+                  <div className="buttonRow">
+                    <button type="button" onClick={() => void props.onTransition(assignment, "approve-and-activate")}><ShieldCheck size={15} /> Approuver et activer</button>
+                    <button type="button" className="secondary" onClick={() => void props.onTransition(assignment, "request-changes")}>Demander une correction</button>
+                    <button type="button" className="danger" onClick={() => void props.onTransition(assignment, "reject")}>Refuser</button>
+                  </div>
+                )}
+                {state === "expired" && (
+                  <button type="button" onClick={() => props.onMeasure(requirement)}>
+                    <Plus size={15} /> Renouveler cette correction
+                  </button>
+                )}
+                {assignment?.assignment.status === "active" && state !== "expired" && (
+                  <div className="correctionSourceComparison">
+                    <span className="activeCorrectionSource">
+                      <CheckCircle2 size={16} />
+                      <span>
+                        <strong>Valeur propre à ce matériel</strong>
+                        <small>{correctionValueSummary(assignedCharacterization)}</small>
+                        <small>{assignedCharacterization?.certificate_reference || assignedCharacterization?.label || "Preuve métrologique approuvée"}</small>
+                      </span>
+                    </span>
+                    {requirement.model_default_reference && (
+                      <span className="nominalCorrectionSource">
+                        <strong>Valeur nominale du modèle</strong>
+                        <small>{nominalSummary} · non sélectionnée</small>
+                      </span>
+                    )}
+                  </div>
+                )}
+                {!assignment && resolution?.selected_source === "model_nominal" && (
+                  <span className="nominalCorrectionSource">Valeur nominale du modèle · usage de secours autorisé</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function AssetSummary({ asset }: { asset: MetrologyInstrument }) {
   const calibration = asset.latest_calibration_event ?? asset.latest_calibration;
   return (
@@ -288,16 +561,20 @@ function AssetSummary({ asset }: { asset: MetrologyInstrument }) {
 
 interface CharacterizationFormProps {
   asset: MetrologyInstrument;
+  initialKind?: CharacterizationKind;
+  requirementName?: string;
   onCancel: () => void;
   onRecord: (input: Parameters<typeof metrologyApi.recordCharacterization>[1]) => Promise<void>;
 }
 
-function CharacterizationForm({ asset, onCancel, onRecord }: CharacterizationFormProps) {
+function CharacterizationForm({ asset, initialKind = "frequency_response", requirementName, onCancel, onRecord }: CharacterizationFormProps) {
   const today = todayIso();
-  const [kind, setKind] = useState<CharacterizationKind>("frequency_response");
-  const [label, setLabel] = useState("Pertes mesurées");
+  const [kind, setKind] = useState<CharacterizationKind>(initialKind);
+  const [label, setLabel] = useState(requirementName ?? (initialKind === "frequency_response" ? "Pertes mesurées" : "Sensibilité mesurée"));
   const [performedOn, setPerformedOn] = useState(today);
+  const [validFrom, setValidFrom] = useState(today);
   const [validUntil, setValidUntil] = useState(oneYearAfter(today));
+  const [sourceKind, setSourceKind] = useState<AssetCharacterization["source_kind"]>("characterization");
   const [provider, setProvider] = useState("");
   const [methodReference, setMethodReference] = useState("");
   const [decision, setDecision] = useState<AssetCharacterization["decision"]>("conforming");
@@ -308,6 +585,11 @@ function CharacterizationForm({ asset, onCancel, onRecord }: CharacterizationFor
   const [uncertaintyUnit, setUncertaintyUnit] = useState("dB");
   const [coverageFactor, setCoverageFactor] = useState("2");
   const [confidenceLevel, setConfidenceLevel] = useState("95");
+  const [temperatureC, setTemperatureC] = useState("");
+  const [humidityPercent, setHumidityPercent] = useState("");
+  const [asFound, setAsFound] = useState("");
+  const [asLeft, setAsLeft] = useState("");
+  const [adjustmentPerformed, setAdjustmentPerformed] = useState(false);
   const [inputQuantity, setInputQuantity] = useState("voltage");
   const [inputUnit, setInputUnit] = useState("V");
   const [outputQuantity, setOutputQuantity] = useState("current");
@@ -354,8 +636,8 @@ function CharacterizationForm({ asset, onCancel, onRecord }: CharacterizationFor
       setFormError("Le nom, le laboratoire ou prestataire et la méthode sont obligatoires.");
       return;
     }
-    if (validUntil < performedOn) {
-      setFormError("La date de validité doit être postérieure à la date de mesure.");
+    if (validFrom < performedOn || validUntil < validFrom) {
+      setFormError("La validité doit commencer au plus tôt à la date de mesure et se terminer après son début.");
       return;
     }
 
@@ -466,7 +748,9 @@ function CharacterizationForm({ asset, onCancel, onRecord }: CharacterizationFor
       await onRecord({
         characterization_id: characterizationId,
         performed_on: performedOn,
+        valid_from: validFrom,
         valid_until: validUntil,
+        source_kind: sourceKind,
         provider: provider.trim(),
         method_reference: methodReference.trim(),
         decision,
@@ -474,6 +758,13 @@ function CharacterizationForm({ asset, onCancel, onRecord }: CharacterizationFor
         certificate_reference: certificateReference.trim() || undefined,
         document_manifest: documentManifest,
         comment: comment.trim() || undefined,
+        environmental_conditions: {
+          ...(temperatureC.trim() ? { temperature_c: requiredFiniteNumber(temperatureC, "La température") } : {}),
+          ...(humidityPercent.trim() ? { relative_humidity_percent: requiredFiniteNumber(humidityPercent, "L’humidité") } : {})
+        },
+        as_found: asFound.trim() ? { summary: asFound.trim() } : undefined,
+        as_left: asLeft.trim() ? { summary: asLeft.trim() } : undefined,
+        adjustment_performed: adjustmentPerformed,
         recorded_by: "metrology.operator",
         actor: "metrology.operator",
         reason: "enregistrement d’une caractérisation propre au matériel"
@@ -490,7 +781,7 @@ function CharacterizationForm({ asset, onCancel, onRecord }: CharacterizationFor
       <header className="sectionTitleRow">
         <div>
           <p className="eyebrow">Nouvel événement métrologique</p>
-          <h2>Ajouter une caractérisation</h2>
+          <h2>{requirementName ? `Mesurer : ${requirementName}` : "Ajouter une caractérisation"}</h2>
           <p>La mesure sera enregistrée pour {asset.asset_id}, N° de série {asset.serial_number}.</p>
         </div>
         <button type="button" className="iconButton" title="Fermer" onClick={onCancel}><X size={18} /></button>
@@ -498,25 +789,36 @@ function CharacterizationForm({ asset, onCancel, onRecord }: CharacterizationFor
 
       {formError && <p className="errorText"><AlertTriangle size={16} /> {formError}</p>}
 
+      <ol className="correctionWorkflowSteps" aria-label="Étapes d'enregistrement de la correction">
+        <li><span>1</span><strong>Contexte</strong><small>Matériel et correction attendue</small></li>
+        <li><span>2</span><strong>Valeurs</strong><small>Conversion ou points mesurés</small></li>
+        <li><span>3</span><strong>Preuves</strong><small>Validité, incertitude et document</small></li>
+        <li><span>4</span><strong>Revue</strong><small>Soumission après enregistrement</small></li>
+      </ol>
+
       <section className="editorCard">
-        <h2>Quel résultat a été mesuré ?</h2>
+        <p className="stepEyebrow">Étape 1 · Contexte</p>
+        <h2>Quel résultat a été mesuré pour ce matériel ?</h2>
         <div className="signalModeControl" role="group" aria-label="Type de caractérisation">
           <button type="button" className={kind === "time_conversion" ? "active" : ""} onClick={() => { setKind("time_conversion"); setLabel("Sensibilité mesurée"); setUncertaintyUnit(outputUnit); }}>
             <Activity size={18} />
-            <span><strong>Conversion temporelle</strong><small>Facteur, offset et limites propres au matériel</small></span>
+            <span><strong>Conversion du signal brut</strong><small>Facteur, offset et limites propres au matériel</small></span>
           </button>
           <button type="button" className={kind === "frequency_response" ? "active" : ""} onClick={() => { setKind("frequency_response"); setLabel("Pertes mesurées"); setUncertaintyUnit("dB"); }}>
             <Radio size={18} />
-            <span><strong>Réponse fréquentielle</strong><small>Amplitude et phase optionnelle selon la fréquence</small></span>
+            <span><strong>Correction selon la fréquence</strong><small>Amplitude et phase optionnelle selon la fréquence</small></span>
           </button>
         </div>
       </section>
 
       <section className="editorCard">
+        <p className="stepEyebrow">Étape 3 · Preuves</p>
         <h2>Origine et validité</h2>
         <div className="formGrid">
           <label><FieldCaption label="Nom de la caractérisation" required /><input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="ex. Pertes du câble RF après contrôle" /></label>
+          <label><FieldCaption label="Source de la correction" required /><select value={sourceKind} onChange={(event) => setSourceKind(event.target.value as typeof sourceKind)}><option value="calibration">Certificat d’étalonnage</option><option value="characterization">Rapport de caractérisation</option><option value="internal_measurement">Mesure interne</option><option value="manufacturer_certificate">Certificat fabricant</option><option value="verification">Vérification</option></select></label>
           <label><FieldCaption label="Date de mesure" required /><input type="date" value={performedOn} onChange={(event) => setPerformedOn(event.target.value)} /></label>
+          <label><FieldCaption label="Valide à partir du" required /><input type="date" value={validFrom} onChange={(event) => setValidFrom(event.target.value)} /></label>
           <label><FieldCaption label="Valide jusqu’au" required /><input type="date" value={validUntil} onChange={(event) => setValidUntil(event.target.value)} /></label>
           <label><FieldCaption label="Laboratoire ou prestataire" required /><input value={provider} onChange={(event) => setProvider(event.target.value)} /></label>
           <label><FieldCaption label="Méthode utilisée" required /><input value={methodReference} onChange={(event) => setMethodReference(event.target.value)} placeholder="ex. MET-RF-CABLE-001" /></label>
@@ -526,6 +828,7 @@ function CharacterizationForm({ asset, onCancel, onRecord }: CharacterizationFor
 
       {kind === "time_conversion" ? (
         <section className="editorCard">
+          <p className="stepEyebrow">Étape 2 · Valeurs</p>
           <h2>Facteur, offset et limites</h2>
           <p className="contextHint">Résultat = valeur brute × facteur + offset.</p>
           <div className="formGrid">
@@ -542,6 +845,7 @@ function CharacterizationForm({ asset, onCancel, onRecord }: CharacterizationFor
         </section>
       ) : (
         <section className="editorCard">
+          <p className="stepEyebrow">Étape 2 · Valeurs</p>
           <h2>Correction d’amplitude et de phase</h2>
           <div className="formGrid compactGrid">
             <label>Type de réponse<select value={curveType} onChange={(event) => setCurveType(event.target.value)}><option value="cable_loss">Pertes de câble</option><option value="amplifier_gain">Gain d’amplificateur</option><option value="attenuator_loss">Pertes d’atténuateur</option><option value="sensor_frequency_response">Réponse d’un capteur</option><option value="generic_correction">Autre correction</option></select></label>
@@ -554,31 +858,42 @@ function CharacterizationForm({ asset, onCancel, onRecord }: CharacterizationFor
           </label>
           <p className="contextHint">En-têtes attendus : <code>frequence_hz,amplitude_db{phaseIncluded ? ",phase_deg" : ""}</code>. Au moins deux fréquences strictement croissantes.</p>
           {preview && (
-            <div className="frequencyPreview">
-              <strong>Domaine mesuré</strong>
-              <span>{formatFrequency(preview[0].axis_values.frequency)} à {formatFrequency(preview[preview.length - 1].axis_values.frequency)}</span>
-              <small>{preview.length} points · extrapolation interdite</small>
+            <div className="frequencyPreviewLayout">
+              <FrequencyCorrectionChart points={preview} />
+              <div className="frequencyPreview">
+                <strong>Aperçu de la correction</strong>
+                <span>{formatFrequency(preview[0].axis_values.frequency)} à {formatFrequency(preview[preview.length - 1].axis_values.frequency)}</span>
+                <small>{preview.length} points · interpolation entre les points · aucune extrapolation</small>
+              </div>
             </div>
           )}
         </section>
       )}
 
       <section className="editorCard">
-        <h2>Incertitude et preuve</h2>
+        <p className="stepEyebrow">Étape 3 · Preuves</p>
+        <h2>Incertitude, conditions et document</h2>
         <div className="formGrid">
           <label>Incertitude élargie<input type="number" min="0" step="any" value={uncertainty} onChange={(event) => setUncertainty(event.target.value)} placeholder="Optionnelle" /></label>
           <label>Unité<input value={uncertaintyUnit} onChange={(event) => setUncertaintyUnit(event.target.value)} /></label>
           <label>Facteur d’élargissement<input type="number" min="0.01" step="any" value={coverageFactor} onChange={(event) => setCoverageFactor(event.target.value)} /></label>
           <label>Niveau de confiance (%)<input type="number" min="0" max="100" step="any" value={confidenceLevel} onChange={(event) => setConfidenceLevel(event.target.value)} /></label>
           <label>Référence du certificat ou feuillet<input value={certificateReference} onChange={(event) => setCertificateReference(event.target.value)} /></label>
+          <label>Température (°C)<input type="number" step="any" value={temperatureC} onChange={(event) => setTemperatureC(event.target.value)} placeholder="Optionnelle" /></label>
+          <label>Humidité relative (%)<input type="number" min="0" max="100" step="any" value={humidityPercent} onChange={(event) => setHumidityPercent(event.target.value)} placeholder="Optionnelle" /></label>
           <label className="fileField"><span>Document de preuve</span><input type="file" onChange={(event) => setProofFile(event.target.files?.[0] ?? null)} /><small>{proofFile ? proofFile.name : "PDF, feuille de calcul ou document associé"}</small></label>
+        </div>
+        <div className="formGrid">
+          <label>État constaté avant intervention<textarea value={asFound} onChange={(event) => setAsFound(event.target.value)} placeholder="Valeurs ou observation avant réglage" /></label>
+          <label>État laissé après intervention<textarea value={asLeft} onChange={(event) => setAsLeft(event.target.value)} placeholder="Valeurs ou observation après réglage" /></label>
+          <label className="checkboxField"><input type="checkbox" checked={adjustmentPerformed} onChange={(event) => setAdjustmentPerformed(event.target.checked)} /> Un réglage a été effectué</label>
         </div>
         <label>Commentaire<textarea value={comment} onChange={(event) => setComment(event.target.value)} /></label>
       </section>
 
       <div className="buttonRow stickyActions">
         <button type="button" className="secondary" onClick={onCancel}>Annuler</button>
-        <button type="submit" disabled={submitting}><CheckCircle2 size={16} /> {submitting ? "Enregistrement…" : "Enregistrer la caractérisation"}</button>
+        <button type="submit" disabled={submitting}><CheckCircle2 size={16} /> {submitting ? "Enregistrement…" : "Enregistrer puis préparer la revue"}</button>
       </div>
     </form>
   );
@@ -603,7 +918,9 @@ function CharacterizationDetail({ characterization, audit }: { characterization:
       </header>
       <dl className="businessSummary">
         <dt>Mesurée le</dt><dd>{formatDate(characterization.performed_on)}</dd>
+        <dt>Valide à partir du</dt><dd>{formatDate(characterization.valid_from)}</dd>
         <dt>Valide jusqu’au</dt><dd>{formatDate(characterization.valid_until)}</dd>
+        <dt>Source</dt><dd>{sourceKindLabel(characterization.source_kind)}</dd>
         <dt>Origine</dt><dd>{characterization.provider}</dd>
         <dt>Méthode</dt><dd>{characterization.method_reference}</dd>
         <dt>Décision</dt><dd>{decisionLabel(characterization.decision)}</dd>
@@ -627,6 +944,16 @@ function CharacterizationDetail({ characterization, audit }: { characterization:
       {uncertainty?.expanded_uncertainty !== undefined && (
         <p className="uncertaintyStatement">Incertitude élargie : {uncertainty.expanded_uncertainty} {uncertainty.unit} (k = {uncertainty.coverage_factor ?? "-"}, confiance {uncertainty.confidence_level_percent ?? "-"} %)</p>
       )}
+      {Object.keys(characterization.environmental_conditions).length > 0 && (
+        <p className="uncertaintyStatement">Conditions : {friendlyConditions(characterization.environmental_conditions)}</p>
+      )}
+      {(characterization.as_found || characterization.as_left || characterization.adjustment_performed) && (
+        <div className="asFoundAsLeftSummary">
+          {characterization.as_found && <p><strong>Avant intervention</strong><span>{String(characterization.as_found.summary ?? "Valeurs enregistrées")}</span></p>}
+          {characterization.as_left && <p><strong>Après intervention</strong><span>{String(characterization.as_left.summary ?? "Valeurs enregistrées")}</span></p>}
+          <small>{characterization.adjustment_performed ? "Un réglage a été effectué." : "Aucun réglage déclaré."}</small>
+        </div>
+      )}
       {characterization.document_manifest && (
         <p className="documentEvidence"><FileUp size={16} /> {characterization.document_manifest.original_filename}</p>
       )}
@@ -645,7 +972,32 @@ function CharacterizationDetail({ characterization, audit }: { characterization:
   );
 }
 
-function RegisterPhysicalAssetForm(props: PhysicalAssetMetrologyPanelProps & { onRegistered: () => void }) {
+function FrequencyCorrectionChart({ points }: { points: ReturnType<typeof parseFrequencyCsv> }) {
+  const amplitudes = points.map((point) => Number(point.values.amplitude));
+  const minimum = Math.min(...amplitudes);
+  const maximum = Math.max(...amplitudes);
+  const range = maximum - minimum || 1;
+  const coordinates = amplitudes.map((amplitude, index) => {
+    const x = points.length === 1 ? 50 : (index / (points.length - 1)) * 100;
+    const y = 36 - ((amplitude - minimum) / range) * 30;
+    return `${x},${y}`;
+  }).join(" ");
+  return (
+    <figure className="frequencyCorrectionChart" aria-label="Aperçu graphique de la correction d'amplitude">
+      <svg viewBox="0 0 100 42" role="img" aria-label={`Correction de ${minimum} à ${maximum} dB`}>
+        <line x1="0" y1="36" x2="100" y2="36" />
+        <polyline points={coordinates} />
+        {coordinates.split(" ").map((coordinate) => {
+          const [cx, cy] = coordinate.split(",");
+          return <circle key={coordinate} cx={cx} cy={cy} r="1.7" />;
+        })}
+      </svg>
+      <figcaption>Amplitude (dB) selon la fréquence</figcaption>
+    </figure>
+  );
+}
+
+function RegisterPhysicalAssetForm(props: PhysicalAssetMetrologyPanelProps & { onRegistered: (assetId: string) => void }) {
   const [modelId, setModelId] = useState(props.approvedModels[0]?.identity.equipment_model_id ?? "");
   const [assetId, setAssetId] = useState("");
   const [serialNumber, setSerialNumber] = useState("");
@@ -692,7 +1044,7 @@ function RegisterPhysicalAssetForm(props: PhysicalAssetMetrologyPanelProps & { o
         actor: "metrology.operator",
         reason: "enregistrement d’un matériel réel depuis le catalogue"
       });
-      props.onRegistered();
+      props.onRegistered(assetId.trim());
     } catch (reason) {
       setFormError(characterizationErrorMessage(reason));
     }
@@ -771,6 +1123,12 @@ function newCharacterizationId(assetId: string) {
   return `CHAR-${safeAsset}-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
 }
 
+function newCorrectionAssignmentId(assetId: string, requirementId: string) {
+  const safeAsset = assetId.replace(/[^A-Za-z0-9_-]/g, "-");
+  const safeRequirement = requirementId.replace(/[^A-Za-z0-9_-]/g, "-");
+  return `CORR-${safeAsset}-${safeRequirement}-${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+}
+
 function requiredFiniteNumber(value: string, label: string) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) throw new Error(`${label} doit être un nombre.`);
@@ -797,9 +1155,26 @@ function characterizationErrorMessage(error: unknown) {
     if (error.code === "operation_replay_mismatch") return "Cette opération a déjà été utilisée avec d’autres valeurs. Relancez l’enregistrement.";
     if (error.code === "metrology_instrument_not_found") return "Le matériel n’existe plus dans le registre métrologique.";
     if (error.code === "asset_characterization_already_exists") return "Cette caractérisation est déjà enregistrée.";
+    if (error.code === "asset_correction_revision_conflict") return "Cette correction a été modifiée depuis son ouverture. Le dossier a été rafraîchi.";
+    if (error.code === "asset_correction_source_not_conforming") return "La preuve n'est pas conforme et ne peut pas être activée.";
+    if (error.code === "asset_correction_model_pin_changed") return "Le modèle lié au matériel a changé. Préparez une nouvelle affectation.";
     return error.message;
   }
   return error instanceof Error ? error.message : "L’opération métrologique a échoué.";
+}
+
+function correctionAssignmentStatusLabel(status: string) {
+  return {
+    draft: "Brouillon à soumettre",
+    waiting_for_review: "En attente de revue",
+    approved: "Approuvée",
+    active: "Active pour ce matériel",
+    expired: "Expirée",
+    superseded: "Remplacée",
+    rejected: "Rejetée",
+    model_nominal: "Valeur nominale du modèle",
+    missing: "Correction manquante"
+  }[status] ?? "État à vérifier";
 }
 
 function characterizationStatus(item: AssetCharacterization) {
@@ -819,7 +1194,59 @@ function characterizationStatusClass(item: AssetCharacterization) {
 }
 
 function characterizationKindLabel(kind: AssetCharacterization["characterization_kind"]) {
-  return kind === "frequency_response" ? "Réponse fréquentielle" : "Conversion temporelle";
+  return kind === "frequency_response" ? "Correction selon la fréquence" : "Conversion du signal brut";
+}
+
+function sourceKindLabel(kind: AssetCharacterization["source_kind"]) {
+  return {
+    calibration: "Certificat d’étalonnage",
+    characterization: "Rapport de caractérisation",
+    verification: "Vérification",
+    manufacturer_certificate: "Certificat fabricant",
+    internal_measurement: "Mesure interne"
+  }[kind];
+}
+
+function nominalCorrectionSummary(
+  requirement: CorrectionRequirementDefinition,
+  corrections: MeasurementEngineeringAggregate[]
+) {
+  const reference = requirement.model_default_reference;
+  if (!reference) return "Aucune valeur nominale";
+  const item = corrections.find((candidate) => candidate.identity.entity_id === reference.definition_id);
+  const revision = item?.current_approved_revision?.revision_id === reference.revision_id
+    ? item.current_approved_revision
+    : item?.latest_revision?.revision_id === reference.revision_id
+      ? item.latest_revision
+      : null;
+  return revision?.label || item?.identity.label || "Valeur documentée pour le modèle";
+}
+
+function correctionValueSummary(characterization?: AssetCharacterization) {
+  if (!characterization) return "Preuve métrologique approuvée";
+  const correction = characterization.definition.correction.correction;
+  if (characterization.characterization_kind === "time_conversion") {
+    const parameters = objectValue(correction.parameters);
+    return `Facteur ${numberValue(parameters.scale)} · offset ${numberValue(parameters.offset)}`;
+  }
+  return `${arrayOfObjects(correction.points).length} points mesurés`;
+}
+
+function friendlyConditions(conditions: Record<string, unknown>) {
+  const labels: Record<string, string> = {
+    polarization: "Polarisation",
+    orientation: "Orientation",
+    channel: "Voie",
+    distance: "Distance",
+    temperature_c: "Température",
+    relative_humidity_percent: "Humidité relative"
+  };
+  return Object.entries(conditions)
+    .map(([key, value]) => {
+      const suffix = key === "temperature_c" ? " °C" : key === "relative_humidity_percent" ? " %" : "";
+      return `${labels[key] ?? key.replaceAll("_", " ")}: ${String(value)}${suffix}`;
+    })
+    .join(" · ");
 }
 
 function decisionLabel(decision: AssetCharacterization["decision"]) {
@@ -854,6 +1281,15 @@ function formatFrequency(value: number) {
   if (value >= 1e6) return `${value / 1e6} MHz`;
   if (value >= 1e3) return `${value / 1e3} kHz`;
   return `${value} Hz`;
+}
+
+function operatorUnitLabel(unit: string) {
+  return {
+    m_per_s2: "m/s²",
+    meter_per_second_squared: "m/s²",
+    degree: "°",
+    dimensionless: "1"
+  }[unit] ?? unit.replaceAll("_per_", "/").replaceAll("_", " ");
 }
 
 function todayIso() {

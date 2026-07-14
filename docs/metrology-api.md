@@ -19,6 +19,16 @@ POST /api/v1/metrology/instruments/{asset_id}/characterizations
 GET  /api/v1/metrology/instruments/{asset_id}/characterizations/{characterization_id}
 GET  /api/v1/metrology/instruments/{asset_id}/characterizations/{characterization_id}/audit-events
 POST /api/v1/metrology/files
+GET  /api/v1/metrology/instruments/{asset_id}/corrections
+POST /api/v1/metrology/instruments/{asset_id}/corrections
+GET  /api/v1/metrology/instruments/{asset_id}/corrections/{assignment_id}
+GET  /api/v1/metrology/instruments/{asset_id}/corrections/{assignment_id}/audit-events
+GET  /api/v1/metrology/corrections/review-queue
+POST /api/v1/metrology/instruments/{asset_id}/corrections/{assignment_id}/transitions/submit-for-review
+POST /api/v1/metrology/instruments/{asset_id}/corrections/{assignment_id}/transitions/approve-and-activate
+POST /api/v1/metrology/instruments/{asset_id}/corrections/{assignment_id}/transitions/reject
+POST /api/v1/metrology/instruments/{asset_id}/corrections/{assignment_id}/transitions/request-changes
+POST /api/v1/metrology/instruments/{asset_id}/corrections/resolve
 GET  /api/v1/metrology/instruments/{asset_id}/status?checked_on=YYYY-MM-DD
 POST /api/v1/metrology/instruments/{asset_id}/serviceability
 POST /api/v1/metrology/readiness
@@ -278,12 +288,45 @@ nonconforming
 Readiness responses include `ready`, `instrument_results`, `blocking_issues`,
 and `warnings`.
 
+## Reviewed Material Corrections
+
+Creating an assignment requires `assignment_id`, `signal_path_id`,
+`requirement_id`, `source_event_id`, optional validity/conditions and the normal
+operation context. The agent obtains the model and correction revisions plus
+checksums from the pinned instrument and immutable source; clients cannot
+substitute those values.
+
+Lifecycle transition bodies require `expected_revision`, `actor`, `reason` and
+`operation_id` (plus optional device/correlation ids). Stale revisions return a
+structured conflict. Approval and activation are one transaction: any previous
+active correction for the same material, requirement and conditions becomes
+`superseded` and remains traceable.
+
+Resolution request:
+
+```json
+{
+  "intended_use_on": "2026-07-14",
+  "execution_context": "accredited",
+  "conditions": { "polarization": "horizontal" }
+}
+```
+
+The response is context-derived and explains the selected source, pinned
+revision/checksum, validity, fallback warning and blocking state. It is not a
+runtime signal-processing operation.
+
 ## Current Boundary
 
-Version `0.16.0` keeps Rust as the source of truth for the migrated metrology
+Version `0.18.0` keeps Rust as the source of truth for the migrated metrology
 vertical slice. LAB CONSOLE and the Python client use the local agent for
 instrument registration, calibration events, serviceability, readiness, and
 serial-specific time or frequency characterizations.
+
+Migration `0010_asset_correction_assignments.sql` extends source evidence and
+adds the reviewed assignment lifecycle used by material readiness and
+resolution. It never converts a generic model correction into evidence for a
+serial number.
 
 Migration `0007_legacy_calibration_events.sql` backfills legacy
 `calibration_records` into `calibration_events` so historical certificates are

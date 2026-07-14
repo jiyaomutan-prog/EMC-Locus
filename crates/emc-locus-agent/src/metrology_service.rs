@@ -74,7 +74,9 @@ pub struct RecordAssetCharacterizationInput {
     pub characterization_id: String,
     pub asset_id: String,
     pub performed_on: String,
+    pub valid_from: String,
     pub valid_until: String,
+    pub source_kind: String,
     pub provider: String,
     pub method_reference: String,
     pub decision: String,
@@ -82,6 +84,10 @@ pub struct RecordAssetCharacterizationInput {
     pub certificate_reference: Option<String>,
     pub document_manifest_json: Option<String>,
     pub comment: String,
+    pub environmental_conditions_json: String,
+    pub as_found_json: Option<String>,
+    pub as_left_json: Option<String>,
+    pub adjustment_performed: bool,
     pub recorded_by: String,
     pub context: MetrologyOperationContext,
 }
@@ -118,16 +124,16 @@ pub struct MetrologyOperationContext {
     pub device_id: String,
 }
 
-struct MetrologyAuditWrite<'a> {
-    entity_type: &'a str,
-    entity_id: &'a str,
-    sequence: u64,
-    action: &'a str,
-    base_revision: &'a str,
-    resulting_revision: &'a str,
-    context: &'a MetrologyOperationContext,
-    payload_json: &'a str,
-    timestamp: &'a str,
+pub(crate) struct MetrologyAuditWrite<'a> {
+    pub(crate) entity_type: &'a str,
+    pub(crate) entity_id: &'a str,
+    pub(crate) sequence: u64,
+    pub(crate) action: &'a str,
+    pub(crate) base_revision: &'a str,
+    pub(crate) resulting_revision: &'a str,
+    pub(crate) context: &'a MetrologyOperationContext,
+    pub(crate) payload_json: &'a str,
+    pub(crate) timestamp: &'a str,
 }
 
 pub fn list_metrology_instruments(storage_root: &Path) -> Result<String, AgentError> {
@@ -436,14 +442,26 @@ pub fn record_asset_characterization(
     require_non_empty(&input.method_reference, "method_reference")?;
     require_non_empty(&input.recorded_by, "recorded_by")?;
     validate_characterization_decision(&input.decision)?;
+    validate_characterization_source_kind(&input.source_kind)?;
     validate_characterization_document_manifest(input.document_manifest_json.as_deref())?;
+    validate_characterization_json_object(
+        &input.environmental_conditions_json,
+        "environmental_conditions",
+    )?;
+    if let Some(value) = trimmed_optional(input.as_found_json.as_deref()) {
+        validate_characterization_json_object(value, "as_found")?;
+    }
+    if let Some(value) = trimmed_optional(input.as_left_json.as_deref()) {
+        validate_characterization_json_object(value, "as_left")?;
+    }
 
     let performed_on = parse_metrology_date(&input.performed_on, "performed_on")?;
+    let valid_from = parse_metrology_date(&input.valid_from, "valid_from")?;
     let valid_until = parse_metrology_date(&input.valid_until, "valid_until")?;
-    if valid_until < performed_on {
+    if valid_until < valid_from || valid_from < performed_on {
         return Err(AgentError::new(
             "invalid_asset_characterization",
-            "valid_until must be on or after performed_on",
+            "validity must start on or after the measurement and end on or after valid_from",
         ));
     }
 
@@ -530,7 +548,9 @@ pub fn record_asset_characterization(
             characterization_kind: canonical.kind.as_str(),
             label: &canonical.label,
             performed_on: input.performed_on.trim(),
+            valid_from: input.valid_from.trim(),
             valid_until: input.valid_until.trim(),
+            source_kind: input.source_kind.trim(),
             provider: input.provider.trim(),
             method_reference: input.method_reference.trim(),
             decision: input.decision.trim(),
@@ -543,6 +563,10 @@ pub fn record_asset_characterization(
             recorded_at: &recorded_at,
             recorded_by: input.recorded_by.trim(),
             revision: &revision,
+            environmental_conditions_json: input.environmental_conditions_json.trim(),
+            as_found_json: trimmed_optional(input.as_found_json.as_deref()),
+            as_left_json: trimmed_optional(input.as_left_json.as_deref()),
+            adjustment_performed: input.adjustment_performed,
         },
     )?;
     write_metrology_audit_and_outbox(
@@ -943,6 +967,20 @@ fn validate_characterization_decision(value: &str) -> Result<(), AgentError> {
     }
 }
 
+fn validate_characterization_source_kind(value: &str) -> Result<(), AgentError> {
+    match value.trim() {
+        "calibration"
+        | "characterization"
+        | "verification"
+        | "manufacturer_certificate"
+        | "internal_measurement" => Ok(()),
+        other => Err(AgentError::new(
+            "invalid_asset_characterization",
+            format!("unknown characterization source kind: {other}"),
+        )),
+    }
+}
+
 fn validate_optional_calibration_decision(
     value: Option<&str>,
     field: &'static str,
@@ -982,7 +1020,9 @@ fn calibration_issue_dimension(status: &str) -> &'static str {
     }
 }
 
-fn validate_operation_context(context: &MetrologyOperationContext) -> Result<(), AgentError> {
+pub(crate) fn validate_operation_context(
+    context: &MetrologyOperationContext,
+) -> Result<(), AgentError> {
     safe_identifier(&context.operation_id, "operation_id")?;
     safe_identifier(&context.correlation_id, "correlation_id")?;
     safe_identifier(&context.device_id, "device_id")?;
@@ -1091,7 +1131,9 @@ fn asset_characterization_payload_json(
         "characterization_kind": canonical.kind.as_str(),
         "label": canonical.label,
         "performed_on": input.performed_on.trim(),
+        "valid_from": input.valid_from.trim(),
         "valid_until": input.valid_until.trim(),
+        "source_kind": input.source_kind.trim(),
         "provider": input.provider.trim(),
         "method_reference": input.method_reference.trim(),
         "decision": input.decision.trim(),
@@ -1100,6 +1142,13 @@ fn asset_characterization_payload_json(
         "certificate_reference": trimmed_optional(input.certificate_reference.as_deref()),
         "document_manifest": document_manifest,
         "comment": input.comment.trim(),
+        "environmental_conditions": serde_json::from_str::<Value>(input.environmental_conditions_json.trim())
+            .expect("validated characterization environment must be JSON"),
+        "as_found": trimmed_optional(input.as_found_json.as_deref())
+            .map(|value| serde_json::from_str::<Value>(value).expect("validated as-found data must be JSON")),
+        "as_left": trimmed_optional(input.as_left_json.as_deref())
+            .map(|value| serde_json::from_str::<Value>(value).expect("validated as-left data must be JSON")),
+        "adjustment_performed": input.adjustment_performed,
         "recorded_by": input.recorded_by.trim(),
     }))
 }
@@ -1137,9 +1186,11 @@ fn asset_characterization_dto_from_stored(
     }
     let performed_on = parse_metrology_date(&record.performed_on, "performed_on")
         .map_err(|error| characterization_storage_invalid(error.message))?;
+    let valid_from = parse_metrology_date(&record.valid_from, "valid_from")
+        .map_err(|error| characterization_storage_invalid(error.message))?;
     let valid_until = parse_metrology_date(&record.valid_until, "valid_until")
         .map_err(|error| characterization_storage_invalid(error.message))?;
-    if valid_until < performed_on {
+    if valid_until < valid_from || valid_from < performed_on {
         return Err(characterization_storage_invalid(
             "stored characterization validity precedes its measurement date",
         ));
@@ -1147,6 +1198,13 @@ fn asset_characterization_dto_from_stored(
     if !matches!(
         record.decision.as_str(),
         "conforming" | "nonconforming" | "indeterminate" | "not_assessed"
+    ) || !matches!(
+        record.source_kind.as_str(),
+        "calibration"
+            | "characterization"
+            | "verification"
+            | "manufacturer_certificate"
+            | "internal_measurement"
     ) || [
         record.provider.as_str(),
         record.method_reference.as_str(),
@@ -1176,11 +1234,40 @@ fn asset_characterization_dto_from_stored(
             })
         })
         .transpose()?;
+    let environmental_conditions = parse_stored_characterization_object(
+        &record.environmental_conditions_json,
+        "environmental conditions",
+    )?;
+    let as_found = record
+        .as_found_json
+        .as_deref()
+        .map(|value| parse_stored_characterization_object(value, "as-found data"))
+        .transpose()?;
+    let as_left = record
+        .as_left_json
+        .as_deref()
+        .map(|value| parse_stored_characterization_object(value, "as-left data"))
+        .transpose()?;
     Ok(asset_characterization_dto(
         record,
         definition,
         document_manifest,
+        environmental_conditions,
+        as_found,
+        as_left,
     ))
+}
+
+fn parse_stored_characterization_object(value: &str, label: &str) -> Result<Value, AgentError> {
+    let parsed = serde_json::from_str::<Value>(value).map_err(|error| {
+        characterization_storage_invalid(format!("stored {label} is invalid: {error}"))
+    })?;
+    if !parsed.is_object() {
+        return Err(characterization_storage_invalid(format!(
+            "stored {label} must be a JSON object"
+        )));
+    }
+    Ok(parsed)
 }
 
 fn characterization_storage_invalid(message: impl Into<String>) -> AgentError {
@@ -1205,7 +1292,7 @@ fn serviceability_payload_json(input: &SetServiceabilityInput) -> String {
     }))
 }
 
-fn write_metrology_audit_and_outbox(
+pub(crate) fn write_metrology_audit_and_outbox(
     transaction: &rusqlite::Transaction<'_>,
     input: MetrologyAuditWrite<'_>,
 ) -> Result<(), AgentError> {
@@ -1251,6 +1338,21 @@ fn validate_json_object(value: &str, field: &'static str) -> Result<Value, Agent
     if !parsed.is_object() {
         return Err(AgentError::new(
             "invalid_metrology_calibration",
+            format!("{field} must be a JSON object"),
+        ));
+    }
+    Ok(parsed)
+}
+
+fn validate_characterization_json_object(
+    value: &str,
+    field: &'static str,
+) -> Result<Value, AgentError> {
+    let parsed = serde_json::from_str::<Value>(value)
+        .map_err(|error| AgentError::new("invalid_asset_characterization", error.to_string()))?;
+    if !parsed.is_object() {
+        return Err(AgentError::new(
+            "invalid_asset_characterization",
             format!("{field} must be a JSON object"),
         ));
     }
@@ -1523,7 +1625,7 @@ fn require_non_empty(value: &str, field: &'static str) -> Result<(), AgentError>
     Ok(())
 }
 
-fn revision_for(entity_type: &str, entity_id: &str, updated_at: &str) -> String {
+pub(crate) fn revision_for(entity_type: &str, entity_id: &str, updated_at: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"emc-locus-agent:");
     hasher.update(entity_type.as_bytes());
@@ -1535,7 +1637,7 @@ fn revision_for(entity_type: &str, entity_id: &str, updated_at: &str) -> String 
     format!("rev-{}", &digest[..12])
 }
 
-fn utc_timestamp() -> Result<String, AgentError> {
+pub(crate) fn utc_timestamp() -> Result<String, AgentError> {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .map_err(|error| AgentError::new("timestamp_format_failed", error.to_string()))
@@ -1782,7 +1884,9 @@ mod tests {
             characterization_kind: canonical.kind.as_str().to_owned(),
             label: canonical.label.clone(),
             performed_on: "2026-07-01".to_owned(),
+            valid_from: "2026-07-01".to_owned(),
             valid_until: "2027-07-01".to_owned(),
+            source_kind: "characterization".to_owned(),
             provider: "Internal laboratory".to_owned(),
             method_reference: "MET-RF-CABLE-001".to_owned(),
             decision: "conforming".to_owned(),
@@ -1795,6 +1899,10 @@ mod tests {
             recorded_at: "2026-07-14T00:00:00Z".to_owned(),
             recorded_by: "metrology.admin".to_owned(),
             revision: "rev-0001".to_owned(),
+            environmental_conditions_json: "{}".to_owned(),
+            as_found_json: None,
+            as_left_json: None,
+            adjustment_performed: false,
         };
         assert!(asset_characterization_dto_from_stored(&stored).is_ok());
 

@@ -324,6 +324,47 @@ Characterization insertion and its `metrology_audit_events` plus sync outbox
 evidence are one transaction. The table is immutable in 0.16.0: a later
 measurement creates another event instead of replacing the previous result.
 
+Migration `0010_asset_correction_assignments.sql` adds `source_kind`,
+`valid_from`, environmental conditions, as-found/as-left values and adjustment
+evidence to characterization events. It also creates the reviewed link between
+one immutable event and one correction requirement:
+
+```sql
+CREATE TABLE asset_correction_assignments (
+    assignment_id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL REFERENCES instruments(asset_id),
+    equipment_model_id TEXT NOT NULL,
+    equipment_model_revision_id TEXT NOT NULL,
+    equipment_model_checksum TEXT NOT NULL,
+    signal_path_id TEXT NOT NULL,
+    requirement_id TEXT NOT NULL,
+    correction_definition_id TEXT NOT NULL,
+    correction_revision_id TEXT NOT NULL,
+    correction_checksum TEXT NOT NULL,
+    source_event_id TEXT NOT NULL REFERENCES asset_characterization_events(characterization_id),
+    source_kind TEXT NOT NULL,
+    valid_from TEXT NOT NULL,
+    valid_until TEXT,
+    status TEXT NOT NULL,
+    conditions_json TEXT NOT NULL DEFAULT '{}',
+    assigned_at TEXT NOT NULL,
+    assigned_by TEXT NOT NULL,
+    submitted_at TEXT,
+    approved_at TEXT,
+    approved_by TEXT,
+    superseded_by TEXT REFERENCES asset_correction_assignments(assignment_id),
+    updated_at TEXT NOT NULL,
+    revision TEXT NOT NULL
+);
+```
+
+Checks constrain canonical SHA-256 evidence, lifecycle fields and date order.
+A partial unique index permits only one active correction for a material,
+signal path, requirement and condition set. Cross-database model references are
+pinned strings because SQLite cannot enforce foreign keys into
+`equipment.sqlite`; the Rust transaction service revalidates them before
+creation and activation.
+
 ### physical station setups
 
 Migration `storage/sqlite/station/0001_station_measurement_setups.sql` adds the

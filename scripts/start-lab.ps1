@@ -7,7 +7,10 @@ param(
     [switch]$SeedMeasurementDemo,
     [switch]$Rebuild,
     [string]$PythonCommand = "py",
-    [string]$CargoCommand = "cargo"
+    [string]$CargoCommand = "cargo",
+    [string]$CargoTargetDirectory = "target",
+    [string]$StorageRootPath = "data\local-agent",
+    [string]$StateName = "agent"
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,6 +37,9 @@ $agentArgs = @{
     NoQt = $true
     PythonCommand = $PythonCommand
     CargoCommand = $CargoCommand
+    CargoTargetDirectory = $CargoTargetDirectory
+    StorageRootPath = $StorageRootPath
+    StateName = $StateName
 }
 if ($Reset) {
     $agentArgs.Reset = $true

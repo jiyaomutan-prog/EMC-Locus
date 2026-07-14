@@ -1,7 +1,7 @@
 # EMC Locus LAB CONSOLE
 
 LAB CONSOLE is the browser application for laboratory management workflows. In
-0.17.0 it provides Template Studio v1 plus the Equipment workspace in a focused,
+0.18.0 it provides Template Studio v1 plus the Equipment workspace in a focused,
 responsive application shell. Active navigation is limited to implemented
 workflows, Equipment commands are contextual, the model wizard is presented as
 a modal task, and normal revision views favor laboratory labels and lifecycle
@@ -14,6 +14,23 @@ conversion, frequency response, sensor power/conditioning, equipment ports, and
 signal paths. `Matériels réels` also opens the selected asset's metrology dossier
 and its serial-specific characterizations. Internal API collection names remain
 stable machine identifiers; they are not used as operator terminology.
+
+## Scope In 0.18.0
+
+The physical-material dossier now lists the corrections required by the pinned
+approved model, explains blocking readiness, and starts the metrology workflow
+from the missing requirement. A metrologist can import or enter values, preview
+the correction, attach content-addressed evidence, submit it, review it and
+activate it. The screen distinguishes the selected serial-specific value from
+an unselected nominal model value.
+
+`npm run test:e2e` builds an isolated agent under
+`target/e2e-agent-build`, initializes a unique temporary repository under
+`data/`, uses port `8876`, and deletes only that repository after the run. It
+does not reset the normal local-agent data.
+
+Still not implemented: correction application to acquired samples or spectra,
+real acquisition, FFT, reporting, authentication/RBAC, or central sync.
 
 ## Runtime
 

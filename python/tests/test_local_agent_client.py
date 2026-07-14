@@ -1864,6 +1864,65 @@ class LocalAgentClientTests(unittest.TestCase):
         self.assertEqual(captured[1][2]["document_manifest"], uploaded["file"])
         self.assertEqual(captured[1][2]["operation_id"], "op-char-py-001")
 
+    def test_manages_serial_specific_correction_workflow(self) -> None:
+        captured: list[tuple[str, str, dict[str, object] | None]] = []
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            body = None
+            if request.data is not None:
+                body = json.loads(request.data.decode("utf-8"))
+            captured.append((request.get_method(), request.full_url, body))
+            return _FakeResponse({"ok": True})
+
+        client = LocalAgentClient("http://127.0.0.1:8765")
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            client.list_asset_correction_assignments("SA-CABLE-001")
+            client.list_asset_correction_review_queue()
+            client.create_asset_correction_assignment(
+                asset_id="SA-CABLE-001",
+                assignment_id="CORR-CABLE-001",
+                signal_path_id="RF_THROUGH",
+                requirement_id="rf_loss",
+                source_event_id="CHAR-CABLE-001",
+                actor="metrology.operator",
+                reason="bind measured loss",
+                conditions={"polarization": "horizontal"},
+                operation_id="op-correction-create",
+            )
+            client.transition_asset_correction_assignment(
+                asset_id="SA-CABLE-001",
+                assignment_id="CORR-CABLE-001",
+                transition="approve-and-activate",
+                expected_revision="rev-review",
+                actor="metrology.reviewer",
+                reason="review accepted",
+                operation_id="op-correction-approve",
+            )
+            client.resolve_material_corrections(
+                asset_id="SA-CABLE-001",
+                intended_use_on="2026-08-01",
+                execution_context="accredited",
+                conditions={"polarization": "horizontal"},
+            )
+
+        self.assertEqual(
+            captured[0],
+            (
+                "GET",
+                "http://127.0.0.1:8765/api/v1/metrology/instruments/SA-CABLE-001/corrections",
+                None,
+            ),
+        )
+        self.assertEqual(
+            captured[1][1],
+            "http://127.0.0.1:8765/api/v1/metrology/corrections/review-queue",
+        )
+        self.assertEqual(captured[2][2]["requirement_id"], "rf_loss")
+        self.assertEqual(captured[2][2]["conditions"]["polarization"], "horizontal")
+        self.assertEqual(captured[3][2]["expected_revision"], "rev-review")
+        self.assertTrue(captured[3][1].endswith("/transitions/approve-and-activate"))
+        self.assertEqual(captured[4][2]["execution_context"], "accredited")
+
     def test_registers_physical_asset_with_pinned_equipment_model(self) -> None:
         captured: dict[str, object] = {}
 

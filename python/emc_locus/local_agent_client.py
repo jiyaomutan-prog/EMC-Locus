@@ -1599,6 +1599,53 @@ class LocalAgentClient:
             f"/api/v1/metrology/instruments/{quote(asset_id)}/characterizations/{quote(characterization_id)}/audit-events",
         )
 
+    def list_asset_correction_assignments(self, asset_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/metrology/instruments/{quote(asset_id)}/corrections",
+        )
+
+    def get_asset_correction_assignment(
+        self,
+        asset_id: str,
+        assignment_id: str,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/metrology/instruments/{quote(asset_id)}/corrections/{quote(assignment_id)}",
+        )
+
+    def asset_correction_audit_events(
+        self,
+        asset_id: str,
+        assignment_id: str,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/metrology/instruments/{quote(asset_id)}/corrections/{quote(assignment_id)}/audit-events",
+        )
+
+    def list_asset_correction_review_queue(self) -> dict[str, Any]:
+        return self.request_json("GET", "/api/v1/metrology/corrections/review-queue")
+
+    def resolve_material_corrections(
+        self,
+        *,
+        asset_id: str,
+        intended_use_on: str,
+        execution_context: str,
+        conditions: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "POST",
+            f"/api/v1/metrology/instruments/{quote(asset_id)}/corrections/resolve",
+            {
+                "intended_use_on": intended_use_on,
+                "execution_context": execution_context,
+                "conditions": conditions or {},
+            },
+        )
+
     def get_metrology_calibration_status(
         self,
         asset_id: str,
@@ -1755,9 +1802,15 @@ class LocalAgentClient:
         actor: str,
         reason: str,
         decision: str = "conforming",
+        valid_from: str | None = None,
+        source_kind: str = "characterization",
         certificate_reference: str | None = None,
         document_manifest: dict[str, Any] | None = None,
         comment: str | None = None,
+        environmental_conditions: dict[str, Any] | None = None,
+        as_found: dict[str, Any] | None = None,
+        as_left: dict[str, Any] | None = None,
+        adjustment_performed: bool = False,
         operation_id: str | None = None,
         correlation_id: str | None = None,
         device_id: str | None = None,
@@ -1770,6 +1823,7 @@ class LocalAgentClient:
             "characterization_id": characterization_id,
             "performed_on": performed_on,
             "valid_until": valid_until,
+            "source_kind": source_kind,
             "provider": provider,
             "method_reference": method_reference,
             "decision": decision,
@@ -1779,15 +1833,105 @@ class LocalAgentClient:
             "reason": reason,
             "operation_id": operation_id,
         }
+        _put_optional(payload, "valid_from", valid_from)
         _put_optional(payload, "certificate_reference", certificate_reference)
         if document_manifest is not None:
             payload["document_manifest"] = document_manifest
         _put_optional(payload, "comment", comment)
+        if environmental_conditions is not None:
+            payload["environmental_conditions"] = environmental_conditions
+        if as_found is not None:
+            payload["as_found"] = as_found
+        if as_left is not None:
+            payload["as_left"] = as_left
+        _put_optional_bool(payload, "adjustment_performed", adjustment_performed)
         _put_optional(payload, "correlation_id", correlation_id)
         _put_optional(payload, "device_id", device_id)
         return self.request_json(
             "POST",
             f"/api/v1/metrology/instruments/{quote(asset_id)}/characterizations",
+            payload,
+        )
+
+    def create_asset_correction_assignment(
+        self,
+        *,
+        asset_id: str,
+        assignment_id: str,
+        signal_path_id: str,
+        requirement_id: str,
+        source_event_id: str,
+        actor: str,
+        reason: str,
+        valid_from: str | None = None,
+        valid_until: str | None = None,
+        conditions: dict[str, str] | None = None,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "asset-correction-create",
+            assignment_id,
+        )
+        payload: dict[str, Any] = {
+            "assignment_id": assignment_id,
+            "signal_path_id": signal_path_id,
+            "requirement_id": requirement_id,
+            "source_event_id": source_event_id,
+            "conditions": conditions or {},
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "valid_from", valid_from)
+        _put_optional(payload, "valid_until", valid_until)
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/metrology/instruments/{quote(asset_id)}/corrections",
+            payload,
+        )
+
+    def transition_asset_correction_assignment(
+        self,
+        *,
+        asset_id: str,
+        assignment_id: str,
+        transition: str,
+        expected_revision: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        allowed = {
+            "submit-for-review",
+            "approve-and-activate",
+            "reject",
+            "request-changes",
+        }
+        if transition not in allowed:
+            raise ValueError(f"unsupported asset correction transition: {transition}")
+        operation_id = operation_id or generate_operation_id(
+            "asset-correction-transition",
+            assignment_id,
+            transition,
+        )
+        payload = {
+            "expected_revision": expected_revision,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/metrology/instruments/{quote(asset_id)}/corrections/"
+            f"{quote(assignment_id)}/transitions/{transition}",
             payload,
         )
 

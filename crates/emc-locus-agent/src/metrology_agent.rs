@@ -108,11 +108,17 @@ where
             asset_id: required_value(&mut flags, "--asset-id")?,
         },
         "record-characterization" => {
+            let performed_on = required_value(&mut flags, "--performed-on")?;
+            let valid_from =
+                optional_value(&mut flags, "--valid-from").unwrap_or_else(|| performed_on.clone());
             MetrologyAction::RecordCharacterization(Box::new(RecordAssetCharacterizationInput {
                 characterization_id: required_value(&mut flags, "--characterization-id")?,
                 asset_id: required_value(&mut flags, "--asset-id")?,
-                performed_on: required_value(&mut flags, "--performed-on")?,
+                performed_on,
+                valid_from,
                 valid_until: required_value(&mut flags, "--valid-until")?,
+                source_kind: optional_value(&mut flags, "--source-kind")
+                    .unwrap_or_else(|| "characterization".to_owned()),
                 provider: required_value(&mut flags, "--provider")?,
                 method_reference: required_value(&mut flags, "--method-reference")?,
                 decision: optional_value(&mut flags, "--decision")
@@ -121,6 +127,15 @@ where
                 certificate_reference: optional_value(&mut flags, "--certificate-reference"),
                 document_manifest_json: optional_value(&mut flags, "--document-manifest-json"),
                 comment: optional_value(&mut flags, "--comment").unwrap_or_default(),
+                environmental_conditions_json: optional_value(
+                    &mut flags,
+                    "--environmental-conditions-json",
+                )
+                .unwrap_or_else(|| "{}".to_owned()),
+                as_found_json: optional_value(&mut flags, "--as-found-json"),
+                as_left_json: optional_value(&mut flags, "--as-left-json"),
+                adjustment_performed: optional_value(&mut flags, "--adjustment-performed")
+                    .is_some_and(|value| value.eq_ignore_ascii_case("true")),
                 recorded_by: required_value(&mut flags, "--recorded-by")?,
                 context: operation_context_from_flags(&mut flags)?,
             }))

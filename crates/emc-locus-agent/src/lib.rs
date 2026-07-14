@@ -1,3 +1,5 @@
+mod asset_correction_repository;
+mod asset_correction_service;
 mod document_dto;
 mod document_repository;
 mod document_service;
@@ -28,6 +30,14 @@ mod test_template_dto;
 mod test_template_repository;
 mod test_template_service;
 
+pub use asset_correction_service::{
+    approve_and_activate_asset_correction, create_asset_correction_assignment,
+    get_asset_correction_assignment, list_asset_correction_assignments,
+    list_asset_correction_review_queue, reject_asset_correction, request_asset_correction_changes,
+    resolve_material_corrections, submit_asset_correction_for_review,
+    CreateAssetCorrectionAssignmentInput, ResolveMaterialCorrectionsInput,
+    TransitionAssetCorrectionInput,
+};
 pub use document_service::{
     get_document, list_document_audit_events, list_documents, register_attached_document,
     ListAttachedDocumentsInput, RegisterAttachedDocumentInput,
@@ -926,7 +936,7 @@ mod tests {
                 .find(|domain| domain.domain == "metrology")
                 .unwrap()
                 .schema_version,
-            Some(9)
+            Some(10)
         );
         assert_eq!(
             second_report
@@ -935,7 +945,7 @@ mod tests {
                 .find(|domain| domain.domain == "equipment")
                 .unwrap()
                 .schema_version,
-            Some(5)
+            Some(6)
         );
         assert_eq!(
             second_report

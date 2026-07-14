@@ -315,6 +315,69 @@ pub struct SignalTransformationReference {
     pub definition_checksum: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CorrectionRequirementKind {
+    RawSignalConversion,
+    FrequencyDependentCorrection,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssetSpecificCorrectionPolicy {
+    AssetRequired,
+    AssetPreferred,
+    ModelValueAllowed,
+    ModelValueOnly,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NominalCorrectionQuality {
+    ManufacturerNominal,
+    ManufacturerTypical,
+    ModelCharacterization,
+    SimulationOnly,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CorrectionApplicationOperation {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelDefaultCorrectionReference {
+    pub correction_kind: CorrectionRequirementKind,
+    pub definition_id: String,
+    pub revision_id: String,
+    pub definition_checksum: String,
+    pub quality: NominalCorrectionQuality,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CorrectionRequirementDefinition {
+    pub requirement_id: String,
+    pub display_name: String,
+    pub description: String,
+    pub signal_path_id: String,
+    pub correction_kind: CorrectionRequirementKind,
+    pub physical_purpose: String,
+    pub operation: CorrectionApplicationOperation,
+    pub input_quantity: PhysicalQuantity,
+    pub output_quantity: PhysicalQuantity,
+    pub expected_unit: String,
+    pub required_for_use: bool,
+    pub asset_specific_policy: AssetSpecificCorrectionPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_default_reference: Option<ModelDefaultCorrectionReference>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub conditions: BTreeMap<String, String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EquipmentSignalPathDefinition {
     pub path_id: String,
@@ -323,6 +386,8 @@ pub struct EquipmentSignalPathDefinition {
     pub output_port_id: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub transformations: Vec<SignalTransformationReference>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub correction_requirements: Vec<CorrectionRequirementDefinition>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1713,6 +1778,7 @@ fn validate_signal_paths(
     ports_by_id: &BTreeMap<String, &SignalPortDefinition>,
 ) {
     let mut path_ids = BTreeSet::new();
+    let mut requirement_ids = BTreeSet::new();
     for (path_index, signal_path) in paths.iter().enumerate() {
         let path = format!("signal_paths[{path_index}]");
         require_token(issues, &signal_path.path_id, &format!("{path}.path_id"));
@@ -1841,6 +1907,138 @@ fn validate_signal_paths(
                     "frequency_response_without_input_port_band",
                     format!("{path}.input_port_id"),
                     "a frequency-response correction should be associated with an input port that declares Fmin and Fmax",
+                    Some("Declare the usable frequency range of the equipment port."),
+                ));
+            }
+        }
+
+        if !signal_path.transformations.is_empty()
+            && !signal_path.correction_requirements.is_empty()
+        {
+            issues.push(issue(
+                "error",
+                "mixed_signal_correction_contracts",
+                path.clone(),
+                "a signal path cannot mix legacy direct transformations with correction requirements",
+                Some("Create correction requirements and remove the former direct references."),
+            ));
+        }
+        if !signal_path.transformations.is_empty() {
+            issues.push(issue(
+                "warning",
+                "legacy_signal_transformation_contract",
+                format!("{path}.transformations"),
+                "the signal path still pins correction values directly instead of stating what each physical item requires",
+                Some("Derive a model revision and replace these references with correction requirements."),
+            ));
+        }
+
+        for (requirement_index, requirement) in
+            signal_path.correction_requirements.iter().enumerate()
+        {
+            let requirement_path = format!("{path}.correction_requirements[{requirement_index}]");
+            require_token(
+                issues,
+                &requirement.requirement_id,
+                &format!("{requirement_path}.requirement_id"),
+            );
+            require_text(
+                issues,
+                &requirement.display_name,
+                &format!("{requirement_path}.display_name"),
+            );
+            require_text(
+                issues,
+                &requirement.description,
+                &format!("{requirement_path}.description"),
+            );
+            require_text(
+                issues,
+                &requirement.physical_purpose,
+                &format!("{requirement_path}.physical_purpose"),
+            );
+            require_text(
+                issues,
+                &requirement.expected_unit,
+                &format!("{requirement_path}.expected_unit"),
+            );
+            if !requirement_ids.insert(requirement.requirement_id.clone()) {
+                issues.push(issue(
+                    "error",
+                    "duplicate_correction_requirement_id",
+                    format!("{requirement_path}.requirement_id"),
+                    format!(
+                        "duplicate correction requirement id: {}",
+                        requirement.requirement_id
+                    ),
+                    Option::<String>::None,
+                ));
+            }
+            if requirement.signal_path_id != signal_path.path_id {
+                issues.push(issue(
+                    "error",
+                    "correction_requirement_path_mismatch",
+                    format!("{requirement_path}.signal_path_id"),
+                    "the correction requirement must reference the signal path that contains it",
+                    Option::<String>::None,
+                ));
+            }
+            if requirement.asset_specific_policy == AssetSpecificCorrectionPolicy::ModelValueOnly
+                && requirement.model_default_reference.is_none()
+            {
+                issues.push(issue(
+                    "error",
+                    "model_only_correction_without_default",
+                    format!("{requirement_path}.model_default_reference"),
+                    "a model-value-only correction requires an approved nominal model value",
+                    Option::<String>::None,
+                ));
+            }
+            if let Some(reference) = &requirement.model_default_reference {
+                require_token(
+                    issues,
+                    &reference.definition_id,
+                    &format!("{requirement_path}.model_default_reference.definition_id"),
+                );
+                require_token(
+                    issues,
+                    &reference.revision_id,
+                    &format!("{requirement_path}.model_default_reference.revision_id"),
+                );
+                require_checksum(
+                    issues,
+                    &reference.definition_checksum,
+                    &format!("{requirement_path}.model_default_reference.definition_checksum"),
+                );
+                if reference.correction_kind != requirement.correction_kind {
+                    issues.push(issue(
+                        "error",
+                        "correction_requirement_default_kind_mismatch",
+                        format!("{requirement_path}.model_default_reference.correction_kind"),
+                        "the nominal model value must use the correction kind required by the signal path",
+                        Option::<String>::None,
+                    ));
+                }
+            }
+            for (key, value) in &requirement.conditions {
+                require_token(issues, key, &format!("{requirement_path}.conditions.{key}"));
+                require_text(
+                    issues,
+                    value,
+                    &format!("{requirement_path}.conditions.{key}"),
+                );
+            }
+            if requirement.correction_kind
+                == CorrectionRequirementKind::FrequencyDependentCorrection
+                && input.is_some_and(|port| {
+                    port.frequency_min.is_none() || port.frequency_max.is_none()
+                })
+            {
+                issues.push(issue(
+                    "warning",
+                    "frequency_correction_without_input_port_band",
+                    format!("{path}.input_port_id"),
+                    "a frequency-dependent correction should use an input port with Fmin and Fmax",
                     Some("Declare the usable frequency range of the equipment port."),
                 ));
             }
@@ -4258,6 +4456,7 @@ mod tests {
                     "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                         .to_owned(),
             }],
+            correction_requirements: Vec::new(),
         }];
 
         let issues = definition.validate_all();
@@ -4266,6 +4465,94 @@ mod tests {
             !issues.iter().any(|item| item.severity == "error"),
             "{issues:?}"
         );
+    }
+
+    #[test]
+    fn validates_model_correction_requirement_without_serial_values() {
+        let mut definition = minimal_model();
+        definition.signal_domains.push(SignalDomain::Software);
+        let mut output = definition.signal_ports[0].clone();
+        output.port_id = "measurement_result".to_owned();
+        output.label = "Measurement result".to_owned();
+        output.directionality = PortDirectionality::Output;
+        output.flow_role = PortFlowRole::TransducerOutputPort;
+        output.signal_domain = SignalDomain::Software;
+        output.connector_type = None;
+        output.technology_tags.clear();
+        output.impedance = None;
+        definition.signal_ports.push(output);
+        definition.signal_paths = vec![EquipmentSignalPathDefinition {
+            path_id: "rf_measurement".to_owned(),
+            label: "RF input to measured spectrum".to_owned(),
+            input_port_id: "rf_input".to_owned(),
+            output_port_id: "measurement_result".to_owned(),
+            transformations: Vec::new(),
+            correction_requirements: vec![CorrectionRequirementDefinition {
+                requirement_id: "rf_path_loss".to_owned(),
+                display_name: "RF path loss".to_owned(),
+                description: "Correct the serialized RF path loss".to_owned(),
+                signal_path_id: "rf_measurement".to_owned(),
+                correction_kind: CorrectionRequirementKind::FrequencyDependentCorrection,
+                physical_purpose: "Compensate amplitude between the input and reference plane"
+                    .to_owned(),
+                operation: CorrectionApplicationOperation::Add,
+                input_quantity: PhysicalQuantity::Power,
+                output_quantity: PhysicalQuantity::Power,
+                expected_unit: "dB".to_owned(),
+                required_for_use: true,
+                asset_specific_policy: AssetSpecificCorrectionPolicy::AssetRequired,
+                model_default_reference: None,
+                conditions: BTreeMap::new(),
+            }],
+        }];
+
+        let issues = definition.validate_all();
+
+        assert!(
+            !issues.iter().any(|item| item.severity == "error"),
+            "{issues:?}"
+        );
+        assert!(definition.signal_paths[0].transformations.is_empty());
+    }
+
+    #[test]
+    fn rejects_model_only_correction_without_nominal_value() {
+        let mut definition = minimal_model();
+        let mut output = definition.signal_ports[0].clone();
+        output.port_id = "measurement_result".to_owned();
+        output.label = "Measurement result".to_owned();
+        output.directionality = PortDirectionality::Output;
+        output.flow_role = PortFlowRole::TransducerOutputPort;
+        definition.signal_ports.push(output);
+        definition.signal_paths = vec![EquipmentSignalPathDefinition {
+            path_id: "rf_measurement".to_owned(),
+            label: "RF input to measured spectrum".to_owned(),
+            input_port_id: "rf_input".to_owned(),
+            output_port_id: "measurement_result".to_owned(),
+            transformations: Vec::new(),
+            correction_requirements: vec![CorrectionRequirementDefinition {
+                requirement_id: "rf_path_loss".to_owned(),
+                display_name: "RF path loss".to_owned(),
+                description: "Use a model-only correction".to_owned(),
+                signal_path_id: "rf_measurement".to_owned(),
+                correction_kind: CorrectionRequirementKind::FrequencyDependentCorrection,
+                physical_purpose: "Compensate amplitude".to_owned(),
+                operation: CorrectionApplicationOperation::Add,
+                input_quantity: PhysicalQuantity::Power,
+                output_quantity: PhysicalQuantity::Power,
+                expected_unit: "dB".to_owned(),
+                required_for_use: true,
+                asset_specific_policy: AssetSpecificCorrectionPolicy::ModelValueOnly,
+                model_default_reference: None,
+                conditions: BTreeMap::new(),
+            }],
+        }];
+
+        let issues = definition.validate_all();
+
+        assert!(issues
+            .iter()
+            .any(|item| item.code == "model_only_correction_without_default"));
     }
 
     #[test]
@@ -4282,6 +4569,7 @@ mod tests {
                 revision_id: "cable-loss-rev-0001".to_owned(),
                 definition_checksum: "sha256:ABC".to_owned(),
             }],
+            correction_requirements: Vec::new(),
         }];
 
         let issues = definition.validate_all();

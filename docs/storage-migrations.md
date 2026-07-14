@@ -41,6 +41,10 @@ without deleting the original records. Version 8 adds an optional, indivisible
 Equipment Repository model identity, revision, and canonical checksum reference
 to physical instruments. No cross-database foreign key or taxonomy alias is
 invented between equipment categories and metrology instrument categories.
+Version 9 adds immutable typed characterization events for one physical item.
+Version 10 extends their source and validity evidence, then adds reviewed
+`asset_correction_assignments` with pinned model/source checksums, lifecycle,
+conditions and a unique active correction per material/requirement context.
 
 ### Projects
 
@@ -116,6 +120,11 @@ moves common rules to that universal inheritance root, archives the provisional
 `file_reference` documentation field. File payloads are stored outside SQLite
 under the local storage root; immutable model JSON stores their SHA-256
 manifest.
+Version 6 records the correction-requirement contract used in canonical model
+definitions. Existing revision JSON is not rewritten in place: a legacy
+transformation can only become a correction requirement through a new,
+controlled model revision. No existing generic curve is migrated into a
+physical item's metrology history.
 
 ### Measurement Data
 

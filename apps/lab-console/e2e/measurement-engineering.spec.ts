@@ -9,14 +9,14 @@ type MeasurementSpace = {
 
 const spaces = {
   scaling: {
-    tab: "Conversions temporelles",
+    tab: "Conversions du signal brut",
     collection: "scaling-profiles",
     createButton: "Nouvelle conversion"
   },
   curves: {
-    tab: "Réponses fréquentielles",
+    tab: "Corrections selon la fréquence",
     collection: "engineering-curves",
-    createButton: "Nouvelle réponse"
+    createButton: "Nouvelle correction"
   },
   sensors: {
     tab: "Capteurs / transducteurs",
@@ -83,9 +83,9 @@ test("measurement engineering workflow creates approved channel recipe", async (
   await approveCurrentDraft(page, spaces.curves, cableCurveId);
 
   const sensorId = await createMeasurementDraft(page, spaces.sensors, sensorLabel);
-  await sectionButton(page, "Conversion temporelle").click();
+  await sectionButton(page, "Conversion du signal brut").click();
   await expect(page.getByRole("cell", { name: scalingLabel, exact: true })).toBeVisible();
-  await sectionButton(page, "Réponse fréquentielle").click();
+  await sectionButton(page, "Correction selon la fréquence").click();
   if (await page.getByRole("cell", { name: currentCurveLabel, exact: true }).count() === 0) {
     await page.locator(".editorPane select").selectOption({ label: `${currentCurveLabel} — révision 1` });
     await page.locator(".editorPane").getByRole("button", { name: "Ajouter" }).click();

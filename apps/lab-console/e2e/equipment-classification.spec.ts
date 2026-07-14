@@ -146,6 +146,7 @@ test("equipment repository UX manages nested categories, fields and model creati
   expect((await approveResponse).ok()).toBeTruthy();
 
   await page.getByRole("button", { name: "Matériels réels" }).click();
+  await page.getByRole("button", { name: "Enregistrer un matériel" }).click();
   const approvedModelSelect = page.getByLabel(/Modèle d.équipement/);
   await expect(approvedModelSelect.locator(`option[value="${modelId}"]`)).toHaveCount(1);
   await approvedModelSelect.selectOption(modelId);
