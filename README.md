@@ -80,11 +80,20 @@ storage/
 
 ## Development Status
 
-This repository is at foundation stage. The current focus is product framing,
-domain modeling, and an implementation skeleton that can grow into tested Rust
-and Python modules.
+This repository is in active pre-production development. The current focus is
+closing complete laboratory workflows across the Rust agent, local storage and
+operator interfaces while keeping each domain traceable and offline-capable.
 
-Current software version: `0.18.0`.
+Current software version: `0.19.0`.
+
+Version `0.19.0` delivers the first usable Locus Lab Management workflow. A
+laboratory manager can open an accredited, non-accredited or investigation
+dossier, complete the mode-specific review of need, move the dossier to test
+planning, reserve an operator and location, understand an overlapping-resource
+refusal, confirm the slot and read the resulting history. The Rust Local Agent
+is the sole writer for this vertical and commits project data, audit and outbox
+evidence atomically. This release plans a first slot inside one dossier; it is
+not yet a multi-week resource calendar, campaign runtime or report workflow.
 
 Version `0.18.0` separates a model's correction requirement, its optional
 nominal value, the immutable calibration or characterization of one serialized

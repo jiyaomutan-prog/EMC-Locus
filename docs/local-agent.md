@@ -367,8 +367,11 @@ Version `0.5.5` also routes migrated project reads through the agent when
 - project audit events;
 - pending sync outbox.
 
-The service-planning table is still a legacy SQLite-backed surface until a
-dedicated agent route exists.
+Version `0.19.0` routes service-planning reads and writes through dedicated
+project-context agent routes. The Python client can list, create and transition
+schedule items without opening `projects.sqlite`. Creation and status changes
+commit the planning row, project audit event and pending sync outbox operation
+atomically.
 
 The Qt console accepts:
 

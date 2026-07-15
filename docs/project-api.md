@@ -125,10 +125,10 @@ These writes require rollback-journal modes (`delete`, `truncate`, or
 project commands return a structured `storage_journal_mode_incompatible` error
 if an operator or external tool switches either file to an incompatible mode.
 
-This API is the local boundary for the project vertical slice. Metrology,
-planning, instrument control, and acquisition remain separate work until they
-are explicitly migrated behind the agent. Attached document metadata is now a
-first shared agent-owned registry; see `document-api.md`.
+This API is the local boundary for the project and first-slot planning vertical
+slice. Instrument control and acquisition remain separate work until they are
+explicitly migrated behind the agent. Attached document metadata is a shared
+agent-owned registry; see `document-api.md`.
 
 Qt/Python clients configured with `agent_url` use these routes for migrated
 project and planning reads and writes. They must not open `projects.sqlite`

@@ -8,8 +8,35 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-07-15
+
+### Added
+
+- Added a typed service-planning domain with canonical local date-times,
+  business-day validation, deterministic status transitions and explainable
+  operator or location conflicts.
+- Added Local Agent routes for project-centred schedule creation, listing and
+  transitions with optimistic concurrency, idempotence, project audit and
+  sync outbox evidence.
+- Added the first usable Locus Lab Management workflow in LAB CONSOLE: create
+  a dossier, complete its mode-specific contract review, move it to planning,
+  reserve and confirm a first test slot, and inspect its history.
+- Added a real Playwright dossier-to-planning scenario, including a rejected
+  concurrent slot and reviewed 1440 x 900 and 1280 x 720 screenshots.
+
+### Changed
+
+- Moved service-schedule ownership behind the Rust Local Agent while preserving
+  existing development rows through projects migration `6`.
+- Reorganized LAB CONSOLE navigation around active laboratory management and
+  technical-preparation work instead of advertising future modules.
+- Updated the Python Local Agent client to use the agent-owned planning routes.
+
 ### Fixed
 
+- Kept resource-conflict explanations inside the planning form that triggered
+  them and prevented rejected slots from producing partial audit or outbox
+  writes.
 - Hardened Rust `DatasetChecksum` parsing so raw-data, processing-graph and
   report-export evidence must use canonical lowercase `sha256:<64 hex>` values.
 - Replaced remaining LAB CONSOLE validation, conflict and effective-template

@@ -1,19 +1,31 @@
 # EMC Locus LAB CONSOLE
 
 LAB CONSOLE is the browser application for laboratory management workflows. In
-0.18.0 it provides Template Studio v1 plus the Equipment workspace in a focused,
-responsive application shell. Active navigation is limited to implemented
-workflows, Equipment commands are contextual, the model wizard is presented as
-a modal task, and normal revision views favor laboratory labels and lifecycle
-states over technical identifiers. Category administration, revisioned
-equipment models, driver profiles, communication-provider status, and
-signal and correction editors remain available.
+0.19.0 it joins project dossiers and first-slot planning to Template Studio v1
+and the Equipment workspace in a focused, responsive application shell. Active
+navigation is limited to implemented workflows, and normal views favor
+laboratory labels and lifecycle states over technical identifiers. Category
+administration, revisioned equipment models, driver profiles,
+communication-provider status, and signal and correction editors remain
+available.
 
 The Equipment workspace uses signal-facing language: time-domain sample
 conversion, frequency response, sensor power/conditioning, equipment ports, and
 signal paths. `Matériels réels` also opens the selected asset's metrology dossier
 and its serial-specific characterizations. Internal API collection names remain
 stable machine identifiers; they are not used as operator terminology.
+
+## Scope In 0.19.0
+
+`Dossiers d'essai` carries one project from its mode-specific review of need to
+a first confirmed laboratory slot. It keeps the next action visible, reserves
+an operator and location, explains overlap conflicts in the planning form and
+shows a readable project history. All writes cross the Local Agent API and
+produce atomic audit and outbox evidence.
+
+This is dossier-centred first-slot planning. It does not yet provide a global
+calendar, multi-resource drag-and-drop, competencies/absence planning, campaign
+execution, reporting, authentication/RBAC, or central sync.
 
 ## Scope In 0.18.0
 

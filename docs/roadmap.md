@@ -172,6 +172,12 @@ Deliverables:
   physical material. A deterministic resolver handles validity, context and
   conditions such as antenna polarization, without applying corrections to
   acquired data yet.
+- `0.19.0` delivers the first Locus Lab Management workflow: a laboratory
+  manager opens one dossier, completes its mode-specific review of need, moves
+  it to planning, reserves an operator and location, receives an explainable
+  overlap refusal, confirms the first slot, and reads the audit history. The
+  Rust Local Agent owns planning writes and outbox evidence. This is not yet a
+  global resource calendar, campaign runtime or report workflow.
 
 ## Phase 3: Measurement Runtime
 
