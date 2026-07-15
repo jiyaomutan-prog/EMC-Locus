@@ -98,6 +98,47 @@ class LocalAgentClient:
             f"/api/v1/projects/{quote(project_code)}/schedule-items",
         )
 
+    def get_planned_test_preparation(
+        self,
+        project_code: str,
+        item_code: str,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/projects/{quote(project_code)}/schedule-items/{quote(item_code)}/preparation",
+        )
+
+    def planned_test_preparation_options(
+        self,
+        project_code: str,
+        item_code: str,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/projects/{quote(project_code)}/schedule-items/{quote(item_code)}/preparation/options",
+        )
+
+    def planned_test_preparation_revisions(
+        self,
+        project_code: str,
+        item_code: str,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/projects/{quote(project_code)}/schedule-items/{quote(item_code)}/preparation/revisions",
+        )
+
+    def get_planned_test_preparation_revision(
+        self,
+        project_code: str,
+        item_code: str,
+        revision_id: str,
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/projects/{quote(project_code)}/schedule-items/{quote(item_code)}/preparation/revisions/{quote(revision_id)}",
+        )
+
     def list_laboratory_week_schedule(self, week_start: str) -> dict[str, Any]:
         return self.request_json(
             "GET",
@@ -1652,6 +1693,50 @@ class LocalAgentClient:
         return self.request_json(
             "POST",
             f"/api/v1/projects/{quote(project_code)}/schedule-items/{quote(item_code)}/transitions/{quote(action)}",
+            payload,
+        )
+
+    def assess_planned_test_preparation(
+        self,
+        *,
+        project_code: str,
+        item_code: str,
+        expected_schedule_revision: int,
+        expected_current_revision_id: str | None,
+        method_template_id: str,
+        method_revision_id: str,
+        station_setup_id: str,
+        station_setup_revision_id: str,
+        assignments: list[dict[str, str]],
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "planned-test-preparation",
+            project_code,
+            item_code,
+            str(expected_schedule_revision),
+        )
+        payload: dict[str, Any] = {
+            "expected_schedule_revision": expected_schedule_revision,
+            "expected_current_revision_id": expected_current_revision_id,
+            "method_template_id": method_template_id,
+            "method_revision_id": method_revision_id,
+            "station_setup_id": station_setup_id,
+            "station_setup_revision_id": station_setup_revision_id,
+            "assignments": assignments,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/projects/{quote(project_code)}/schedule-items/{quote(item_code)}/preparation/assessments",
             payload,
         )
 

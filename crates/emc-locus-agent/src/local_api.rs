@@ -7904,6 +7904,246 @@ mod tests {
     }
 
     #[test]
+    fn real_http_server_persists_planned_test_preparation_across_restart() {
+        let storage_root = temporary_storage_root("agent-api-real-planned-test-preparation");
+        let migrations_root = repo_root().join("storage/sqlite");
+        let seed_config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: migrations_root.clone(),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: None,
+        };
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &seed_config).status,
+            200
+        );
+        seed_planned_test_preparation_http_fixture(&seed_config);
+
+        let first_port = free_loopback_port();
+        let first_address = format!("127.0.0.1:{first_port}");
+        let first_server = spawn_server(ApiServerConfig {
+            bind: first_address.clone(),
+            storage_root: storage_root.clone(),
+            migrations_root: migrations_root.clone(),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: Some(12),
+        });
+
+        assert_eq!(wait_for_http(&first_address, "/api/v1/health").0, 200);
+        let missing = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/preparation",
+            "",
+        );
+        assert_eq!(missing.0, 200, "{}", missing.1);
+        assert!(missing.1.contains("\"current_state\":\"missing\""));
+
+        let options = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/preparation/options",
+            "",
+        );
+        assert_eq!(options.0, 200, "{}", options.1);
+        assert!(options.1.contains("METHOD-PREP-HTTP-rev-0001"));
+        assert!(options.1.contains("SETUP-PREP-HTTP-rev-0001"));
+        assert!(options.1.contains("SA-RECEIVER-STATION-001"));
+
+        let blocked_body = json!({
+            "expected_schedule_revision": 2,
+            "expected_current_revision_id": null,
+            "method_template_id": "METHOD-PREP-HTTP",
+            "method_revision_id": "METHOD-PREP-HTTP-rev-0001",
+            "station_setup_id": "SETUP-PREP-HTTP",
+            "station_setup_revision_id": "SETUP-PREP-HTTP-rev-0001",
+            "assignments": [],
+            "actor": "operator.http",
+            "reason": "check blocked preparation",
+            "operation_id": "op-http-preparation-blocked",
+            "device_id": "http-e2e",
+            "correlation_id": "corr-http-preparation-blocked"
+        })
+        .to_string();
+        let blocked = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/preparation/assessments",
+            &blocked_body,
+        );
+        assert_eq!(blocked.0, 200, "{}", blocked.1);
+        assert!(blocked.1.contains("\"current_state\":\"blocked\""));
+        assert!(blocked.1.contains("planned_test_required_role_unassigned"));
+
+        let blocked_start = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/transitions/start",
+            &json!({
+                "expected_revision": 2,
+                "actor": "operator.http",
+                "reason": "attempt blocked start",
+                "operation_id": "op-http-start-blocked",
+                "device_id": "http-e2e",
+                "correlation_id": "corr-http-start-blocked"
+            })
+            .to_string(),
+        );
+        assert_eq!(blocked_start.0, 409, "{}", blocked_start.1);
+        assert!(blocked_start
+            .1
+            .contains("planned_test_preparation_not_ready"));
+
+        let ready_body = json!({
+            "expected_schedule_revision": 2,
+            "expected_current_revision_id": "PLAN-PREP-HTTP-prep-rev-0001",
+            "method_template_id": "METHOD-PREP-HTTP",
+            "method_revision_id": "METHOD-PREP-HTTP-rev-0001",
+            "station_setup_id": "SETUP-PREP-HTTP",
+            "station_setup_revision_id": "SETUP-PREP-HTTP-rev-0001",
+            "assignments": [{"slot_id": "receiver", "binding_id": "receiver"}],
+            "actor": "operator.http",
+            "reason": "assign ready receiver",
+            "operation_id": "op-http-preparation-ready",
+            "device_id": "http-e2e",
+            "correlation_id": "corr-http-preparation-ready"
+        })
+        .to_string();
+        let ready = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/preparation/assessments",
+            &ready_body,
+        );
+        assert_eq!(ready.0, 200, "{}", ready.1);
+        assert!(ready.1.contains("\"current_state\":\"ready\""));
+        assert!(ready.1.contains("\"can_start\":true"));
+
+        let replay = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/preparation/assessments",
+            &ready_body,
+        );
+        assert_eq!(replay.0, 200, "{}", replay.1);
+        assert!(replay.1.contains("\"replayed\":true"));
+
+        let revisions = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/preparation/revisions",
+            "",
+        );
+        let audit = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/projects/CEM-PREP-HTTP/audit-events",
+            "",
+        );
+        let outbox = http_request("GET", &first_address, "/api/v1/sync/outbox", "");
+        assert_eq!(revisions.0, 200, "{}", revisions.1);
+        let revisions_json: Value = serde_json::from_str(&revisions.1).unwrap();
+        assert_eq!(revisions_json["revisions"].as_array().unwrap().len(), 2);
+        assert!(revisions.1.contains("\"recorded_state\":\"blocked\""));
+        assert!(revisions.1.contains("\"recorded_state\":\"ready\""));
+        assert_eq!(audit.0, 200, "{}", audit.1);
+        assert!(audit.1.contains("planned_test_preparation_assessed"));
+        assert_eq!(outbox.0, 200, "{}", outbox.1);
+        assert!(outbox
+            .1
+            .contains("\"entity_type\":\"planned_test_preparation\""));
+
+        let started = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/transitions/start",
+            &json!({
+                "expected_revision": 2,
+                "actor": "operator.http",
+                "reason": "start after ready preparation",
+                "operation_id": "op-http-start-ready",
+                "device_id": "http-e2e",
+                "correlation_id": "corr-http-start-ready"
+            })
+            .to_string(),
+        );
+        assert_eq!(started.0, 200, "{}", started.1);
+        assert!(started.1.contains("\"status\":\"in_progress\""));
+        let schedule = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items",
+            "",
+        );
+        assert_eq!(schedule.0, 200, "{}", schedule.1);
+        assert!(schedule.1.contains("\"status\":\"in_progress\""));
+        first_server
+            .join()
+            .expect("server thread panicked")
+            .unwrap();
+
+        let second_port = free_loopback_port();
+        let second_address = format!("127.0.0.1:{second_port}");
+        let second_server = spawn_server(ApiServerConfig {
+            bind: second_address.clone(),
+            storage_root: storage_root.clone(),
+            migrations_root,
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: Some(6),
+        });
+        assert_eq!(wait_for_http(&second_address, "/api/v1/health").0, 200);
+        let reloaded = http_request(
+            "GET",
+            &second_address,
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/preparation",
+            "",
+        );
+        let reloaded_revisions = http_request(
+            "GET",
+            &second_address,
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/preparation/revisions",
+            "",
+        );
+        let reloaded_schedule = http_request(
+            "GET",
+            &second_address,
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items",
+            "",
+        );
+        let reloaded_audit = http_request(
+            "GET",
+            &second_address,
+            "/api/v1/projects/CEM-PREP-HTTP/audit-events",
+            "",
+        );
+        let reloaded_outbox = http_request("GET", &second_address, "/api/v1/sync/outbox", "");
+        assert_eq!(reloaded.0, 200, "{}", reloaded.1);
+        assert!(reloaded.1.contains("\"revision_count\":2"));
+        assert_eq!(reloaded_revisions.0, 200, "{}", reloaded_revisions.1);
+        let reloaded_revisions_json: Value = serde_json::from_str(&reloaded_revisions.1).unwrap();
+        assert_eq!(
+            reloaded_revisions_json["revisions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(reloaded_schedule.0, 200, "{}", reloaded_schedule.1);
+        assert!(reloaded_schedule.1.contains("\"status\":\"in_progress\""));
+        assert_eq!(reloaded_audit.0, 200, "{}", reloaded_audit.1);
+        assert!(reloaded_audit.1.contains("PLAN-PREP-HTTP-prep-rev-0002"));
+        assert_eq!(reloaded_outbox.0, 200, "{}", reloaded_outbox.1);
+        assert!(reloaded_outbox.1.contains("op-http-preparation-ready"));
+        second_server
+            .join()
+            .expect("server thread panicked")
+            .unwrap();
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
     fn real_http_server_persists_test_template_revision_workflow_across_restart() {
         let storage_root = temporary_storage_root("agent-api-real-test-template-revisions");
         let migrations_root = repo_root().join("storage/sqlite");
@@ -8213,6 +8453,272 @@ mod tests {
         characterization_checksum: String,
         cable_asset: Value,
         receiver_asset: Value,
+    }
+
+    fn seed_planned_test_preparation_http_fixture(config: &ApiServerConfig) {
+        let fixture = seed_station_setup_fixture(config);
+
+        let method_created = handle_api_request(
+            "POST",
+            "/api/v1/test-templates",
+            &json!({
+                "template_id": "METHOD-PREP-HTTP",
+                "title": "HTTP preparation method",
+                "category_code": "emission_conducted",
+                "definition": {
+                    "definition_schema_version": "emc-locus.test-template-definition.v1",
+                    "title": "HTTP preparation method",
+                    "description": "Controlled method for planned preparation HTTP coverage.",
+                    "measurement_axis": "frequency_sweep",
+                    "standard_references": ["INTERNAL-HTTP-PREP"],
+                    "variables": [{
+                        "variable_id": "frequency_hz",
+                        "label": "Frequency",
+                        "value_type": "integer",
+                        "default_value": 1000000,
+                        "constraints": {
+                            "required": true,
+                            "dimensionless": false,
+                            "unit": "Hz",
+                            "minimum": 150000.0,
+                            "maximum": 30000000.0,
+                            "enum_values": []
+                        }
+                    }],
+                    "lock_policy": [{
+                        "variable_id": "frequency_hz",
+                        "policy": "editable_until_execution"
+                    }],
+                    "instrumentation_chain": [{
+                        "slot_id": "receiver",
+                        "label": "EMC receiver",
+                        "required_category": "power_meter",
+                        "required": true,
+                        "calibration_requirement": "not_required",
+                        "substitution_policy": "same_category",
+                        "depends_on_slots": []
+                    }],
+                    "entry_step_id": "finish",
+                    "sequence": [{
+                        "step_id": "finish",
+                        "order": 10,
+                        "kind": "finish",
+                        "label": "Finish",
+                        "required_slots": [],
+                        "branches": []
+                    }],
+                    "limits": [],
+                    "post_processing": [],
+                    "method_parameters": {}
+                },
+                "actor": "method.author",
+                "reason": "create HTTP preparation method",
+                "operation_id": "op-http-preparation-method-create"
+            })
+            .to_string(),
+            config,
+        );
+        assert_eq!(method_created.status, 200, "{}", method_created.body);
+        for (action, actor, operation_id) in [
+            (
+                "submit-for-review",
+                "method.reviewer",
+                "op-http-preparation-method-submit",
+            ),
+            (
+                "approve",
+                "method.approver",
+                "op-http-preparation-method-approve",
+            ),
+        ] {
+            let transition = handle_api_request(
+                "POST",
+                &format!(
+                    "/api/v1/test-templates/METHOD-PREP-HTTP/revisions/METHOD-PREP-HTTP-rev-0001/transitions/{action}"
+                ),
+                &transition_body(actor, "control HTTP preparation method", operation_id),
+                config,
+            );
+            assert_eq!(transition.status, 200, "{}", transition.body);
+        }
+
+        let station_created = handle_api_request(
+            "POST",
+            "/api/v1/station-setups",
+            &json!({
+                "setup_id": "SETUP-PREP-HTTP",
+                "label": "HTTP RF preparation chain",
+                "station_label": "HTTP EMC station",
+                "planned_use_on": "2026-07-15",
+                "execution_mode": "investigation",
+                "actor": "station.technician",
+                "reason": "create HTTP preparation station",
+                "operation_id": "op-http-preparation-station-create"
+            })
+            .to_string(),
+            config,
+        );
+        assert_eq!(station_created.status, 200, "{}", station_created.body);
+        let station_created_json: Value = serde_json::from_str(&station_created.body).unwrap();
+        let station_revision_id = station_created_json["station_setup"]["active_draft_revision"]
+            ["revision_id"]
+            .as_str()
+            .unwrap();
+        let station_initial_checksum = station_created_json["station_setup"]
+            ["active_draft_revision"]["definition_checksum"]
+            .as_str()
+            .unwrap();
+        assert_eq!(station_revision_id, "SETUP-PREP-HTTP-rev-0001");
+        let station_definition = json!({
+            "definition_schema_version": "emc-locus.station-measurement-setup-definition.v1",
+            "setup_id": "SETUP-PREP-HTTP",
+            "label": "HTTP RF preparation chain",
+            "station_label": "HTTP EMC station",
+            "planned_use_on": "2026-07-15",
+            "execution_mode": "investigation",
+            "asset_bindings": [
+                station_asset_binding(
+                    "cable",
+                    "RF cable",
+                    &fixture.cable_asset,
+                    "EQM-RF-CABLE-STATION",
+                    &fixture.cable_model_revision,
+                    &fixture.cable_model_checksum,
+                ),
+                station_asset_binding(
+                    "receiver",
+                    "EMC receiver",
+                    &fixture.receiver_asset,
+                    "EQM-RF-RECEIVER-STATION",
+                    &fixture.receiver_model_revision,
+                    &fixture.receiver_model_checksum,
+                )
+            ],
+            "connections": [{
+                "connection_id": "cable-to-receiver",
+                "label": "RF cable to receiver",
+                "from": {"binding_id": "cable", "port_id": "RF_B"},
+                "to": {"binding_id": "receiver", "port_id": "rf_input"}
+            }],
+            "correction_selections": [{
+                "selection_id": "cable-loss",
+                "binding_id": "cable",
+                "correction_kind": "frequency_response",
+                "characterization_id": "CHAR-CABLE-STATION-2026",
+                "characterization_checksum": fixture.characterization_checksum,
+                "label": "Measured RF cable loss"
+            }]
+        });
+        let station_saved = handle_api_request(
+            "PUT",
+            &format!(
+                "/api/v1/station-setups/SETUP-PREP-HTTP/revisions/{station_revision_id}/definition"
+            ),
+            &json!({
+                "expected_definition_checksum": station_initial_checksum,
+                "definition": station_definition,
+                "actor": "station.technician",
+                "reason": "bind HTTP preparation materials",
+                "operation_id": "op-http-preparation-station-save"
+            })
+            .to_string(),
+            config,
+        );
+        assert_eq!(station_saved.status, 200, "{}", station_saved.body);
+        let station_saved_json: Value = serde_json::from_str(&station_saved.body).unwrap();
+        let station_ready_checksum = station_saved_json["station_setup"]["active_draft_revision"]
+            ["definition_checksum"]
+            .as_str()
+            .unwrap();
+        let station_ready = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/station-setups/SETUP-PREP-HTTP/revisions/{station_revision_id}/transitions/ready"
+            ),
+            &json!({
+                "expected_definition_checksum": station_ready_checksum,
+                "actor": "station.technician",
+                "reason": "approve HTTP preparation station",
+                "operation_id": "op-http-preparation-station-ready"
+            })
+            .to_string(),
+            config,
+        );
+        assert_eq!(station_ready.status, 200, "{}", station_ready.body);
+
+        let project_created = handle_api_request(
+            "POST",
+            "/api/v1/projects",
+            &json!({
+                "code": "CEM-PREP-HTTP",
+                "customer_name": "HTTP preparation customer",
+                "execution_mode": "investigation",
+                "actor": "project.lead",
+                "reason": "create HTTP preparation project",
+                "operation_id": "op-http-preparation-project-create"
+            })
+            .to_string(),
+            config,
+        );
+        assert_eq!(project_created.status, 200, "{}", project_created.body);
+        for item in ["customer_request_defined", "deviations_recorded"] {
+            let completed = handle_api_request(
+                "POST",
+                &format!("/api/v1/projects/CEM-PREP-HTTP/contract-review/items/{item}/complete"),
+                &json!({
+                    "actor": "project.lead",
+                    "comment": "HTTP preparation fixture",
+                    "operation_id": format!("op-http-preparation-review-{item}")
+                })
+                .to_string(),
+                config,
+            );
+            assert_eq!(completed.status, 200, "{}", completed.body);
+        }
+        let project_planned = handle_api_request(
+            "POST",
+            "/api/v1/projects/CEM-PREP-HTTP/transitions/to-test-planning",
+            &json!({
+                "actor": "project.lead",
+                "reason": "HTTP preparation review completed",
+                "operation_id": "op-http-preparation-project-plan"
+            })
+            .to_string(),
+            config,
+        );
+        assert_eq!(project_planned.status, 200, "{}", project_planned.body);
+        let scheduled = handle_api_request(
+            "POST",
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items",
+            &json!({
+                "item_code": "PLAN-PREP-HTTP",
+                "title": "HTTP planned EMC test",
+                "planned_start_at": "2026-07-15T09:00",
+                "planned_end_at": "2026-07-15T12:00",
+                "assigned_operator": "HTTP Operator",
+                "location": "HTTP EMC station",
+                "equipment_under_test": "HTTP EUT",
+                "actor": "project.lead",
+                "reason": "schedule HTTP preparation test",
+                "operation_id": "op-http-preparation-schedule-create"
+            })
+            .to_string(),
+            config,
+        );
+        assert_eq!(scheduled.status, 200, "{}", scheduled.body);
+        let confirmed = handle_api_request(
+            "POST",
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/transitions/confirm",
+            &json!({
+                "expected_revision": 1,
+                "actor": "project.lead",
+                "reason": "confirm HTTP preparation slot",
+                "operation_id": "op-http-preparation-schedule-confirm"
+            })
+            .to_string(),
+            config,
+        );
+        assert_eq!(confirmed.status, 200, "{}", confirmed.body);
     }
 
     fn seed_station_setup_fixture(config: &ApiServerConfig) -> StationSetupFixture {

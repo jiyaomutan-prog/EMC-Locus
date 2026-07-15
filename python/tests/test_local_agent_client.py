@@ -540,6 +540,67 @@ class LocalAgentClientTests(unittest.TestCase):
         )
         self.assertEqual(captured[1]["body"]["expected_revision"], 1)
 
+    def test_reads_and_assesses_planned_test_preparation(self) -> None:
+        captured: list[dict[str, object]] = []
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            captured.append(
+                {
+                    "url": request.full_url,
+                    "method": request.get_method(),
+                    "body": json.loads(request.data.decode("utf-8"))
+                    if request.data
+                    else None,
+                }
+            )
+            return _FakeResponse({"preparation": {"current_state": "ready"}})
+
+        client = LocalAgentClient("http://127.0.0.1:8765")
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            client.get_planned_test_preparation("CEM-PY-001", "PLAN-PY-001")
+            client.planned_test_preparation_options("CEM-PY-001", "PLAN-PY-001")
+            client.planned_test_preparation_revisions("CEM-PY-001", "PLAN-PY-001")
+            client.get_planned_test_preparation_revision(
+                "CEM-PY-001",
+                "PLAN-PY-001",
+                "PLAN-PY-001-prep-rev-0001",
+            )
+            client.assess_planned_test_preparation(
+                project_code="CEM-PY-001",
+                item_code="PLAN-PY-001",
+                expected_schedule_revision=2,
+                expected_current_revision_id="PLAN-PY-001-prep-rev-0001",
+                method_template_id="METHOD-CE-001",
+                method_revision_id="METHOD-CE-001-rev-0002",
+                station_setup_id="SETUP-CE-001",
+                station_setup_revision_id="SETUP-CE-001-rev-0003",
+                assignments=[
+                    {"slot_id": "receiver", "binding_id": "receiver-binding"}
+                ],
+                actor="operateur.cem",
+                reason="Controle avant essai",
+                operation_id="op-preparation-python",
+            )
+
+        base = (
+            "http://127.0.0.1:8765/api/v1/projects/CEM-PY-001/"
+            "schedule-items/PLAN-PY-001/preparation"
+        )
+        self.assertEqual([item["method"] for item in captured], ["GET"] * 4 + ["POST"])
+        self.assertEqual(captured[0]["url"], base)
+        self.assertEqual(captured[1]["url"], f"{base}/options")
+        self.assertEqual(captured[2]["url"], f"{base}/revisions")
+        self.assertEqual(
+            captured[3]["url"],
+            f"{base}/revisions/PLAN-PY-001-prep-rev-0001",
+        )
+        self.assertEqual(captured[4]["url"], f"{base}/assessments")
+        self.assertEqual(captured[4]["body"]["expected_schedule_revision"], 2)
+        self.assertEqual(
+            captured[4]["body"]["assignments"],
+            [{"slot_id": "receiver", "binding_id": "receiver-binding"}],
+        )
+
     def test_reads_laboratory_week_and_posts_reschedule_payload(self) -> None:
         captured: list[dict[str, object]] = []
 

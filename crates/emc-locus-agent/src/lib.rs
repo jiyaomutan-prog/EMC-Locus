@@ -936,7 +936,7 @@ mod tests {
                 .find(|domain| domain.domain == "projects")
                 .unwrap()
                 .schema_version,
-            Some(6)
+            Some(7)
         );
         assert_eq!(
             second_report
@@ -1052,7 +1052,7 @@ mod tests {
                 .find(|domain| domain.domain == "projects")
                 .unwrap()
                 .schema_version,
-            Some(6)
+            Some(7)
         );
         assert_eq!(
             migrated,

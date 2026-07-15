@@ -858,7 +858,7 @@ mod tests {
     }
 
     #[test]
-    fn transitions_sequentially_and_rejects_stale_revision() {
+    fn confirms_then_requires_preparation_and_rejects_stale_revision() {
         let storage_root = temporary_storage_root("service-schedule-transitions");
         initialize_storage(&storage_root);
         create_project_for_test(&storage_root, "CEM-STATUS-001", true);
@@ -890,7 +890,7 @@ mod tests {
             ),
         )
         .unwrap_err();
-        let started = transition_service_schedule_item(
+        let unprepared = transition_service_schedule_item(
             &storage_root,
             transition_input(
                 "CEM-STATUS-001",
@@ -900,14 +900,27 @@ mod tests {
                 "start",
             ),
         )
+        .unwrap_err();
+        let cancelled = transition_service_schedule_item(
+            &storage_root,
+            transition_input(
+                "CEM-STATUS-001",
+                "PLAN-STATUS-001",
+                "cancelled",
+                2,
+                "cancel",
+            ),
+        )
         .unwrap();
 
         assert!(confirmed.contains("\"status\":\"confirmed\""));
         assert!(confirmed.contains("\"revision\":2"));
         assert_eq!(stale.code, "service_schedule_concurrent_update");
-        assert!(started.contains("\"status\":\"in_progress\""));
-        assert!(started.contains("\"revision\":3"));
+        assert_eq!(unprepared.code, "planned_test_preparation_required");
+        assert!(cancelled.contains("\"status\":\"cancelled\""));
+        assert!(cancelled.contains("\"revision\":3"));
         assert_eq!(operation_count(&storage_root, "op-status-stale"), 0);
+        assert_eq!(operation_count(&storage_root, "op-status-start"), 0);
         remove_temporary_storage_root(&storage_root);
     }
 
@@ -1067,17 +1080,14 @@ mod tests {
             ),
         )
         .unwrap();
-        transition_service_schedule_item(
-            &storage_root,
-            transition_input(
-                "CEM-MOVE-STATE",
-                "PLAN-MOVE-STATE",
-                "in_progress",
-                2,
-                "move-start",
-            ),
-        )
-        .unwrap();
+        let connection = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        connection
+            .execute(
+                "UPDATE service_schedule_items SET status = 'in_progress', revision = 3 WHERE item_code = 'PLAN-MOVE-STATE'",
+                [],
+            )
+            .unwrap();
+        drop(connection);
 
         let error = reschedule_service_schedule_item(
             &storage_root,

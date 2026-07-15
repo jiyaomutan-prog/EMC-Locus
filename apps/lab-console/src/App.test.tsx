@@ -7,6 +7,9 @@ import type { AssetCorrectionAssignment } from "./models/metrology";
 import type {
   CompletedContractReviewItem,
   LaboratoryScheduleItem,
+  PlannedTestPreparationAggregate,
+  PlannedTestPreparationOptions,
+  PlannedTestPreparationRevision,
   ProjectAuditEvent,
   ProjectRecord,
   ServiceScheduleItem
@@ -221,6 +224,47 @@ describe("LAB CONSOLE", () => {
     expect(await screen.findByText(/Vendredi 17 juil/i)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/schedule-items/PLAN-LAB-001/reschedule"),
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  test("blocks then authorizes a planned test from its preparation workflow", async () => {
+    mockLaboratoryPlanningApi();
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Immunité rayonnée, dossier CEM-LAB-002"
+      })
+    );
+    await user.click(await screen.findByRole("button", { name: "Préparer l'essai" }));
+
+    expect(await screen.findByText("Aucun contrôle enregistré")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Vérifier la préparation" }));
+    expect(await screen.findByText("Préparation bloquée")).toBeInTheDocument();
+    expect(screen.getAllByText("Affectation des matériels").length).toBeGreaterThan(0);
+
+    await user.selectOptions(
+      screen.getByLabelText("Matériel pour Récepteur de mesure"),
+      "receiver-binding"
+    );
+    await user.click(screen.getByRole("button", { name: "Vérifier la préparation" }));
+    expect(await screen.findByText("Prêt à démarrer")).toBeInTheDocument();
+    expect(screen.getAllByText("Contrôle n° 1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Contrôle n° 2").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Retour au créneau" }));
+    await user.click(screen.getByRole("button", { name: "Démarrer l'essai" }));
+    expect((await screen.findAllByText("En cours")).length).toBeGreaterThan(0);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/preparation/assessments"),
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/transitions/start"),
       expect.objectContaining({ method: "POST" })
     );
   });
@@ -1889,6 +1933,78 @@ function mockLaboratoryPlanningApi() {
     revision: 2,
     available_transitions: ["in_progress", "cancelled"]
   };
+  const method = {
+    template_id: "METHOD-RI-001",
+    revision_id: "METHOD-RI-001-rev-0002",
+    revision_number: 2,
+    revision_status: "approved" as const,
+    definition_checksum: canonicalChecksum("a"),
+    title: "Immunité rayonnée",
+    measurement_axis: "frequency_sweep",
+    method_code: "RI-SIM",
+    method_revision: "B",
+    standard_references: ["IEC 61000-4-3"],
+    instrumentation_chain: [
+      {
+        slot_id: "receiver",
+        label: "Récepteur de mesure",
+        required_category: "emi_receiver",
+        required: true,
+        calibration_requirement: "required" as const,
+        substitution_policy: "same_category" as const,
+        depends_on_slots: []
+      }
+    ]
+  };
+  const station = {
+    setup_id: "SETUP-RI-001",
+    revision_id: "SETUP-RI-001-rev-0003",
+    revision_number: 3,
+    revision_status: "ready" as const,
+    definition_checksum: canonicalChecksum("b"),
+    label: "Chaîne immunité rayonnée",
+    station_label: "Chambre semi-anéchoïque",
+    planned_use_on: "2026-07-16",
+    execution_mode: "investigation" as const,
+    assets: [
+      {
+        binding_id: "receiver-binding",
+        role_label: "Récepteur de mesure",
+        asset_id: "ASSET-RX-001",
+        asset_revision: "asset-revision-001",
+        inventory_code: "INV-RX-001",
+        serial_number: "SN-ESW-101",
+        manufacturer: "Rohde & Schwarz",
+        model_name: "ESW",
+        equipment_model_id: "MODEL-ESW",
+        equipment_model_revision_id: "MODEL-ESW-rev-0002",
+        equipment_model_checksum: canonicalChecksum("c"),
+        category_code: "emi_receiver",
+        capabilities: []
+      }
+    ],
+    corrections: []
+  };
+  const preparationOptions: PlannedTestPreparationOptions = {
+    project_code: second.project_code,
+    schedule_item_code: second.item_code,
+    methods: [method],
+    station_setups: [
+      {
+        station_setup: station,
+        readiness: { ready: true, checked_on: "2026-07-16", issues: [] }
+      }
+    ]
+  };
+  let preparation: PlannedTestPreparationAggregate = {
+    project_code: second.project_code,
+    schedule_item_code: second.item_code,
+    current_state: "missing",
+    can_start: false,
+    current_revision: null,
+    revision_count: 0
+  };
+  const preparationRevisions: PlannedTestPreparationRevision[] = [];
 
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
@@ -1897,6 +2013,125 @@ function mockLaboratoryPlanningApi() {
         week_start: "2026-07-13",
         week_end: "2026-07-17",
         schedule_items: [first, second]
+      });
+    }
+    const preparationBase = `/api/v1/projects/${second.project_code}/schedule-items/${second.item_code}/preparation`;
+    if (path === preparationBase && (!init?.method || init.method === "GET")) {
+      return jsonResponse({ preparation });
+    }
+    if (
+      path ===
+      `/api/v1/projects/${first.project_code}/schedule-items/${first.item_code}/preparation`
+    ) {
+      return jsonResponse({
+        preparation: {
+          project_code: first.project_code,
+          schedule_item_code: first.item_code,
+          current_state: "missing",
+          can_start: false,
+          current_revision: null,
+          revision_count: 0
+        }
+      });
+    }
+    if (path === `${preparationBase}/options`) {
+      return jsonResponse(preparationOptions);
+    }
+    if (path === `${preparationBase}/revisions`) {
+      return jsonResponse({
+        project_code: second.project_code,
+        schedule_item_code: second.item_code,
+        revisions: preparationRevisions
+      });
+    }
+    if (path === `${preparationBase}/assessments` && init?.method === "POST") {
+      const body = JSON.parse(String(init.body)) as {
+        assignments: Array<{ slot_id: string; binding_id: string }>;
+      };
+      const ready = body.assignments.some(
+        (assignment) =>
+          assignment.slot_id === "receiver" && assignment.binding_id === "receiver-binding"
+      );
+      const revisionNumber = preparationRevisions.length + 1;
+      const revision: PlannedTestPreparationRevision = {
+        revision_id: `PLAN-LAB-002-prep-rev-${String(revisionNumber).padStart(4, "0")}`,
+        revision_number: revisionNumber,
+        parent_revision_id: preparation.current_revision?.revision_id ?? null,
+        recorded_state: ready ? "ready" : "blocked",
+        effective_state: ready ? "ready" : "blocked",
+        is_current: true,
+        definition: {
+          definition_schema_version: "emc-locus.planned-test-preparation.v1",
+          schedule: {
+            project_code: second.project_code,
+            item_code: second.item_code,
+            revision: second.revision,
+            title: second.title,
+            planned_start_at: second.planned_start_at,
+            planned_end_at: second.planned_end_at,
+            assigned_operator: second.assigned_operator,
+            location: second.location,
+            equipment_under_test: second.equipment_under_test,
+            execution_mode: "investigation",
+            status: second.status
+          },
+          method,
+          station_setup: station,
+          assignments: body.assignments,
+          verdict: {
+            ready,
+            checked_on: "2026-07-16",
+            issues: ready
+              ? []
+              : [
+                  {
+                    code: "planned_test_required_role_unassigned",
+                    severity: "blocking",
+                    dimension: "instrument_assignment",
+                    message: "Le récepteur requis n'est pas affecté.",
+                    next_action: "Choisissez un matériel du montage pour ce rôle.",
+                    method_slot_ids: ["receiver"]
+                  }
+                ]
+          }
+        },
+        definition_checksum: canonicalChecksum(ready ? "e" : "d"),
+        actor: "Opérateur CEM",
+        reason: "Vérification avant essai",
+        operation_id: `op-prep-${revisionNumber}`,
+        device_id: "lab-console",
+        correlation_id: `corr-prep-${revisionNumber}`,
+        created_at: `2026-07-15T0${revisionNumber + 8}:00:00Z`
+      };
+      for (const existing of preparationRevisions) existing.is_current = false;
+      preparationRevisions.unshift(revision);
+      preparation = {
+        ...preparation,
+        current_state: ready ? "ready" : "blocked",
+        can_start: ready,
+        current_revision: revision,
+        revision_count: revisionNumber
+      };
+      return jsonResponse({
+        operation: "planned_test_preparation_assessed",
+        operation_id: revision.operation_id,
+        replayed: false,
+        preparation
+      });
+    }
+    if (
+      path.endsWith("/schedule-items/PLAN-LAB-002/transitions/start") &&
+      init?.method === "POST"
+    ) {
+      second.status = "in_progress";
+      second.revision += 1;
+      second.available_transitions = ["completed", "cancelled"];
+      second.can_reschedule = false;
+      return jsonResponse({
+        operation: "service_schedule_item_status_changed",
+        operation_id: "op-start",
+        replayed: false,
+        schedule_item: second
       });
     }
     if (path.endsWith("/schedule-items/PLAN-LAB-001/reschedule") && init?.method === "POST") {

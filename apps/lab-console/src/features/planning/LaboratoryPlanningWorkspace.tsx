@@ -1,14 +1,20 @@
 import {
   AlertCircle,
   CalendarDays,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
   Clock3,
   FolderKanban,
+  History,
   MapPin,
   PencilLine,
+  Play,
   RefreshCw,
+  ShieldAlert,
   UserRound,
+  Wrench,
   X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -16,6 +22,12 @@ import { ApiError, projectApi } from "../../api";
 import type {
   LaboratoryScheduleItem,
   LaboratoryWeekSchedule,
+  PlannedTestMethodSnapshot,
+  PlannedTestPreparationAggregate,
+  PlannedTestPreparationIssue,
+  PlannedTestPreparationOptions,
+  PlannedTestPreparationRevision,
+  PlannedStationSetupSnapshot,
   ServiceScheduleStatus
 } from "../../models/projects";
 
@@ -293,10 +305,12 @@ function ScheduleDetailDialog(props: {
   onMoved: (item: LaboratoryScheduleItem) => void;
   onConcurrentRefresh: () => Promise<void>;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [mode, setMode] = useState<"details" | "move" | "prepare">("details");
   const [form, setForm] = useState<RescheduleForm>(() => rescheduleForm(props.item));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preparation, setPreparation] = useState<PlannedTestPreparationAggregate | null>(null);
+  const [preparationLoading, setPreparationLoading] = useState(true);
   const valid =
     form.date &&
     form.start_time &&
@@ -304,6 +318,25 @@ function ScheduleDetailDialog(props: {
     form.assigned_operator.trim() &&
     form.location.trim() &&
     form.reason.trim();
+
+  const loadPreparation = useCallback(async () => {
+    setPreparationLoading(true);
+    try {
+      const response = await projectApi.getPlannedTestPreparation(
+        props.item.project_code,
+        props.item.item_code
+      );
+      setPreparation(response.preparation);
+    } catch (caught) {
+      setError(planningErrorMessage(caught));
+    } finally {
+      setPreparationLoading(false);
+    }
+  }, [props.item.item_code, props.item.project_code]);
+
+  useEffect(() => {
+    void loadPreparation();
+  }, [loadPreparation]);
 
   async function submit() {
     setBusy(true);
@@ -323,7 +356,46 @@ function ScheduleDetailDialog(props: {
         customer_name: props.item.customer_name,
         project_stage: props.item.project_stage
       });
-      setEditing(false);
+      setMode("details");
+      setPreparation((current) =>
+        current
+          ? { ...current, current_state: "stale", can_start: false }
+          : current
+      );
+    } catch (caught) {
+      setError(planningErrorMessage(caught));
+      if (caught instanceof ApiError && caught.code === "service_schedule_concurrent_update") {
+        await props.onConcurrentRefresh();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function transition(action: "confirm" | "start") {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await projectApi.transitionScheduleItem(
+        props.item.project_code,
+        props.item,
+        action,
+        "Opérateur CEM",
+        action === "confirm"
+          ? "Créneau et ressources confirmés"
+          : "Préparation vérifiée avant démarrage"
+      );
+      props.onMoved({
+        ...props.item,
+        ...result.schedule_item,
+        customer_name: props.item.customer_name,
+        project_stage: props.item.project_stage
+      });
+      if (action === "confirm") {
+        setPreparation((current) =>
+          current ? { ...current, current_state: "stale", can_start: false } : current
+        );
+      }
     } catch (caught) {
       setError(planningErrorMessage(caught));
       if (caught instanceof ApiError && caught.code === "service_schedule_concurrent_update") {
@@ -345,7 +417,13 @@ function ScheduleDetailDialog(props: {
         <header className="creationHeader">
           <div>
             <p className="eyebrow">{props.item.project_code} · {props.item.customer_name}</p>
-            <h2 id="planning-detail-title">{editing ? "Déplacer le créneau" : props.item.title}</h2>
+            <h2 id="planning-detail-title">
+              {mode === "move"
+                ? "Déplacer le créneau"
+                : mode === "prepare"
+                  ? "Préparer l'essai"
+                  : props.item.title}
+            </h2>
           </div>
           <button className="secondary iconButton" onClick={props.onClose} aria-label="Fermer">
             <X size={17} />
@@ -366,12 +444,15 @@ function ScheduleDetailDialog(props: {
           </div>
         )}
 
-        {!editing ? (
+        {mode === "details" ? (
           <div className="wizardBody planningDetailBody">
             <div className="planningDetailStatus">
               <span className={`scheduleStatus scheduleStatus-${props.item.status}`}>
                 {statusLabels[props.item.status]}
               </span>
+              {matchesPreparationStatus(props.item.status) && !preparationLoading && (
+                <PreparationStateBadge state={preparation?.current_state ?? "missing"} />
+              )}
               {!props.item.can_reschedule && <small>Ce créneau ne peut plus être déplacé.</small>}
             </div>
             <dl className="planningDetailFacts">
@@ -381,8 +462,11 @@ function ScheduleDetailDialog(props: {
               <div><dt>Équipement à tester</dt><dd>{props.item.equipment_under_test}</dd></div>
             </dl>
             {props.item.notes && <p className="planningDetailNote">{props.item.notes}</p>}
+            {matchesPreparationStatus(props.item.status) && !preparationLoading && (
+              <PreparationSummary preparation={preparation} />
+            )}
           </div>
-        ) : (
+        ) : mode === "move" ? (
           <div className="wizardBody projectDialogBody">
             <p className="sectionIntro">
               L'essai et l'équipement restent rattachés au même dossier. Le nouvel horaire sera
@@ -438,34 +522,418 @@ function ScheduleDetailDialog(props: {
               />
             </label>
           </div>
+        ) : (
+          <PreparationWorkspace
+            item={props.item}
+            preparation={preparation}
+            onPreparation={setPreparation}
+            onError={setError}
+          />
         )}
 
         <footer className="wizardFooter planningDetailFooter">
-          {!editing ? (
+          {mode === "details" ? (
             <>
               <button className="secondary" onClick={props.onOpenProject}>
                 <FolderKanban size={16} /> Ouvrir le dossier
               </button>
               {props.item.can_reschedule && (
-                <button onClick={() => setEditing(true)}>
+                <button className="secondary" onClick={() => setMode("move")}>
                   <PencilLine size={16} /> Déplacer
                 </button>
               )}
+              {matchesPreparationStatus(props.item.status) && (
+                <button className="secondary" onClick={() => setMode("prepare")}>
+                  <ClipboardCheck size={16} /> Préparer l'essai
+                </button>
+              )}
+              {props.item.status === "planned" && (
+                <button disabled={busy} onClick={() => void transition("confirm")}>
+                  <CheckCircle2 size={16} /> Confirmer
+                </button>
+              )}
+              {props.item.status === "confirmed" && (
+                <button
+                  disabled={busy || !preparation?.can_start}
+                  onClick={() => void transition("start")}
+                  title={
+                    preparation?.can_start
+                      ? "Démarrer l'essai"
+                      : "La préparation doit être prête avant le démarrage"
+                  }
+                >
+                  <Play size={16} /> Démarrer l'essai
+                </button>
+              )}
             </>
-          ) : (
+          ) : mode === "move" ? (
             <>
-              <button className="secondary" onClick={() => { setEditing(false); setError(null); }}>
+              <button className="secondary" onClick={() => { setMode("details"); setError(null); }}>
                 Annuler
               </button>
               <button disabled={busy || !valid} onClick={() => void submit()}>
                 <CalendarDays size={16} /> Enregistrer le déplacement
               </button>
             </>
+          ) : (
+            <button className="secondary" onClick={() => setMode("details")}>
+              Retour au créneau
+            </button>
           )}
         </footer>
       </section>
     </div>
   );
+}
+
+function PreparationSummary(props: {
+  preparation: PlannedTestPreparationAggregate | null;
+}) {
+  const current = props.preparation?.current_revision;
+  const state = props.preparation?.current_state ?? "missing";
+  const blocking = current?.definition.verdict.issues.filter(
+    (issue) => issue.severity === "blocking"
+  ).length ?? 0;
+  return (
+    <section className={`preparationSummary preparationSummary-${state}`}>
+      <div className="preparationSummaryIcon">
+        {state === "ready" ? <CheckCircle2 size={22} /> : <ShieldAlert size={22} />}
+      </div>
+      <div>
+        <strong>{preparationStateTitle(state)}</strong>
+        <p>
+          {state === "ready"
+            ? `${current?.definition.method.title} avec ${current?.definition.station_setup.label}`
+            : state === "blocked"
+              ? `${blocking} point${blocking === 1 ? "" : "s"} à corriger avant le démarrage.`
+              : state === "stale"
+                ? "Le créneau a changé depuis le dernier contrôle. Une nouvelle vérification est requise."
+                : "Choisissez la méthode, le montage et les matériels avant de lancer l'essai."}
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function PreparationWorkspace(props: {
+  item: LaboratoryScheduleItem;
+  preparation: PlannedTestPreparationAggregate | null;
+  onPreparation: (preparation: PlannedTestPreparationAggregate) => void;
+  onError: (message: string | null) => void;
+}) {
+  const projectCode = props.item.project_code;
+  const itemCode = props.item.item_code;
+  const reportError = props.onError;
+  const [options, setOptions] = useState<PlannedTestPreparationOptions | null>(null);
+  const [history, setHistory] = useState<PlannedTestPreparationRevision[]>([]);
+  const [methodRevisionId, setMethodRevisionId] = useState(
+    props.preparation?.current_revision?.definition.method.revision_id ?? ""
+  );
+  const [setupRevisionId, setSetupRevisionId] = useState(
+    props.preparation?.current_revision?.definition.station_setup.revision_id ?? ""
+  );
+  const [assignments, setAssignments] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      props.preparation?.current_revision?.definition.assignments.map((assignment) => [
+        assignment.slot_id,
+        assignment.binding_id
+      ]) ?? []
+    )
+  );
+  const [reason, setReason] = useState("Vérification avant essai");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    reportError(null);
+    try {
+      const [available, revisions] = await Promise.all([
+        projectApi.plannedTestPreparationOptions(projectCode, itemCode),
+        projectApi.plannedTestPreparationRevisions(projectCode, itemCode)
+      ]);
+      setOptions(available);
+      setHistory(revisions.revisions);
+      setMethodRevisionId((current) => current || available.methods[0]?.revision_id || "");
+      setSetupRevisionId(
+        (current) => current || available.station_setups[0]?.station_setup.revision_id || ""
+      );
+    } catch (caught) {
+      reportError(planningErrorMessage(caught));
+    } finally {
+      setLoading(false);
+    }
+  }, [itemCode, projectCode, reportError]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const method = options?.methods.find((candidate) => candidate.revision_id === methodRevisionId);
+  const stationOption = options?.station_setups.find(
+    (candidate) => candidate.station_setup.revision_id === setupRevisionId
+  );
+
+  async function assess() {
+    if (!method || !stationOption) return;
+    setBusy(true);
+    props.onError(null);
+    try {
+      const result = await projectApi.assessPlannedTestPreparation(props.item, {
+        expected_current_revision_id: props.preparation?.current_revision?.revision_id ?? null,
+        method_template_id: method.template_id,
+        method_revision_id: method.revision_id,
+        station_setup_id: stationOption.station_setup.setup_id,
+        station_setup_revision_id: stationOption.station_setup.revision_id,
+        assignments: method.instrumentation_chain
+          .map((slot) => ({ slot_id: slot.slot_id, binding_id: assignments[slot.slot_id] ?? "" }))
+          .filter((assignment) => assignment.binding_id),
+        actor: "Opérateur CEM",
+        reason
+      });
+      props.onPreparation(result.preparation);
+      const revisions = await projectApi.plannedTestPreparationRevisions(
+        props.item.project_code,
+        props.item.item_code
+      );
+      setHistory(revisions.revisions);
+    } catch (caught) {
+      props.onError(planningErrorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) {
+    return <div className="wizardBody preparationLoading"><RefreshCw size={20} /> Chargement de la préparation…</div>;
+  }
+  if (!options || options.methods.length === 0 || options.station_setups.length === 0) {
+    return (
+      <div className="wizardBody preparationEmpty">
+        <ShieldAlert size={24} />
+        <div>
+          <strong>Préparation impossible pour le moment</strong>
+          <p>
+            Il faut au moins une méthode approuvée et un montage marqué « Prêt à câbler ».
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="wizardBody preparationWorkspace">
+      <PreparationVerdict preparation={props.preparation} />
+
+      <section className="preparationSection">
+        <div className="preparationSectionTitle">
+          <span>1</span><div><strong>Méthode d'essai</strong><small>Version approuvée applicable au créneau</small></div>
+        </div>
+        <label>
+          Méthode
+          <select value={methodRevisionId} onChange={(event) => setMethodRevisionId(event.target.value)}>
+            {options.methods.map((candidate) => (
+              <option key={candidate.revision_id} value={candidate.revision_id}>
+                {methodOptionLabel(candidate)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {method && (
+          <p className="preparationContextLine">
+            {measurementAxisLabel(method.measurement_axis)}
+            {method.standard_references?.length ? ` · ${method.standard_references.join(", ")}` : ""}
+          </p>
+        )}
+      </section>
+
+      <section className="preparationSection">
+        <div className="preparationSectionTitle">
+          <span>2</span><div><strong>Montage de mesure</strong><small>Matériels et corrections figés dans Test Station</small></div>
+        </div>
+        <label>
+          Montage
+          <select value={setupRevisionId} onChange={(event) => setSetupRevisionId(event.target.value)}>
+            {options.station_setups.map((candidate) => (
+              <option key={candidate.station_setup.revision_id} value={candidate.station_setup.revision_id}>
+                {candidate.station_setup.label} · {candidate.station_setup.station_label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {stationOption && (
+          <div className={`stationReadiness stationReadiness-${stationOption.readiness.ready ? "ready" : "blocked"}`}>
+            {stationOption.readiness.ready ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+            <span>
+              {stationOption.readiness.ready
+                ? "Montage contrôlé pour la date prévue"
+                : `${stationOption.readiness.issues.filter((issue) => issue.severity === "blocking").length} point(s) bloquant(s) sur le montage`}
+            </span>
+          </div>
+        )}
+      </section>
+
+      {method && stationOption && (
+        <section className="preparationSection">
+          <div className="preparationSectionTitle">
+            <span>3</span><div><strong>Affectation des matériels</strong><small>Un matériel physique pour chaque rôle de la méthode</small></div>
+          </div>
+          <div className="instrumentAssignmentList">
+            {method.instrumentation_chain.map((slot) => (
+              <label key={slot.slot_id}>
+                <span className="assignmentLabel">
+                  {slot.label}
+                  <small>{slot.required ? "Obligatoire" : "Optionnel"}</small>
+                </span>
+                <select
+                  aria-label={`Matériel pour ${slot.label}`}
+                  value={assignments[slot.slot_id] ?? ""}
+                  onChange={(event) =>
+                    setAssignments({ ...assignments, [slot.slot_id]: event.target.value })
+                  }
+                >
+                  <option value="">Non affecté</option>
+                  {stationOption.station_setup.assets.map((asset) => (
+                    <option key={asset.binding_id} value={asset.binding_id}>
+                      {assetOptionLabel(asset)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="preparationAssessmentBar">
+        <label>
+          Motif du contrôle
+          <input value={reason} onChange={(event) => setReason(event.target.value)} />
+        </label>
+        <button disabled={busy || !method || !stationOption || !reason.trim()} onClick={() => void assess()}>
+          <ClipboardCheck size={16} /> Vérifier la préparation
+        </button>
+      </section>
+
+      {history.length > 0 && <PreparationHistory revisions={history} />}
+    </div>
+  );
+}
+
+function PreparationVerdict(props: { preparation: PlannedTestPreparationAggregate | null }) {
+  const state = props.preparation?.current_state ?? "missing";
+  const revision = props.preparation?.current_revision;
+  if (!revision) {
+    return (
+      <section className="preparationVerdict preparationVerdict-missing">
+        <ClipboardCheck size={22} />
+        <div><strong>Aucun contrôle enregistré</strong><p>Complétez les trois étapes puis vérifiez la préparation.</p></div>
+      </section>
+    );
+  }
+  return (
+    <section className={`preparationVerdict preparationVerdict-${state}`}>
+      {state === "ready" ? <CheckCircle2 size={23} /> : <ShieldAlert size={23} />}
+      <div className="preparationVerdictContent">
+        <div><strong>{preparationStateTitle(state)}</strong><small>Contrôle n° {revision.revision_number} · {formatAuditDate(revision.created_at)}</small></div>
+        {revision.definition.verdict.issues.length > 0 ? (
+          <div className="preparationIssues">
+            {revision.definition.verdict.issues.map((issue, index) => (
+              <PreparationIssueRow key={`${issue.code}-${index}`} issue={issue} />
+            ))}
+          </div>
+        ) : (
+          <p>La méthode, le montage et les matériels sont aptes pour ce créneau.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PreparationIssueRow(props: { issue: PlannedTestPreparationIssue }) {
+  return (
+    <div className={`preparationIssue preparationIssue-${props.issue.severity}`}>
+      {props.issue.severity === "blocking" ? <AlertCircle size={16} /> : <Wrench size={16} />}
+      <div><strong>{preparationDimensionLabel(props.issue.dimension)}</strong><p>{props.issue.message}</p><small>{props.issue.next_action}</small></div>
+    </div>
+  );
+}
+
+function PreparationHistory(props: { revisions: PlannedTestPreparationRevision[] }) {
+  return (
+    <section className="preparationHistory">
+      <header><History size={16} /><strong>Historique des contrôles</strong></header>
+      <div>
+        {props.revisions.map((revision) => (
+          <div key={revision.revision_id}>
+            <span className={`preparationHistoryState preparationHistoryState-${revision.recorded_state}`}>
+              {revision.recorded_state === "ready" ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+            </span>
+            <span><strong>Contrôle n° {revision.revision_number}</strong><small>{formatAuditDate(revision.created_at)} · {revision.actor}</small></span>
+            <span>{revision.recorded_state === "ready" ? "Prêt" : "Bloqué"}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PreparationStateBadge(props: { state: PlannedTestPreparationAggregate["current_state"] }) {
+  return <span className={`preparationState preparationState-${props.state}`}>{preparationStateTitle(props.state)}</span>;
+}
+
+function matchesPreparationStatus(status: ServiceScheduleStatus) {
+  return status === "planned" || status === "confirmed";
+}
+
+function preparationStateTitle(state: PlannedTestPreparationAggregate["current_state"]) {
+  return {
+    missing: "À préparer",
+    blocked: "Préparation bloquée",
+    ready: "Prêt à démarrer",
+    stale: "À revérifier"
+  }[state];
+}
+
+function methodOptionLabel(method: PlannedTestMethodSnapshot) {
+  const reference = method.method_code ? ` · ${method.method_code}` : "";
+  return `${method.title}${reference} · version ${method.revision_number}`;
+}
+
+function assetOptionLabel(asset: PlannedStationSetupSnapshot["assets"][number]) {
+  return `${asset.role_label} · ${asset.manufacturer} ${asset.model_name} · n° série ${asset.serial_number}`;
+}
+
+function measurementAxisLabel(axis: string) {
+  const labels: Record<string, string> = {
+    frequency_sweep: "Mesure fréquentielle",
+    time_series: "Mesure temporelle",
+    scalar: "Mesure scalaire",
+    hybrid: "Mesure hybride"
+  };
+  return labels[axis] ?? "Méthode de mesure";
+}
+
+function preparationDimensionLabel(dimension: PlannedTestPreparationIssue["dimension"]) {
+  const labels: Record<PlannedTestPreparationIssue["dimension"], string> = {
+    schedule_context: "Créneau",
+    test_method: "Méthode",
+    station_setup: "Montage",
+    instrument_assignment: "Affectation des matériels",
+    serviceability: "État de service",
+    calibration_validity: "Étalonnage",
+    missing_evidence: "Preuve métrologique",
+    nonconformance: "Non-conformité",
+    correction_validity: "Correction de mesure"
+  };
+  return labels[dimension];
+}
+
+function formatAuditDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" }).format(date);
 }
 
 function rescheduleForm(item: LaboratoryScheduleItem): RescheduleForm {
@@ -490,6 +958,16 @@ function planningErrorMessage(caught: unknown): string {
   if (caught.code === "service_schedule_location_conflict" && conflict) {
     return `${String(caught.details?.value)} est déjà réservé pour « ${String(conflict.title)} » du dossier ${String(conflict.project_code)}, de ${formatApiDateTime(String(conflict.planned_start_at))} à ${String(conflict.planned_end_at).slice(11, 16)}.`;
   }
+  if (caught.code === "planned_test_preparation_not_ready") {
+    const issues = caught.details?.issues as
+      | Array<{ message?: unknown; next_action?: unknown }>
+      | undefined;
+    const first = issues?.[0];
+    if (first?.message) {
+      const nextAction = first.next_action ? ` ${String(first.next_action)}` : "";
+      return `${String(first.message)}${nextAction}`;
+    }
+  }
   const messages: Record<string, string> = {
     service_schedule_concurrent_update:
       "Ce créneau a changé sur un autre écran. La semaine a été actualisée ; votre saisie est conservée.",
@@ -497,6 +975,20 @@ function planningErrorMessage(caught: unknown): string {
       "Ce créneau a déjà démarré ou est terminé. Il ne peut plus être déplacé.",
     invalid_service_schedule_request:
       "Le nouvel horaire n'est pas valide. Vérifiez la date, le début et la fin.",
+    planned_test_preparation_required:
+      "Préparez la méthode, le montage et les matériels avant de démarrer l'essai.",
+    planned_test_preparation_stale:
+      "Le créneau a changé depuis le dernier contrôle. Vérifiez à nouveau la préparation.",
+    planned_test_preparation_concurrent_update:
+      "Une autre vérification a été enregistrée. Fermez puis rouvrez la préparation avant de continuer.",
+    planned_test_schedule_concurrent_update:
+      "Le créneau a changé pendant la vérification. Actualisez le planning puis recommencez.",
+    planned_test_schedule_not_preparable:
+      "Cet essai a déjà démarré ou est terminé. Sa préparation ne peut plus être modifiée.",
+    planned_test_method_not_approved:
+      "La méthode choisie n'est plus approuvée. Sélectionnez une méthode disponible.",
+    planned_test_station_setup_not_ready:
+      "Le montage choisi n'est plus marqué « Prêt à câbler ». Sélectionnez un autre montage.",
     storage_not_initialized: "Le stockage local doit être initialisé avant d'ouvrir le planning."
   };
   return messages[caught.code] ?? caught.message;

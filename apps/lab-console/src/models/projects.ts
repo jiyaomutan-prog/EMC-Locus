@@ -106,3 +106,178 @@ export interface ServiceScheduleOperationResult {
   replayed: boolean;
   schedule_item: ServiceScheduleItem;
 }
+
+export type PlannedTestPreparationState = "missing" | "blocked" | "ready" | "stale";
+
+export type PlannedTestPreparationDimension =
+  | "schedule_context"
+  | "test_method"
+  | "station_setup"
+  | "instrument_assignment"
+  | "serviceability"
+  | "calibration_validity"
+  | "missing_evidence"
+  | "nonconformance"
+  | "correction_validity";
+
+export interface PlannedTestPreparationIssue {
+  code: string;
+  severity: "blocking" | "warning";
+  dimension: PlannedTestPreparationDimension;
+  message: string;
+  next_action: string;
+  method_slot_ids?: string[];
+  binding_ids?: string[];
+  asset_ids?: string[];
+}
+
+export interface PlannedTestMethodSlot {
+  slot_id: string;
+  label: string;
+  required_category?: string;
+  required_capability?: string;
+  required: boolean;
+  calibration_requirement: "required" | "not_required" | "if_used";
+  substitution_policy:
+    | "no_substitution"
+    | "same_category"
+    | "same_capability"
+    | "approved_equivalent";
+  depends_on_slots?: string[];
+}
+
+export interface PlannedTestMethodSnapshot {
+  template_id: string;
+  revision_id: string;
+  revision_number: number;
+  revision_status: "approved" | "superseded";
+  definition_checksum: string;
+  title: string;
+  measurement_axis: string;
+  method_code?: string;
+  method_revision?: string;
+  standard_references?: string[];
+  instrumentation_chain: PlannedTestMethodSlot[];
+}
+
+export interface PlannedStationAssetSnapshot {
+  binding_id: string;
+  role_label: string;
+  asset_id: string;
+  asset_revision: string;
+  inventory_code: string;
+  serial_number: string;
+  manufacturer: string;
+  model_name: string;
+  equipment_model_id: string;
+  equipment_model_revision_id: string;
+  equipment_model_checksum: string;
+  category_code: string;
+  capabilities?: Array<{
+    capability_id: string;
+    label: string;
+    capability_kind: string;
+  }>;
+}
+
+export interface PlannedStationSetupSnapshot {
+  setup_id: string;
+  revision_id: string;
+  revision_number: number;
+  revision_status: "ready" | "superseded";
+  definition_checksum: string;
+  label: string;
+  station_label: string;
+  planned_use_on: string;
+  execution_mode: ProjectExecutionMode;
+  assets: PlannedStationAssetSnapshot[];
+  corrections?: Array<{
+    selection_id: string;
+    binding_id: string;
+    correction_kind: string;
+    characterization_id: string;
+    characterization_checksum: string;
+    label: string;
+  }>;
+}
+
+export interface PlannedTestScheduleSnapshot {
+  project_code: string;
+  item_code: string;
+  revision: number;
+  title: string;
+  planned_start_at: string;
+  planned_end_at: string;
+  assigned_operator: string;
+  location: string;
+  equipment_under_test: string;
+  execution_mode: ProjectExecutionMode;
+  status: ServiceScheduleStatus;
+}
+
+export interface PlannedTestPreparationDefinition {
+  definition_schema_version: string;
+  schedule: PlannedTestScheduleSnapshot;
+  method: PlannedTestMethodSnapshot;
+  station_setup: PlannedStationSetupSnapshot;
+  assignments: Array<{ slot_id: string; binding_id: string }>;
+  verdict: {
+    ready: boolean;
+    checked_on: string;
+    issues: PlannedTestPreparationIssue[];
+  };
+}
+
+export interface PlannedTestPreparationRevision {
+  revision_id: string;
+  revision_number: number;
+  parent_revision_id: string | null;
+  recorded_state: "blocked" | "ready";
+  effective_state: "blocked" | "ready" | "stale" | "historical";
+  is_current: boolean;
+  definition: PlannedTestPreparationDefinition;
+  definition_checksum: string;
+  actor: string;
+  reason: string;
+  operation_id: string;
+  device_id: string;
+  correlation_id: string;
+  created_at: string;
+}
+
+export interface PlannedTestPreparationAggregate {
+  project_code: string;
+  schedule_item_code: string;
+  current_state: PlannedTestPreparationState;
+  can_start: boolean;
+  current_revision: PlannedTestPreparationRevision | null;
+  revision_count: number;
+}
+
+export interface PlannedTestPreparationOptions {
+  project_code: string;
+  schedule_item_code: string;
+  methods: PlannedTestMethodSnapshot[];
+  station_setups: Array<{
+    station_setup: PlannedStationSetupSnapshot;
+    readiness: {
+      ready: boolean;
+      checked_on: string;
+      issues: Array<{
+        code: string;
+        severity: "blocking" | "warning";
+        dimension: string;
+        message: string;
+        binding_ids?: string[];
+        connection_ids?: string[];
+      }>;
+    };
+  }>;
+}
+
+export interface PlannedTestPreparationOperationResult {
+  operation: string;
+  operation_id: string;
+  replayed: boolean;
+  preparation: PlannedTestPreparationAggregate;
+}

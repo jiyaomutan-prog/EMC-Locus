@@ -57,6 +57,10 @@ import type {
   ProjectExecutionMode,
   ProjectOperationResult,
   ProjectRecord,
+  PlannedTestPreparationAggregate,
+  PlannedTestPreparationOperationResult,
+  PlannedTestPreparationOptions,
+  PlannedTestPreparationRevision,
   ServiceScheduleItem,
   ServiceScheduleOperationResult
 } from "./models/projects";
@@ -754,6 +758,54 @@ export const projectApi = {
   listSchedule: (projectCode: string) =>
     request<{ project_code: string; schedule_items: ServiceScheduleItem[] }>(
       `/api/v1/projects/${encodeURIComponent(projectCode)}/schedule-items`
+    ),
+  getPlannedTestPreparation: (projectCode: string, itemCode: string) =>
+    request<{ preparation: PlannedTestPreparationAggregate }>(
+      `/api/v1/projects/${encodeURIComponent(projectCode)}/schedule-items/${encodeURIComponent(itemCode)}/preparation`
+    ),
+  plannedTestPreparationOptions: (projectCode: string, itemCode: string) =>
+    request<PlannedTestPreparationOptions>(
+      `/api/v1/projects/${encodeURIComponent(projectCode)}/schedule-items/${encodeURIComponent(itemCode)}/preparation/options`
+    ),
+  plannedTestPreparationRevisions: (projectCode: string, itemCode: string) =>
+    request<{
+      project_code: string;
+      schedule_item_code: string;
+      revisions: PlannedTestPreparationRevision[];
+    }>(
+      `/api/v1/projects/${encodeURIComponent(projectCode)}/schedule-items/${encodeURIComponent(itemCode)}/preparation/revisions`
+    ),
+  getPlannedTestPreparationRevision: (
+    projectCode: string,
+    itemCode: string,
+    revisionId: string
+  ) =>
+    request<{ revision: PlannedTestPreparationRevision }>(
+      `/api/v1/projects/${encodeURIComponent(projectCode)}/schedule-items/${encodeURIComponent(itemCode)}/preparation/revisions/${encodeURIComponent(revisionId)}`
+    ),
+  assessPlannedTestPreparation: (
+    item: ServiceScheduleItem,
+    input: {
+      expected_current_revision_id: string | null;
+      method_template_id: string;
+      method_revision_id: string;
+      station_setup_id: string;
+      station_setup_revision_id: string;
+      assignments: Array<{ slot_id: string; binding_id: string }>;
+      actor: string;
+      reason: string;
+    }
+  ) =>
+    post<PlannedTestPreparationOperationResult>(
+      `/api/v1/projects/${encodeURIComponent(item.project_code)}/schedule-items/${encodeURIComponent(item.item_code)}/preparation/assessments`,
+      {
+        ...input,
+        expected_schedule_revision: item.revision,
+        operation_id: operationId(
+          "planned-test-preparation",
+          `${item.project_code}-${item.item_code}-${item.revision}-${input.expected_current_revision_id ?? "initial"}`
+        )
+      }
     ),
   listLaboratoryWeek: (weekStart: string) =>
     request<LaboratoryWeekSchedule>(
