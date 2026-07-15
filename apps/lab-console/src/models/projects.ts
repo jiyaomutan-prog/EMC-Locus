@@ -61,6 +61,18 @@ export interface ServiceScheduleItem {
   created_at: string;
   updated_at: string;
   available_transitions: ServiceScheduleStatus[];
+  can_reschedule: boolean;
+}
+
+export interface LaboratoryScheduleItem extends ServiceScheduleItem {
+  customer_name: string;
+  project_stage: ProjectStage;
+}
+
+export interface LaboratoryWeekSchedule {
+  week_start: string;
+  week_end: string;
+  schedule_items: LaboratoryScheduleItem[];
 }
 
 export interface ProjectAuditEvent {

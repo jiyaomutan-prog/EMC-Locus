@@ -7,6 +7,401 @@
   letter-spacing: 0;
 }
 
+/* Multi-project laboratory week planning. */
+.laboratoryPlanningWorkspace {
+  align-content: start;
+  display: grid;
+  min-height: 0;
+  padding-bottom: 28px;
+}
+
+.planningWeekToolbar {
+  align-items: end;
+  background: #fff;
+  border-bottom: 1px solid #d9dfd7;
+  display: flex;
+  gap: 12px;
+  padding: 10px 18px;
+}
+
+.weekNavigation {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.weekTitle {
+  display: grid;
+  min-width: 235px;
+  text-align: center;
+}
+
+.weekTitle strong {
+  color: #1c2922;
+  font-size: 15px;
+}
+
+.weekTitle span {
+  color: #68766e;
+  font-size: 11px;
+}
+
+.weekDatePicker {
+  margin-left: auto;
+  width: 170px;
+}
+
+.planningFilters {
+  align-items: end;
+  background: #edf1ef;
+  border-bottom: 1px solid #d5ddd9;
+  display: flex;
+  gap: 10px;
+  padding: 9px 18px;
+}
+
+.planningFilters label {
+  min-width: 180px;
+}
+
+.planningFilters button {
+  margin-left: auto;
+}
+
+.planningPageError {
+  align-items: center;
+  background: #fff0ed;
+  border-bottom: 1px solid #d7a098;
+  color: #71291f;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 10px 18px;
+}
+
+.planningLoading,
+.planningEmptyWeek {
+  align-items: center;
+  color: #59675f;
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  min-height: 420px;
+  padding: 30px;
+}
+
+.planningLoading p,
+.planningEmptyWeek p {
+  margin: 3px 0 0;
+}
+
+.planningEmptyWeek strong {
+  color: #1e2b24;
+}
+
+.laboratoryWeek {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  min-height: calc(100vh - 238px);
+  padding: 0 18px;
+}
+
+.planningDay {
+  background: #f7f9f8;
+  border-left: 1px solid #d8dfdb;
+  min-width: 0;
+}
+
+.planningDay:last-child {
+  border-right: 1px solid #d8dfdb;
+}
+
+.planningDay > header {
+  align-items: baseline;
+  background: #e8eeeb;
+  border-bottom: 1px solid #d3dcd7;
+  display: grid;
+  gap: 3px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 58px;
+  padding: 9px 10px;
+}
+
+.planningDay > header span {
+  color: #526159;
+  font-size: 11px;
+  font-weight: 700;
+  grid-column: 1 / -1;
+  text-transform: uppercase;
+}
+
+.planningDay > header strong {
+  font-size: 16px;
+  text-transform: capitalize;
+}
+
+.planningDay > header small {
+  background: #fff;
+  border: 1px solid #cbd5d0;
+  border-radius: 999px;
+  color: #526159;
+  min-width: 24px;
+  padding: 2px 6px;
+  text-align: center;
+}
+
+.planningDaySlots {
+  align-content: start;
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+}
+
+button.planningSlot {
+  align-items: start;
+  background: #fff;
+  border: 1px solid #cfd8d3;
+  border-left: 4px solid #c9922d;
+  border-radius: 4px;
+  color: #1c2821;
+  display: grid;
+  gap: 5px;
+  min-height: 164px;
+  overflow: hidden;
+  padding: 9px;
+  text-align: left;
+  width: 100%;
+}
+
+button.planningSlot:hover,
+button.planningSlot:focus-visible {
+  border-color: #6e9b88;
+  box-shadow: 0 0 0 2px #d9e9e2;
+  outline: 0;
+}
+
+button.planningSlot-confirmed,
+button.planningSlot-in_progress {
+  border-left-color: #5578a5;
+}
+
+button.planningSlot-completed {
+  border-left-color: #3f8065;
+}
+
+button.planningSlot-cancelled {
+  border-left-color: #98a29d;
+  opacity: 0.7;
+}
+
+.planningSlot > span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.planningSlot > span:not(.planningSlotTime, .planningSlotTitle, .planningSlotProject, .scheduleStatus) {
+  align-items: center;
+  color: #5d6a63;
+  display: flex;
+  font-size: 11px;
+  gap: 4px;
+}
+
+.planningSlotTime {
+  color: #2d5c49;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.planningSlotTitle {
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.planningSlotProject {
+  color: #56645c;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.planningSlot .scheduleStatus {
+  justify-self: start;
+  margin-top: auto;
+}
+
+.planningDayEmpty {
+  align-items: center;
+  color: #7a8680;
+  display: flex;
+  font-size: 12px;
+  justify-content: center;
+  margin: 0;
+  min-height: 100px;
+  text-align: center;
+}
+
+.planningDetailDialog {
+  width: min(660px, calc(100vw - 80px));
+}
+
+.planningDetailBody {
+  display: grid;
+  gap: 16px;
+}
+
+.planningDetailStatus {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.planningDetailStatus small {
+  color: #68766e;
+}
+
+.planningDetailFacts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.planningDetailFacts > div {
+  border-bottom: 1px solid #dfe5e2;
+  display: grid;
+  gap: 4px;
+  padding: 11px 4px;
+}
+
+.planningDetailFacts > div:nth-child(odd) {
+  margin-right: 16px;
+}
+
+.planningDetailFacts dt {
+  align-items: center;
+  color: #68766e;
+  display: flex;
+  font-size: 11px;
+  gap: 5px;
+  text-transform: uppercase;
+}
+
+.planningDetailFacts dd {
+  color: #1c2922;
+  font-weight: 650;
+  margin: 0;
+}
+
+.planningDetailNote {
+  background: #f2f5f4;
+  border-left: 3px solid #91aa9f;
+  color: #46554d;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.planningDetailFooter {
+  border-top: 1px solid #dfe5e2;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 13px 20px;
+}
+
+@media (max-width: 1280px) {
+  .planningWeekToolbar,
+  .planningFilters {
+    padding-inline: 12px;
+  }
+
+  .weekTitle {
+    min-width: 205px;
+  }
+
+  .planningFilters label {
+    min-width: 155px;
+  }
+
+  .laboratoryWeek {
+    padding-inline: 12px;
+  }
+
+  .planningDaySlots {
+    padding: 7px;
+  }
+
+  button.planningSlot {
+    min-height: 172px;
+    padding: 8px;
+  }
+}
+
+@media (max-width: 1050px) {
+  .planningWeekToolbar,
+  .planningFilters {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .weekDatePicker {
+    margin-left: 0;
+  }
+
+  .planningFilters button {
+    margin-left: 0;
+  }
+
+  .laboratoryWeek {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .planningDay:nth-child(odd) {
+    border-right: 1px solid #d8dfdb;
+  }
+}
+
+@media (max-width: 720px) {
+  .weekNavigation {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .weekTitle {
+    flex: 1;
+  }
+
+  .weekDatePicker,
+  .planningFilters label {
+    width: 100%;
+  }
+
+  .laboratoryWeek {
+    grid-template-columns: 1fr;
+  }
+
+  .planningDay,
+  .planningDay:nth-child(odd) {
+    border-right: 1px solid #d8dfdb;
+  }
+
+  .planningEmptyWeek {
+    align-items: stretch;
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .planningDetailDialog {
+    width: 100vw;
+  }
+
+  .planningDetailFacts {
+    grid-template-columns: 1fr;
+  }
+
+  .planningDetailFacts > div:nth-child(odd) {
+    margin-right: 0;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -3930,6 +4325,22 @@ button.projectListItem.active {
   }
 
   .projectDialog {
+    width: 100vw;
+  }
+}
+
+/* Keep the planning detail drawer opaque and narrower than full editors. */
+.wizardPanel.planningDetailDialog {
+  background: #fff;
+  width: min(660px, calc(100vw - 80px));
+}
+
+.planningDetailDialog > .wizardBody {
+  background: #fff;
+}
+
+@media (max-width: 720px) {
+  .wizardPanel.planningDetailDialog {
     width: 100vw;
   }
 }

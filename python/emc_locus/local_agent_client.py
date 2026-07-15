@@ -98,6 +98,12 @@ class LocalAgentClient:
             f"/api/v1/projects/{quote(project_code)}/schedule-items",
         )
 
+    def list_laboratory_week_schedule(self, week_start: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/service-schedule?{urlencode({'week_start': week_start})}",
+        )
+
     def audit_events(self, project_code: str) -> dict[str, Any]:
         return self.request_json(
             "GET",
@@ -1646,6 +1652,45 @@ class LocalAgentClient:
         return self.request_json(
             "POST",
             f"/api/v1/projects/{quote(project_code)}/schedule-items/{quote(item_code)}/transitions/{quote(action)}",
+            payload,
+        )
+
+    def reschedule_service_schedule_item(
+        self,
+        *,
+        project_code: str,
+        item_code: str,
+        planned_start_at: str,
+        planned_end_at: str,
+        assigned_operator: str,
+        location: str,
+        expected_revision: int,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "service-schedule-reschedule",
+            project_code,
+            item_code,
+        )
+        payload: dict[str, Any] = {
+            "planned_start_at": planned_start_at,
+            "planned_end_at": planned_end_at,
+            "assigned_operator": assigned_operator,
+            "location": location,
+            "expected_revision": expected_revision,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/projects/{quote(project_code)}/schedule-items/{quote(item_code)}/reschedule",
             payload,
         )
 

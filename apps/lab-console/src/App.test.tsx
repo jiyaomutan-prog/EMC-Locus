@@ -6,6 +6,7 @@ import type { EquipmentModelDefinition } from "./models/equipment";
 import type { AssetCorrectionAssignment } from "./models/metrology";
 import type {
   CompletedContractReviewItem,
+  LaboratoryScheduleItem,
   ProjectAuditEvent,
   ProjectRecord,
   ServiceScheduleItem
@@ -175,6 +176,51 @@ describe("LAB CONSOLE", () => {
     expect(screen.getByText("Confirmé")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/schedule-items/PLAN-CEM-UX-001-"),
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  test("filters the laboratory week and keeps reschedule values after a conflict", async () => {
+    mockLaboratoryPlanningApi();
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    expect(await screen.findByText("CEM-LAB-001 · Industries Atlas")).toBeInTheDocument();
+    expect(screen.getByText("CEM-LAB-002 · Mobilités Boréal")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Lieu"), "Labo CEM 1");
+    expect(screen.getByText("CEM-LAB-001 · Industries Atlas")).toBeInTheDocument();
+    expect(screen.queryByText("CEM-LAB-002 · Mobilités Boréal")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Effacer les filtres" }));
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Émission conduite, dossier CEM-LAB-001"
+      })
+    );
+    await user.click(screen.getByRole("button", { name: "Déplacer" }));
+    await user.type(
+      screen.getByLabelText("Raison du changement"),
+      "Réorganisation avec le client"
+    );
+    await user.click(screen.getByRole("button", { name: "Enregistrer le déplacement" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Alice Martin est déjà affecté à « Immunité rayonnée » du dossier CEM-LAB-002"
+    );
+    expect(screen.getByLabelText("Raison du changement")).toHaveValue(
+      "Réorganisation avec le client"
+    );
+    expect(screen.getByLabelText("Date")).toHaveValue("2026-07-15");
+
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-07-17" } });
+    await user.click(screen.getByRole("button", { name: "Enregistrer le déplacement" }));
+
+    expect(await screen.findByText(/Vendredi 17 juil/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/schedule-items/PLAN-LAB-001/reschedule"),
       expect.objectContaining({ method: "POST" })
     );
   });
@@ -1766,7 +1812,8 @@ function mockProjectWorkflowApi() {
         updated_by: body.actor,
         created_at: "2026-07-15T08:15:00Z",
         updated_at: "2026-07-15T08:15:00Z",
-        available_transitions: ["confirmed", "cancelled"]
+        available_transitions: ["confirmed", "cancelled"],
+        can_reschedule: true
       };
       schedule.push(item);
       return jsonResponse({
@@ -1797,6 +1844,99 @@ function mockProjectWorkflowApi() {
     }
     if (path === `/api/v1/projects/${project.code}/audit-events` && method === "GET") {
       return jsonResponse({ project_code: project.code, audit_events: audit });
+    }
+    return mockBaseApiResponse(path, init);
+  });
+}
+
+function mockLaboratoryPlanningApi() {
+  let rescheduleAttempts = 0;
+  const first: LaboratoryScheduleItem = {
+    item_code: "PLAN-LAB-001",
+    project_code: "CEM-LAB-001",
+    customer_name: "Industries Atlas",
+    project_stage: "test_planning",
+    title: "Émission conduite",
+    test_category_code: null,
+    test_method_code: null,
+    planned_start_at: "2026-07-15T09:00",
+    planned_end_at: "2026-07-15T12:00",
+    assigned_operator: "Alice Martin",
+    location: "Labo CEM 1",
+    equipment_under_test: "Convertisseur prototype",
+    status: "planned",
+    notes: "Préparer le réseau de stabilisation",
+    revision: 1,
+    created_by: "Responsable laboratoire",
+    updated_by: "Responsable laboratoire",
+    created_at: "2026-07-15T07:00:00Z",
+    updated_at: "2026-07-15T07:00:00Z",
+    available_transitions: ["confirmed", "cancelled"],
+    can_reschedule: true
+  };
+  const second: LaboratoryScheduleItem = {
+    ...first,
+    item_code: "PLAN-LAB-002",
+    project_code: "CEM-LAB-002",
+    customer_name: "Mobilités Boréal",
+    title: "Immunité rayonnée",
+    planned_start_at: "2026-07-16T09:00",
+    planned_end_at: "2026-07-16T12:00",
+    assigned_operator: "Alice Martin",
+    location: "Chambre semi-anéchoïque",
+    equipment_under_test: "Calculateur de bord",
+    status: "confirmed",
+    revision: 2,
+    available_transitions: ["in_progress", "cancelled"]
+  };
+
+  fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path.startsWith("/api/v1/service-schedule?")) {
+      return jsonResponse({
+        week_start: "2026-07-13",
+        week_end: "2026-07-17",
+        schedule_items: [first, second]
+      });
+    }
+    if (path.endsWith("/schedule-items/PLAN-LAB-001/reschedule") && init?.method === "POST") {
+      rescheduleAttempts += 1;
+      if (rescheduleAttempts === 1) {
+        return jsonResponse(
+          {
+            error: {
+              code: "service_schedule_operator_conflict",
+              message: "operator conflict",
+              details: {
+                resource: "operator",
+                value: "Alice Martin",
+                conflicting_item: {
+                  item_code: second.item_code,
+                  project_code: second.project_code,
+                  title: second.title,
+                  planned_start_at: second.planned_start_at,
+                  planned_end_at: second.planned_end_at,
+                  assigned_operator: second.assigned_operator,
+                  location: second.location
+                }
+              }
+            }
+          },
+          409
+        );
+      }
+      const body = JSON.parse(String(init.body)) as Record<string, string>;
+      first.planned_start_at = body.planned_start_at;
+      first.planned_end_at = body.planned_end_at;
+      first.assigned_operator = body.assigned_operator;
+      first.location = body.location;
+      first.revision += 1;
+      return jsonResponse({
+        operation: "service_schedule_item_rescheduled",
+        operation_id: "op-reschedule",
+        replayed: false,
+        schedule_item: first
+      });
     }
     return mockBaseApiResponse(path, init);
   });

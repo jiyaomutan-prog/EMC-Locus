@@ -70,7 +70,8 @@ const auditLabels: Record<string, string> = {
   contract_review_deviation_authorized: "Écart de revue autorisé",
   project_stage_advanced: "Dossier passé en planification",
   service_schedule_item_planned: "Créneau d'essai réservé",
-  service_schedule_item_status_changed: "État du créneau modifié"
+  service_schedule_item_status_changed: "État du créneau modifié",
+  service_schedule_item_rescheduled: "Créneau d'essai déplacé"
 };
 
 interface CreateProjectForm {
@@ -91,7 +92,7 @@ interface ScheduleForm {
   notes: string;
 }
 
-export function ProjectWorkspace() {
+export function ProjectWorkspace(props: { initialProjectCode?: string | null }) {
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
   const [selectedProject, setSelectedProject] = useState<ProjectRecord | null>(null);
@@ -132,7 +133,12 @@ export function ProjectWorkspace() {
         const response = await projectApi.listProjects();
         if (!active) return;
         setProjects(response.projects);
-        setSelectedCode(response.projects[0]?.code ?? null);
+        const preferredCode = response.projects.some(
+          (project) => project.code === props.initialProjectCode
+        )
+          ? props.initialProjectCode ?? null
+          : null;
+        setSelectedCode(preferredCode ?? response.projects[0]?.code ?? null);
         setLoadState("ready");
       } catch (caught) {
         if (!active) return;
@@ -144,7 +150,7 @@ export function ProjectWorkspace() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [props.initialProjectCode]);
 
   useEffect(() => {
     if (!selectedCode) {

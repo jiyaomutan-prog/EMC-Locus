@@ -6740,7 +6740,7 @@ mod tests {
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
             lab_console_dist: repo_root().join("apps/lab-console/dist"),
-            max_requests: Some(17),
+            max_requests: Some(21),
         });
 
         let health = wait_for_http(&first_address, "/api/v1/health");
@@ -6813,6 +6813,57 @@ mod tests {
         );
         assert_eq!(transition_replay.0, 200);
         assert!(transition_replay.1.contains("\"replayed\":true"));
+        let scheduled = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/projects/CEM-E2E-001/schedule-items",
+            r#"{
+                "item_code":"PLAN-E2E-001",
+                "title":"Emission conduite",
+                "planned_start_at":"2026-07-15T09:00",
+                "planned_end_at":"2026-07-15T12:00",
+                "assigned_operator":"Alice Martin",
+                "location":"Labo CEM 1",
+                "equipment_under_test":"Prototype E2E",
+                "actor":"quality.lead",
+                "reason":"first reservation",
+                "operation_id":"op-e2e-schedule"
+            }"#,
+        );
+        assert_eq!(scheduled.0, 200, "{}", scheduled.1);
+        let laboratory_week = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/service-schedule?week_start=2026-07-13",
+            "",
+        );
+        assert_eq!(laboratory_week.0, 200, "{}", laboratory_week.1);
+        assert!(laboratory_week.1.contains("E2E Customer"));
+        let rescheduled = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/projects/CEM-E2E-001/schedule-items/PLAN-E2E-001/reschedule",
+            r#"{
+                "planned_start_at":"2026-07-16T13:00",
+                "planned_end_at":"2026-07-16T16:00",
+                "assigned_operator":"Alice Martin",
+                "location":"Labo CEM 2",
+                "expected_revision":1,
+                "actor":"quality.lead",
+                "reason":"laboratory reorganization",
+                "operation_id":"op-e2e-reschedule"
+            }"#,
+        );
+        assert_eq!(rescheduled.0, 200, "{}", rescheduled.1);
+        assert!(rescheduled.1.contains("\"revision\":2"));
+        let moved_week = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/service-schedule?week_start=2026-07-13",
+            "",
+        );
+        assert_eq!(moved_week.0, 200, "{}", moved_week.1);
+        assert!(moved_week.1.contains("2026-07-16T13:00"));
         let outbox = http_request("GET", &first_address, "/api/v1/sync/outbox", "");
         let audit = http_request(
             "GET",
@@ -6822,8 +6873,10 @@ mod tests {
         );
         assert_eq!(outbox.0, 200);
         assert_eq!(audit.0, 200);
-        assert_eq!(outbox.1.matches("\"operation_id\"").count(), 11);
-        assert_eq!(audit.1.matches("\"sequence\"").count(), 11);
+        assert_eq!(outbox.1.matches("\"operation_id\"").count(), 13);
+        assert_eq!(audit.1.matches("\"sequence\"").count(), 13);
+        assert!(outbox.1.contains("service_schedule_item_rescheduled"));
+        assert!(audit.1.contains("service_schedule_item_rescheduled"));
         first_server
             .join()
             .expect("server thread panicked")
@@ -6836,12 +6889,21 @@ mod tests {
             storage_root: storage_root.clone(),
             migrations_root,
             lab_console_dist: repo_root().join("apps/lab-console/dist"),
-            max_requests: Some(2),
+            max_requests: Some(3),
         });
         assert_eq!(wait_for_http(&second_address, "/api/v1/health").0, 200);
         let reloaded = http_request("GET", &second_address, "/api/v1/projects/CEM-E2E-001", "");
         assert_eq!(reloaded.0, 200);
         assert!(reloaded.1.contains("\"stage\":\"test_planning\""));
+        let reloaded_schedule = http_request(
+            "GET",
+            &second_address,
+            "/api/v1/service-schedule?week_start=2026-07-13",
+            "",
+        );
+        assert_eq!(reloaded_schedule.0, 200, "{}", reloaded_schedule.1);
+        assert!(reloaded_schedule.1.contains("2026-07-16T13:00"));
+        assert!(reloaded_schedule.1.contains("Labo CEM 2"));
         second_server
             .join()
             .expect("server thread panicked")
