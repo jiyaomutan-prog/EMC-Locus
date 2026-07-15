@@ -1,5 +1,26 @@
 use super::*;
 
+const RAW_DATASET_CHECKSUM: &str =
+    "sha256:1111111111111111111111111111111111111111111111111111111111111111";
+const REPORT_EXPORT_CHECKSUM: &str =
+    "sha256:2222222222222222222222222222222222222222222222222222222222222222";
+const REPORT_ARCHIVE_CHECKSUM: &str =
+    "sha256:3333333333333333333333333333333333333333333333333333333333333333";
+const INRUSH_RAW_CHECKSUM: &str =
+    "sha256:4444444444444444444444444444444444444444444444444444444444444444";
+const INRUSH_GRAPH_CHECKSUM: &str =
+    "sha256:5555555555555555555555555555555555555555555555555555555555555555";
+const INRUSH_GRAPH_B_CHECKSUM: &str =
+    "sha256:6666666666666666666666666666666666666666666666666666666666666666";
+const CURRENT_FFT_CHECKSUM: &str =
+    "sha256:7777777777777777777777777777777777777777777777777777777777777777";
+const CURRENT_FFT_B_CHECKSUM: &str =
+    "sha256:8888888888888888888888888888888888888888888888888888888888888888";
+const RAW_AGAIN_CHECKSUM: &str =
+    "sha256:9999999999999999999999999999999999999999999999999999999999999999";
+const MISSING_OUTPUT_CHECKSUM: &str =
+    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
 #[test]
 fn equipment_file_reference_requires_a_canonical_manifest() {
     let manifest = serde_json::json!({
@@ -2475,14 +2496,29 @@ fn dataset_references_and_checksums_validate_values() {
         DatasetChecksum::parse("abc123").unwrap_err(),
         DomainError::InvalidDatasetChecksum("abc123".to_owned())
     );
+    assert_eq!(
+        DatasetChecksum::parse("sha256:abc123").unwrap_err(),
+        DomainError::InvalidDatasetChecksum("sha256:abc123".to_owned())
+    );
+    assert_eq!(
+        DatasetChecksum::parse(
+            "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        )
+        .unwrap_err(),
+        DomainError::InvalidDatasetChecksum(
+            "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_owned()
+        )
+    );
 
     assert_eq!(
         DatasetReference::parse("raw-signal-001").unwrap().as_str(),
         "raw-signal-001"
     );
     assert_eq!(
-        DatasetChecksum::parse("sha256:abc123").unwrap().as_str(),
-        "sha256:abc123"
+        DatasetChecksum::parse(RAW_DATASET_CHECKSUM)
+            .unwrap()
+            .as_str(),
+        RAW_DATASET_CHECKSUM
     );
 }
 
@@ -2494,7 +2530,7 @@ fn raw_dataset_record_is_immutable_and_linked_to_a_run() {
         DatasetReference::parse("raw-signal-001").unwrap(),
         DatasetKind::RawSignal,
         DatasetFileReference::parse("data/RUN-001/raw-signal-001.opendata").unwrap(),
-        DatasetChecksum::parse("sha256:abc123").unwrap(),
+        DatasetChecksum::parse(RAW_DATASET_CHECKSUM).unwrap(),
     );
 
     assert_eq!(record.run(), &run);
@@ -2504,7 +2540,7 @@ fn raw_dataset_record_is_immutable_and_linked_to_a_run() {
         record.file_reference().as_str(),
         "data/RUN-001/raw-signal-001.opendata"
     );
-    assert_eq!(record.checksum().as_str(), "sha256:abc123");
+    assert_eq!(record.checksum().as_str(), RAW_DATASET_CHECKSUM);
     assert!(record.immutable());
 }
 
@@ -2514,7 +2550,7 @@ fn dataset_retention_record_starts_retained_for_raw_data() {
     let retention = DatasetRetentionRecord::for_raw_dataset(&dataset);
 
     assert_eq!(retention.dataset().as_str(), "raw-signal-001");
-    assert_eq!(retention.checksum().as_str(), "sha256:abc123");
+    assert_eq!(retention.checksum().as_str(), RAW_DATASET_CHECKSUM);
     assert!(retention.immutable());
     assert_eq!(retention.status(), DatasetRetentionStatus::Retained);
     assert!(retention.events().is_empty());
@@ -2608,7 +2644,7 @@ fn measurement_run_evidence_records_observations_and_raw_datasets() {
             DatasetReference::parse("raw-signal-001").unwrap(),
             DatasetKind::RawSignal,
             DatasetFileReference::parse("data/RUN-001/raw-signal-001.opendata").unwrap(),
-            DatasetChecksum::parse("sha256:abc123").unwrap(),
+            DatasetChecksum::parse(RAW_DATASET_CHECKSUM).unwrap(),
         ))
         .unwrap();
 
@@ -2626,7 +2662,7 @@ fn measurement_run_evidence_rejects_dataset_from_another_run() {
         DatasetReference::parse("raw-signal-001").unwrap(),
         DatasetKind::RawSignal,
         DatasetFileReference::parse("data/RUN-002/raw-signal-001.opendata").unwrap(),
-        DatasetChecksum::parse("sha256:abc123").unwrap(),
+        DatasetChecksum::parse(RAW_DATASET_CHECKSUM).unwrap(),
     );
 
     let error = evidence.record_raw_dataset(dataset).unwrap_err();
@@ -2843,7 +2879,7 @@ fn report_export_bundle_requires_issued_report() {
         &report,
         ReportExportFormat::Pdf,
         DatasetFileReference::parse("reports/RPT-001-A.pdf").unwrap(),
-        DatasetChecksum::parse("sha256:report123").unwrap(),
+        DatasetChecksum::parse(REPORT_EXPORT_CHECKSUM).unwrap(),
     )
     .unwrap_err();
 
@@ -2861,7 +2897,7 @@ fn report_export_bundle_preserves_accredited_review_and_approval_evidence() {
         &report,
         ReportExportFormat::Pdf,
         DatasetFileReference::parse("reports/RPT-001-A.pdf").unwrap(),
-        DatasetChecksum::parse("sha256:report123").unwrap(),
+        DatasetChecksum::parse(REPORT_EXPORT_CHECKSUM).unwrap(),
     )
     .unwrap();
 
@@ -2870,7 +2906,7 @@ fn report_export_bundle_preserves_accredited_review_and_approval_evidence() {
     assert_eq!(bundle.revision().as_str(), "A");
     assert_eq!(bundle.format(), ReportExportFormat::Pdf);
     assert_eq!(bundle.file_reference().as_str(), "reports/RPT-001-A.pdf");
-    assert_eq!(bundle.checksum().as_str(), "sha256:report123");
+    assert_eq!(bundle.checksum().as_str(), REPORT_EXPORT_CHECKSUM);
     assert_eq!(bundle.reviewed_by(), Some(&reviewer));
     assert_eq!(bundle.approved_by(), Some(&approver));
 }
@@ -2888,7 +2924,7 @@ fn traceability_report_view_links_report_export_to_run_evidence() {
         &report,
         ReportExportFormat::Pdf,
         DatasetFileReference::parse("reports/RPT-001-A.pdf").unwrap(),
-        DatasetChecksum::parse("sha256:report123").unwrap(),
+        DatasetChecksum::parse(REPORT_EXPORT_CHECKSUM).unwrap(),
     )
     .unwrap();
     let plan = accepted_measurement_plan("RUN-001");
@@ -2914,7 +2950,7 @@ fn traceability_report_view_links_report_export_to_run_evidence() {
     assert_eq!(view.project().as_str(), "CEM-2026-001");
     assert_eq!(view.report_number().as_str(), "RPT-001");
     assert_eq!(view.report_revision().as_str(), "A");
-    assert_eq!(view.export_checksum().as_str(), "sha256:report123");
+    assert_eq!(view.export_checksum().as_str(), REPORT_EXPORT_CHECKSUM);
     assert_eq!(view.reviewed_by(), Some(&reviewer));
     assert_eq!(view.approved_by(), Some(&approver));
     assert!(view.has_technical_review());
@@ -2930,7 +2966,7 @@ fn traceability_report_view_links_report_export_to_run_evidence() {
     assert_eq!(view.runs()[0].max_exchange_attempts(), 1);
     assert_eq!(
         view.runs()[0].raw_datasets()[0].checksum().as_str(),
-        "sha256:abc123"
+        RAW_DATASET_CHECKSUM
     );
 }
 
@@ -2968,7 +3004,7 @@ fn traceability_report_view_summarizes_exchange_attempts() {
         &report,
         ReportExportFormat::Pdf,
         DatasetFileReference::parse("reports/RPT-001-A.pdf").unwrap(),
-        DatasetChecksum::parse("sha256:report123").unwrap(),
+        DatasetChecksum::parse(REPORT_EXPORT_CHECKSUM).unwrap(),
     )
     .unwrap();
     let plan = accepted_measurement_plan("RUN-001");
@@ -3009,7 +3045,7 @@ fn traceability_report_view_rejects_run_evidence_for_another_project() {
         &report,
         ReportExportFormat::Pdf,
         DatasetFileReference::parse("reports/RPT-001-A.pdf").unwrap(),
-        DatasetChecksum::parse("sha256:report123").unwrap(),
+        DatasetChecksum::parse(REPORT_EXPORT_CHECKSUM).unwrap(),
     )
     .unwrap();
     let evidence = MeasurementRunEvidence::new(accepted_measurement_plan("RUN-001"));
@@ -3040,7 +3076,7 @@ fn report_export_bundle_allows_non_accredited_issue_without_approval() {
         &report,
         ReportExportFormat::Zip,
         DatasetFileReference::parse("reports/RPT-001-A.zip").unwrap(),
-        DatasetChecksum::parse("sha256:reportzip").unwrap(),
+        DatasetChecksum::parse(REPORT_ARCHIVE_CHECKSUM).unwrap(),
     )
     .unwrap();
 
@@ -3257,9 +3293,9 @@ fn processing_graph_instance_preserves_revision_dataset_and_lineage() {
         ProcessingGraphReference::parse("inrush-analysis").unwrap(),
         ProcessingGraphRevision::parse("A").unwrap(),
         DatasetReference::parse("dataset-raw-inrush").unwrap(),
-        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_RAW_CHECKSUM).unwrap(),
         graph,
-        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_GRAPH_CHECKSUM).unwrap(),
         AuditActor::parse("signal.engineer").unwrap(),
         "0.1.0",
     )
@@ -3270,11 +3306,11 @@ fn processing_graph_instance_preserves_revision_dataset_and_lineage() {
     assert_eq!(instance.source_dataset().as_str(), "dataset-raw-inrush");
     assert_eq!(
         instance.source_dataset_checksum().as_str(),
-        "sha256:rawinrush001"
+        INRUSH_RAW_CHECKSUM
     );
     assert_eq!(
         instance.definition_checksum().as_str(),
-        "sha256:graphinrush001"
+        INRUSH_GRAPH_CHECKSUM
     );
     assert_eq!(instance.created_by().as_str(), "signal.engineer");
     assert_eq!(instance.software_version(), "0.1.0");
@@ -3296,9 +3332,9 @@ fn processing_graph_instance_rejects_empty_definition_and_software_version() {
         ProcessingGraphReference::parse("empty-graph").unwrap(),
         ProcessingGraphRevision::parse("A").unwrap(),
         DatasetReference::parse("dataset-raw-inrush").unwrap(),
-        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_RAW_CHECKSUM).unwrap(),
         empty_graph,
-        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_GRAPH_CHECKSUM).unwrap(),
         AuditActor::parse("signal.engineer").unwrap(),
         "0.1.0",
     )
@@ -3335,9 +3371,9 @@ fn processing_graph_instance_rejects_empty_definition_and_software_version() {
         ProcessingGraphReference::parse("inrush-analysis").unwrap(),
         ProcessingGraphRevision::parse("A").unwrap(),
         DatasetReference::parse("dataset-raw-inrush").unwrap(),
-        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_RAW_CHECKSUM).unwrap(),
         graph,
-        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_GRAPH_CHECKSUM).unwrap(),
         AuditActor::parse("signal.engineer").unwrap(),
         " ",
     )
@@ -3372,9 +3408,9 @@ fn processing_graph_result_artifact_links_output_to_instance_lineage() {
         ProcessingGraphReference::parse("inrush-analysis").unwrap(),
         ProcessingGraphRevision::parse("A").unwrap(),
         DatasetReference::parse("dataset-raw-inrush").unwrap(),
-        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_RAW_CHECKSUM).unwrap(),
         graph,
-        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_GRAPH_CHECKSUM).unwrap(),
         AuditActor::parse("signal.engineer").unwrap(),
         "0.1.0",
     )
@@ -3385,7 +3421,7 @@ fn processing_graph_result_artifact_links_output_to_instance_lineage() {
         current_fft.clone(),
         DatasetKind::ProcessedSignal,
         DatasetFileReference::parse("data/RUN-INRUSH/current_l1_fft.csv").unwrap(),
-        DatasetChecksum::parse("sha256:currentfft001").unwrap(),
+        DatasetChecksum::parse(CURRENT_FFT_CHECKSUM).unwrap(),
     )
     .unwrap();
 
@@ -3397,7 +3433,7 @@ fn processing_graph_result_artifact_links_output_to_instance_lineage() {
         artifact.file_reference().as_str(),
         "data/RUN-INRUSH/current_l1_fft.csv"
     );
-    assert_eq!(artifact.checksum().as_str(), "sha256:currentfft001");
+    assert_eq!(artifact.checksum().as_str(), CURRENT_FFT_CHECKSUM);
     assert_eq!(artifact.raw_lineage(), &[current]);
 }
 
@@ -3424,9 +3460,9 @@ fn processing_graph_result_artifact_rejects_invalid_kind_and_unknown_output() {
         ProcessingGraphReference::parse("inrush-analysis").unwrap(),
         ProcessingGraphRevision::parse("A").unwrap(),
         DatasetReference::parse("dataset-raw-inrush").unwrap(),
-        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_RAW_CHECKSUM).unwrap(),
         graph,
-        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_GRAPH_CHECKSUM).unwrap(),
         AuditActor::parse("signal.engineer").unwrap(),
         "0.1.0",
     )
@@ -3437,7 +3473,7 @@ fn processing_graph_result_artifact_rejects_invalid_kind_and_unknown_output() {
         current_fft,
         DatasetKind::RawSignal,
         DatasetFileReference::parse("data/RUN-INRUSH/raw.opendata").unwrap(),
-        DatasetChecksum::parse("sha256:rawagain001").unwrap(),
+        DatasetChecksum::parse(RAW_AGAIN_CHECKSUM).unwrap(),
     )
     .unwrap_err();
 
@@ -3451,7 +3487,7 @@ fn processing_graph_result_artifact_rejects_invalid_kind_and_unknown_output() {
         SignalReference::parse("missing_output").unwrap(),
         DatasetKind::ResultTable,
         DatasetFileReference::parse("data/RUN-INRUSH/missing.csv").unwrap(),
-        DatasetChecksum::parse("sha256:missing001").unwrap(),
+        DatasetChecksum::parse(MISSING_OUTPUT_CHECKSUM).unwrap(),
     )
     .unwrap_err();
 
@@ -3484,9 +3520,9 @@ fn processing_graph_execution_record_links_instance_and_artifacts() {
         ProcessingGraphReference::parse("inrush-analysis").unwrap(),
         ProcessingGraphRevision::parse("A").unwrap(),
         DatasetReference::parse("dataset-raw-inrush").unwrap(),
-        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_RAW_CHECKSUM).unwrap(),
         graph,
-        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_GRAPH_CHECKSUM).unwrap(),
         AuditActor::parse("signal.engineer").unwrap(),
         "0.1.0",
     )
@@ -3496,7 +3532,7 @@ fn processing_graph_execution_record_links_instance_and_artifacts() {
         current_fft,
         DatasetKind::ProcessedSignal,
         DatasetFileReference::parse("data/RUN-INRUSH/current_l1_fft.csv").unwrap(),
-        DatasetChecksum::parse("sha256:currentfft001").unwrap(),
+        DatasetChecksum::parse(CURRENT_FFT_CHECKSUM).unwrap(),
     )
     .unwrap();
 
@@ -3516,7 +3552,7 @@ fn processing_graph_execution_record_links_instance_and_artifacts() {
     assert_eq!(record.source_dataset().as_str(), "dataset-raw-inrush");
     assert_eq!(
         record.source_dataset_checksum().as_str(),
-        "sha256:rawinrush001"
+        INRUSH_RAW_CHECKSUM
     );
     assert_eq!(record.executed_by().as_str(), "signal.engine");
     assert_eq!(record.software_version(), "0.1.0");
@@ -3547,9 +3583,9 @@ fn processing_graph_execution_record_rejects_completed_without_artifacts() {
         ProcessingGraphReference::parse("inrush-analysis").unwrap(),
         ProcessingGraphRevision::parse("A").unwrap(),
         DatasetReference::parse("dataset-raw-inrush").unwrap(),
-        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_RAW_CHECKSUM).unwrap(),
         graph,
-        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_GRAPH_CHECKSUM).unwrap(),
         AuditActor::parse("signal.engineer").unwrap(),
         "0.1.0",
     )
@@ -3606,9 +3642,9 @@ fn processing_graph_execution_record_rejects_artifacts_from_other_graph_revision
         ProcessingGraphReference::parse("inrush-analysis").unwrap(),
         ProcessingGraphRevision::parse("A").unwrap(),
         DatasetReference::parse("dataset-raw-inrush").unwrap(),
-        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_RAW_CHECKSUM).unwrap(),
         graph.clone(),
-        DatasetChecksum::parse("sha256:graphinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_GRAPH_CHECKSUM).unwrap(),
         AuditActor::parse("signal.engineer").unwrap(),
         "0.1.0",
     )
@@ -3617,9 +3653,9 @@ fn processing_graph_execution_record_rejects_artifacts_from_other_graph_revision
         ProcessingGraphReference::parse("inrush-analysis").unwrap(),
         ProcessingGraphRevision::parse("B").unwrap(),
         DatasetReference::parse("dataset-raw-inrush").unwrap(),
-        DatasetChecksum::parse("sha256:rawinrush001").unwrap(),
+        DatasetChecksum::parse(INRUSH_RAW_CHECKSUM).unwrap(),
         graph,
-        DatasetChecksum::parse("sha256:graphinrush002").unwrap(),
+        DatasetChecksum::parse(INRUSH_GRAPH_B_CHECKSUM).unwrap(),
         AuditActor::parse("signal.engineer").unwrap(),
         "0.1.0",
     )
@@ -3629,7 +3665,7 @@ fn processing_graph_execution_record_rejects_artifacts_from_other_graph_revision
         current_fft,
         DatasetKind::ProcessedSignal,
         DatasetFileReference::parse("data/RUN-INRUSH/current_l1_fft_b.csv").unwrap(),
-        DatasetChecksum::parse("sha256:currentfftb001").unwrap(),
+        DatasetChecksum::parse(CURRENT_FFT_B_CHECKSUM).unwrap(),
     )
     .unwrap();
 
@@ -4152,7 +4188,7 @@ fn raw_dataset_for_run(run_reference: &str) -> RawDatasetRecord {
         DatasetReference::parse("raw-signal-001").unwrap(),
         DatasetKind::RawSignal,
         DatasetFileReference::parse("data/RUN-001/raw-signal-001.opendata").unwrap(),
-        DatasetChecksum::parse("sha256:abc123").unwrap(),
+        DatasetChecksum::parse(RAW_DATASET_CHECKSUM).unwrap(),
     )
 }
 

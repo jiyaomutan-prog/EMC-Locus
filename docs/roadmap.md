@@ -187,6 +187,9 @@ Deliverables:
 - SQLite measurement-data adapter; initial Python adapter added;
 - data-retention policy hooks; initial Rust workflow, SQLite evidence, and
   Python adapter APIs added.
+- Rust dataset, processing-graph and report-export evidence now require
+  canonical lowercase `sha256:<64 hex>` dataset checksums before records can be
+  constructed.
 - Python measurement-data writes now reject non-canonical dataset,
   processing-graph, and result-artifact checksums before lineage evidence is
   persisted.

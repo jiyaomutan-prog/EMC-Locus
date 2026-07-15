@@ -10,6 +10,8 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Hardened Rust `DatasetChecksum` parsing so raw-data, processing-graph and
+  report-export evidence must use canonical lowercase `sha256:<64 hex>` values.
 - Aligned Python `LocalAgentClient` idempotency-conflict coverage with the
   canonical lowercase SHA-256 fingerprint evidence emitted by the Rust agent.
 

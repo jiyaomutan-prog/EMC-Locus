@@ -64,7 +64,10 @@ impl DatasetChecksum {
             return Err(DomainError::EmptyDatasetChecksum);
         }
 
-        if !trimmed.starts_with("sha256:") || trimmed.len() <= "sha256:".len() {
+        let Some(digest) = trimmed.strip_prefix("sha256:") else {
+            return Err(DomainError::InvalidDatasetChecksum(trimmed.to_owned()));
+        };
+        if digest.len() != 64 || !digest.chars().all(|ch| matches!(ch, '0'..='9' | 'a'..='f')) {
             return Err(DomainError::InvalidDatasetChecksum(trimmed.to_owned()));
         }
 
