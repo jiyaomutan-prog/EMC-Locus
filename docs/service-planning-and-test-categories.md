@@ -9,7 +9,8 @@ EMC Locus now separates two needs that were missing from the early GUI:
 
 ## Service Planning
 
-The project repository owns `service_schedule_items`. A planning row records:
+The Rust Local Agent owns `service_schedule_items`, its project audit events,
+and its sync outbox operations. A planning row records:
 
 - planning code;
 - project code;
@@ -22,7 +23,7 @@ The project repository owns `service_schedule_items`. A planning row records:
 - status.
 
 Allowed status values are `planned`, `confirmed`, `in_progress`, `completed`,
-and `cancelled`. Repository and GUI/CLI paths trim surrounding whitespace from
+and `cancelled`. The core domain and repository paths trim surrounding whitespace from
 status text before validation, persistence, filtering, and audit payloads, and
 reject non-text requested statuses before any planning row or audit event can
 be written.
@@ -150,38 +151,23 @@ non-terminal planning rows and hides already terminal rows, so planned blocks
 do not present direct start/completion jumps and completed or cancelled blocks
 are not presented as editable status targets.
 
-Example local action:
+Normal clients use the project-centred Local Agent route:
 
-```text
-$env:PYTHONPATH='python'
-python -m emc_locus.actions_cli schedule-service-item `
-  --projects-db local/projects.sqlite `
-  --item-code PLAN-001 `
-  --project-code CEM-2026-001 `
-  --title "Emission conduite" `
-  --test-category-code emission_conducted `
-  --planned-start-at 2026-07-01T09:00 `
-  --planned-end-at 2026-07-01T12:00 `
-  --assigned-operator operator.one `
-  --location "Lab A" `
-  --equipment-under-test "EUT rail" `
-  --bootstrap-output local/bootstrap.js
+```http
+POST /api/v1/projects/CEM-2026-001/schedule-items
 ```
 
-Example status update:
+Status changes use business actions instead of accepting an arbitrary target
+status:
 
-```text
-$env:PYTHONPATH='python'
-python -m emc_locus.actions_cli update-service-schedule-status `
-  --projects-db local/projects.sqlite `
-  --item-code PLAN-001 `
-  --status confirmed `
-  --actor operator.one `
-  --reason "Lab slot confirmed" `
-  --bootstrap-output local/bootstrap.js
+```http
+POST /api/v1/projects/CEM-2026-001/schedule-items/PLAN-001/transitions/confirm
 ```
 
-The browser and Qt bootstrap now include a `schedule` table.
+The agent enforces deterministic operation replay, optimistic revision checks,
+project audit, and outbox writes in the same attached-SQLite transaction. The
+old direct Python repository remains only as a migration and regression adapter;
+new application surfaces must use the agent API.
 
 Before a project moves from contract review to test planning, EMC Locus checks
 the completed contract-review items. Accredited projects require a stricter

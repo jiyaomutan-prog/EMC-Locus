@@ -482,6 +482,64 @@ class LocalAgentClientTests(unittest.TestCase):
             ["customer_request_defined"],
         )
 
+    def test_posts_service_schedule_creation_and_transition_payloads(self) -> None:
+        captured: list[dict[str, object]] = []
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            captured.append(
+                {
+                    "url": request.full_url,
+                    "method": request.get_method(),
+                    "body": json.loads(request.data.decode("utf-8")),
+                }
+            )
+            return _FakeResponse(
+                {
+                    "schedule_item": {
+                        "item_code": "PLAN-PY-001",
+                        "status": "confirmed" if len(captured) == 2 else "planned",
+                    }
+                }
+            )
+
+        client = LocalAgentClient("http://127.0.0.1:8765")
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            client.create_service_schedule_item(
+                project_code="CEM-PY-001",
+                item_code="PLAN-PY-001",
+                title="Emission conduite",
+                planned_start_at="2026-07-15T09:00",
+                planned_end_at="2026-07-15T12:00",
+                assigned_operator="Alice Martin",
+                location="Labo CEM 1",
+                equipment_under_test="Convertisseur ferroviaire",
+                actor="responsable.laboratoire",
+                reason="Creneau convenu",
+                notes="Premier creneau",
+                operation_id="op-schedule-create",
+            )
+            client.transition_service_schedule_item(
+                project_code="CEM-PY-001",
+                item_code="PLAN-PY-001",
+                action="confirm",
+                expected_revision=1,
+                actor="responsable.laboratoire",
+                reason="Ressources confirmees",
+                operation_id="op-schedule-confirm",
+            )
+
+        self.assertEqual(
+            captured[0]["url"],
+            "http://127.0.0.1:8765/api/v1/projects/CEM-PY-001/schedule-items",
+        )
+        self.assertEqual(captured[0]["method"], "POST")
+        self.assertEqual(captured[0]["body"]["notes"], "Premier creneau")
+        self.assertEqual(
+            captured[1]["url"],
+            "http://127.0.0.1:8765/api/v1/projects/CEM-PY-001/schedule-items/PLAN-PY-001/transitions/confirm",
+        )
+        self.assertEqual(captured[1]["body"]["expected_revision"], 1)
+
     def test_local_agent_client_idempotency_conflict_maps_to_structured_error(self) -> None:
         expected_fingerprint = "sha256:" + "e" * 64
         stored_fingerprint = "sha256:" + "f" * 64
@@ -572,6 +630,9 @@ class LocalAgentClientTests(unittest.TestCase):
             "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/contract-review": {
                 "contract_review": {"project_code": "CEM-READ-001"}
             },
+            "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/schedule-items": {
+                "schedule_items": []
+            },
             "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/audit-events": {
                 "audit_events": []
             },
@@ -616,6 +677,10 @@ class LocalAgentClientTests(unittest.TestCase):
                 client.contract_review("CEM-READ-001")["contract_review"]["project_code"],
                 "CEM-READ-001",
             )
+            self.assertEqual(
+                client.list_project_service_schedule_items("CEM-READ-001")["schedule_items"],
+                [],
+            )
             self.assertEqual(client.audit_events("CEM-READ-001")["audit_events"], [])
             self.assertEqual(
                 client.list_project_test_executions("CEM-READ-001")["executions"],
@@ -655,6 +720,10 @@ class LocalAgentClientTests(unittest.TestCase):
                 (
                     "GET",
                     "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/contract-review",
+                ),
+                (
+                    "GET",
+                    "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/schedule-items",
                 ),
                 ("GET", "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/audit-events"),
                 ("GET", "http://127.0.0.1:8765/api/v1/projects/CEM-READ-001/test-executions"),

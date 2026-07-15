@@ -92,6 +92,12 @@ class LocalAgentClient:
             f"/api/v1/projects/{quote(project_code)}/contract-review",
         )
 
+    def list_project_service_schedule_items(self, project_code: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/projects/{quote(project_code)}/schedule-items",
+        )
+
     def audit_events(self, project_code: str) -> dict[str, Any]:
         return self.request_json(
             "GET",
@@ -1558,6 +1564,88 @@ class LocalAgentClient:
         return self.request_json(
             "POST",
             f"/api/v1/projects/{quote(project_code)}/transitions/to-test-planning",
+            payload,
+        )
+
+    def create_service_schedule_item(
+        self,
+        *,
+        project_code: str,
+        item_code: str,
+        title: str,
+        planned_start_at: str,
+        planned_end_at: str,
+        assigned_operator: str,
+        location: str,
+        equipment_under_test: str,
+        actor: str,
+        reason: str,
+        test_category_code: str | None = None,
+        test_method_code: str | None = None,
+        notes: str | None = None,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "service-schedule-create",
+            project_code,
+            item_code,
+        )
+        payload: dict[str, Any] = {
+            "item_code": item_code,
+            "title": title,
+            "planned_start_at": planned_start_at,
+            "planned_end_at": planned_end_at,
+            "assigned_operator": assigned_operator,
+            "location": location,
+            "equipment_under_test": equipment_under_test,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "test_category_code", test_category_code)
+        _put_optional(payload, "test_method_code", test_method_code)
+        _put_optional(payload, "notes", notes)
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/projects/{quote(project_code)}/schedule-items",
+            payload,
+        )
+
+    def transition_service_schedule_item(
+        self,
+        *,
+        project_code: str,
+        item_code: str,
+        action: str,
+        expected_revision: int,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        if action not in {"confirm", "start", "complete", "cancel"}:
+            raise ValueError(f"unknown service schedule action: {action}")
+        operation_id = operation_id or generate_operation_id(
+            f"service-schedule-{action}",
+            project_code,
+            item_code,
+        )
+        payload: dict[str, Any] = {
+            "expected_revision": expected_revision,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/projects/{quote(project_code)}/schedule-items/{quote(item_code)}/transitions/{quote(action)}",
             payload,
         )
 

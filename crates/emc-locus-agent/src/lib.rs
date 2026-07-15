@@ -19,6 +19,9 @@ mod project_agent;
 mod project_dto;
 mod project_repository;
 mod project_service;
+mod service_schedule_dto;
+mod service_schedule_repository;
+mod service_schedule_service;
 mod sqlite_policy;
 mod station_setup_dto;
 mod station_setup_repository;
@@ -98,6 +101,11 @@ pub use project_agent::{run_project_command, run_sync_command, ProjectAction, Sy
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
+pub use service_schedule_service::{
+    create_service_schedule_item, list_project_service_schedule_items,
+    transition_service_schedule_item, CreateServiceScheduleItemInput,
+    TransitionServiceScheduleItemInput,
+};
 use sqlite_policy::{initialize_project_slice_journal_mode, journal_mode, AttachedDatabase};
 pub use station_setup_service::{
     assess_station_setup_revision_json, create_station_setup, derive_station_setup_revision,
@@ -918,7 +926,7 @@ mod tests {
                 .find(|domain| domain.domain == "projects")
                 .unwrap()
                 .schema_version,
-            Some(5)
+            Some(6)
         );
         assert_eq!(
             second_report
@@ -966,6 +974,81 @@ mod tests {
             Some(1)
         );
 
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn storage_init_preserves_v5_schedule_rows_when_agent_ownership_is_added() {
+        let storage_root = temporary_storage_root("agent-storage-project-v6-migration");
+        let migrations_root = repo_root().join("storage/sqlite");
+        fs::create_dir_all(&storage_root).unwrap();
+        let projects_database = storage_root.join("projects.sqlite");
+        let connection = Connection::open(&projects_database).unwrap();
+        for migration in [
+            "0001_project_records.sql",
+            "0002_service_schedule.sql",
+            "0003_simulated_test_executions.sql",
+            "0004_attached_documents.sql",
+            "0005_simulated_execution_template_revision.sql",
+        ] {
+            let sql = fs::read_to_string(migrations_root.join("projects").join(migration)).unwrap();
+            connection.execute_batch(&sql).unwrap();
+        }
+        connection
+            .execute(
+                concat!(
+                    "INSERT INTO projects ",
+                    "(code, customer_name, stage, execution_mode, created_at) ",
+                    "VALUES ('CEM-LEGACY-PLAN', 'Legacy customer', 'test_planning', ",
+                    "'non_accredited', '2026-07-14T08:00:00Z')"
+                ),
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                concat!(
+                    "INSERT INTO service_schedule_items ",
+                    "(item_code, project_code, title, planned_start_at, planned_end_at, ",
+                    "assigned_operator, location, equipment_under_test, status, notes, ",
+                    "created_at, updated_at) VALUES ",
+                    "('PLAN-LEGACY-001', 'CEM-LEGACY-PLAN', 'Legacy test', ",
+                    "'2026-07-15T09:00', '2026-07-15T10:00', 'Alice', 'Lab 1', 'EUT', ",
+                    "'planned', '', '2026-07-14T08:00:00Z', '2026-07-14T08:00:00Z')"
+                ),
+                [],
+            )
+            .unwrap();
+        drop(connection);
+
+        let report =
+            run_storage_action(StorageAction::Init, storage_root.clone(), migrations_root).unwrap();
+        let connection = Connection::open(projects_database).unwrap();
+        let migrated: (u64, String, String) = connection
+            .query_row(
+                concat!(
+                    "SELECT revision, created_by, updated_by FROM service_schedule_items ",
+                    "WHERE item_code = 'PLAN-LEGACY-001'"
+                ),
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+
+        assert_eq!(
+            report
+                .domains
+                .iter()
+                .find(|domain| domain.domain == "projects")
+                .unwrap()
+                .schema_version,
+            Some(6)
+        );
+        assert_eq!(
+            migrated,
+            (1, "legacy-import".to_owned(), "legacy-import".to_owned())
+        );
+        drop(connection);
         remove_temporary_storage_root(&storage_root);
     }
 

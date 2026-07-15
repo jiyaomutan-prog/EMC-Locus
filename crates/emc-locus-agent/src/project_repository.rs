@@ -102,6 +102,7 @@ fn ensure_project_tables(connection: &Connection) -> Result<(), AgentError> {
         ("main", "projects"),
         ("main", "project_audit_events"),
         ("main", "contract_review_items"),
+        ("main", "service_schedule_items"),
         ("sync_db", "sync_operations"),
     ] {
         if !table_exists(connection, schema, table)? {

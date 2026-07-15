@@ -169,6 +169,19 @@ The Python update-catalog adapter requires signed package checksums to use
 canonical `sha256:<64 lowercase hex characters>` evidence before inserting
 package metadata.
 
+## Project Planning Ownership Migration
+
+`storage/sqlite/projects/0006_service_schedule_agent_ownership.sql` upgrades
+the early planning table without rewriting historical migrations. It adds a
+monotonic row revision plus creator and last-editor evidence, and records the
+Local Agent as the application writer. Existing development rows receive the
+explicit `legacy-import` actor until they are changed through a controlled
+agent operation.
+
+The migration does not move planning to another database and does not create a
+dual-write path. The Local Agent attaches `sync.sqlite` so each schedule write,
+project audit event, and pending outbox operation commits atomically.
+
 ## Cross-Domain Links
 
 SQLite foreign keys are used inside a domain. Links across domains are stored as

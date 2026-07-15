@@ -18,6 +18,9 @@ GET  /api/v1/projects/{code}
 GET  /api/v1/projects/{code}/contract-review
 POST /api/v1/projects/{code}/contract-review/items/{item}/complete
 POST /api/v1/projects/{code}/transitions/to-test-planning
+GET  /api/v1/projects/{code}/schedule-items
+POST /api/v1/projects/{code}/schedule-items
+POST /api/v1/projects/{code}/schedule-items/{item_code}/transitions/{action}
 GET  /api/v1/projects/{code}/audit-events
 GET  /api/v1/projects/{code}/test-executions
 GET  /api/v1/documents
@@ -113,7 +116,7 @@ stored result without duplicating project, audit, or outbox rows.
 
 Each successful write creates:
 
-- a project or contract-review/stage update in `projects.sqlite`;
+- a project, contract-review, stage, or schedule update in `projects.sqlite`;
 - a project audit event in `project_audit_events`;
 - a pending `sync_operations` row in `sync.sqlite`.
 
@@ -128,10 +131,39 @@ are explicitly migrated behind the agent. Attached document metadata is now a
 first shared agent-owned registry; see `document-api.md`.
 
 Qt/Python clients configured with `agent_url` use these routes for migrated
-project-slice reads and writes. They should not open `projects.sqlite` directly
-for project list/detail, contract-review status, project audit events, or sync
-outbox data in that mode. Service planning remains legacy until a planning route
-is added.
+project and planning reads and writes. They must not open `projects.sqlite`
+directly for project list/detail, contract-review status, service schedule,
+project audit events, or sync outbox data.
+
+## Plan A Test Slot
+
+Planning is project-centred and becomes available only after the contract
+review has moved the project to `test_planning`.
+
+```json
+{
+  "item_code": "PLAN-CEM-2026-001-001",
+  "title": "Conducted emission",
+  "planned_start_at": "2026-07-15T09:00",
+  "planned_end_at": "2026-07-15T12:00",
+  "assigned_operator": "Alice Martin",
+  "location": "EMC laboratory 1",
+  "equipment_under_test": "Railway converter",
+  "notes": "First agreed slot",
+  "actor": "laboratory.manager",
+  "reason": "Test slot agreed with the project team",
+  "operation_id": "op-plan-CEM-2026-001-001"
+}
+```
+
+The date-times are local canonical `YYYY-MM-DDTHH:MM` values. A slot must stay
+inside one business day and start as `planned`. Active slots reserve both their
+operator and location. Overlap errors return the conflicting slot and resource
+as structured details; adjacent slots remain allowed.
+
+Status actions are `confirm`, `start`, `complete`, and `cancel`. A transition
+requires the current `expected_revision`; a stale revision returns HTTP `409`
+without writing a partial audit or outbox operation.
 
 ## Simulated EMC Execution
 

@@ -76,6 +76,24 @@ The initial agent-created project stage defaults to `contract_review` so the
 vertical slice can exercise the contract-review gate and the transition to
 `test_planning`.
 
+## Project Planning API
+
+Release `0.19.0` moves the first service-planning write path behind the Local
+Agent. LAB CONSOLE and Python clients use:
+
+```text
+GET  /api/v1/projects/{project_code}/schedule-items
+POST /api/v1/projects/{project_code}/schedule-items
+POST /api/v1/projects/{project_code}/schedule-items/{item_code}/transitions/{action}
+```
+
+The supported actions are `confirm`, `start`, `complete`, and `cancel`. The
+agent checks the project phase, business-day time block, sequential status
+workflow, optimistic row revision, operator availability, and location
+availability. A successful write commits the planning row, project audit event,
+and `project_records` outbox operation together. Application clients do not
+open `projects.sqlite` to write planning rows.
+
 ## Metrology Registry Commands
 
 Version `0.6.3` adds the first agent-backed metrology registry commands. They

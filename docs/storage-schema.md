@@ -285,6 +285,37 @@ CREATE TABLE measurement_runs (
 );
 ```
 
+### service_schedule_items
+
+```sql
+CREATE TABLE service_schedule_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_code TEXT NOT NULL UNIQUE,
+    project_code TEXT NOT NULL REFERENCES projects(code),
+    title TEXT NOT NULL,
+    test_category_code TEXT,
+    test_method_code TEXT,
+    planned_start_at TEXT NOT NULL,
+    planned_end_at TEXT NOT NULL,
+    assigned_operator TEXT NOT NULL,
+    location TEXT NOT NULL,
+    equipment_under_test TEXT NOT NULL,
+    status TEXT NOT NULL,
+    notes TEXT NOT NULL DEFAULT '',
+    revision INTEGER NOT NULL DEFAULT 1,
+    created_by TEXT NOT NULL,
+    updated_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+```
+
+Project migration `6` makes the Local Agent the normal writer for planning and
+adds revision, creator, and last-editor evidence to rows created by the earlier
+planning adapter. Creating or changing a slot writes the row, project audit,
+and sync outbox atomically. Scientific acquisition data does not belong in this
+table.
+
 ### asset_characterization_events
 
 Migration `storage/sqlite/metrology/0009_asset_characterizations.sql` adds an

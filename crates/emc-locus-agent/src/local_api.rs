@@ -65,6 +65,11 @@ use crate::metrology_service::{
 use crate::project_agent::{
     AdvanceToTestPlanningInput, CompleteReviewItemInput, CreateProjectInput,
 };
+use crate::service_schedule_service::{
+    create_service_schedule_item, list_project_service_schedule_items,
+    transition_service_schedule_item, CreateServiceScheduleItemInput,
+    TransitionServiceScheduleItemInput,
+};
 use crate::station_setup_service::{
     assess_station_setup_revision_json, create_station_setup, derive_station_setup_revision,
     get_station_setup, get_station_setup_revision_json, list_station_setup_audit_events_json,
@@ -822,6 +827,25 @@ fn route_api_request(
                 storage_root: config.storage_root.clone(),
             })
         }
+        ["api", "v1", "projects", code, "schedule-items"] if method == "GET" => {
+            list_project_service_schedule_items(&config.storage_root, code)
+        }
+        ["api", "v1", "projects", code, "schedule-items"] if method == "POST" => {
+            let payload = parse_json_body(body)?;
+            create_service_schedule_item(
+                &config.storage_root,
+                create_service_schedule_item_input(code, &payload)?,
+            )
+        }
+        ["api", "v1", "projects", code, "schedule-items", item_code, "transitions", action]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            transition_service_schedule_item(
+                &config.storage_root,
+                transition_service_schedule_item_input(code, item_code, action, &payload)?,
+            )
+        }
         ["api", "v1", "projects", code, "contract-review", "items", item, "complete"]
             if method == "POST" =>
         {
@@ -1445,6 +1469,68 @@ fn to_test_planning_input(
             .unwrap_or_else(|| "local-agent".to_owned()),
         deviation_authorized_by: optional_string(payload, "deviation_authorized_by"),
         deviation_reason: optional_string(payload, "deviation_reason"),
+        operation_id,
+    })
+}
+
+fn create_service_schedule_item_input(
+    project_code: &str,
+    payload: &Value,
+) -> Result<CreateServiceScheduleItemInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(CreateServiceScheduleItemInput {
+        project_code: project_code.to_owned(),
+        item_code: required_string(payload, "item_code")?,
+        title: required_string(payload, "title")?,
+        planned_start_at: required_string(payload, "planned_start_at")?,
+        planned_end_at: required_string(payload, "planned_end_at")?,
+        assigned_operator: required_string(payload, "assigned_operator")?,
+        location: required_string(payload, "location")?,
+        equipment_under_test: required_string(payload, "equipment_under_test")?,
+        test_category_code: optional_string(payload, "test_category_code"),
+        test_method_code: optional_string(payload, "test_method_code"),
+        notes: optional_string(payload, "notes"),
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn transition_service_schedule_item_input(
+    project_code: &str,
+    item_code: &str,
+    action: &str,
+    payload: &Value,
+) -> Result<TransitionServiceScheduleItemInput, AgentError> {
+    let target_status = match action {
+        "confirm" => "confirmed",
+        "start" => "in_progress",
+        "complete" => "completed",
+        "cancel" => "cancelled",
+        _ => {
+            return Err(AgentError::with_details(
+                "invalid_service_schedule_request",
+                "unknown planning action",
+                json!({ "action": action }),
+            ))
+        }
+    };
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(TransitionServiceScheduleItemInput {
+        project_code: project_code.to_owned(),
+        item_code: item_code.to_owned(),
+        target_status: target_status.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
         operation_id,
     })
 }
@@ -2647,6 +2733,7 @@ fn status_for_error(code: &str) -> u16 {
         | "attached_document_not_found"
         | "document_owner_not_found"
         | "project_not_found"
+        | "service_schedule_item_not_found"
         | "test_execution_not_found"
         | "test_template_not_found"
         | "test_template_revision_not_found"
@@ -2672,6 +2759,12 @@ fn status_for_error(code: &str) -> u16 {
         | "station_setup_revision_not_found" => 404,
         "contract_review_incomplete"
         | "invalid_project_transition"
+        | "project_not_ready_for_scheduling"
+        | "service_schedule_item_already_exists"
+        | "service_schedule_operator_conflict"
+        | "service_schedule_location_conflict"
+        | "service_schedule_concurrent_update"
+        | "invalid_service_schedule_transition"
         | "project_already_exists"
         | "test_execution_attempt_exists"
         | "test_execution_template_not_approved"
@@ -2731,7 +2824,9 @@ fn status_for_error(code: &str) -> u16 {
         | "station_setup_active_draft_exists"
         | "station_setup_source_not_ready"
         | "station_setup_not_ready" => 409,
-        "storage_not_initialized" | "lab_console_build_missing" => 503,
+        "storage_not_initialized" | "storage_migration_required" | "lab_console_build_missing" => {
+            503
+        }
         "invalid_json_body"
         | "missing_json_field"
         | "missing_query_field"
@@ -2744,6 +2839,7 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_customer_name"
         | "invalid_actor"
         | "invalid_reason"
+        | "invalid_service_schedule_request"
         | "domain_error"
         | "invalid_test_execution"
         | "invalid_test_template"
@@ -5011,6 +5107,74 @@ mod tests {
         assert_eq!(transition.status, 200);
         assert!(transition.body.contains("\"stage\":\"test_planning\""));
 
+        let scheduled = handle_api_request(
+            "POST",
+            "/api/v1/projects/CEM-API-001/schedule-items",
+            r#"{
+                "item_code": "PLAN-API-001",
+                "title": "Emission conduite",
+                "planned_start_at": "2026-07-15T09:00",
+                "planned_end_at": "2026-07-15T12:00",
+                "assigned_operator": "Alice Martin",
+                "location": "Labo CEM 1",
+                "equipment_under_test": "Convertisseur ferroviaire",
+                "notes": "Premier creneau",
+                "actor": "quality.lead",
+                "reason": "planning agreed",
+                "operation_id": "op-api-schedule"
+            }"#,
+            &config,
+        );
+        assert_eq!(scheduled.status, 200, "{}", scheduled.body);
+        assert!(scheduled.body.contains("\"status\":\"planned\""));
+        assert!(scheduled.body.contains("\"revision\":1"));
+
+        let conflict = handle_api_request(
+            "POST",
+            "/api/v1/projects/CEM-API-001/schedule-items",
+            r#"{
+                "item_code": "PLAN-API-002",
+                "title": "Immunite conduite",
+                "planned_start_at": "2026-07-15T10:00",
+                "planned_end_at": "2026-07-15T11:00",
+                "assigned_operator": "Alice Martin",
+                "location": "Labo CEM 2",
+                "equipment_under_test": "Convertisseur ferroviaire",
+                "actor": "quality.lead",
+                "reason": "conflicting planning",
+                "operation_id": "op-api-schedule-conflict"
+            }"#,
+            &config,
+        );
+        assert_eq!(conflict.status, 409, "{}", conflict.body);
+        assert!(conflict.body.contains("service_schedule_operator_conflict"));
+        assert!(conflict.body.contains("PLAN-API-001"));
+
+        let confirmed = handle_api_request(
+            "POST",
+            "/api/v1/projects/CEM-API-001/schedule-items/PLAN-API-001/transitions/confirm",
+            r#"{
+                "expected_revision": 1,
+                "actor": "quality.lead",
+                "reason": "operator and laboratory confirmed",
+                "operation_id": "op-api-schedule-confirm"
+            }"#,
+            &config,
+        );
+        assert_eq!(confirmed.status, 200, "{}", confirmed.body);
+        assert!(confirmed.body.contains("\"status\":\"confirmed\""));
+        assert!(confirmed.body.contains("\"revision\":2"));
+
+        let schedule = handle_api_request(
+            "GET",
+            "/api/v1/projects/CEM-API-001/schedule-items",
+            "",
+            &config,
+        );
+        assert_eq!(schedule.status, 200, "{}", schedule.body);
+        assert!(schedule.body.contains("PLAN-API-001"));
+        assert!(!schedule.body.contains("PLAN-API-002"));
+
         let outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
         let audit = handle_api_request(
             "GET",
@@ -5024,7 +5188,11 @@ mod tests {
         assert!(outbox
             .body
             .contains("\"operation_kind\":\"project_stage_advanced\""));
+        assert!(outbox.body.contains("service_schedule_item_planned"));
+        assert!(outbox.body.contains("service_schedule_item_status_changed"));
         assert!(audit.body.contains("\"action\":\"project_stage_advanced\""));
+        assert!(audit.body.contains("service_schedule_item_planned"));
+        assert!(audit.body.contains("service_schedule_item_status_changed"));
 
         remove_temporary_storage_root(&storage_root);
     }
