@@ -102,9 +102,10 @@ use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
 pub use service_schedule_service::{
-    create_service_schedule_item, list_project_service_schedule_items,
+    create_service_schedule_item, list_laboratory_week_schedule,
+    list_project_service_schedule_items, reschedule_service_schedule_item,
     transition_service_schedule_item, CreateServiceScheduleItemInput,
-    TransitionServiceScheduleItemInput,
+    RescheduleServiceScheduleItemInput, TransitionServiceScheduleItemInput,
 };
 use sqlite_policy::{initialize_project_slice_journal_mode, journal_mode, AttachedDatabase};
 pub use station_setup_service::{
