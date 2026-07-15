@@ -586,7 +586,7 @@ pub fn list_station_setup_audit_events_json(
     }))
 }
 
-fn assess_station_setup_readiness(
+pub(crate) fn assess_station_setup_readiness(
     storage_root: &Path,
     definition: &StationMeasurementSetupDefinition,
 ) -> Result<StationSetupReadiness, AgentError> {

@@ -15,6 +15,9 @@ mod metrology_agent;
 mod metrology_dto;
 mod metrology_repository;
 mod metrology_service;
+mod planned_test_preparation_dto;
+mod planned_test_preparation_repository;
+mod planned_test_preparation_service;
 mod project_agent;
 mod project_dto;
 mod project_repository;
@@ -97,6 +100,12 @@ pub use metrology_service::{
     MetrologyOperationContext, RecordCalibrationInput, SetServiceabilityInput,
 };
 pub use metrology_service::{register_metrology_instrument, RegisterInstrumentInput};
+pub use planned_test_preparation_service::{
+    assess_planned_test_preparation_for_schedule, get_planned_test_preparation,
+    get_planned_test_preparation_revision_json, list_planned_test_preparation_options,
+    list_planned_test_preparation_revisions_json, AssessPlannedTestPreparationInput,
+    PlannedTestPreparationOperationContext,
+};
 pub use project_agent::{run_project_command, run_sync_command, ProjectAction, SyncAction};
 use rusqlite::Connection;
 use serde::Serialize;

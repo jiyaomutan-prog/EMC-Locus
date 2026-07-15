@@ -1,3 +1,4 @@
+use crate::planned_test_preparation_service::require_planned_test_preparation_for_start;
 use crate::project_repository::{
     ensure_operation_replay, existing_operation, insert_audit_event, insert_sync_operation,
     load_project, next_audit_sequence, open_project_connection, AuditEventInput,
@@ -489,6 +490,16 @@ pub fn transition_service_schedule_item(
             }),
         )
     })?;
+    let preparation_evidence = if target == ServiceScheduleStatus::InProgress {
+        Some(require_planned_test_preparation_for_start(
+            storage_root,
+            project_code.as_str(),
+            &input.item_code,
+            stored.revision,
+        )?)
+    } else {
+        None
+    };
 
     let timestamp = utc_timestamp()?;
     let audit_sequence = next_audit_sequence(&connection, project_code.as_str())?;
@@ -496,6 +507,7 @@ pub fn transition_service_schedule_item(
         "item_code": item.item_code(),
         "previous_status": previous_status.as_str(),
         "new_status": target.as_str(),
+        "planned_test_preparation": preparation_evidence,
     }));
     let base_revision = revision_text(stored.revision);
     let resulting_revision = revision_text(stored.revision + 1);

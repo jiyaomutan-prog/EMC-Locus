@@ -62,6 +62,12 @@ use crate::metrology_service::{
     RecordAssetCharacterizationInput, RecordCalibrationInput, RegisterInstrumentInput,
     SetServiceabilityInput, StoreMetrologyFileInput,
 };
+use crate::planned_test_preparation_service::{
+    assess_planned_test_preparation_for_schedule, get_planned_test_preparation,
+    get_planned_test_preparation_revision_json, list_planned_test_preparation_options,
+    list_planned_test_preparation_revisions_json, AssessPlannedTestPreparationInput,
+    PlannedTestPreparationOperationContext,
+};
 use crate::project_agent::{
     AdvanceToTestPlanningInput, CompleteReviewItemInput, CreateProjectInput,
 };
@@ -98,6 +104,7 @@ use emc_locus_core::{
         MeasurementEngineeringAggregateKind, MeasurementEngineeringRevisionStatus,
     },
     test_definitions::TemplateRevisionStatus,
+    PlannedTestInstrumentAssignment,
 };
 use serde_json::{json, Value};
 use std::{
@@ -842,6 +849,40 @@ fn route_api_request(
                 create_service_schedule_item_input(code, &payload)?,
             )
         }
+        ["api", "v1", "projects", code, "schedule-items", item_code, "preparation"]
+            if method == "GET" =>
+        {
+            get_planned_test_preparation(&config.storage_root, code, item_code)
+        }
+        ["api", "v1", "projects", code, "schedule-items", item_code, "preparation", "options"]
+            if method == "GET" =>
+        {
+            list_planned_test_preparation_options(&config.storage_root, code, item_code)
+        }
+        ["api", "v1", "projects", code, "schedule-items", item_code, "preparation", "revisions"]
+            if method == "GET" =>
+        {
+            list_planned_test_preparation_revisions_json(&config.storage_root, code, item_code)
+        }
+        ["api", "v1", "projects", code, "schedule-items", item_code, "preparation", "revisions", revision_id]
+            if method == "GET" =>
+        {
+            get_planned_test_preparation_revision_json(
+                &config.storage_root,
+                code,
+                item_code,
+                revision_id,
+            )
+        }
+        ["api", "v1", "projects", code, "schedule-items", item_code, "preparation", "assessments"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            assess_planned_test_preparation_for_schedule(
+                &config.storage_root,
+                planned_test_preparation_input(code, item_code, &payload)?,
+            )
+        }
         ["api", "v1", "projects", code, "schedule-items", item_code, "reschedule"]
             if method == "POST" =>
         {
@@ -1546,6 +1587,52 @@ fn transition_service_schedule_item_input(
         device_id: optional_string(payload, "device_id")
             .unwrap_or_else(|| "local-agent".to_owned()),
         operation_id,
+    })
+}
+
+fn planned_test_preparation_input(
+    project_code: &str,
+    item_code: &str,
+    payload: &Value,
+) -> Result<AssessPlannedTestPreparationInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    let assignments = payload
+        .get("assignments")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            AgentError::with_details(
+                "invalid_json_field",
+                "assignments must be an array",
+                json!({ "field": "assignments" }),
+            )
+        })?
+        .iter()
+        .map(|assignment| {
+            Ok(PlannedTestInstrumentAssignment {
+                slot_id: required_string(assignment, "slot_id")?,
+                binding_id: required_string(assignment, "binding_id")?,
+            })
+        })
+        .collect::<Result<Vec<_>, AgentError>>()?;
+    Ok(AssessPlannedTestPreparationInput {
+        project_code: project_code.to_owned(),
+        schedule_item_code: item_code.to_owned(),
+        expected_schedule_revision: required_u64(payload, "expected_schedule_revision")?,
+        expected_current_revision_id: optional_string(payload, "expected_current_revision_id"),
+        method_template_id: required_string(payload, "method_template_id")?,
+        method_revision_id: required_string(payload, "method_revision_id")?,
+        station_setup_id: required_string(payload, "station_setup_id")?,
+        station_setup_revision_id: required_string(payload, "station_setup_revision_id")?,
+        assignments,
+        context: PlannedTestPreparationOperationContext {
+            actor: required_string(payload, "actor")?,
+            reason: required_string(payload, "reason")?,
+            correlation_id: optional_string(payload, "correlation_id")
+                .unwrap_or_else(|| operation_id.clone()),
+            device_id: optional_string(payload, "device_id")
+                .unwrap_or_else(|| "local-agent".to_owned()),
+            operation_id,
+        },
     })
 }
 
@@ -2794,7 +2881,10 @@ fn status_for_error(code: &str) -> u16 {
         | "asset_correction_model_not_found"
         | "asset_correction_requirement_not_found"
         | "station_setup_not_found"
-        | "station_setup_revision_not_found" => 404,
+        | "station_setup_revision_not_found"
+        | "planned_test_preparation_revision_not_found"
+        | "planned_test_method_not_found"
+        | "planned_test_station_setup_not_found" => 404,
         "contract_review_incomplete"
         | "invalid_project_transition"
         | "project_not_ready_for_scheduling"
@@ -2862,7 +2952,18 @@ fn status_for_error(code: &str) -> u16 {
         | "station_setup_revision_not_editable"
         | "station_setup_active_draft_exists"
         | "station_setup_source_not_ready"
-        | "station_setup_not_ready" => 409,
+        | "station_setup_not_ready"
+        | "planned_test_schedule_concurrent_update"
+        | "planned_test_preparation_concurrent_update"
+        | "planned_test_preparation_required"
+        | "planned_test_preparation_stale"
+        | "planned_test_preparation_not_ready"
+        | "planned_test_not_confirmed"
+        | "planned_test_method_not_approved"
+        | "planned_test_station_setup_not_ready"
+        | "planned_test_schedule_not_preparable"
+        | "planned_test_method_reference_changed"
+        | "planned_test_station_reference_changed" => 409,
         "storage_not_initialized" | "storage_migration_required" | "lab_console_build_missing" => {
             503
         }
@@ -2922,6 +3023,8 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_metrology_readiness"
         | "invalid_station_setup_request"
         | "invalid_station_setup_definition"
+        | "invalid_planned_test_preparation_request"
+        | "invalid_planned_test_preparation"
         | "station_setup_identity_mismatch"
         | "unknown_execution_mode"
         | "unknown_contract_review_item" => 400,
