@@ -540,6 +540,63 @@ class LocalAgentClientTests(unittest.TestCase):
         )
         self.assertEqual(captured[1]["body"]["expected_revision"], 1)
 
+    def test_reads_laboratory_week_and_posts_reschedule_payload(self) -> None:
+        captured: list[dict[str, object]] = []
+
+        def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
+            captured.append(
+                {
+                    "url": request.full_url,
+                    "method": request.get_method(),
+                    "body": json.loads(request.data.decode("utf-8")) if request.data else None,
+                }
+            )
+            if request.get_method() == "GET":
+                return _FakeResponse(
+                    {
+                        "week_start": "2026-07-13",
+                        "week_end": "2026-07-17",
+                        "schedule_items": [],
+                    }
+                )
+            return _FakeResponse(
+                {
+                    "schedule_item": {
+                        "item_code": "PLAN-PY-001",
+                        "revision": 3,
+                    }
+                }
+            )
+
+        client = LocalAgentClient("http://127.0.0.1:8765")
+        with patch("emc_locus.local_agent_client.urlopen", fake_urlopen):
+            client.list_laboratory_week_schedule("2026-07-13")
+            client.reschedule_service_schedule_item(
+                project_code="CEM-PY-001",
+                item_code="PLAN-PY-001",
+                planned_start_at="2026-07-16T13:00",
+                planned_end_at="2026-07-16T16:00",
+                assigned_operator="Alice Martin",
+                location="Labo CEM 2",
+                expected_revision=2,
+                actor="responsable.laboratoire",
+                reason="Reorganisation du laboratoire",
+                operation_id="op-schedule-reschedule",
+            )
+
+        self.assertEqual(
+            captured[0]["url"],
+            "http://127.0.0.1:8765/api/v1/service-schedule?week_start=2026-07-13",
+        )
+        self.assertEqual(captured[0]["method"], "GET")
+        self.assertEqual(
+            captured[1]["url"],
+            "http://127.0.0.1:8765/api/v1/projects/CEM-PY-001/schedule-items/PLAN-PY-001/reschedule",
+        )
+        self.assertEqual(captured[1]["method"], "POST")
+        self.assertEqual(captured[1]["body"]["expected_revision"], 2)
+        self.assertEqual(captured[1]["body"]["location"], "Labo CEM 2")
+
     def test_local_agent_client_idempotency_conflict_maps_to_structured_error(self) -> None:
         expected_fingerprint = "sha256:" + "e" * 64
         stored_fingerprint = "sha256:" + "f" * 64

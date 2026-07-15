@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   BookOpenText,
+  CalendarDays,
   CheckCircle2,
   ClipboardCheck,
   Copy,
@@ -22,6 +23,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, api, type OperationContext } from "./api";
 import { defaultTemplateDefinition } from "./defaultDefinition";
 import { EquipmentWorkspace } from "./features/equipment/EquipmentWorkspace";
+import { LaboratoryPlanningWorkspace } from "./features/planning/LaboratoryPlanningWorkspace";
 import { ProjectWorkspace } from "./features/projects/ProjectWorkspace";
 import { APP_VERSION } from "./version";
 import type {
@@ -41,7 +43,7 @@ import type {
   VariableLockPolicy
 } from "./types";
 
-type ActiveView = "projects" | "library" | "studio" | "equipment" | "system";
+type ActiveView = "projects" | "planning" | "library" | "studio" | "equipment" | "system";
 type StudioSection =
   | "general"
   | "variables"
@@ -114,6 +116,7 @@ function generatedTemplateId() {
 
 export function App() {
   const [activeView, setActiveView] = useState<ActiveView>("library");
+  const [projectFocusCode, setProjectFocusCode] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [templates, setTemplates] = useState<TestTemplateAggregate[]>([]);
   const [health, setHealth] = useState<HealthReport | null>(null);
@@ -467,6 +470,14 @@ export function App() {
             <FolderKanban size={18} />
             <span>Dossiers d'essai</span>
           </button>
+          <button
+            className={activeView === "planning" ? "active" : ""}
+            onClick={() => setActiveView("planning")}
+            title="Planning du laboratoire"
+          >
+            <CalendarDays size={18} />
+            <span>Planning du laboratoire</span>
+          </button>
         </nav>
         <nav className="primaryNav technicalNav" aria-label="Préparation technique">
           <p className="navLabel">Préparation technique</p>
@@ -506,6 +517,8 @@ export function App() {
             <p className="eyebrow">
               {activeView === "equipment"
                 ? "Référentiel, signaux et corrections"
+                : activeView === "planning"
+                  ? "Coordination des essais et des ressources"
                 : activeView === "projects"
                   ? "Du besoin client au créneau d'essai"
                 : activeView === "system"
@@ -517,6 +530,8 @@ export function App() {
                 ? "Éditeur de méthode"
                 : activeView === "equipment"
                   ? "Équipements"
+                  : activeView === "planning"
+                    ? "Planning du laboratoire"
                   : activeView === "projects"
                     ? "Dossiers d'essai"
                   : activeView === "system"
@@ -542,7 +557,15 @@ export function App() {
         </header>
 
         {activeView === "system" && <SystemView health={health} storage={storage} />}
-        {activeView === "projects" && <ProjectWorkspace />}
+        {activeView === "projects" && <ProjectWorkspace initialProjectCode={projectFocusCode} />}
+        {activeView === "planning" && (
+          <LaboratoryPlanningWorkspace
+            onOpenProject={(projectCode) => {
+              setProjectFocusCode(projectCode || null);
+              setActiveView("projects");
+            }}
+          />
+        )}
         {activeView === "equipment" && <EquipmentWorkspace />}
         {activeView === "library" && (
           <LibraryView

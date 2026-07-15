@@ -66,9 +66,10 @@ use crate::project_agent::{
     AdvanceToTestPlanningInput, CompleteReviewItemInput, CreateProjectInput,
 };
 use crate::service_schedule_service::{
-    create_service_schedule_item, list_project_service_schedule_items,
+    create_service_schedule_item, list_laboratory_week_schedule,
+    list_project_service_schedule_items, reschedule_service_schedule_item,
     transition_service_schedule_item, CreateServiceScheduleItemInput,
-    TransitionServiceScheduleItemInput,
+    RescheduleServiceScheduleItemInput, TransitionServiceScheduleItemInput,
 };
 use crate::station_setup_service::{
     assess_station_setup_revision_json, create_station_setup, derive_station_setup_revision,
@@ -811,6 +812,10 @@ fn route_api_request(
     }
 
     match parts.as_slice() {
+        ["api", "v1", "service-schedule"] if method == "GET" => list_laboratory_week_schedule(
+            &config.storage_root,
+            &required_query_value(query, "week_start")?,
+        ),
         ["api", "v1", "projects", code] if method == "GET" => {
             run_project_command(AgentCommand::Projects {
                 action: ProjectAction::Get {
@@ -835,6 +840,15 @@ fn route_api_request(
             create_service_schedule_item(
                 &config.storage_root,
                 create_service_schedule_item_input(code, &payload)?,
+            )
+        }
+        ["api", "v1", "projects", code, "schedule-items", item_code, "reschedule"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            reschedule_service_schedule_item(
+                &config.storage_root,
+                reschedule_service_schedule_item_input(code, item_code, &payload)?,
             )
         }
         ["api", "v1", "projects", code, "schedule-items", item_code, "transitions", action]
@@ -1524,6 +1538,30 @@ fn transition_service_schedule_item_input(
         project_code: project_code.to_owned(),
         item_code: item_code.to_owned(),
         target_status: target_status.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn reschedule_service_schedule_item_input(
+    project_code: &str,
+    item_code: &str,
+    payload: &Value,
+) -> Result<RescheduleServiceScheduleItemInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(RescheduleServiceScheduleItemInput {
+        project_code: project_code.to_owned(),
+        item_code: item_code.to_owned(),
+        planned_start_at: required_string(payload, "planned_start_at")?,
+        planned_end_at: required_string(payload, "planned_end_at")?,
+        assigned_operator: required_string(payload, "assigned_operator")?,
+        location: required_string(payload, "location")?,
         expected_revision: required_u64(payload, "expected_revision")?,
         actor: required_string(payload, "actor")?,
         reason: required_string(payload, "reason")?,
@@ -2765,6 +2803,7 @@ fn status_for_error(code: &str) -> u16 {
         | "service_schedule_location_conflict"
         | "service_schedule_concurrent_update"
         | "invalid_service_schedule_transition"
+        | "service_schedule_item_not_reschedulable"
         | "project_already_exists"
         | "test_execution_attempt_exists"
         | "test_execution_template_not_approved"
@@ -5165,6 +5204,39 @@ mod tests {
         assert!(confirmed.body.contains("\"status\":\"confirmed\""));
         assert!(confirmed.body.contains("\"revision\":2"));
 
+        let laboratory_week = handle_api_request(
+            "GET",
+            "/api/v1/service-schedule?week_start=2026-07-13",
+            "",
+            &config,
+        );
+        assert_eq!(laboratory_week.status, 200, "{}", laboratory_week.body);
+        assert!(laboratory_week.body.contains("\"week_end\":\"2026-07-17\""));
+        assert!(laboratory_week.body.contains("\"customer_name\""));
+        assert!(laboratory_week.body.contains("PLAN-API-001"));
+
+        let rescheduled = handle_api_request(
+            "POST",
+            "/api/v1/projects/CEM-API-001/schedule-items/PLAN-API-001/reschedule",
+            r#"{
+                "planned_start_at": "2026-07-16T13:00",
+                "planned_end_at": "2026-07-16T16:00",
+                "assigned_operator": "Alice Martin",
+                "location": "Labo CEM 1",
+                "expected_revision": 2,
+                "actor": "quality.lead",
+                "reason": "laboratory reorganization",
+                "operation_id": "op-api-schedule-reschedule"
+            }"#,
+            &config,
+        );
+        assert_eq!(rescheduled.status, 200, "{}", rescheduled.body);
+        assert!(rescheduled
+            .body
+            .contains("\"planned_start_at\":\"2026-07-16T13:00\""));
+        assert!(rescheduled.body.contains("\"status\":\"confirmed\""));
+        assert!(rescheduled.body.contains("\"revision\":3"));
+
         let schedule = handle_api_request(
             "GET",
             "/api/v1/projects/CEM-API-001/schedule-items",
@@ -5190,9 +5262,11 @@ mod tests {
             .contains("\"operation_kind\":\"project_stage_advanced\""));
         assert!(outbox.body.contains("service_schedule_item_planned"));
         assert!(outbox.body.contains("service_schedule_item_status_changed"));
+        assert!(outbox.body.contains("service_schedule_item_rescheduled"));
         assert!(audit.body.contains("\"action\":\"project_stage_advanced\""));
         assert!(audit.body.contains("service_schedule_item_planned"));
         assert!(audit.body.contains("service_schedule_item_status_changed"));
+        assert!(audit.body.contains("service_schedule_item_rescheduled"));
 
         remove_temporary_storage_root(&storage_root);
     }
@@ -6666,7 +6740,7 @@ mod tests {
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
             lab_console_dist: repo_root().join("apps/lab-console/dist"),
-            max_requests: Some(17),
+            max_requests: Some(21),
         });
 
         let health = wait_for_http(&first_address, "/api/v1/health");
@@ -6739,6 +6813,57 @@ mod tests {
         );
         assert_eq!(transition_replay.0, 200);
         assert!(transition_replay.1.contains("\"replayed\":true"));
+        let scheduled = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/projects/CEM-E2E-001/schedule-items",
+            r#"{
+                "item_code":"PLAN-E2E-001",
+                "title":"Emission conduite",
+                "planned_start_at":"2026-07-15T09:00",
+                "planned_end_at":"2026-07-15T12:00",
+                "assigned_operator":"Alice Martin",
+                "location":"Labo CEM 1",
+                "equipment_under_test":"Prototype E2E",
+                "actor":"quality.lead",
+                "reason":"first reservation",
+                "operation_id":"op-e2e-schedule"
+            }"#,
+        );
+        assert_eq!(scheduled.0, 200, "{}", scheduled.1);
+        let laboratory_week = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/service-schedule?week_start=2026-07-13",
+            "",
+        );
+        assert_eq!(laboratory_week.0, 200, "{}", laboratory_week.1);
+        assert!(laboratory_week.1.contains("E2E Customer"));
+        let rescheduled = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/projects/CEM-E2E-001/schedule-items/PLAN-E2E-001/reschedule",
+            r#"{
+                "planned_start_at":"2026-07-16T13:00",
+                "planned_end_at":"2026-07-16T16:00",
+                "assigned_operator":"Alice Martin",
+                "location":"Labo CEM 2",
+                "expected_revision":1,
+                "actor":"quality.lead",
+                "reason":"laboratory reorganization",
+                "operation_id":"op-e2e-reschedule"
+            }"#,
+        );
+        assert_eq!(rescheduled.0, 200, "{}", rescheduled.1);
+        assert!(rescheduled.1.contains("\"revision\":2"));
+        let moved_week = http_request(
+            "GET",
+            &first_address,
+            "/api/v1/service-schedule?week_start=2026-07-13",
+            "",
+        );
+        assert_eq!(moved_week.0, 200, "{}", moved_week.1);
+        assert!(moved_week.1.contains("2026-07-16T13:00"));
         let outbox = http_request("GET", &first_address, "/api/v1/sync/outbox", "");
         let audit = http_request(
             "GET",
@@ -6748,8 +6873,10 @@ mod tests {
         );
         assert_eq!(outbox.0, 200);
         assert_eq!(audit.0, 200);
-        assert_eq!(outbox.1.matches("\"operation_id\"").count(), 11);
-        assert_eq!(audit.1.matches("\"sequence\"").count(), 11);
+        assert_eq!(outbox.1.matches("\"operation_id\"").count(), 13);
+        assert_eq!(audit.1.matches("\"sequence\"").count(), 13);
+        assert!(outbox.1.contains("service_schedule_item_rescheduled"));
+        assert!(audit.1.contains("service_schedule_item_rescheduled"));
         first_server
             .join()
             .expect("server thread panicked")
@@ -6762,12 +6889,21 @@ mod tests {
             storage_root: storage_root.clone(),
             migrations_root,
             lab_console_dist: repo_root().join("apps/lab-console/dist"),
-            max_requests: Some(2),
+            max_requests: Some(3),
         });
         assert_eq!(wait_for_http(&second_address, "/api/v1/health").0, 200);
         let reloaded = http_request("GET", &second_address, "/api/v1/projects/CEM-E2E-001", "");
         assert_eq!(reloaded.0, 200);
         assert!(reloaded.1.contains("\"stage\":\"test_planning\""));
+        let reloaded_schedule = http_request(
+            "GET",
+            &second_address,
+            "/api/v1/service-schedule?week_start=2026-07-13",
+            "",
+        );
+        assert_eq!(reloaded_schedule.0, 200, "{}", reloaded_schedule.1);
+        assert!(reloaded_schedule.1.contains("2026-07-16T13:00"));
+        assert!(reloaded_schedule.1.contains("Labo CEM 2"));
         second_server
             .join()
             .expect("server thread panicked")

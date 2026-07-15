@@ -20,6 +20,7 @@ pub(crate) struct ServiceScheduleItemDto {
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
     pub(crate) available_transitions: Vec<String>,
+    pub(crate) can_reschedule: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -34,4 +35,19 @@ pub(crate) struct ServiceScheduleOperationResultDto {
     pub(crate) operation_id: String,
     pub(crate) replayed: bool,
     pub(crate) schedule_item: ServiceScheduleItemDto,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct LaboratoryScheduleItemDto {
+    #[serde(flatten)]
+    pub(crate) schedule_item: ServiceScheduleItemDto,
+    pub(crate) customer_name: String,
+    pub(crate) project_stage: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct LaboratoryWeekScheduleDto {
+    pub(crate) week_start: String,
+    pub(crate) week_end: String,
+    pub(crate) schedule_items: Vec<LaboratoryScheduleItemDto>,
 }

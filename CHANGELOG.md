@@ -8,6 +8,38 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-07-15
+
+### Added
+
+- Added a typed Monday-to-Friday schedule window and explicit rescheduling rule
+  for planned or confirmed test slots in the Rust core.
+- Added a laboratory-wide weekly Local Agent read route with dossier and client
+  context, plus an audited reschedule route with optimistic concurrency and
+  deterministic operation replay.
+- Added the LAB CONSOLE `Planning du laboratoire` workspace with week
+  navigation, operator/location/status filters, slot detail, controlled move
+  form and direct return to the owning dossier.
+- Added Python client methods, Rust service and real-HTTP restart coverage, a
+  multi-project Playwright scenario, and reviewed screenshots at 1440 x 900 and
+  1280 x 720.
+
+### Changed
+
+- Extended schedule-item responses with an explicit `can_reschedule` decision
+  while preserving project-centred creation and status transitions.
+- Kept the 0.20 projection on projects schema `6`; existing time/resource
+  indexes and row revisions already cover weekly reads and controlled moves.
+
+### Fixed
+
+- Excluded the slot being moved from its own resource-conflict query while
+  retaining checks against every other active slot.
+- Preserved the move form after operator/location conflicts and translated
+  those refusals into dossier-aware French explanations.
+- Prevented in-progress, completed or cancelled slots from exposing or
+  accepting a reschedule operation.
+
 ## [0.19.0] - 2026-07-15
 
 ### Added

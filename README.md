@@ -84,7 +84,17 @@ This repository is in active pre-production development. The current focus is
 closing complete laboratory workflows across the Rust agent, local storage and
 operator interfaces while keeping each domain traceable and offline-capable.
 
-Current software version: `0.19.0`.
+Current software version: `0.20.0`.
+
+Version `0.20.0` adds the first laboratory-wide weekly planning surface. A
+laboratory manager can read Monday-to-Friday slots across dossiers, filter them
+by operator, location or state, inspect their customer and equipment context,
+and move a planned or confirmed slot with an explicit reason. The Rust Local
+Agent checks the expected revision and resource availability, then commits the
+new reservation, project audit and outbox evidence atomically. A rejected move
+names the conflicting dossier and preserves the operator's form values. This
+release is a focused weekly coordination workflow, not a capacity engine,
+drag-and-drop calendar, absence planner or campaign runtime.
 
 Version `0.19.0` delivers the first usable Locus Lab Management workflow. A
 laboratory manager can open an accredited, non-accredited or investigation

@@ -41,6 +41,10 @@ impl ServiceScheduleStatus {
         matches!(self, Self::Completed | Self::Cancelled)
     }
 
+    pub fn can_reschedule(self) -> bool {
+        matches!(self, Self::Planned | Self::Confirmed)
+    }
+
     pub fn allowed_targets(self) -> &'static [Self] {
         match self {
             Self::Planned => &[Self::Confirmed, Self::Cancelled],
@@ -83,6 +87,117 @@ pub struct ScheduleLocalDateTime {
     hour: u8,
     minute: u8,
     canonical: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ScheduleLocalDate {
+    year: u16,
+    month: u8,
+    day: u8,
+    canonical: String,
+}
+
+impl ScheduleLocalDate {
+    fn parse(value: &str, field: &str) -> Result<Self, PlanningValidationIssue> {
+        let value = value.trim();
+        let bytes = value.as_bytes();
+        if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+            return Err(invalid_date(field));
+        }
+        let year = parse_digits(bytes, 0, 4).ok_or_else(|| invalid_date(field))? as u16;
+        let month = parse_digits(bytes, 5, 2).ok_or_else(|| invalid_date(field))? as u8;
+        let day = parse_digits(bytes, 8, 2).ok_or_else(|| invalid_date(field))? as u8;
+        if year < 2000 || !(1..=12).contains(&month) || day == 0 || day > days_in_month(year, month)
+        {
+            return Err(invalid_date(field));
+        }
+        Ok(Self {
+            year,
+            month,
+            day,
+            canonical: value.to_owned(),
+        })
+    }
+
+    fn checked_add_days(&self, count: u8) -> Option<Self> {
+        let (mut year, mut month, mut day) = (self.year, self.month, self.day);
+        for _ in 0..count {
+            if day < days_in_month(year, month) {
+                day += 1;
+            } else if month < 12 {
+                month += 1;
+                day = 1;
+            } else {
+                year = year.checked_add(1)?;
+                if year > 9999 {
+                    return None;
+                }
+                month = 1;
+                day = 1;
+            }
+        }
+        Some(Self {
+            year,
+            month,
+            day,
+            canonical: format!("{year:04}-{month:02}-{day:02}"),
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServiceScheduleWeek {
+    start: ScheduleLocalDate,
+    end: ScheduleLocalDate,
+    next_start: ScheduleLocalDate,
+}
+
+impl ServiceScheduleWeek {
+    pub fn parse(week_start: &str) -> Result<Self, PlanningValidationIssue> {
+        let start = ScheduleLocalDate::parse(week_start, "week_start")?;
+        if weekday(start.year, start.month, start.day) != 1 {
+            return Err(PlanningValidationIssue::new(
+                "schedule_week_must_start_on_monday",
+                "week_start",
+                "a laboratory schedule week must start on a Monday",
+            ));
+        }
+        let end = start.checked_add_days(4).ok_or_else(|| {
+            PlanningValidationIssue::new(
+                "schedule_week_out_of_range",
+                "week_start",
+                "the requested laboratory schedule week is outside the supported date range",
+            )
+        })?;
+        let next_start = start.checked_add_days(7).ok_or_else(|| {
+            PlanningValidationIssue::new(
+                "schedule_week_out_of_range",
+                "week_start",
+                "the requested laboratory schedule week is outside the supported date range",
+            )
+        })?;
+        Ok(Self {
+            start,
+            end,
+            next_start,
+        })
+    }
+
+    pub fn start_date(&self) -> &str {
+        &self.start.canonical
+    }
+
+    pub fn end_date(&self) -> &str {
+        &self.end.canonical
+    }
+
+    pub fn query_start_at(&self) -> String {
+        format!("{}T00:00", self.start.canonical)
+    }
+
+    pub fn query_end_at_exclusive(&self) -> String {
+        format!("{}T00:00", self.next_start.canonical)
+    }
 }
 
 impl ScheduleLocalDateTime {
@@ -148,6 +263,14 @@ pub struct ServiceScheduleItemInput {
     pub test_method_code: Option<String>,
     pub status: ServiceScheduleStatus,
     pub notes: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServiceScheduleRescheduleInput {
+    pub planned_start_at: String,
+    pub planned_end_at: String,
+    pub assigned_operator: String,
+    pub location: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -240,6 +363,33 @@ impl ServiceScheduleItem {
         }
         self.status = target;
         Ok(())
+    }
+
+    pub fn rescheduled(
+        &self,
+        input: ServiceScheduleRescheduleInput,
+    ) -> Result<Self, PlanningValidationIssue> {
+        if !self.status.can_reschedule() {
+            return Err(PlanningValidationIssue::new(
+                "schedule_status_not_reschedulable",
+                "status",
+                "a service schedule item can only be moved while planned or confirmed",
+            ));
+        }
+        Self::restore(ServiceScheduleItemInput {
+            item_code: self.item_code.clone(),
+            project_code: self.project_code.clone(),
+            title: self.title.clone(),
+            planned_start_at: input.planned_start_at,
+            planned_end_at: input.planned_end_at,
+            assigned_operator: input.assigned_operator,
+            location: input.location,
+            equipment_under_test: self.equipment_under_test.clone(),
+            test_category_code: self.test_category_code.clone(),
+            test_method_code: self.test_method_code.clone(),
+            status: self.status,
+            notes: Some(self.notes.clone()),
+        })
     }
 
     pub fn overlaps(&self, other: &Self) -> bool {
@@ -347,6 +497,14 @@ fn invalid_datetime(field: &str) -> PlanningValidationIssue {
         "invalid_schedule_datetime",
         field,
         "a schedule date-time must use YYYY-MM-DDTHH:MM and contain a valid local date and time",
+    )
+}
+
+fn invalid_date(field: &str) -> PlanningValidationIssue {
+    PlanningValidationIssue::new(
+        "invalid_schedule_date",
+        field,
+        "a schedule date must use YYYY-MM-DD and contain a valid local date",
     )
 }
 
@@ -613,5 +771,86 @@ mod tests {
                 .unwrap();
             assert_eq!(item.status(), ServiceScheduleStatus::Cancelled);
         }
+    }
+
+    #[test]
+    fn builds_a_monday_to_friday_week_across_month_boundaries() {
+        let week = ServiceScheduleWeek::parse("2026-08-31").unwrap();
+
+        assert_eq!(week.start_date(), "2026-08-31");
+        assert_eq!(week.end_date(), "2026-09-04");
+        assert_eq!(week.query_start_at(), "2026-08-31T00:00");
+        assert_eq!(week.query_end_at_exclusive(), "2026-09-07T00:00");
+    }
+
+    #[test]
+    fn rejects_a_week_that_does_not_start_on_monday() {
+        let error = ServiceScheduleWeek::parse("2026-07-15").unwrap_err();
+
+        assert_eq!(error.code, "schedule_week_must_start_on_monday");
+        assert_eq!(error.field, "week_start");
+    }
+
+    #[test]
+    fn reschedules_planned_and_confirmed_items_without_changing_their_state() {
+        for status in [
+            ServiceScheduleStatus::Planned,
+            ServiceScheduleStatus::Confirmed,
+        ] {
+            let mut current = item(
+                "PLAN-001",
+                "2026-07-15T09:00",
+                "2026-07-15T12:00",
+                "Alice",
+                "Labo 1",
+            );
+            if status == ServiceScheduleStatus::Confirmed {
+                current
+                    .transition_to(ServiceScheduleStatus::Confirmed)
+                    .unwrap();
+            }
+
+            let moved = current
+                .rescheduled(ServiceScheduleRescheduleInput {
+                    planned_start_at: "2026-07-16T13:00".to_owned(),
+                    planned_end_at: "2026-07-16T16:00".to_owned(),
+                    assigned_operator: "Bob".to_owned(),
+                    location: "Labo 2".to_owned(),
+                })
+                .unwrap();
+
+            assert_eq!(moved.status(), status);
+            assert_eq!(moved.planned_start_at(), "2026-07-16T13:00");
+            assert_eq!(moved.assigned_operator(), "Bob");
+            assert_eq!(moved.equipment_under_test(), current.equipment_under_test());
+        }
+    }
+
+    #[test]
+    fn rejects_rescheduling_after_a_test_has_started() {
+        let mut current = item(
+            "PLAN-001",
+            "2026-07-15T09:00",
+            "2026-07-15T12:00",
+            "Alice",
+            "Labo 1",
+        );
+        current
+            .transition_to(ServiceScheduleStatus::Confirmed)
+            .unwrap();
+        current
+            .transition_to(ServiceScheduleStatus::InProgress)
+            .unwrap();
+
+        let error = current
+            .rescheduled(ServiceScheduleRescheduleInput {
+                planned_start_at: "2026-07-16T13:00".to_owned(),
+                planned_end_at: "2026-07-16T16:00".to_owned(),
+                assigned_operator: "Alice".to_owned(),
+                location: "Labo 1".to_owned(),
+            })
+            .unwrap_err();
+
+        assert_eq!(error.code, "schedule_status_not_reschedulable");
     }
 }

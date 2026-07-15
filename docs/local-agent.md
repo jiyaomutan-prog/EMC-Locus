@@ -79,12 +79,16 @@ vertical slice can exercise the contract-review gate and the transition to
 ## Project Planning API
 
 Release `0.19.0` moves the first service-planning write path behind the Local
-Agent. LAB CONSOLE and Python clients use:
+Agent. Release `0.20.0` adds a laboratory-wide weekly projection and a
+controlled move while keeping every write under its owning dossier. LAB
+CONSOLE and Python clients use:
 
 ```text
 GET  /api/v1/projects/{project_code}/schedule-items
 POST /api/v1/projects/{project_code}/schedule-items
 POST /api/v1/projects/{project_code}/schedule-items/{item_code}/transitions/{action}
+GET  /api/v1/service-schedule?week_start=YYYY-MM-DD
+POST /api/v1/projects/{project_code}/schedule-items/{item_code}/reschedule
 ```
 
 The supported actions are `confirm`, `start`, `complete`, and `cancel`. The
@@ -93,6 +97,14 @@ workflow, optimistic row revision, operator availability, and location
 availability. A successful write commits the planning row, project audit event,
 and `project_records` outbox operation together. Application clients do not
 open `projects.sqlite` to write planning rows.
+
+The weekly route requires a canonical Monday and returns the Friday date plus
+all matching slots ordered by time, with customer and project-stage context.
+Rescheduling accepts a new same-day business block, operator, location,
+`expected_revision`, actor, reason and operation identity. Only `planned` and
+`confirmed` slots can move; their status, dossier, test title and equipment
+remain unchanged. Conflict and stale-revision refusals produce no partial audit
+or outbox evidence.
 
 ## Metrology Registry Commands
 
@@ -203,6 +215,11 @@ GET  /api/v1/projects/{code}
 GET  /api/v1/projects/{code}/contract-review
 POST /api/v1/projects/{code}/contract-review/items/{item}/complete
 POST /api/v1/projects/{code}/transitions/to-test-planning
+GET  /api/v1/service-schedule?week_start=YYYY-MM-DD
+GET  /api/v1/projects/{code}/schedule-items
+POST /api/v1/projects/{code}/schedule-items
+POST /api/v1/projects/{code}/schedule-items/{item_code}/reschedule
+POST /api/v1/projects/{code}/schedule-items/{item_code}/transitions/{action}
 GET  /api/v1/projects/{code}/audit-events
 GET  /api/v1/projects/{code}/test-executions
 GET  /api/v1/sync/outbox
@@ -367,11 +384,11 @@ Version `0.5.5` also routes migrated project reads through the agent when
 - project audit events;
 - pending sync outbox.
 
-Version `0.19.0` routes service-planning reads and writes through dedicated
-project-context agent routes. The Python client can list, create and transition
-schedule items without opening `projects.sqlite`. Creation and status changes
-commit the planning row, project audit event and pending sync outbox operation
-atomically.
+Version `0.20.0` routes project-context creation, transitions and rescheduling,
+plus the laboratory-wide weekly read, through the agent. The Python client can
+list a dossier schedule, read a week, create, move and transition schedule
+items without opening `projects.sqlite`. Planning writes commit the row, project
+audit event and pending sync outbox operation atomically.
 
 The Qt console accepts:
 
@@ -395,9 +412,9 @@ the agent when `agent_url` is configured:
 - calibration-event recording, including certificate document manifests;
 - serviceability changes.
 
-The remaining standalone instrument-document form, service planning, test
-categories, measurement data, updates, and runtime actions remain legacy direct
-SQLite until their own migration slices.
+The remaining standalone instrument-document form, test categories,
+measurement data, updates, and runtime actions remain legacy direct SQLite
+until their own migration slices.
 
 Version `0.6.7` adds the metrology historical migration and E2E validation
 layer: legacy calibration rows are backfilled into calibration events, and a

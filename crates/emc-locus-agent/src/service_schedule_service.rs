@@ -4,17 +4,20 @@ use crate::project_repository::{
     OperationFingerprintInput, SyncOperationInput,
 };
 use crate::service_schedule_dto::{
-    ServiceScheduleItemDto, ServiceScheduleListDto, ServiceScheduleOperationResultDto,
+    LaboratoryScheduleItemDto, LaboratoryWeekScheduleDto, ServiceScheduleItemDto,
+    ServiceScheduleListDto, ServiceScheduleOperationResultDto,
 };
 use crate::service_schedule_repository::{
     ensure_service_schedule_table, find_service_schedule_conflict, insert_service_schedule_item,
-    load_project_service_schedule_items, load_service_schedule_item,
-    update_service_schedule_status, ScheduleConflict, StoredServiceScheduleItem,
+    load_laboratory_service_schedule_items, load_project_service_schedule_items,
+    load_service_schedule_item, update_service_schedule_assignment, update_service_schedule_status,
+    ScheduleConflict, StoredLaboratoryScheduleItem, StoredServiceScheduleItem,
 };
 use crate::{render_json, AgentError};
 use emc_locus_core::{
     AuditActor, AuditReason, PlanningValidationIssue, ProjectCode, ScheduleResourceConflictKind,
-    ServiceScheduleItem, ServiceScheduleItemInput, ServiceScheduleStatus, StableId,
+    ServiceScheduleItem, ServiceScheduleItemInput, ServiceScheduleRescheduleInput,
+    ServiceScheduleStatus, ServiceScheduleWeek, StableId,
 };
 use serde_json::json;
 use std::path::Path;
@@ -45,6 +48,22 @@ pub struct TransitionServiceScheduleItemInput {
     pub project_code: String,
     pub item_code: String,
     pub target_status: String,
+    pub expected_revision: u64,
+    pub actor: String,
+    pub reason: String,
+    pub operation_id: String,
+    pub correlation_id: String,
+    pub device_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RescheduleServiceScheduleItemInput {
+    pub project_code: String,
+    pub item_code: String,
+    pub planned_start_at: String,
+    pub planned_end_at: String,
+    pub assigned_operator: String,
+    pub location: String,
     pub expected_revision: u64,
     pub actor: String,
     pub reason: String,
@@ -129,7 +148,7 @@ pub fn create_service_schedule_item(
             json!({ "item_code": item.item_code() }),
         ));
     }
-    if let Some(conflict) = find_service_schedule_conflict(&connection, &item)? {
+    if let Some(conflict) = find_service_schedule_conflict(&connection, &item, None)? {
         return Err(schedule_conflict_error(conflict));
     }
 
@@ -202,6 +221,184 @@ pub fn list_project_service_schedule_items(
         project_code: project_code.as_str().to_owned(),
         schedule_items,
     }))
+}
+
+pub fn list_laboratory_week_schedule(
+    storage_root: &Path,
+    week_start: &str,
+) -> Result<String, AgentError> {
+    let week = ServiceScheduleWeek::parse(week_start).map_err(planning_error)?;
+    let connection = open_project_connection(storage_root)?;
+    ensure_service_schedule_table(&connection)?;
+    let items = load_laboratory_service_schedule_items(
+        &connection,
+        &week.query_start_at(),
+        &week.query_end_at_exclusive(),
+    )?;
+    let schedule_items = items
+        .iter()
+        .map(laboratory_schedule_item_dto)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(render_json(&LaboratoryWeekScheduleDto {
+        week_start: week.start_date().to_owned(),
+        week_end: week.end_date().to_owned(),
+        schedule_items,
+    }))
+}
+
+pub fn reschedule_service_schedule_item(
+    storage_root: &Path,
+    input: RescheduleServiceScheduleItemInput,
+) -> Result<String, AgentError> {
+    let project_code = ProjectCode::parse(input.project_code.clone()).map_err(domain_error)?;
+    let actor = AuditActor::parse(input.actor.clone()).map_err(domain_error)?;
+    AuditReason::parse(input.reason.clone()).map_err(domain_error)?;
+    validate_stable_id(&input.operation_id, "operation_id")?;
+    validate_stable_id(&input.correlation_id, "correlation_id")?;
+    validate_stable_id(&input.device_id, "device_id")?;
+    if input.expected_revision == 0 {
+        return Err(AgentError::with_details(
+            "invalid_service_schedule_request",
+            "expected_revision must be at least 1",
+            json!({ "field": "expected_revision" }),
+        ));
+    }
+    let payload_json = reschedule_command_payload(&input);
+
+    let mut connection = open_project_connection(storage_root)?;
+    ensure_service_schedule_table(&connection)?;
+    if let Some(operation) = existing_operation(&connection, &input.operation_id)? {
+        ensure_operation_replay(
+            &operation,
+            &input.operation_id,
+            OperationFingerprintInput {
+                domain: "project_records",
+                entity_type: "service_schedule_item",
+                entity_id: &input.item_code,
+                operation_kind: "service_schedule_item_rescheduled",
+                base_revision: &operation.base_revision,
+                actor_id: &input.actor,
+                device_id: &input.device_id,
+                correlation_id: &input.correlation_id,
+                payload_json: &payload_json,
+            },
+        )?;
+        let stored =
+            load_service_schedule_item(&connection, &input.item_code)?.ok_or_else(|| {
+                AgentError::new(
+                    "operation_replay_missing_entity",
+                    "operation exists but service schedule item is missing",
+                )
+            })?;
+        return schedule_operation_json(
+            "service_schedule_item_rescheduled",
+            &input.operation_id,
+            true,
+            &stored,
+        );
+    }
+
+    load_project(&connection, project_code.as_str())?
+        .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
+    let stored = load_service_schedule_item(&connection, &input.item_code)?.ok_or_else(|| {
+        AgentError::new("service_schedule_item_not_found", "schedule item not found")
+    })?;
+    if stored.project_code != project_code.as_str() {
+        return Err(AgentError::new(
+            "service_schedule_item_not_found",
+            "schedule item does not belong to this project",
+        ));
+    }
+    if stored.revision != input.expected_revision {
+        return Err(AgentError::with_details(
+            "service_schedule_concurrent_update",
+            "the service schedule item changed; refresh the planning before trying again",
+            json!({
+                "item_code": stored.item_code,
+                "expected_revision": input.expected_revision,
+                "actual_revision": stored.revision,
+            }),
+        ));
+    }
+    let current = stored.to_domain()?;
+    let moved = current
+        .rescheduled(ServiceScheduleRescheduleInput {
+            planned_start_at: input.planned_start_at.clone(),
+            planned_end_at: input.planned_end_at.clone(),
+            assigned_operator: input.assigned_operator.clone(),
+            location: input.location.clone(),
+        })
+        .map_err(|issue| reschedule_error(issue, current.status()))?;
+    if let Some(conflict) = find_service_schedule_conflict(&connection, &moved, Some(stored.id))? {
+        return Err(schedule_conflict_error(conflict));
+    }
+
+    let timestamp = utc_timestamp()?;
+    let audit_sequence = next_audit_sequence(&connection, project_code.as_str())?;
+    let audit_payload = render_json(&json!({
+        "item_code": moved.item_code(),
+        "previous": schedule_assignment_snapshot(&current),
+        "new": schedule_assignment_snapshot(&moved),
+        "status": moved.status().as_str(),
+    }));
+    let base_revision = revision_text(stored.revision);
+    let resulting_revision = revision_text(stored.revision + 1);
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    update_service_schedule_assignment(
+        &transaction,
+        stored.id,
+        stored.revision,
+        &moved,
+        actor.as_str(),
+        &timestamp,
+    )?;
+    insert_audit_event(
+        &transaction,
+        AuditEventInput {
+            project_code: project_code.as_str(),
+            sequence: audit_sequence,
+            actor: actor.as_str(),
+            action: "service_schedule_item_rescheduled",
+            reason: Some(&input.reason),
+            payload_json: &audit_payload,
+            timestamp: &timestamp,
+        },
+    )?;
+    insert_sync_operation(
+        &transaction,
+        SyncOperationInput {
+            domain: "project_records",
+            entity_type: "service_schedule_item",
+            operation_id: &input.operation_id,
+            entity_id: moved.item_code(),
+            operation_kind: "service_schedule_item_rescheduled",
+            base_revision: &base_revision,
+            resulting_revision: &resulting_revision,
+            actor_id: &input.actor,
+            device_id: &input.device_id,
+            correlation_id: &input.correlation_id,
+            payload_json: &payload_json,
+            timestamp: &timestamp,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+
+    let updated = load_service_schedule_item(&connection, moved.item_code())?.ok_or_else(|| {
+        AgentError::new(
+            "service_schedule_read_failed",
+            "rescheduled item is missing",
+        )
+    })?;
+    schedule_operation_json(
+        "service_schedule_item_rescheduled",
+        &input.operation_id,
+        false,
+        &updated,
+    )
 }
 
 pub fn transition_service_schedule_item(
@@ -388,6 +585,17 @@ fn schedule_item_dto(
             .iter()
             .map(|status| status.as_str().to_owned())
             .collect(),
+        can_reschedule: item.status().can_reschedule(),
+    })
+}
+
+fn laboratory_schedule_item_dto(
+    stored: &StoredLaboratoryScheduleItem,
+) -> Result<LaboratoryScheduleItemDto, AgentError> {
+    Ok(LaboratoryScheduleItemDto {
+        schedule_item: schedule_item_dto(&stored.schedule_item)?,
+        customer_name: stored.customer_name.clone(),
+        project_stage: stored.project_stage.clone(),
     })
 }
 
@@ -432,6 +640,26 @@ fn schedule_snapshot_payload(item: &ServiceScheduleItem) -> String {
 
 fn transition_command_payload(target: ServiceScheduleStatus, reason: &str) -> String {
     render_json(&json!({ "target_status": target.as_str(), "reason": reason }))
+}
+
+fn reschedule_command_payload(input: &RescheduleServiceScheduleItemInput) -> String {
+    render_json(&json!({
+        "planned_start_at": input.planned_start_at,
+        "planned_end_at": input.planned_end_at,
+        "assigned_operator": input.assigned_operator,
+        "location": input.location,
+        "expected_revision": input.expected_revision,
+        "reason": input.reason,
+    }))
+}
+
+fn schedule_assignment_snapshot(item: &ServiceScheduleItem) -> serde_json::Value {
+    json!({
+        "planned_start_at": item.planned_start_at(),
+        "planned_end_at": item.planned_end_at(),
+        "assigned_operator": item.assigned_operator(),
+        "location": item.location(),
+    })
 }
 
 fn schedule_conflict_error(conflict: ScheduleConflict) -> AgentError {
@@ -486,6 +714,18 @@ fn planning_error(issue: PlanningValidationIssue) -> AgentError {
         issue.message,
         json!({ "field": issue.field, "cause": issue.code }),
     )
+}
+
+fn reschedule_error(issue: PlanningValidationIssue, status: ServiceScheduleStatus) -> AgentError {
+    if issue.code == "schedule_status_not_reschedulable" {
+        AgentError::with_details(
+            "service_schedule_item_not_reschedulable",
+            "the schedule item can no longer be moved",
+            json!({ "status": status.as_str(), "cause": issue.code }),
+        )
+    } else {
+        planning_error(issue)
+    }
 }
 
 fn domain_error(error: emc_locus_core::DomainError) -> AgentError {
@@ -684,6 +924,169 @@ mod tests {
         remove_temporary_storage_root(&storage_root);
     }
 
+    #[test]
+    fn lists_a_laboratory_week_across_projects_in_time_order() {
+        let storage_root = temporary_storage_root("laboratory-week-list");
+        initialize_storage(&storage_root);
+        create_project_for_test(&storage_root, "CEM-WEEK-001", true);
+        create_project_for_test(&storage_root, "CEM-WEEK-002", true);
+        let mut first = schedule_input("CEM-WEEK-001", "PLAN-WEEK-001", "Alice", "Labo 1");
+        first.planned_start_at = "2026-07-13T13:00".to_owned();
+        first.planned_end_at = "2026-07-13T16:00".to_owned();
+        let mut second = schedule_input("CEM-WEEK-002", "PLAN-WEEK-002", "Bob", "Labo 2");
+        second.planned_start_at = "2026-07-14T09:00".to_owned();
+        second.planned_end_at = "2026-07-14T11:00".to_owned();
+        let mut next_week = schedule_input("CEM-WEEK-002", "PLAN-NEXT-001", "Claire", "Labo 3");
+        next_week.planned_start_at = "2026-07-20T09:00".to_owned();
+        next_week.planned_end_at = "2026-07-20T11:00".to_owned();
+        create_service_schedule_item(&storage_root, first).unwrap();
+        create_service_schedule_item(&storage_root, second).unwrap();
+        create_service_schedule_item(&storage_root, next_week).unwrap();
+
+        let week = list_laboratory_week_schedule(&storage_root, "2026-07-13").unwrap();
+
+        assert!(week.contains("\"week_start\":\"2026-07-13\""));
+        assert!(week.contains("\"week_end\":\"2026-07-17\""));
+        assert!(week.contains("PLAN-WEEK-001"));
+        assert!(week.contains("PLAN-WEEK-002"));
+        assert!(!week.contains("PLAN-NEXT-001"));
+        assert!(week.contains("\"customer_name\":\"Client ferroviaire\""));
+        assert!(week.contains("\"can_reschedule\":true"));
+        assert!(week.find("PLAN-WEEK-001") < week.find("PLAN-WEEK-002"));
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn reschedules_replays_and_rejects_conflicts_without_partial_evidence() {
+        let storage_root = temporary_storage_root("service-schedule-reschedule");
+        initialize_storage(&storage_root);
+        create_project_for_test(&storage_root, "CEM-MOVE-001", true);
+        create_project_for_test(&storage_root, "CEM-MOVE-002", true);
+        create_service_schedule_item(
+            &storage_root,
+            schedule_input("CEM-MOVE-001", "PLAN-BUSY-001", "Alice", "Labo 1"),
+        )
+        .unwrap();
+        let mut movable = schedule_input("CEM-MOVE-002", "PLAN-MOVE-001", "Bob", "Labo 2");
+        movable.planned_start_at = "2026-07-15T13:00".to_owned();
+        movable.planned_end_at = "2026-07-15T16:00".to_owned();
+        create_service_schedule_item(&storage_root, movable).unwrap();
+
+        let conflict = reschedule_service_schedule_item(
+            &storage_root,
+            reschedule_input(
+                "CEM-MOVE-002",
+                "PLAN-MOVE-001",
+                "2026-07-15T10:00",
+                "2026-07-15T11:00",
+                "Alice",
+                "Labo 2",
+                1,
+                "conflict",
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(conflict.code, "service_schedule_operator_conflict");
+        assert!(conflict.to_json().contains("PLAN-BUSY-001"));
+        assert_eq!(operation_count(&storage_root, "op-reschedule-conflict"), 0);
+
+        let input = reschedule_input(
+            "CEM-MOVE-002",
+            "PLAN-MOVE-001",
+            "2026-07-16T09:00",
+            "2026-07-16T12:00",
+            "Alice",
+            "Labo 2",
+            1,
+            "success",
+        );
+        let moved = reschedule_service_schedule_item(&storage_root, input.clone()).unwrap();
+        let replayed = reschedule_service_schedule_item(&storage_root, input).unwrap();
+        let audits = list_audit_events(&storage_root, "CEM-MOVE-002").unwrap();
+        let outbox = list_sync_outbox(&storage_root).unwrap();
+
+        assert!(moved.contains("\"planned_start_at\":\"2026-07-16T09:00\""));
+        assert!(moved.contains("\"revision\":2"));
+        assert!(moved.contains("\"replayed\":false"));
+        assert!(replayed.contains("\"replayed\":true"));
+        assert!(audits.contains("service_schedule_item_rescheduled"));
+        assert!(audits.contains("2026-07-15T13:00"));
+        assert!(audits.contains("2026-07-16T09:00"));
+        assert!(outbox.contains("service_schedule_item_rescheduled"));
+        assert_eq!(operation_count(&storage_root, "op-reschedule-success"), 1);
+
+        let stale = reschedule_service_schedule_item(
+            &storage_root,
+            reschedule_input(
+                "CEM-MOVE-002",
+                "PLAN-MOVE-001",
+                "2026-07-17T09:00",
+                "2026-07-17T12:00",
+                "Alice",
+                "Labo 2",
+                1,
+                "stale",
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(stale.code, "service_schedule_concurrent_update");
+        assert_eq!(operation_count(&storage_root, "op-reschedule-stale"), 0);
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn refuses_rescheduling_after_the_test_has_started() {
+        let storage_root = temporary_storage_root("service-schedule-reschedule-state");
+        initialize_storage(&storage_root);
+        create_project_for_test(&storage_root, "CEM-MOVE-STATE", true);
+        create_service_schedule_item(
+            &storage_root,
+            schedule_input("CEM-MOVE-STATE", "PLAN-MOVE-STATE", "Alice", "Labo 1"),
+        )
+        .unwrap();
+        transition_service_schedule_item(
+            &storage_root,
+            transition_input(
+                "CEM-MOVE-STATE",
+                "PLAN-MOVE-STATE",
+                "confirmed",
+                1,
+                "move-confirm",
+            ),
+        )
+        .unwrap();
+        transition_service_schedule_item(
+            &storage_root,
+            transition_input(
+                "CEM-MOVE-STATE",
+                "PLAN-MOVE-STATE",
+                "in_progress",
+                2,
+                "move-start",
+            ),
+        )
+        .unwrap();
+
+        let error = reschedule_service_schedule_item(
+            &storage_root,
+            reschedule_input(
+                "CEM-MOVE-STATE",
+                "PLAN-MOVE-STATE",
+                "2026-07-16T09:00",
+                "2026-07-16T12:00",
+                "Alice",
+                "Labo 1",
+                3,
+                "started",
+            ),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "service_schedule_item_not_reschedulable");
+        assert_eq!(operation_count(&storage_root, "op-reschedule-started"), 0);
+        remove_temporary_storage_root(&storage_root);
+    }
+
     fn schedule_input(
         project_code: &str,
         item_code: &str,
@@ -726,6 +1129,33 @@ mod tests {
             reason: "Mise à jour du planning".to_owned(),
             operation_id: format!("op-status-{suffix}"),
             correlation_id: format!("corr-status-{suffix}"),
+            device_id: "lab-console".to_owned(),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn reschedule_input(
+        project_code: &str,
+        item_code: &str,
+        planned_start_at: &str,
+        planned_end_at: &str,
+        assigned_operator: &str,
+        location: &str,
+        expected_revision: u64,
+        suffix: &str,
+    ) -> RescheduleServiceScheduleItemInput {
+        RescheduleServiceScheduleItemInput {
+            project_code: project_code.to_owned(),
+            item_code: item_code.to_owned(),
+            planned_start_at: planned_start_at.to_owned(),
+            planned_end_at: planned_end_at.to_owned(),
+            assigned_operator: assigned_operator.to_owned(),
+            location: location.to_owned(),
+            expected_revision,
+            actor: "responsable.laboratoire".to_owned(),
+            reason: "Réorganisation du laboratoire".to_owned(),
+            operation_id: format!("op-reschedule-{suffix}"),
+            correlation_id: format!("corr-reschedule-{suffix}"),
             device_id: "lab-console".to_owned(),
         }
     }

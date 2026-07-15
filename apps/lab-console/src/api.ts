@@ -52,6 +52,7 @@ import type {
 import type {
   ContractReviewOperationResult,
   ContractReviewStatus,
+  LaboratoryWeekSchedule,
   ProjectAuditEvent,
   ProjectExecutionMode,
   ProjectOperationResult,
@@ -754,6 +755,10 @@ export const projectApi = {
     request<{ project_code: string; schedule_items: ServiceScheduleItem[] }>(
       `/api/v1/projects/${encodeURIComponent(projectCode)}/schedule-items`
     ),
+  listLaboratoryWeek: (weekStart: string) =>
+    request<LaboratoryWeekSchedule>(
+      `/api/v1/service-schedule?week_start=${encodeURIComponent(weekStart)}`
+    ),
   createScheduleItem: (
     projectCode: string,
     input: {
@@ -792,6 +797,28 @@ export const projectApi = {
         operation_id: operationId(
           `service-schedule-${action}`,
           `${projectCode}-${item.item_code}-${item.revision}`
+        )
+      }
+    ),
+  rescheduleItem: (
+    item: ServiceScheduleItem,
+    input: {
+      planned_start_at: string;
+      planned_end_at: string;
+      assigned_operator: string;
+      location: string;
+      actor: string;
+      reason: string;
+    }
+  ) =>
+    post<ServiceScheduleOperationResult>(
+      `/api/v1/projects/${encodeURIComponent(item.project_code)}/schedule-items/${encodeURIComponent(item.item_code)}/reschedule`,
+      {
+        ...input,
+        expected_revision: item.revision,
+        operation_id: operationId(
+          "service-schedule-reschedule",
+          `${item.project_code}-${item.item_code}-${item.revision}`
         )
       }
     ),

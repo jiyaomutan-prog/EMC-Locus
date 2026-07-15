@@ -33,6 +33,13 @@ pub(crate) struct ScheduleConflict {
     pub(crate) conflicting_item: StoredServiceScheduleItem,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct StoredLaboratoryScheduleItem {
+    pub(crate) schedule_item: StoredServiceScheduleItem,
+    pub(crate) customer_name: String,
+    pub(crate) project_stage: String,
+}
+
 impl StoredServiceScheduleItem {
     pub(crate) fn to_domain(&self) -> Result<ServiceScheduleItem, AgentError> {
         let project_code = ProjectCode::parse(self.project_code.clone()).map_err(|error| {
@@ -108,9 +115,46 @@ pub(crate) fn load_project_service_schedule_items(
     collect_and_validate(rows)
 }
 
+pub(crate) fn load_laboratory_service_schedule_items(
+    connection: &Connection,
+    start_at: &str,
+    end_at_exclusive: &str,
+) -> Result<Vec<StoredLaboratoryScheduleItem>, AgentError> {
+    let mut statement = connection
+        .prepare(concat!(
+            "SELECT s.id, s.item_code, s.project_code, s.title, s.test_category_code, ",
+            "s.test_method_code, s.planned_start_at, s.planned_end_at, ",
+            "s.assigned_operator, s.location, s.equipment_under_test, s.status, s.notes, ",
+            "s.created_at, s.updated_at, s.revision, s.created_by, s.updated_by, ",
+            "p.customer_name, p.stage ",
+            "FROM service_schedule_items s JOIN projects p ON p.code = s.project_code ",
+            "WHERE s.planned_start_at >= ?1 AND s.planned_start_at < ?2 ",
+            "ORDER BY s.planned_start_at, s.planned_end_at, s.project_code, s.item_code"
+        ))
+        .map_err(|error| AgentError::new("service_schedule_query_failed", error.to_string()))?;
+    let rows = statement
+        .query_map(params![start_at, end_at_exclusive], |row| {
+            Ok(StoredLaboratoryScheduleItem {
+                schedule_item: stored_schedule_item_from_row(row)?,
+                customer_name: row.get(18)?,
+                project_stage: row.get(19)?,
+            })
+        })
+        .map_err(|error| AgentError::new("service_schedule_query_failed", error.to_string()))?;
+    let mut items = Vec::new();
+    for row in rows {
+        let item = row
+            .map_err(|error| AgentError::new("service_schedule_query_failed", error.to_string()))?;
+        item.schedule_item.to_domain()?;
+        items.push(item);
+    }
+    Ok(items)
+}
+
 pub(crate) fn find_service_schedule_conflict(
     connection: &Connection,
     candidate: &ServiceScheduleItem,
+    excluded_item_id: Option<i64>,
 ) -> Result<Option<ScheduleConflict>, AgentError> {
     let mut statement = connection
         .prepare(&format!(
@@ -136,6 +180,9 @@ pub(crate) fn find_service_schedule_conflict(
     for row in rows {
         let stored = row
             .map_err(|error| AgentError::new("service_schedule_query_failed", error.to_string()))?;
+        if excluded_item_id == Some(stored.id) {
+            continue;
+        }
         let existing = stored.to_domain()?;
         if let Some(kind) = candidate.resource_conflict(&existing) {
             return Ok(Some(ScheduleConflict {
@@ -205,6 +252,43 @@ pub(crate) fn update_service_schedule_status(
                 timestamp,
                 item_id,
                 expected_revision
+            ],
+        )
+        .map_err(|error| AgentError::new("service_schedule_write_failed", error.to_string()))?;
+    if updated != 1 {
+        return Err(AgentError::new(
+            "service_schedule_concurrent_update",
+            "the service schedule item changed before this operation was applied",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn update_service_schedule_assignment(
+    transaction: &Transaction<'_>,
+    item_id: i64,
+    expected_revision: u64,
+    item: &ServiceScheduleItem,
+    actor: &str,
+    timestamp: &str,
+) -> Result<(), AgentError> {
+    let updated = transaction
+        .execute(
+            concat!(
+                "UPDATE service_schedule_items SET planned_start_at = ?1, ",
+                "planned_end_at = ?2, assigned_operator = ?3, location = ?4, ",
+                "revision = revision + 1, updated_by = ?5, updated_at = ?6 ",
+                "WHERE id = ?7 AND revision = ?8"
+            ),
+            params![
+                item.planned_start_at(),
+                item.planned_end_at(),
+                item.assigned_operator(),
+                item.location(),
+                actor,
+                timestamp,
+                item_id,
+                expected_revision,
             ],
         )
         .map_err(|error| AgentError::new("service_schedule_write_failed", error.to_string()))?;
