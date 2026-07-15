@@ -190,6 +190,9 @@ Deliverables:
 - Rust dataset, processing-graph and report-export evidence now require
   canonical lowercase `sha256:<64 hex>` dataset checksums before records can be
   constructed.
+- LAB CONSOLE validation, conflict and effective-template test fixtures now use
+  canonical lowercase SHA-256 checksum evidence instead of shortened
+  placeholder values.
 - Python measurement-data writes now reject non-canonical dataset,
   processing-graph, and result-artifact checksums before lineage evidence is
   persisted.

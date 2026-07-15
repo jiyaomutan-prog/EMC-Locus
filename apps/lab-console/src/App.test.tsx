@@ -15,6 +15,10 @@ import {
 
 const fetchMock = vi.fn();
 
+function canonicalChecksum(hexDigit: string): string {
+  return `sha256:${hexDigit.repeat(64)}`;
+}
+
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -54,7 +58,7 @@ function mockBaseApi(templates = [templateFixture()]) {
       return jsonResponse({ template_id: "TT-LAB-001", audit_events: auditFixture });
     }
     if (path === "/api/v1/test-template-definitions/validate") {
-      return jsonResponse({ valid: true, issues: [], definition_checksum: "sha256:bbbb" });
+      return jsonResponse({ valid: true, issues: [], definition_checksum: canonicalChecksum("b") });
     }
     if (path.endsWith("/definition")) {
       return jsonResponse({
@@ -178,8 +182,8 @@ describe("LAB CONSOLE", () => {
               code: "test_template_definition_checksum_mismatch",
               message: "draft definition was modified by another operation",
               details: {
-                expected_definition_checksum: "sha256:local",
-                actual_definition_checksum: "sha256:server"
+                expected_definition_checksum: canonicalChecksum("e"),
+                actual_definition_checksum: canonicalChecksum("f")
               }
             }
           },
@@ -471,7 +475,7 @@ describe("LAB CONSOLE", () => {
         return jsonResponse({ aggregate_kind: "equipment_model", entity_id: "EQM-RF-CABLE-DEMO", audit_events: [] });
       }
       if (path === "/api/v1/equipment-model-definitions/validate" && init?.method === "POST") {
-        return jsonResponse({ valid: true, issues: [], definition_checksum: "sha256:cccc" });
+        return jsonResponse({ valid: true, issues: [], definition_checksum: canonicalChecksum("c") });
       }
       if (path === "/api/v1/driver-profiles") return jsonResponse({ driver_profiles: [] });
       if (path === "/api/v1/equipment/communication-providers") {
@@ -578,7 +582,7 @@ describe("LAB CONSOLE", () => {
         root_category: path[0],
         category_path: path,
         fields: effectiveFields,
-        template_checksum: "sha256:admin-template"
+        template_checksum: canonicalChecksum("9")
       };
     }
 
@@ -716,9 +720,9 @@ describe("LAB CONSOLE", () => {
 
     await user.click(screen.getByRole("button", { name: "Apercu" }));
     expect(await screen.findByText("Criticite mission")).toBeInTheDocument();
-    expect(screen.getByText("sha256:admin-template")).not.toBeVisible();
+    expect(screen.getByText(canonicalChecksum("9"))).not.toBeVisible();
     await user.click(screen.getByText("Informations techniques"));
-    expect(screen.getAllByText("sha256:admin-template").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(canonicalChecksum("9")).length).toBeGreaterThanOrEqual(1);
   });
 
   test("opens measurement engineering studios and runs curve CSV evaluation workflow", async () => {
@@ -1709,7 +1713,7 @@ function measurementApiResponse(
     }
   }
   if (path.endsWith("-definitions/validate")) {
-    return jsonResponse({ valid: true, issues: [], definition_checksum: "sha256:dddd" });
+    return jsonResponse({ valid: true, issues: [], definition_checksum: canonicalChecksum("d") });
   }
   if (path.includes("/engineering-curves/") && path.endsWith("/evaluate")) {
     return jsonResponse({
