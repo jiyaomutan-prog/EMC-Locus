@@ -4,6 +4,12 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { App } from "./App";
 import type { EquipmentModelDefinition } from "./models/equipment";
 import type { AssetCorrectionAssignment } from "./models/metrology";
+import type {
+  CompletedContractReviewItem,
+  ProjectAuditEvent,
+  ProjectRecord,
+  ServiceScheduleItem
+} from "./models/projects";
 import {
   auditFixture,
   healthFixture,
@@ -127,6 +133,50 @@ describe("LAB CONSOLE", () => {
     expect(await screen.findByLabelText("Recherche equipement")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Administration du référentiel" }));
     expect(screen.queryByLabelText("Recherche equipement")).not.toBeInTheDocument();
+  });
+
+  test("moves a dossier from contract review to a confirmed laboratory slot", async () => {
+    mockProjectWorkflowApi();
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Dossiers d'essai" }));
+    expect(await screen.findByRole("heading", { name: "CEM-UX-001" })).toBeInTheDocument();
+    expect(screen.queryByText("Prochaines verticales")).not.toBeInTheDocument();
+    expect(screen.queryByText("À venir")).not.toBeInTheDocument();
+
+    const requestDefined = screen.getByRole("checkbox", {
+      name: "La demande du client est définie"
+    });
+    await user.click(requestDefined);
+    await waitFor(() => expect(requestDefined).toBeChecked());
+
+    const deviationsRecorded = screen.getByRole("checkbox", {
+      name: "Les écarts et adaptations sont consignés"
+    });
+    await user.click(deviationsRecorded);
+    await waitFor(() => expect(deviationsRecorded).toBeChecked());
+
+    await user.click(await screen.findByRole("button", { name: "Passer à la planification" }));
+    const planningButtons = await screen.findAllByRole("button", { name: "Planifier un essai" });
+    await user.click(planningButtons[0]);
+
+    await user.type(screen.getByLabelText("Essai prévu"), "Émission conduite");
+    await user.type(screen.getByLabelText("Lieu"), "Labo CEM 1");
+    await user.type(screen.getByLabelText("Équipement à tester"), "Convertisseur prototype");
+    await user.click(screen.getByRole("button", { name: "Réserver le créneau" }));
+
+    expect(await screen.findByText("Émission conduite")).toBeInTheDocument();
+    expect(screen.getByText("Prévu")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Confirmer le créneau" }));
+
+    expect(await screen.findByText("Planning à jour")).toBeInTheDocument();
+    expect(screen.getByText("Confirmé")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/schedule-items/PLAN-CEM-UX-001-"),
+      expect.objectContaining({ method: "POST" })
+    );
   });
 
   test("loads templates, filters them, and opens the draft studio", async () => {
@@ -1592,6 +1642,164 @@ function metrologyInstrumentFixture() {
     },
     latest_calibration_event: null
   };
+}
+
+function mockProjectWorkflowApi() {
+  let project: ProjectRecord = {
+    code: "CEM-UX-001",
+    customer_name: "Industries Atlas",
+    stage: "contract_review",
+    execution_mode: "investigation",
+    created_at: "2026-07-15T08:00:00Z",
+    archived_at: null,
+    revision: "rev-0001"
+  };
+  const requiredItems = ["customer_request_defined", "deviations_recorded"];
+  const completedItems: CompletedContractReviewItem[] = [];
+  const schedule: ServiceScheduleItem[] = [];
+  const audit: ProjectAuditEvent[] = [
+    {
+      sequence: 1,
+      actor: "Responsable laboratoire",
+      action: "project_created",
+      reason: "Ouverture du dossier d'essai",
+      payload_json: "{}",
+      occurred_at: "2026-07-15T08:00:00Z"
+    }
+  ];
+
+  function contractReview() {
+    const completedNames = new Set(completedItems.map((item) => item.item));
+    const missingItems = requiredItems.filter((item) => !completedNames.has(item));
+    return {
+      project_code: project.code,
+      execution_mode: project.execution_mode,
+      required_items: requiredItems,
+      completed_items: completedItems,
+      missing_items: missingItems,
+      complete: missingItems.length === 0
+    };
+  }
+
+  fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    const method = init?.method ?? "GET";
+    if (path === "/api/v1/projects" && method === "GET") {
+      return jsonResponse({ projects: [project] });
+    }
+    if (path === `/api/v1/projects/${project.code}` && method === "GET") {
+      return jsonResponse({ project });
+    }
+    if (path === `/api/v1/projects/${project.code}/contract-review` && method === "GET") {
+      return jsonResponse({ contract_review: contractReview() });
+    }
+    const completedItemMatch = path.match(
+      new RegExp(`^/api/v1/projects/${project.code}/contract-review/items/([^/]+)/complete$`)
+    );
+    if (completedItemMatch && method === "POST") {
+      const item = decodeURIComponent(completedItemMatch[1]);
+      if (!completedItems.some((entry) => entry.item === item)) {
+        completedItems.push({
+          item,
+          completed_by: "Responsable laboratoire",
+          completed_at: "2026-07-15T08:05:00Z",
+          comment: "Point vérifié depuis LAB CONSOLE"
+        });
+      }
+      audit.push({
+        sequence: audit.length + 1,
+        actor: "Responsable laboratoire",
+        action: "contract_review_item_completed",
+        reason: "Point vérifié depuis LAB CONSOLE",
+        payload_json: "{}",
+        occurred_at: "2026-07-15T08:05:00Z"
+      });
+      return jsonResponse({
+        operation: "contract_review_item_completed",
+        operation_id: "op-review",
+        replayed: false,
+        already_completed: false,
+        resulting_revision: `rev-${String(completedItems.length + 1).padStart(4, "0")}`,
+        contract_review: contractReview()
+      });
+    }
+    if (
+      path === `/api/v1/projects/${project.code}/transitions/to-test-planning` &&
+      method === "POST"
+    ) {
+      project = { ...project, stage: "test_planning", revision: "rev-0004" };
+      audit.push({
+        sequence: audit.length + 1,
+        actor: "Responsable laboratoire",
+        action: "project_stage_advanced",
+        reason: "Revue du besoin terminée",
+        payload_json: "{}",
+        occurred_at: "2026-07-15T08:10:00Z"
+      });
+      return jsonResponse({
+        operation: "project_stage_advanced",
+        operation_id: "op-planning",
+        replayed: false,
+        project
+      });
+    }
+    if (path === `/api/v1/projects/${project.code}/schedule-items` && method === "GET") {
+      return jsonResponse({ project_code: project.code, schedule_items: schedule });
+    }
+    if (path === `/api/v1/projects/${project.code}/schedule-items` && method === "POST") {
+      const body = JSON.parse(String(init?.body)) as Record<string, string>;
+      const item: ServiceScheduleItem = {
+        item_code: body.item_code,
+        project_code: project.code,
+        title: body.title,
+        test_category_code: null,
+        test_method_code: null,
+        planned_start_at: body.planned_start_at,
+        planned_end_at: body.planned_end_at,
+        assigned_operator: body.assigned_operator,
+        location: body.location,
+        equipment_under_test: body.equipment_under_test,
+        status: "planned",
+        notes: body.notes ?? "",
+        revision: 1,
+        created_by: body.actor,
+        updated_by: body.actor,
+        created_at: "2026-07-15T08:15:00Z",
+        updated_at: "2026-07-15T08:15:00Z",
+        available_transitions: ["confirmed", "cancelled"]
+      };
+      schedule.push(item);
+      return jsonResponse({
+        operation: "service_schedule_item_planned",
+        operation_id: "op-schedule",
+        replayed: false,
+        schedule_item: item
+      });
+    }
+    const transitionMatch = path.match(
+      new RegExp(`^/api/v1/projects/${project.code}/schedule-items/([^/]+)/transitions/confirm$`)
+    );
+    if (transitionMatch && method === "POST") {
+      const item = schedule.find(
+        (entry) => entry.item_code === decodeURIComponent(transitionMatch[1])
+      );
+      if (!item) return jsonResponse({ error: { code: "not_found", message: path } }, 404);
+      item.status = "confirmed";
+      item.revision = 2;
+      item.updated_at = "2026-07-15T08:20:00Z";
+      item.available_transitions = ["in_progress", "cancelled"];
+      return jsonResponse({
+        operation: "service_schedule_item_status_changed",
+        operation_id: "op-confirm",
+        replayed: false,
+        schedule_item: item
+      });
+    }
+    if (path === `/api/v1/projects/${project.code}/audit-events` && method === "GET") {
+      return jsonResponse({ project_code: project.code, audit_events: audit });
+    }
+    return mockBaseApiResponse(path, init);
+  });
 }
 
 function mockBaseApiResponse(path: string, init?: RequestInit) {

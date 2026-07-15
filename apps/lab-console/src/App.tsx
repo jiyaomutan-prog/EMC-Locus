@@ -6,6 +6,7 @@ import {
   Copy,
   Cpu,
   Database,
+  FolderKanban,
   GitBranch,
   History,
   PanelLeftClose,
@@ -21,6 +22,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, api, type OperationContext } from "./api";
 import { defaultTemplateDefinition } from "./defaultDefinition";
 import { EquipmentWorkspace } from "./features/equipment/EquipmentWorkspace";
+import { ProjectWorkspace } from "./features/projects/ProjectWorkspace";
 import { APP_VERSION } from "./version";
 import type {
   AuditEvent,
@@ -39,7 +41,7 @@ import type {
   VariableLockPolicy
 } from "./types";
 
-type ActiveView = "library" | "studio" | "equipment" | "system";
+type ActiveView = "projects" | "library" | "studio" | "equipment" | "system";
 type StudioSection =
   | "general"
   | "variables"
@@ -51,8 +53,6 @@ type StudioSection =
   | "revisions"
   | "audit"
   | "advanced";
-
-const upcomingModules = ["Planification", "Campagnes", "Rapports"];
 
 const statusLabels: Record<RevisionStatus, string> = {
   draft: "Brouillon",
@@ -166,6 +166,8 @@ export function App() {
   useEffect(() => {
     const page = activeView === "equipment"
       ? "Équipements"
+      : activeView === "projects"
+        ? "Dossiers d'essai"
       : activeView === "system"
         ? "Système local"
         : activeView === "studio"
@@ -455,8 +457,19 @@ export function App() {
             {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
           </button>
         </div>
-        <nav className="primaryNav" aria-label="Espaces de travail">
-          <p className="navLabel">Conception laboratoire</p>
+        <nav className="primaryNav labNav" aria-label="Gestion du laboratoire">
+          <p className="navLabel">Gestion du laboratoire</p>
+          <button
+            className={activeView === "projects" ? "active" : ""}
+            onClick={() => setActiveView("projects")}
+            title="Dossiers d'essai"
+          >
+            <FolderKanban size={18} />
+            <span>Dossiers d'essai</span>
+          </button>
+        </nav>
+        <nav className="primaryNav technicalNav" aria-label="Préparation technique">
+          <p className="navLabel">Préparation technique</p>
           <button
             className={activeView === "library" || activeView === "studio" ? "active" : ""}
             onClick={() => setActiveView("library")}
@@ -474,15 +487,6 @@ export function App() {
             <span>Équipements</span>
           </button>
         </nav>
-
-        <div className="upcomingNav" aria-label="Prochaines verticales">
-          <p className="navLabel">Prochaines verticales</p>
-          <ul>
-            {upcomingModules.map((module) => (
-              <li key={module}><span>{module}</span><small>À venir</small></li>
-            ))}
-          </ul>
-        </div>
 
         <nav className="systemNav" aria-label="État de l'application">
           <button
@@ -502,6 +506,8 @@ export function App() {
             <p className="eyebrow">
               {activeView === "equipment"
                 ? "Référentiel, signaux et corrections"
+                : activeView === "projects"
+                  ? "Du besoin client au créneau d'essai"
                 : activeView === "system"
                   ? "Diagnostic local"
                   : "Référentiel des méthodes"}
@@ -511,6 +517,8 @@ export function App() {
                 ? "Éditeur de méthode"
                 : activeView === "equipment"
                   ? "Équipements"
+                  : activeView === "projects"
+                    ? "Dossiers d'essai"
                   : activeView === "system"
                     ? "Système local"
                     : "Méthodes d'essai"}
@@ -534,6 +542,7 @@ export function App() {
         </header>
 
         {activeView === "system" && <SystemView health={health} storage={storage} />}
+        {activeView === "projects" && <ProjectWorkspace />}
         {activeView === "equipment" && <EquipmentWorkspace />}
         {activeView === "library" && (
           <LibraryView

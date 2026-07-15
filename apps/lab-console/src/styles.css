@@ -3140,3 +3140,796 @@ button.textButton {
     border-top: 1px solid #cad8d2;
   }
 }
+
+/* Project-centred laboratory management workflow. */
+.technicalNav {
+  border-top: 1px solid #2b3933;
+  margin-top: 10px;
+  padding-top: 4px;
+}
+
+.projectWorkspace {
+  align-content: start;
+  display: grid;
+  min-height: 0;
+}
+
+.projectWorkspaceToolbar {
+  align-items: center;
+  background: #fff;
+  border-bottom: 1px solid #d9dfd7;
+  display: flex;
+  gap: 8px;
+  padding: 10px 18px;
+}
+
+.projectSearch {
+  flex: 1 1 360px;
+  max-width: 560px;
+}
+
+.projectSearch input {
+  width: 100%;
+}
+
+.projectError {
+  align-items: center;
+  background: #fff0ed;
+  border-bottom: 1px solid #d7a098;
+  color: #71291f;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 10px 18px;
+}
+
+.projectWorkspaceLayout {
+  display: grid;
+  grid-template-columns: 288px minmax(0, 1fr);
+  min-height: calc(100vh - 122px);
+}
+
+.projectList {
+  align-content: start;
+  background: #edf1ef;
+  border-right: 1px solid #d5ddd9;
+  display: grid;
+  min-width: 0;
+  padding: 12px;
+}
+
+.projectListHeading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 4px 10px;
+}
+
+.projectListHeading span {
+  background: #dce4e0;
+  border-radius: 999px;
+  color: #526159;
+  font-size: 12px;
+  padding: 2px 7px;
+}
+
+button.projectListItem {
+  align-items: center;
+  background: transparent;
+  border-color: transparent;
+  border-radius: 3px;
+  color: #1c2821;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 68px;
+  padding: 9px 7px 9px 10px;
+  text-align: left;
+}
+
+.projectListItem .projectStage {
+  grid-column: 1;
+  justify-self: start;
+}
+
+.projectListItem > svg {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+button.projectListItem:hover {
+  background: #fff;
+  border-color: #d4dcd8;
+}
+
+button.projectListItem.active {
+  background: #fff;
+  border-color: #93b4a6;
+  box-shadow: inset 3px 0 #0f766e;
+}
+
+.projectListItem > span:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.projectListItem strong,
+.projectListItem small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectListItem small {
+  color: #68766e;
+}
+
+.projectStage,
+.projectMode,
+.scheduleStatus {
+  border: 1px solid #c6d0cb;
+  color: #425149;
+  font-size: 11px;
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+
+.projectStage-test_planning,
+.scheduleStatus-confirmed,
+.scheduleStatus-in_progress {
+  background: #e8f0fb;
+  border-color: #b7c9e4;
+  color: #26466f;
+}
+
+.projectStage-contract_review,
+.scheduleStatus-planned {
+  background: #fff5dc;
+  border-color: #dcc578;
+  color: #5d470a;
+}
+
+.scheduleStatus-completed {
+  background: #e5f2eb;
+  border-color: #b5d3bf;
+  color: #17422d;
+}
+
+.scheduleStatus-cancelled {
+  background: #f2f3f2;
+  border-color: #d2d7d4;
+  color: #68736d;
+}
+
+.projectListEmpty {
+  align-items: center;
+  color: #627068;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  margin: 0;
+  padding: 42px 12px;
+  text-align: center;
+}
+
+.projectListEmpty p {
+  margin: 0;
+}
+
+.projectDetail {
+  min-width: 0;
+  padding: 0 24px 34px;
+}
+
+.projectDetail > * {
+  margin-inline: auto;
+  max-width: 1120px;
+}
+
+.projectWelcome {
+  align-content: center;
+  color: #5b6961;
+  display: grid;
+  justify-items: center;
+  min-height: 520px;
+  padding: 40px;
+  text-align: center;
+}
+
+.projectWelcome h2 {
+  color: #1b2720;
+  font-size: 20px;
+  margin: 16px 0 5px;
+}
+
+.projectWelcome p {
+  margin: 0 0 18px;
+  max-width: 520px;
+}
+
+.projectIdentity {
+  align-items: end;
+  border-bottom: 1px solid #d9dfd7;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  padding: 20px 0 16px;
+}
+
+.projectIdentity h2 {
+  font-size: 23px;
+  margin: 0;
+}
+
+.projectIdentity p:last-child {
+  color: #526058;
+  margin: 4px 0 0;
+}
+
+.projectIdentityMeta {
+  align-items: end;
+  display: flex;
+  gap: 14px;
+}
+
+.projectIdentityMeta label {
+  min-width: 230px;
+}
+
+.projectMode {
+  background: #eef3f1;
+  margin-bottom: 5px;
+}
+
+.projectStageRail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 17px 0;
+}
+
+.projectStageRail li {
+  align-items: center;
+  color: #7a8680;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  position: relative;
+}
+
+.projectStageRail li:not(:last-child)::after {
+  background: #d6ddda;
+  content: "";
+  height: 1px;
+  left: 36px;
+  position: absolute;
+  right: 10px;
+  top: 14px;
+}
+
+.projectStageRail li > span {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #cbd4cf;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  height: 28px;
+  justify-content: center;
+  position: relative;
+  width: 28px;
+  z-index: 1;
+}
+
+.projectStageRail li.done,
+.projectStageRail li.current {
+  color: #1f4938;
+}
+
+.projectStageRail li.done > span {
+  background: #dfeee6;
+  border-color: #91b8a6;
+}
+
+.projectStageRail li.current > span {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+}
+
+.nextAction {
+  align-items: center;
+  border: 1px solid;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin-bottom: 18px;
+  padding: 13px 15px;
+}
+
+.nextAction.attention {
+  background: #fff8e7;
+  border-color: #e0ca83;
+  color: #5a4305;
+}
+
+.nextAction.ready {
+  background: #eaf4ef;
+  border-color: #afd0bf;
+  color: #17422d;
+}
+
+.nextAction > div {
+  display: grid;
+  gap: 2px;
+}
+
+.nextAction span {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.nextAction p {
+  margin: 0;
+}
+
+.projectSection {
+  background: #fff;
+  border: 1px solid #d9dfd7;
+  margin-bottom: 16px;
+  padding: 17px;
+}
+
+.projectSectionHeading {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.projectSectionHeading h3 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.sectionIntro {
+  color: #5e6b63;
+  line-height: 1.5;
+  margin: 8px 0 14px;
+}
+
+.reviewComment {
+  margin-bottom: 12px;
+  max-width: 620px;
+}
+
+.reviewChecklist {
+  border-top: 1px solid #e0e5e2;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.reviewChecklist li {
+  border-bottom: 1px solid #e0e5e2;
+  padding: 10px 4px;
+}
+
+.reviewChecklist li.complete {
+  background: #f5f8f6;
+}
+
+.reviewChecklist label {
+  align-items: start;
+  color: #1d2922;
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 18px minmax(0, 1fr);
+}
+
+.reviewChecklist input {
+  min-height: 18px;
+  width: 18px;
+}
+
+.reviewChecklist label > span {
+  display: grid;
+  gap: 3px;
+}
+
+.reviewChecklist small {
+  color: #68756e;
+}
+
+.projectSection.reviewComplete {
+  padding-block: 12px;
+}
+
+.reviewComplete .projectSectionHeading .eyebrow,
+.reviewComplete > .sectionIntro {
+  display: none;
+}
+
+.reviewComplete .reviewChecklist {
+  display: grid;
+  gap: 0 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 8px;
+}
+
+.reviewComplete .reviewChecklist li {
+  padding-block: 7px;
+}
+
+.planningEmpty {
+  align-items: center;
+  background: #f3f6f4;
+  border: 1px dashed #bfcac4;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 18px;
+}
+
+.planningEmpty.blocked {
+  background: #fff8e7;
+  border-color: #dac77f;
+  color: #5a4305;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.planningEmpty p {
+  margin: 3px 0 0;
+}
+
+.scheduleList {
+  border-top: 1px solid #dce3df;
+  margin-top: 14px;
+}
+
+.scheduleRow {
+  align-items: center;
+  border-bottom: 1px solid #dce3df;
+  display: grid;
+  gap: 15px;
+  grid-template-columns: 115px minmax(0, 1fr) auto;
+  padding: 13px 4px;
+}
+
+.scheduleRow.cancelled {
+  opacity: 0.68;
+}
+
+.scheduleRow time {
+  display: grid;
+  gap: 3px;
+  text-transform: capitalize;
+}
+
+.scheduleRow time span {
+  color: #617067;
+  font-size: 12px;
+}
+
+.scheduleMain {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.scheduleTitle {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scheduleMain p {
+  color: #55635b;
+  margin: 0;
+}
+
+.scheduleResources {
+  align-items: center;
+  color: #66736c;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 12px;
+}
+
+.scheduleResources span {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.scheduleActions {
+  display: flex;
+  gap: 7px;
+}
+
+.projectHistory {
+  background: #fff;
+  border: 1px solid #d9dfd7;
+  margin-bottom: 20px;
+  padding: 0;
+}
+
+.projectHistory summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  font-weight: 700;
+  padding: 14px 17px;
+}
+
+.projectHistory summary span {
+  background: #edf1ef;
+  border-radius: 999px;
+  color: #5c6a62;
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+.projectHistory ol {
+  list-style: none;
+  margin: 0;
+  padding: 0 17px 16px 35px;
+}
+
+.projectHistory li {
+  border-left: 1px solid #cbd5d0;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1px minmax(0, 1fr);
+  padding: 0 0 15px 14px;
+  position: relative;
+}
+
+.historyMarker {
+  background: #0f766e;
+  border: 3px solid #fff;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px #8daf9f;
+  height: 10px;
+  left: -5px;
+  position: absolute;
+  top: 4px;
+  width: 10px;
+}
+
+.projectHistory li div {
+  display: grid;
+  gap: 2px;
+}
+
+.projectHistory p,
+.projectHistory small {
+  color: #627067;
+  margin: 0;
+}
+
+.projectDialog {
+  width: min(620px, calc(100vw - 80px));
+}
+
+.projectDialogBody {
+  display: grid;
+  gap: 14px;
+}
+
+.projectDialogError {
+  align-items: center;
+  background: #fff0ed;
+  border-bottom: 1px solid #d7a098;
+  color: #71291f;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 11px 20px;
+}
+
+.modeChoice {
+  border: 0;
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+}
+
+.modeChoice legend {
+  color: #4c5a51;
+  margin-bottom: 6px;
+}
+
+.modeChoice label {
+  align-items: start;
+  border: 1px solid #cbd5d1;
+  cursor: pointer;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  padding: 10px;
+}
+
+.modeChoice label.selected {
+  background: #eaf4ef;
+  border-color: #79a994;
+}
+
+.modeChoice input {
+  min-height: 18px;
+  width: 18px;
+}
+
+.modeChoice label span {
+  display: grid;
+  gap: 2px;
+}
+
+.modeChoice small {
+  color: #647169;
+}
+
+.scheduleDateGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(150px, 1.5fr) repeat(2, minmax(105px, 1fr));
+}
+
+.projectDialog .wizardFooter {
+  background: #fff;
+  border-top: 1px solid #dfe5e2;
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 13px 20px;
+  position: sticky;
+}
+
+@media (max-width: 1280px) {
+  .projectWorkspaceLayout {
+    grid-template-columns: 250px minmax(0, 1fr);
+  }
+
+  .projectDetail {
+    padding-inline: 16px;
+  }
+
+  .scheduleRow {
+    grid-template-columns: 105px minmax(0, 1fr);
+  }
+
+  .scheduleActions {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 1100px) {
+  .technicalNav {
+    border-top: 0;
+    margin-top: 8px;
+    padding-top: 0;
+  }
+
+  .projectWorkspaceLayout {
+    grid-template-columns: 230px minmax(0, 1fr);
+    min-height: 620px;
+  }
+}
+
+@media (max-width: 820px) {
+  .projectWorkspaceLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .projectList {
+    border-bottom: 1px solid #d5ddd9;
+    border-right: 0;
+    grid-auto-columns: minmax(230px, 1fr);
+    grid-auto-flow: column;
+    overflow-x: auto;
+  }
+
+  .projectListHeading,
+  .projectListEmpty {
+    display: none;
+  }
+
+  .projectIdentity,
+  .projectIdentityMeta {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .reviewComplete .reviewChecklist {
+    grid-template-columns: 1fr;
+  }
+
+  .nextAction,
+  .planningEmpty {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .nextAction button,
+  .planningEmpty button {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 720px) {
+  .projectWorkspaceToolbar {
+    flex-wrap: wrap;
+    padding: 9px 12px;
+  }
+
+  .projectSearch {
+    flex-basis: calc(100% - 42px);
+    min-width: 0;
+  }
+
+  .projectWorkspaceToolbar > button:last-child {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .projectDetail {
+    padding: 0 12px 24px;
+  }
+
+  .projectStageRail strong {
+    font-size: 11px;
+  }
+
+  .projectStageRail li {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .projectStageRail li > span {
+    height: 24px;
+    width: 24px;
+  }
+
+  .projectStageRail li:not(:last-child)::after {
+    left: 31px;
+    top: 12px;
+  }
+
+  .projectSection {
+    padding: 14px;
+  }
+
+  .projectSectionHeading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .scheduleRow {
+    align-items: start;
+    grid-template-columns: 1fr;
+  }
+
+  .scheduleActions {
+    grid-column: 1;
+  }
+
+  .scheduleDateGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .scheduleDateGrid label:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .projectDialog {
+    width: 100vw;
+  }
+}

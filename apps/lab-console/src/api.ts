@@ -49,6 +49,16 @@ import type {
   RecordAssetCharacterizationInput,
   RegisterMetrologyInstrumentInput
 } from "./models/metrology";
+import type {
+  ContractReviewOperationResult,
+  ContractReviewStatus,
+  ProjectAuditEvent,
+  ProjectExecutionMode,
+  ProjectOperationResult,
+  ProjectRecord,
+  ServiceScheduleItem,
+  ServiceScheduleOperationResult
+} from "./models/projects";
 
 export class ApiError extends Error {
   readonly code: string;
@@ -696,6 +706,99 @@ export const metrologyApi = {
       mime_type: file.type || "application/octet-stream",
       content_base64: await fileToBase64(file)
     })
+};
+
+export const projectApi = {
+  listProjects: () => request<{ projects: ProjectRecord[] }>("/api/v1/projects"),
+  getProject: (projectCode: string) =>
+    request<{ project: ProjectRecord }>(`/api/v1/projects/${encodeURIComponent(projectCode)}`),
+  createProject: (input: {
+    code: string;
+    customer_name: string;
+    execution_mode: ProjectExecutionMode;
+    actor: string;
+    reason: string;
+  }) =>
+    post<ProjectOperationResult>("/api/v1/projects", {
+      ...input,
+      operation_id: operationId("project-create", input.code)
+    }),
+  contractReview: (projectCode: string) =>
+    request<{ contract_review: ContractReviewStatus }>(
+      `/api/v1/projects/${encodeURIComponent(projectCode)}/contract-review`
+    ),
+  completeReviewItem: (
+    projectCode: string,
+    item: string,
+    actor: string,
+    comment?: string
+  ) =>
+    post<ContractReviewOperationResult>(
+      `/api/v1/projects/${encodeURIComponent(projectCode)}/contract-review/items/${encodeURIComponent(item)}/complete`,
+      {
+        actor,
+        comment,
+        operation_id: operationId("contract-review-complete", `${projectCode}-${item}`)
+      }
+    ),
+  advanceToPlanning: (projectCode: string, actor: string, reason: string) =>
+    post<ProjectOperationResult>(
+      `/api/v1/projects/${encodeURIComponent(projectCode)}/transitions/to-test-planning`,
+      {
+        actor,
+        reason,
+        operation_id: operationId("project-to-planning", projectCode)
+      }
+    ),
+  listSchedule: (projectCode: string) =>
+    request<{ project_code: string; schedule_items: ServiceScheduleItem[] }>(
+      `/api/v1/projects/${encodeURIComponent(projectCode)}/schedule-items`
+    ),
+  createScheduleItem: (
+    projectCode: string,
+    input: {
+      item_code: string;
+      title: string;
+      planned_start_at: string;
+      planned_end_at: string;
+      assigned_operator: string;
+      location: string;
+      equipment_under_test: string;
+      notes?: string;
+      actor: string;
+      reason: string;
+    }
+  ) =>
+    post<ServiceScheduleOperationResult>(
+      `/api/v1/projects/${encodeURIComponent(projectCode)}/schedule-items`,
+      {
+        ...input,
+        operation_id: operationId("service-schedule-create", input.item_code)
+      }
+    ),
+  transitionScheduleItem: (
+    projectCode: string,
+    item: ServiceScheduleItem,
+    action: "confirm" | "start" | "complete" | "cancel",
+    actor: string,
+    reason: string
+  ) =>
+    post<ServiceScheduleOperationResult>(
+      `/api/v1/projects/${encodeURIComponent(projectCode)}/schedule-items/${encodeURIComponent(item.item_code)}/transitions/${action}`,
+      {
+        expected_revision: item.revision,
+        actor,
+        reason,
+        operation_id: operationId(
+          `service-schedule-${action}`,
+          `${projectCode}-${item.item_code}-${item.revision}`
+        )
+      }
+    ),
+  auditEvents: (projectCode: string) =>
+    request<{ project_code: string; audit_events: ProjectAuditEvent[] }>(
+      `/api/v1/projects/${encodeURIComponent(projectCode)}/audit-events`
+    )
 };
 
 async function fileToBase64(file: File): Promise<string> {
