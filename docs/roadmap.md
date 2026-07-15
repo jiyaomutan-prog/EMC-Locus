@@ -512,6 +512,9 @@ Deliverables:
 - Python synchronization conflict detection now revalidates stored local and
   reference snapshot checksums before comparing them, so imported snapshot rows
   cannot create conflicts with non-canonical digest evidence.
+- Python `LocalAgentClient` structured-error coverage now uses canonical
+  lowercase SHA-256 idempotency fingerprints, keeping replay-conflict examples
+  aligned with the Rust agent evidence contract.
 - agent-owned test templates now require any referenced method revision to be
   approved before the template can be created and store content as explicit
   immutable revisions after review;

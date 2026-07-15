@@ -8,6 +8,11 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Aligned Python `LocalAgentClient` idempotency-conflict coverage with the
+  canonical lowercase SHA-256 fingerprint evidence emitted by the Rust agent.
+
 ## [0.18.0] - 2026-07-14
 
 ### Added

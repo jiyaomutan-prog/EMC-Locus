@@ -483,14 +483,16 @@ class LocalAgentClientTests(unittest.TestCase):
         )
 
     def test_local_agent_client_idempotency_conflict_maps_to_structured_error(self) -> None:
+        expected_fingerprint = "sha256:" + "e" * 64
+        stored_fingerprint = "sha256:" + "f" * 64
         payload = {
             "error": {
                 "code": "operation_replay_mismatch",
                 "message": "operation_id is already used for a different canonical operation fingerprint",
                 "details": {
                     "operation_id": "op-conflict",
-                    "expected_fingerprint": "sha256:expected",
-                    "stored_fingerprint": "sha256:stored",
+                    "expected_fingerprint": expected_fingerprint,
+                    "stored_fingerprint": stored_fingerprint,
                 },
             }
         }
@@ -516,6 +518,14 @@ class LocalAgentClientTests(unittest.TestCase):
         self.assertEqual(raised.exception.status, 409)
         self.assertEqual(raised.exception.code, "operation_replay_mismatch")
         self.assertEqual(raised.exception.details["operation_id"], "op-conflict")
+        self.assertEqual(
+            raised.exception.details["expected_fingerprint"],
+            expected_fingerprint,
+        )
+        self.assertEqual(
+            raised.exception.details["stored_fingerprint"],
+            stored_fingerprint,
+        )
 
     def test_generated_operation_ids_are_stable_ascii_tokens(self) -> None:
         operation_id = generate_operation_id("project-create", "CEM 001")
