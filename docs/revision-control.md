@@ -90,22 +90,23 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.19.0` was validated on 2026-07-15 with the CI-equivalent command
+Version `0.20.0` was validated on 2026-07-15 with the CI-equivalent command
 set. Its checks cover the same path as GitHub Actions: Rust format, Clippy,
 Rust tests, Python compile/tests, SQLite migration validation, LAB CONSOLE
 typecheck/lint/unit/build, versioned `dist` verification, Playwright E2E,
 release consistency, launcher smoke and whitespace checks. The commands were
 run directly with the bundled Node.js runtime available in the workspace.
-For `0.19.0`, Playwright adds the dossier-centred workflow to the existing
-method, equipment, measurement-engineering and metrology paths. It creates an
-investigation dossier, completes its reduced review, enters planning, reserves
-one slot, proves that an overlapping slot is refused, confirms the valid slot,
-and checks persistence, audit and outbox through the real Rust agent. The final
-planning view is captured and reviewed at exactly 1440 x 900 and 1280 x 720.
-Rust tests cover planning value objects, transition and conflict invariants,
-SQLite migration from projects schema 5 to 6, atomic audit/outbox writes,
-idempotence, optimistic concurrency and real HTTP persistence. Python tests
-cover the agent-backed client and retained repository compatibility paths.
+For `0.20.0`, Playwright adds the laboratory-week workflow to the existing
+dossier, method, equipment, measurement-engineering and metrology paths. It
+prepares two investigation dossiers, reads both reservations in one week,
+filters resources, proves that a conflicting move is refused without dropping
+the form, applies a free move, and checks persistence, audit, outbox and return
+to the dossier through the real Rust agent. Week and detail views are captured
+and reviewed at exactly 1440 x 900 and 1280 x 720. Rust tests cover the week
+window, rescheduling state rule, self-exclusion from conflicts, idempotence,
+optimistic concurrency, atomic audit/outbox writes and real HTTP persistence
+after restart. Python tests cover the agent-backed client and retained
+repository compatibility paths.
 
 The explicit command sequence is:
 

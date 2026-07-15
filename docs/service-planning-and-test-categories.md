@@ -157,12 +157,38 @@ Normal clients use the project-centred Local Agent route:
 POST /api/v1/projects/CEM-2026-001/schedule-items
 ```
 
+The laboratory manager reads a canonical Monday-to-Friday projection across
+dossiers through:
+
+```http
+GET /api/v1/service-schedule?week_start=2026-07-13
+```
+
+This response keeps each slot's owning dossier and adds its customer and phase
+for coordination. It does not create a separate planning aggregate or copy the
+schedule row.
+
 Status changes use business actions instead of accepting an arbitrary target
 status:
 
 ```http
 POST /api/v1/projects/CEM-2026-001/schedule-items/PLAN-001/transitions/confirm
 ```
+
+A planned or confirmed slot can be moved without changing its state, test or
+equipment:
+
+```http
+POST /api/v1/projects/CEM-2026-001/schedule-items/PLAN-001/reschedule
+```
+
+The move requires the expected row revision, actor, reason and operation
+identity. It validates the new business-day block, excludes only the current
+row from overlap detection, then checks every other active operator/location
+reservation. In-progress, completed and cancelled slots cannot move. A
+successful move increments the row revision and writes previous/new assignment
+evidence to project audit and outbox atomically; a conflict or stale revision
+writes nothing.
 
 The agent enforces deterministic operation replay, optimistic revision checks,
 project audit, and outbox writes in the same attached-SQLite transaction. The

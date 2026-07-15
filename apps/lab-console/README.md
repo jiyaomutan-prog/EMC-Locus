@@ -1,8 +1,9 @@
 # EMC Locus LAB CONSOLE
 
 LAB CONSOLE is the browser application for laboratory management workflows. In
-0.19.0 it joins project dossiers and first-slot planning to Template Studio v1
-and the Equipment workspace in a focused, responsive application shell. Active
+0.20.0 it joins a laboratory-wide weekly planning view to project dossiers,
+Template Studio v1 and the Equipment workspace in a focused, responsive
+application shell. Active
 navigation is limited to implemented workflows, and normal views favor
 laboratory labels and lifecycle states over technical identifiers. Category
 administration, revisioned equipment models, driver profiles,
@@ -15,6 +16,19 @@ signal paths. `Matériels réels` also opens the selected asset's metrology doss
 and its serial-specific characterizations. Internal API collection names remain
 stable machine identifiers; they are not used as operator terminology.
 
+## Scope In 0.20.0
+
+`Planning du laboratoire` gathers Monday-to-Friday slots from multiple dossiers
+without duplicating them. It exposes customer, equipment, operator, location
+and state, filters the loaded week, opens a focused detail and moves a planned
+or confirmed slot through the Local Agent. Conflicts identify the existing
+reservation and keep the user's form values; successful moves are revisioned,
+audited and added to the outbox. The detail can return directly to its dossier.
+
+This is a focused weekly coordination surface. It does not provide drag and
+drop, month/year views, absences, competencies, room capacity, dependency
+planning, campaign execution, reporting, authentication/RBAC, or central sync.
+
 ## Scope In 0.19.0
 
 `Dossiers d'essai` carries one project from its mode-specific review of need to
@@ -23,7 +37,7 @@ an operator and location, explains overlap conflicts in the planning form and
 shows a readable project history. All writes cross the Local Agent API and
 produce atomic audit and outbox evidence.
 
-This is dossier-centred first-slot planning. It does not yet provide a global
+This is dossier-centred first-slot planning. It does not provide a global
 calendar, multi-resource drag-and-drop, competencies/absence planning, campaign
 execution, reporting, authentication/RBAC, or central sync.
 

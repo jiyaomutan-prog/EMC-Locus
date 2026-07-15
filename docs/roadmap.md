@@ -178,6 +178,13 @@ Deliverables:
   overlap refusal, confirms the first slot, and reads the audit history. The
   Rust Local Agent owns planning writes and outbox evidence. This is not yet a
   global resource calendar, campaign runtime or report workflow.
+- `0.20.0` delivers laboratory-wide weekly coordination: a Monday-to-Friday
+  projection across dossiers, operator/location/status filters, dossier-aware
+  slot detail and controlled rescheduling of planned or confirmed slots. The
+  Rust Local Agent enforces optimistic concurrency, conflict exclusion for the
+  moved row, atomic audit/outbox evidence and restart persistence. This is not
+  a drag-and-drop capacity calendar, absence/competency planner or execution
+  runtime.
 
 ## Phase 3: Measurement Runtime
 
@@ -535,10 +542,12 @@ Deliverables:
 
 ## Near-Term Next Session
 
-Recommended next vertical: `0.14.1 - Station Connections And Measurement Chain
-Drafting`. It should connect the new physical asset records, sensors, curves,
-DAQ profiles, and recipes to station-level connection bindings. It should not become a real acquisition
-runtime, FFT engine, report generator, RBAC implementation, or central sync.
+Recommended next vertical: `0.21.0 - Planned Slot Preparation Package`. It
+should bind one scheduled slot to an approved test-method revision and one
+ready physical station-setup revision, then expose an explainable preparation
+verdict before the operator can enter execution. It should reuse the existing
+metrology and correction readiness evidence without becoming real acquisition,
+an FFT engine, report generator, RBAC implementation or central sync.
 
 The parallel runtime stream should continue guarded serial or VISA IO behind the
 adapter skeletons.

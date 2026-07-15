@@ -316,6 +316,15 @@ planning adapter. Creating or changing a slot writes the row, project audit,
 and sync outbox atomically. Scientific acquisition data does not belong in this
 table.
 
+Release `0.20.0` deliberately adds no projects migration. Its laboratory-week
+view is a time-bounded projection of `service_schedule_items` joined to the
+owning `projects` row. The existing status/time, operator/time and location/time
+indexes cover that read. Moving a slot updates only `planned_start_at`,
+`planned_end_at`, `assigned_operator`, `location`, `updated_by`, `updated_at`
+and the optimistic `revision`; audit and outbox writes remain in the same
+attached-SQLite transaction. No second calendar table or copied planning row is
+created.
+
 ### asset_characterization_events
 
 Migration `storage/sqlite/metrology/0009_asset_characterizations.sql` adds an
