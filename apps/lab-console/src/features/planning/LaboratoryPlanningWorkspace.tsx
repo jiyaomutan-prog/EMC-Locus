@@ -77,6 +77,11 @@ interface RescheduleForm {
   reason: string;
 }
 
+interface LocationIdentificationForm {
+  laboratory_location_id: string;
+  reason: string;
+}
+
 export function LaboratoryPlanningWorkspace(props: {
   onOpenProject: (projectCode: string) => void;
 }) {
@@ -129,7 +134,10 @@ export function LaboratoryPlanningWorkspace(props: {
     () => {
       const values = new Map<string, string>();
       for (const item of schedule?.schedule_items ?? []) {
-        values.set(scheduleLocationKey(item), item.laboratory_location_label);
+        values.set(
+          scheduleLocationKey(item),
+          item.laboratory_location_id ? item.laboratory_location_label : "Lieu à identifier"
+        );
       }
       return Array.from(values, ([value, label]) => ({ value, label })).sort((left, right) =>
         left.label.localeCompare(right.label, "fr")
@@ -314,7 +322,10 @@ export function LaboratoryPlanningWorkspace(props: {
                       <span className="planningSlotTitle">{item.title}</span>
                       <span className="planningSlotProject">{item.project_code} · {item.customer_name}</span>
                       <span><UserRound size={13} /> {item.assigned_operator}</span>
-                      <span><MapPin size={13} /> {item.laboratory_location_label}</span>
+                      <span className={!item.laboratory_location_id ? "planningSlotUnresolvedLocation" : undefined}>
+                        <MapPin size={13} />
+                        {item.laboratory_location_id ? item.laboratory_location_label : "Lieu à identifier"}
+                      </span>
                       <span className={`scheduleStatus scheduleStatus-${item.status}`}>
                         {statusLabels[item.status]}
                       </span>
@@ -368,8 +379,12 @@ function ScheduleDetailDialog(props: {
   onMoved: (item: LaboratoryScheduleItem) => void;
   onConcurrentRefresh: () => Promise<void>;
 }) {
-  const [mode, setMode] = useState<"details" | "move" | "prepare">("details");
+  const [mode, setMode] = useState<"details" | "move" | "identify-location" | "prepare">("details");
   const [form, setForm] = useState<RescheduleForm>(() => rescheduleForm(props.item));
+  const [identificationForm, setIdentificationForm] = useState<LocationIdentificationForm>({
+    laboratory_location_id: "",
+    reason: ""
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preparation, setPreparation] = useState<PlannedTestPreparationAggregate | null>(null);
@@ -381,6 +396,12 @@ function ScheduleDetailDialog(props: {
     form.assigned_operator.trim() &&
     form.laboratory_location_id &&
     form.reason.trim();
+  const locationNeedsIdentification =
+    !props.item.laboratory_location_id
+    && props.item.status !== "completed"
+    && props.item.status !== "cancelled";
+  const identificationValid =
+    identificationForm.laboratory_location_id && identificationForm.reason.trim();
 
   const loadPreparation = useCallback(async () => {
     setPreparationLoading(true);
@@ -433,6 +454,46 @@ function ScheduleDetailDialog(props: {
           ? { ...current, current_state: "stale", can_start: false }
           : current
       );
+    } catch (caught) {
+      setError(planningErrorMessage(caught));
+      if (caught instanceof ApiError && caught.code === "service_schedule_concurrent_update") {
+        await props.onConcurrentRefresh();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function identifyLocation() {
+    const location = props.locations.find(
+      (candidate) =>
+        candidate.laboratory_location_id === identificationForm.laboratory_location_id
+    );
+    if (!location) {
+      setError("Sélectionnez le poste réellement réservé.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await projectApi.identifyScheduleLocation(props.item, {
+        laboratory_location_id: location.laboratory_location_id,
+        laboratory_location_label: location.laboratory_location_label,
+        actor: "Responsable laboratoire",
+        reason: identificationForm.reason
+      });
+      props.onMoved({
+        ...props.item,
+        ...result.schedule_item,
+        customer_name: props.item.customer_name,
+        project_stage: props.item.project_stage
+      });
+      setPreparation((current) =>
+        current?.current_revision
+          ? { ...current, current_state: "stale", can_start: false }
+          : current
+      );
+      setMode("details");
     } catch (caught) {
       setError(planningErrorMessage(caught));
       if (caught instanceof ApiError && caught.code === "service_schedule_concurrent_update") {
@@ -499,6 +560,8 @@ function ScheduleDetailDialog(props: {
             <h2 id="planning-detail-title">
               {mode === "move"
                 ? "Déplacer le créneau"
+                : mode === "identify-location"
+                  ? "Identifier le lieu"
                 : mode === "prepare"
                   ? "Préparer l'essai"
                   : props.item.title}
@@ -543,9 +606,31 @@ function ScheduleDetailDialog(props: {
             <dl className="planningDetailFacts">
               <div><dt><Clock3 size={15} /> Horaire</dt><dd>{formatFullDateTime(props.item)}</dd></div>
               <div><dt><UserRound size={15} /> Opérateur</dt><dd>{props.item.assigned_operator}</dd></div>
-              <div><dt><MapPin size={15} /> Lieu</dt><dd>{props.item.laboratory_location_label}</dd></div>
+              <div>
+                <dt><MapPin size={15} /> Lieu</dt>
+                <dd>
+                  {locationNeedsIdentification ? (
+                    <span className="unresolvedLocationValue">
+                      <strong>Lieu à identifier</strong>
+                      <small>Libellé historique : {props.item.laboratory_location_label}</small>
+                    </span>
+                  ) : props.item.laboratory_location_label}
+                </dd>
+              </div>
               <div><dt>Équipement à tester</dt><dd>{props.item.equipment_under_test}</dd></div>
             </dl>
+            {locationNeedsIdentification && (
+              <section className="historicalLocationNotice" aria-label="Lieu historique à identifier">
+                <MapPin size={19} />
+                <div>
+                  <strong>Réservation historique incomplète</strong>
+                  <p>
+                    Ce créneau a été créé avant l’identification stable des lieux. Sélectionnez le
+                    poste réellement réservé.
+                  </p>
+                </div>
+              </section>
+            )}
             {props.item.notes && <p className="planningDetailNote">{props.item.notes}</p>}
             {matchesPreparationStatus(props.item.status) && !preparationLoading && (
               <PreparationSummary status={props.item.status} preparation={preparation} />
@@ -619,6 +704,49 @@ function ScheduleDetailDialog(props: {
               />
             </label>
           </div>
+        ) : mode === "identify-location" ? (
+          <div className="wizardBody projectDialogBody locationIdentificationBody">
+            <p className="sectionIntro">
+              Ce créneau a été créé avant l’identification stable des lieux. Sélectionnez le poste
+              réellement réservé.
+            </p>
+            <div className="historicalLocationContext">
+              <span>Libellé historique</span>
+              <strong>{props.item.laboratory_location_label}</strong>
+            </div>
+            <label>
+              Lieu réel
+              <select
+                value={identificationForm.laboratory_location_id}
+                onChange={(event) =>
+                  setIdentificationForm({
+                    ...identificationForm,
+                    laboratory_location_id: event.target.value
+                  })
+                }
+              >
+                <option value="">Sélectionner un lieu</option>
+                {props.locations.map((location) => (
+                  <option
+                    key={location.laboratory_location_id}
+                    value={location.laboratory_location_id}
+                  >
+                    {location.laboratory_location_label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Motif de l’identification
+              <textarea
+                value={identificationForm.reason}
+                onChange={(event) =>
+                  setIdentificationForm({ ...identificationForm, reason: event.target.value })
+                }
+                placeholder="Ex. vérification sur le dossier papier et le plan d’implantation"
+              />
+            </label>
+          </div>
         ) : (
           <PreparationWorkspace
             item={props.item}
@@ -634,22 +762,22 @@ function ScheduleDetailDialog(props: {
               <button className="secondary" onClick={props.onOpenProject}>
                 <FolderKanban size={16} /> Ouvrir le dossier
               </button>
-              {props.item.can_reschedule && (
+              {props.item.can_reschedule && !locationNeedsIdentification && (
                 <button className="secondary" onClick={() => setMode("move")}>
                   <PencilLine size={16} /> Déplacer
                 </button>
               )}
-              {props.item.status === "confirmed" && (
+              {props.item.status === "confirmed" && !locationNeedsIdentification && (
                 <button className="secondary" onClick={() => setMode("prepare")}>
                   <ClipboardCheck size={16} /> Préparer l'essai
                 </button>
               )}
-              {props.item.status === "planned" && (
+              {props.item.status === "planned" && !locationNeedsIdentification && (
                 <button disabled={busy} onClick={() => void transition("confirm")}>
                   <CheckCircle2 size={16} /> Confirmer le créneau
                 </button>
               )}
-              {props.item.status === "confirmed" && (
+              {props.item.status === "confirmed" && !locationNeedsIdentification && (
                 <button
                   disabled={busy || !preparation?.can_start}
                   onClick={() => void transition("start")}
@@ -662,6 +790,11 @@ function ScheduleDetailDialog(props: {
                   <Play size={16} /> Démarrer l'essai
                 </button>
               )}
+              {locationNeedsIdentification && (
+                <button disabled={busy} onClick={() => setMode("identify-location")}>
+                  <MapPin size={16} /> Identifier le lieu
+                </button>
+              )}
             </>
           ) : mode === "move" ? (
             <>
@@ -670,6 +803,15 @@ function ScheduleDetailDialog(props: {
               </button>
               <button disabled={busy || !valid} onClick={() => void submit()}>
                 <CalendarDays size={16} /> Enregistrer le déplacement
+              </button>
+            </>
+          ) : mode === "identify-location" ? (
+            <>
+              <button className="secondary" onClick={() => { setMode("details"); setError(null); }}>
+                Annuler
+              </button>
+              <button disabled={busy || !identificationValid} onClick={() => void identifyLocation()}>
+                <MapPin size={16} /> Enregistrer le lieu
               </button>
             </>
           ) : (
@@ -1090,7 +1232,7 @@ function rescheduleForm(item: LaboratoryScheduleItem): RescheduleForm {
 }
 
 function scheduleLocationKey(item: LaboratoryScheduleItem): string {
-  return item.laboratory_location_id ?? `legacy:${item.laboratory_location_label}`;
+  return item.laboratory_location_id ?? "unresolved-location-identity";
 }
 
 function planningErrorMessage(caught: unknown): string {
@@ -1103,6 +1245,10 @@ function planningErrorMessage(caught: unknown): string {
   }
   if (caught.code === "service_schedule_location_conflict" && conflict) {
     return `${String(caught.details?.value)} est déjà réservé pour « ${String(conflict.title)} » du dossier ${String(conflict.project_code)}, de ${formatApiDateTime(String(conflict.planned_start_at))} à ${String(conflict.planned_end_at).slice(11, 16)}.`;
+  }
+  if (caught.code === "service_schedule_legacy_location_identity_required" && conflict) {
+    const start = String(conflict.planned_start_at);
+    return `Un créneau existant utilise encore un lieu non identifié. Identifiez son lieu avant de réserver un autre créneau sur cette période. Créneau concerné : « ${String(conflict.title)} » du dossier ${String(conflict.project_code)}, le ${formatShortDate(start.slice(0, 10))} de ${start.slice(11, 16)} à ${String(conflict.planned_end_at).slice(11, 16)}, libellé historique « ${String(conflict.laboratory_location_label)} », état ${statusLabels[String(conflict.status) as ServiceScheduleStatus] ?? String(conflict.status)}.`;
   }
   if (caught.code === "planned_test_preparation_not_ready") {
     const issues = caught.details?.issues as
@@ -1119,6 +1265,10 @@ function planningErrorMessage(caught: unknown): string {
       "Ce créneau a changé sur un autre écran. La semaine a été actualisée ; votre saisie est conservée.",
     service_schedule_item_not_reschedulable:
       "Ce créneau a déjà démarré ou est terminé. Il ne peut plus être déplacé.",
+    service_schedule_location_already_identified:
+      "Le lieu de ce créneau a déjà été identifié. Le planning a peut-être changé.",
+    service_schedule_location_identification_not_allowed:
+      "Le lieu d’un créneau terminé ou annulé ne peut plus être modifié.",
     invalid_service_schedule_request:
       "Le nouvel horaire n'est pas valide. Vérifiez la date, le début et la fin.",
     planned_test_preparation_required:

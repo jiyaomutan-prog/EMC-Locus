@@ -1795,6 +1795,41 @@ class LocalAgentClient:
             payload,
         )
 
+    def identify_service_schedule_location(
+        self,
+        *,
+        project_code: str,
+        item_code: str,
+        laboratory_location_id: str,
+        laboratory_location_label: str,
+        expected_revision: int,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "service-schedule-identify-location",
+            project_code,
+            item_code,
+        )
+        payload: dict[str, Any] = {
+            "laboratory_location_id": laboratory_location_id,
+            "laboratory_location_label": laboratory_location_label,
+            "expected_revision": expected_revision,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/projects/{quote(project_code)}/schedule-items/{quote(item_code)}/location-identification",
+            payload,
+        )
+
     def list_metrology_instruments(self) -> dict[str, Any]:
         return self.request_json("GET", "/api/v1/metrology/instruments")
 

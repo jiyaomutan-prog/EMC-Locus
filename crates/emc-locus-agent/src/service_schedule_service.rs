@@ -12,14 +12,15 @@ use crate::service_schedule_repository::{
     ensure_service_schedule_table, find_service_schedule_conflict, insert_service_schedule_item,
     load_laboratory_service_schedule_items, load_project_service_schedule_items,
     load_service_schedule_item, start_service_schedule_with_preparation,
-    update_service_schedule_assignment, update_service_schedule_status, ScheduleConflict,
-    StartServiceScheduleInput, StoredLaboratoryScheduleItem, StoredServiceScheduleItem,
+    update_service_schedule_assignment, update_service_schedule_location_identification,
+    update_service_schedule_status, ScheduleConflict, StartServiceScheduleInput,
+    StoredLaboratoryScheduleItem, StoredServiceScheduleItem,
 };
 use crate::{render_json, AgentError};
 use emc_locus_core::{
     AuditActor, AuditReason, PlanningValidationIssue, ProjectCode, ScheduleResourceConflictKind,
-    ServiceScheduleItem, ServiceScheduleItemInput, ServiceScheduleRescheduleInput,
-    ServiceScheduleStatus, ServiceScheduleWeek, StableId,
+    ServiceScheduleItem, ServiceScheduleItemInput, ServiceScheduleLocationIdentificationInput,
+    ServiceScheduleRescheduleInput, ServiceScheduleStatus, ServiceScheduleWeek, StableId,
 };
 use rusqlite::TransactionBehavior;
 use serde_json::json;
@@ -94,6 +95,20 @@ pub struct RescheduleServiceScheduleItemInput {
     pub planned_start_at: String,
     pub planned_end_at: String,
     pub assigned_operator: String,
+    pub laboratory_location_id: String,
+    pub laboratory_location_label: String,
+    pub expected_revision: u64,
+    pub actor: String,
+    pub reason: String,
+    pub operation_id: String,
+    pub correlation_id: String,
+    pub device_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IdentifyServiceScheduleLocationInput {
+    pub project_code: String,
+    pub item_code: String,
     pub laboratory_location_id: String,
     pub laboratory_location_label: String,
     pub expected_revision: u64,
@@ -429,6 +444,166 @@ pub fn reschedule_service_schedule_item(
     })?;
     schedule_operation_json(
         "service_schedule_item_rescheduled",
+        &input.operation_id,
+        false,
+        &updated,
+    )
+}
+
+pub fn identify_service_schedule_location(
+    storage_root: &Path,
+    input: IdentifyServiceScheduleLocationInput,
+) -> Result<String, AgentError> {
+    let project_code = ProjectCode::parse(input.project_code.clone()).map_err(domain_error)?;
+    let actor = AuditActor::parse(input.actor.clone()).map_err(domain_error)?;
+    AuditReason::parse(input.reason.clone()).map_err(domain_error)?;
+    validate_stable_id(&input.operation_id, "operation_id")?;
+    validate_stable_id(&input.correlation_id, "correlation_id")?;
+    validate_stable_id(&input.device_id, "device_id")?;
+    if input.expected_revision == 0 {
+        return Err(AgentError::with_details(
+            "invalid_service_schedule_request",
+            "expected_revision must be at least 1",
+            json!({ "field": "expected_revision" }),
+        ));
+    }
+    let payload_json = location_identification_command_payload(&input);
+
+    let mut connection = open_project_connection(storage_root)?;
+    ensure_service_schedule_table(&connection)?;
+    if let Some(operation) = existing_operation(&connection, &input.operation_id)? {
+        ensure_operation_replay(
+            &operation,
+            &input.operation_id,
+            OperationFingerprintInput {
+                domain: "project_records",
+                entity_type: "service_schedule_item",
+                entity_id: &input.item_code,
+                operation_kind: "service_schedule_item_location_identified",
+                base_revision: &operation.base_revision,
+                actor_id: &input.actor,
+                device_id: &input.device_id,
+                correlation_id: &input.correlation_id,
+                payload_json: &payload_json,
+            },
+        )?;
+        let stored =
+            load_service_schedule_item(&connection, &input.item_code)?.ok_or_else(|| {
+                AgentError::new(
+                    "operation_replay_missing_entity",
+                    "operation exists but service schedule item is missing",
+                )
+            })?;
+        return schedule_operation_json(
+            "service_schedule_item_location_identified",
+            &input.operation_id,
+            true,
+            &stored,
+        );
+    }
+
+    load_project(&connection, project_code.as_str())?
+        .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
+    let stored = load_service_schedule_item(&connection, &input.item_code)?.ok_or_else(|| {
+        AgentError::new("service_schedule_item_not_found", "schedule item not found")
+    })?;
+    if stored.project_code != project_code.as_str() {
+        return Err(AgentError::new(
+            "service_schedule_item_not_found",
+            "schedule item does not belong to this project",
+        ));
+    }
+    if stored.revision != input.expected_revision {
+        return Err(AgentError::with_details(
+            "service_schedule_concurrent_update",
+            "the service schedule item changed; refresh the planning before identifying its location",
+            json!({
+                "item_code": stored.item_code,
+                "expected_revision": input.expected_revision,
+                "actual_revision": stored.revision,
+            }),
+        ));
+    }
+    let current = stored.to_domain()?;
+    let identified = current
+        .identified_location(ServiceScheduleLocationIdentificationInput {
+            laboratory_location_id: input.laboratory_location_id.clone(),
+            laboratory_location_label: input.laboratory_location_label.clone(),
+        })
+        .map_err(location_identification_error)?;
+
+    let timestamp = utc_timestamp()?;
+    let audit_sequence = next_audit_sequence(&connection, project_code.as_str())?;
+    let audit_payload = render_json(&json!({
+        "item_code": identified.item_code(),
+        "previous": {
+            "laboratory_location_id": current.laboratory_location_id(),
+            "laboratory_location_label": current.laboratory_location_label(),
+        },
+        "new": {
+            "laboratory_location_id": identified.laboratory_location_id(),
+            "laboratory_location_label": identified.laboratory_location_label(),
+        },
+        "status": identified.status().as_str(),
+    }));
+    let base_revision = revision_text(stored.revision);
+    let resulting_revision = revision_text(stored.revision + 1);
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    update_service_schedule_location_identification(
+        &transaction,
+        stored.id,
+        stored.revision,
+        identified
+            .laboratory_location_id()
+            .expect("identified location has a stable ID"),
+        identified.laboratory_location_label(),
+        actor.as_str(),
+        &timestamp,
+    )?;
+    insert_audit_event(
+        &transaction,
+        AuditEventInput {
+            project_code: project_code.as_str(),
+            sequence: audit_sequence,
+            actor: actor.as_str(),
+            action: "service_schedule_item_location_identified",
+            reason: Some(&input.reason),
+            payload_json: &audit_payload,
+            timestamp: &timestamp,
+        },
+    )?;
+    insert_sync_operation(
+        &transaction,
+        SyncOperationInput {
+            domain: "project_records",
+            entity_type: "service_schedule_item",
+            operation_id: &input.operation_id,
+            entity_id: identified.item_code(),
+            operation_kind: "service_schedule_item_location_identified",
+            base_revision: &base_revision,
+            resulting_revision: &resulting_revision,
+            actor_id: &input.actor,
+            device_id: &input.device_id,
+            correlation_id: &input.correlation_id,
+            payload_json: &payload_json,
+            timestamp: &timestamp,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+
+    let updated =
+        load_service_schedule_item(&connection, identified.item_code())?.ok_or_else(|| {
+            AgentError::new(
+                "service_schedule_read_failed",
+                "identified schedule item is missing",
+            )
+        })?;
+    schedule_operation_json(
+        "service_schedule_item_location_identified",
         &input.operation_id,
         false,
         &updated,
@@ -1031,6 +1206,15 @@ fn reschedule_command_payload(input: &RescheduleServiceScheduleItemInput) -> Str
     }))
 }
 
+fn location_identification_command_payload(input: &IdentifyServiceScheduleLocationInput) -> String {
+    render_json(&json!({
+        "laboratory_location_id": input.laboratory_location_id,
+        "laboratory_location_label": input.laboratory_location_label,
+        "expected_revision": input.expected_revision,
+        "reason": input.reason,
+    }))
+}
+
 fn schedule_assignment_snapshot(item: &ServiceScheduleItem) -> serde_json::Value {
     json!({
         "planned_start_at": item.planned_start_at(),
@@ -1118,6 +1302,25 @@ fn reschedule_error(issue: PlanningValidationIssue, status: ServiceScheduleStatu
     } else {
         planning_error(issue)
     }
+}
+
+fn location_identification_error(issue: PlanningValidationIssue) -> AgentError {
+    let (code, message) = match issue.code.as_str() {
+        "schedule_location_already_identified" => (
+            "service_schedule_location_already_identified",
+            "the service schedule item already has a stable location identity",
+        ),
+        "schedule_location_identification_not_allowed" => (
+            "service_schedule_location_identification_not_allowed",
+            "the location of a completed or cancelled schedule item cannot be identified",
+        ),
+        _ => return planning_error(issue),
+    };
+    AgentError::with_details(
+        code,
+        message,
+        json!({ "field": issue.field, "cause": issue.code }),
+    )
 }
 
 fn domain_error(error: emc_locus_core::DomainError) -> AgentError {
@@ -1363,6 +1566,86 @@ mod tests {
             operation_count(&storage_root, "op-reschedule-legacy-conflict"),
             0
         );
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn identifies_migrated_legacy_location_with_audit_outbox_and_stable_id_conflicts() {
+        let storage_root = temporary_storage_root("service-schedule-legacy-identification");
+        initialize_storage_with_legacy_schedule(&storage_root, "planned", "Alice");
+        let input = location_identification_input(
+            "CEM-LEGACY-001",
+            "PLAN-LEGACY-001",
+            "LAB-STABLE-001",
+            "Poste CEM 1",
+            1,
+            "success",
+        );
+
+        let identified = identify_service_schedule_location(&storage_root, input.clone()).unwrap();
+        let replayed = identify_service_schedule_location(&storage_root, input).unwrap();
+        let listed = list_project_service_schedule_items(&storage_root, "CEM-LEGACY-001").unwrap();
+        let audits = list_audit_events(&storage_root, "CEM-LEGACY-001").unwrap();
+        let outbox = list_sync_outbox(&storage_root).unwrap();
+
+        assert!(identified.contains("\"operation\":\"service_schedule_item_location_identified\""));
+        assert!(identified.contains("\"laboratory_location_id\":\"LAB-STABLE-001\""));
+        assert!(identified.contains("\"laboratory_location_label\":\"Poste CEM 1\""));
+        assert!(identified.contains("\"status\":\"planned\""));
+        assert!(identified.contains("\"revision\":2"));
+        assert!(replayed.contains("\"replayed\":true"));
+        assert!(listed.contains("\"planned_start_at\":\"2026-07-15T09:00\""));
+        assert!(listed.contains("\"assigned_operator\":\"Alice\""));
+        assert!(audits.contains("service_schedule_item_location_identified"));
+        assert!(audits.contains("Ancien poste CEM"));
+        assert!(audits.contains("LAB-STABLE-001"));
+        assert!(outbox.contains("service_schedule_item_location_identified"));
+        assert_eq!(audit_count(&storage_root), 1);
+        assert_eq!(
+            operation_count(&storage_root, "op-identify-location-success"),
+            1
+        );
+
+        let stale = identify_service_schedule_location(
+            &storage_root,
+            location_identification_input(
+                "CEM-LEGACY-001",
+                "PLAN-LEGACY-001",
+                "LAB-STABLE-002",
+                "Poste CEM 2",
+                1,
+                "stale",
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(stale.code, "service_schedule_concurrent_update");
+        assert_eq!(
+            operation_count(&storage_root, "op-identify-location-stale"),
+            0
+        );
+
+        let mut same_id_different_label = schedule_input(
+            "CEM-LEGACY-001",
+            "PLAN-SAME-STABLE-ID",
+            "Bob",
+            "Nom actuel du poste",
+        );
+        same_id_different_label.laboratory_location_id = "LAB-STABLE-001".to_owned();
+        same_id_different_label.planned_start_at = "2026-07-15T10:00".to_owned();
+        same_id_different_label.planned_end_at = "2026-07-15T11:00".to_owned();
+        let same_id_error =
+            create_service_schedule_item(&storage_root, same_id_different_label).unwrap_err();
+        assert_eq!(same_id_error.code, "service_schedule_location_conflict");
+
+        let mut same_label_different_id =
+            schedule_input("CEM-LEGACY-001", "PLAN-SAME-LABEL", "Bob", "Poste CEM 1");
+        same_label_different_id.laboratory_location_id = "LAB-STABLE-002".to_owned();
+        same_label_different_id.planned_start_at = "2026-07-15T10:00".to_owned();
+        same_label_different_id.planned_end_at = "2026-07-15T11:00".to_owned();
+        let different_id =
+            create_service_schedule_item(&storage_root, same_label_different_id).unwrap();
+        assert!(different_id.contains("\"laboratory_location_id\":\"LAB-STABLE-002\""));
+        assert_eq!(table_count(&storage_root, "service_schedule_items"), 2);
         remove_temporary_storage_root(&storage_root);
     }
 
@@ -1691,6 +1974,29 @@ mod tests {
             reason: "Réorganisation du laboratoire".to_owned(),
             operation_id: format!("op-reschedule-{suffix}"),
             correlation_id: format!("corr-reschedule-{suffix}"),
+            device_id: "lab-console".to_owned(),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn location_identification_input(
+        project_code: &str,
+        item_code: &str,
+        laboratory_location_id: &str,
+        laboratory_location_label: &str,
+        expected_revision: u64,
+        suffix: &str,
+    ) -> IdentifyServiceScheduleLocationInput {
+        IdentifyServiceScheduleLocationInput {
+            project_code: project_code.to_owned(),
+            item_code: item_code.to_owned(),
+            laboratory_location_id: laboratory_location_id.to_owned(),
+            laboratory_location_label: laboratory_location_label.to_owned(),
+            expected_revision,
+            actor: "responsable.laboratoire".to_owned(),
+            reason: "Identification du lieu historique".to_owned(),
+            operation_id: format!("op-identify-location-{suffix}"),
+            correlation_id: format!("corr-identify-location-{suffix}"),
             device_id: "lab-console".to_owned(),
         }
     }

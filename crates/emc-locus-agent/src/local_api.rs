@@ -72,9 +72,10 @@ use crate::project_agent::{
     AdvanceToTestPlanningInput, CompleteReviewItemInput, CreateProjectInput,
 };
 use crate::service_schedule_service::{
-    create_service_schedule_item, list_laboratory_week_schedule,
-    list_project_service_schedule_items, reschedule_service_schedule_item,
-    transition_service_schedule_item, CreateServiceScheduleItemInput,
+    create_service_schedule_item, identify_service_schedule_location,
+    list_laboratory_week_schedule, list_project_service_schedule_items,
+    reschedule_service_schedule_item, transition_service_schedule_item,
+    CreateServiceScheduleItemInput, IdentifyServiceScheduleLocationInput,
     RescheduleServiceScheduleItemInput, TransitionServiceScheduleItemInput,
 };
 use crate::station_setup_service::{
@@ -892,6 +893,15 @@ fn route_api_request(
                 reschedule_service_schedule_item_input(code, item_code, &payload)?,
             )
         }
+        ["api", "v1", "projects", code, "schedule-items", item_code, "location-identification"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            identify_service_schedule_location(
+                &config.storage_root,
+                identify_service_schedule_location_input(code, item_code, &payload)?,
+            )
+        }
         ["api", "v1", "projects", code, "schedule-items", item_code, "transitions", action]
             if method == "POST" =>
         {
@@ -1654,6 +1664,28 @@ fn reschedule_service_schedule_item_input(
         planned_start_at: required_string(payload, "planned_start_at")?,
         planned_end_at: required_string(payload, "planned_end_at")?,
         assigned_operator: required_string(payload, "assigned_operator")?,
+        laboratory_location_id: required_string(payload, "laboratory_location_id")?,
+        laboratory_location_label: required_string(payload, "laboratory_location_label")?,
+        expected_revision: required_u64(payload, "expected_revision")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn identify_service_schedule_location_input(
+    project_code: &str,
+    item_code: &str,
+    payload: &Value,
+) -> Result<IdentifyServiceScheduleLocationInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(IdentifyServiceScheduleLocationInput {
+        project_code: project_code.to_owned(),
+        item_code: item_code.to_owned(),
         laboratory_location_id: required_string(payload, "laboratory_location_id")?,
         laboratory_location_label: required_string(payload, "laboratory_location_label")?,
         expected_revision: required_u64(payload, "expected_revision")?,
@@ -2899,9 +2931,12 @@ fn status_for_error(code: &str) -> u16 {
         | "service_schedule_item_already_exists"
         | "service_schedule_operator_conflict"
         | "service_schedule_location_conflict"
+        | "service_schedule_legacy_location_identity_required"
         | "service_schedule_concurrent_update"
         | "invalid_service_schedule_transition"
         | "service_schedule_item_not_reschedulable"
+        | "service_schedule_location_already_identified"
+        | "service_schedule_location_identification_not_allowed"
         | "project_already_exists"
         | "test_execution_attempt_exists"
         | "test_execution_template_not_approved"
@@ -3090,6 +3125,7 @@ fn ensure_no_unknown_flags(flags: BTreeMap<String, String>) -> Result<(), AgentE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::Connection;
     use std::{
         io::{Read, Write},
         net::{TcpListener, TcpStream},
@@ -5364,6 +5400,40 @@ mod tests {
         assert!(rescheduled.body.contains("\"status\":\"confirmed\""));
         assert!(rescheduled.body.contains("\"revision\":3"));
 
+        let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        projects
+            .execute(
+                concat!(
+                    "UPDATE service_schedule_items SET laboratory_location_id = NULL, ",
+                    "laboratory_location_label = 'Libelle historique', location = 'Libelle historique' ",
+                    "WHERE item_code = 'PLAN-API-001'"
+                ),
+                [],
+            )
+            .unwrap();
+        drop(projects);
+        let identified = handle_api_request(
+            "POST",
+            "/api/v1/projects/CEM-API-001/schedule-items/PLAN-API-001/location-identification",
+            r#"{
+                "laboratory_location_id": "LAB-LOCATION-CEM-1",
+                "laboratory_location_label": "Labo CEM 1",
+                "expected_revision": 3,
+                "actor": "quality.lead",
+                "reason": "historical location identified",
+                "operation_id": "op-api-schedule-identify-location"
+            }"#,
+            &config,
+        );
+        assert_eq!(identified.status, 200, "{}", identified.body);
+        assert!(identified
+            .body
+            .contains("\"operation\":\"service_schedule_item_location_identified\""));
+        assert!(identified
+            .body
+            .contains("\"laboratory_location_id\":\"LAB-LOCATION-CEM-1\""));
+        assert!(identified.body.contains("\"revision\":4"));
+
         let schedule = handle_api_request(
             "GET",
             "/api/v1/projects/CEM-API-001/schedule-items",
@@ -5390,10 +5460,17 @@ mod tests {
         assert!(outbox.body.contains("service_schedule_item_planned"));
         assert!(outbox.body.contains("service_schedule_item_status_changed"));
         assert!(outbox.body.contains("service_schedule_item_rescheduled"));
+        assert!(outbox
+            .body
+            .contains("service_schedule_item_location_identified"));
         assert!(audit.body.contains("\"action\":\"project_stage_advanced\""));
         assert!(audit.body.contains("service_schedule_item_planned"));
         assert!(audit.body.contains("service_schedule_item_status_changed"));
         assert!(audit.body.contains("service_schedule_item_rescheduled"));
+        assert!(audit
+            .body
+            .contains("service_schedule_item_location_identified"));
+        assert!(audit.body.contains("Libelle historique"));
 
         remove_temporary_storage_root(&storage_root);
     }

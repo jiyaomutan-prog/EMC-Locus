@@ -1238,7 +1238,8 @@ mod tests {
         register_metrology_instrument, MetrologyOperationContext, RegisterInstrumentInput,
     };
     use crate::service_schedule_service::{
-        set_start_consistency_test_action, transition_service_schedule_item,
+        identify_service_schedule_location, set_start_consistency_test_action,
+        transition_service_schedule_item, IdentifyServiceScheduleLocationInput,
         StartConsistencyTestAction, TransitionServiceScheduleItemInput,
     };
     use crate::{run_storage_action, StorageAction};
@@ -1554,6 +1555,62 @@ mod tests {
             get_planned_test_preparation(&storage_root, PROJECT_CODE, ITEM_CODE).unwrap();
         let aggregate: Value = serde_json::from_str(&aggregate).unwrap();
         assert_eq!(aggregate["preparation"]["current_state"], "stale");
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn identifying_a_historical_location_makes_prior_preparation_stale() {
+        let storage_root = prepared_storage("planned-test-location-identification-stale");
+        assess_planned_test_preparation_for_schedule(
+            &storage_root,
+            assessment_input("op-prep-before-location-identification", None, Vec::new()),
+        )
+        .unwrap();
+        let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        projects
+            .execute(
+                concat!(
+                    "UPDATE service_schedule_items SET laboratory_location_id = NULL, ",
+                    "laboratory_location_label = 'Ancien poste CEM', location = 'Ancien poste CEM' ",
+                    "WHERE item_code = ?1"
+                ),
+                [ITEM_CODE],
+            )
+            .unwrap();
+        drop(projects);
+
+        identify_service_schedule_location(
+            &storage_root,
+            IdentifyServiceScheduleLocationInput {
+                project_code: PROJECT_CODE.to_owned(),
+                item_code: ITEM_CODE.to_owned(),
+                laboratory_location_id: "LAB-PREP-STABLE".to_owned(),
+                laboratory_location_label: "Poste CEM préparation".to_owned(),
+                expected_revision: 1,
+                actor: "responsable.laboratoire".to_owned(),
+                reason: "Identification du lieu historique".to_owned(),
+                operation_id: "op-prep-identify-location".to_owned(),
+                correlation_id: "corr-prep-identify-location".to_owned(),
+                device_id: "lab-console".to_owned(),
+            },
+        )
+        .unwrap();
+
+        let aggregate =
+            get_planned_test_preparation(&storage_root, PROJECT_CODE, ITEM_CODE).unwrap();
+        let aggregate: Value = serde_json::from_str(&aggregate).unwrap();
+        assert_eq!(aggregate["preparation"]["current_state"], "stale");
+        let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        let schedule_revision: u64 = projects
+            .query_row(
+                "SELECT revision FROM service_schedule_items WHERE item_code = ?1",
+                [ITEM_CODE],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(schedule_revision, 2);
+        drop(projects);
 
         remove_temporary_storage_root(&storage_root);
     }

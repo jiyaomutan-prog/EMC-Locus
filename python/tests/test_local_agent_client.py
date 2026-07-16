@@ -612,7 +612,7 @@ class LocalAgentClientTests(unittest.TestCase):
             [{"slot_id": "receiver", "binding_id": "receiver-binding"}],
         )
 
-    def test_reads_laboratory_week_and_posts_reschedule_payload(self) -> None:
+    def test_reads_laboratory_week_and_posts_schedule_mutation_payloads(self) -> None:
         captured: list[dict[str, object]] = []
 
         def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
@@ -656,6 +656,16 @@ class LocalAgentClientTests(unittest.TestCase):
                 reason="Reorganisation du laboratoire",
                 operation_id="op-schedule-reschedule",
             )
+            client.identify_service_schedule_location(
+                project_code="CEM-PY-001",
+                item_code="PLAN-PY-001",
+                laboratory_location_id="LAB-LOCATION-CEM-1",
+                laboratory_location_label="Labo CEM 1",
+                expected_revision=3,
+                actor="responsable.laboratoire",
+                reason="Identification du lieu historique",
+                operation_id="op-schedule-identify-location",
+            )
 
         self.assertEqual(
             captured[0]["url"],
@@ -675,6 +685,20 @@ class LocalAgentClientTests(unittest.TestCase):
         self.assertEqual(
             captured[1]["body"]["laboratory_location_label"],
             "Labo CEM 2",
+        )
+        self.assertEqual(
+            captured[2]["url"],
+            "http://127.0.0.1:8765/api/v1/projects/CEM-PY-001/schedule-items/PLAN-PY-001/location-identification",
+        )
+        self.assertEqual(captured[2]["method"], "POST")
+        self.assertEqual(captured[2]["body"]["expected_revision"], 3)
+        self.assertEqual(
+            captured[2]["body"]["laboratory_location_id"],
+            "LAB-LOCATION-CEM-1",
+        )
+        self.assertEqual(
+            captured[2]["body"]["reason"],
+            "Identification du lieu historique",
         )
 
     def test_local_agent_client_idempotency_conflict_maps_to_structured_error(self) -> None:

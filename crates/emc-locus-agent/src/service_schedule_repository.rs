@@ -402,6 +402,43 @@ pub(crate) fn update_service_schedule_assignment(
     Ok(())
 }
 
+pub(crate) fn update_service_schedule_location_identification(
+    transaction: &Transaction<'_>,
+    item_id: i64,
+    expected_revision: u64,
+    laboratory_location_id: &str,
+    laboratory_location_label: &str,
+    actor: &str,
+    timestamp: &str,
+) -> Result<(), AgentError> {
+    let updated = transaction
+        .execute(
+            concat!(
+                "UPDATE service_schedule_items SET location = ?1, ",
+                "laboratory_location_id = ?2, laboratory_location_label = ?1, ",
+                "revision = revision + 1, updated_by = ?3, updated_at = ?4 ",
+                "WHERE id = ?5 AND revision = ?6 AND laboratory_location_id IS NULL ",
+                "AND status NOT IN ('completed', 'cancelled')"
+            ),
+            params![
+                laboratory_location_label,
+                laboratory_location_id,
+                actor,
+                timestamp,
+                item_id,
+                expected_revision,
+            ],
+        )
+        .map_err(|error| AgentError::new("service_schedule_write_failed", error.to_string()))?;
+    if updated != 1 {
+        return Err(AgentError::new(
+            "service_schedule_concurrent_update",
+            "the service schedule item changed before its location was identified",
+        ));
+    }
+    Ok(())
+}
+
 fn schedule_select() -> &'static str {
     concat!(
         "SELECT id, item_code, project_code, title, test_category_code, test_method_code, ",

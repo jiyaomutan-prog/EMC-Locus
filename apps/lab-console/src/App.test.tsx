@@ -255,6 +255,97 @@ describe("LAB CONSOLE", () => {
     );
   });
 
+  test("identifies a historical planning location without exposing its stable id", async () => {
+    mockLaboratoryPlanningApi({ legacyLocation: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    expect((await screen.findAllByText("Lieu à identifier")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("LAB-LOCATION-CEM-1")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Émission conduite, dossier CEM-LAB-001"
+      })
+    );
+
+    expect(screen.getByText("Libellé historique : Poste CEM historique")).toBeInTheDocument();
+    expect(screen.getByText(/créé avant l’identification stable des lieux/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Identifier le lieu" }));
+
+    const save = screen.getByRole("button", { name: "Enregistrer le lieu" });
+    expect(save).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText("Lieu réel"), "LAB-LOCATION-CEM-1");
+    expect(save).toBeDisabled();
+    await user.type(
+      screen.getByLabelText("Motif de l’identification"),
+      "Vérification du plan d’implantation"
+    );
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    expect((await screen.findAllByText("Labo CEM 1")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Libellé historique : Poste CEM historique")).not.toBeInTheDocument();
+    expect(screen.queryByText("LAB-LOCATION-CEM-1")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/schedule-items/PLAN-LAB-001/location-identification"),
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  test("refreshes laboratory planning after concurrent historical location identification", async () => {
+    mockLaboratoryPlanningApi({ legacyLocation: true, identificationConcurrency: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Émission conduite, dossier CEM-LAB-001"
+      })
+    );
+    await user.click(screen.getByRole("button", { name: "Identifier le lieu" }));
+    await user.selectOptions(screen.getByLabelText("Lieu réel"), "LAB-LOCATION-CEM-1");
+    await user.type(screen.getByLabelText("Motif de l’identification"), "Contrôle concurrent");
+    await user.click(screen.getByRole("button", { name: "Enregistrer le lieu" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Ce créneau a changé sur un autre écran"
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([path]) => String(path).startsWith("/api/v1/service-schedule?"))
+      ).toHaveLength(2)
+    );
+  });
+
+  test("explains a blocking historical location reservation with booking details", async () => {
+    mockLaboratoryPlanningApi({ legacyConflict: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Émission conduite, dossier CEM-LAB-001"
+      })
+    );
+    await user.click(screen.getByRole("button", { name: "Déplacer" }));
+    await user.type(screen.getByLabelText("Raison du changement"), "Déplacement demandé");
+    await user.click(screen.getByRole("button", { name: "Enregistrer le déplacement" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Un créneau existant utilise encore un lieu non identifié. Identifiez son lieu avant de réserver un autre créneau sur cette période."
+    );
+    expect(alert).toHaveTextContent("« Essai historique » du dossier CEM-HIST-001");
+    expect(alert).toHaveTextContent("Poste CEM historique");
+    expect(alert).toHaveTextContent("Confirmé");
+  });
+
   test("requires confirmation before a planned slot can be prepared", async () => {
     mockLaboratoryPlanningApi();
     const user = userEvent.setup();
@@ -1966,7 +2057,12 @@ function mockProjectWorkflowApi() {
   });
 }
 
-function mockLaboratoryPlanningApi(settings: { noCompatibleMaterials?: boolean } = {}) {
+function mockLaboratoryPlanningApi(settings: {
+  noCompatibleMaterials?: boolean;
+  legacyLocation?: boolean;
+  identificationConcurrency?: boolean;
+  legacyConflict?: boolean;
+} = {}) {
   let rescheduleAttempts = 0;
   const first: LaboratoryScheduleItem = {
     item_code: "PLAN-LAB-001",
@@ -2008,6 +2104,10 @@ function mockLaboratoryPlanningApi(settings: { noCompatibleMaterials?: boolean }
     revision: 2,
     available_transitions: ["in_progress", "cancelled"]
   };
+  if (settings.legacyLocation) {
+    first.laboratory_location_id = null;
+    first.laboratory_location_label = "Poste CEM historique";
+  }
   const method = {
     template_id: "METHOD-RI-001",
     revision_id: "METHOD-RI-001-rev-0002",
@@ -2268,6 +2368,33 @@ function mockLaboratoryPlanningApi(settings: { noCompatibleMaterials?: boolean }
     }
     if (path.endsWith("/schedule-items/PLAN-LAB-001/reschedule") && init?.method === "POST") {
       rescheduleAttempts += 1;
+      if (settings.legacyConflict) {
+        return jsonResponse(
+          {
+            error: {
+              code: "service_schedule_legacy_location_identity_required",
+              message: "Un créneau existant utilise encore un lieu non identifié.",
+              details: {
+                resource: "unresolved_location_identity",
+                value: "Poste CEM historique",
+                conflicting_item: {
+                  item_code: "PLAN-HIST-001",
+                  project_code: "CEM-HIST-001",
+                  title: "Essai historique",
+                  planned_start_at: "2026-07-15T10:00",
+                  planned_end_at: "2026-07-15T11:00",
+                  assigned_operator: "Bob Martin",
+                  laboratory_location_id: null,
+                  laboratory_location_label: "Poste CEM historique",
+                  status: "confirmed"
+                },
+                next_action: "identify_service_schedule_location"
+              }
+            }
+          },
+          409
+        );
+      }
       if (rescheduleAttempts === 1) {
         return jsonResponse(
           {
@@ -2303,6 +2430,33 @@ function mockLaboratoryPlanningApi(settings: { noCompatibleMaterials?: boolean }
       return jsonResponse({
         operation: "service_schedule_item_rescheduled",
         operation_id: "op-reschedule",
+        replayed: false,
+        schedule_item: first
+      });
+    }
+    if (
+      path.endsWith("/schedule-items/PLAN-LAB-001/location-identification")
+      && init?.method === "POST"
+    ) {
+      if (settings.identificationConcurrency) {
+        return jsonResponse(
+          {
+            error: {
+              code: "service_schedule_concurrent_update",
+              message: "schedule changed",
+              details: { expected_revision: 1, actual_revision: 2 }
+            }
+          },
+          409
+        );
+      }
+      const body = JSON.parse(String(init.body)) as Record<string, string>;
+      first.laboratory_location_id = body.laboratory_location_id;
+      first.laboratory_location_label = body.laboratory_location_label;
+      first.revision += 1;
+      return jsonResponse({
+        operation: "service_schedule_item_location_identified",
+        operation_id: "op-identify-location",
         replayed: false,
         schedule_item: first
       });

@@ -229,6 +229,11 @@ button.planningSlot-cancelled {
   margin-top: auto;
 }
 
+.planningSlotUnresolvedLocation {
+  color: #8a4f13 !important;
+  font-weight: 750;
+}
+
 .planningDayEmpty {
   align-items: center;
   color: #7a8680;
@@ -289,6 +294,55 @@ button.planningSlot-cancelled {
   color: #1c2922;
   font-weight: 650;
   margin: 0;
+}
+
+.unresolvedLocationValue {
+  display: grid;
+  gap: 3px;
+}
+
+.unresolvedLocationValue strong {
+  color: #8a4f13;
+}
+
+.unresolvedLocationValue small {
+  color: #68766e;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.historicalLocationNotice {
+  align-items: start;
+  background: #fff8e8;
+  border: 1px solid #e4c88e;
+  border-left: 4px solid #b8781f;
+  color: #5d421d;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto 1fr;
+  padding: 12px 14px;
+}
+
+.historicalLocationNotice p {
+  margin: 3px 0 0;
+}
+
+.locationIdentificationBody {
+  gap: 16px;
+}
+
+.historicalLocationContext {
+  background: #f2f5f4;
+  border-left: 3px solid #91aa9f;
+  display: grid;
+  gap: 3px;
+  padding: 11px 13px;
+}
+
+.historicalLocationContext span {
+  color: #68766e;
+  font-size: 11px;
+  text-transform: uppercase;
 }
 
 .planningDetailNote {

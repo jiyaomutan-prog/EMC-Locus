@@ -899,6 +899,26 @@ export const projectApi = {
         )
       }
     ),
+  identifyScheduleLocation: (
+    item: ServiceScheduleItem,
+    input: {
+      laboratory_location_id: string;
+      laboratory_location_label: string;
+      actor: string;
+      reason: string;
+    }
+  ) =>
+    post<ServiceScheduleOperationResult>(
+      `/api/v1/projects/${encodeURIComponent(item.project_code)}/schedule-items/${encodeURIComponent(item.item_code)}/location-identification`,
+      {
+        ...input,
+        expected_revision: item.revision,
+        operation_id: operationId(
+          "service-schedule-identify-location",
+          `${item.project_code}-${item.item_code}-${item.revision}`
+        )
+      }
+    ),
   auditEvents: (projectCode: string) =>
     request<{ project_code: string; audit_events: ProjectAuditEvent[] }>(
       `/api/v1/projects/${encodeURIComponent(projectCode)}/audit-events`
