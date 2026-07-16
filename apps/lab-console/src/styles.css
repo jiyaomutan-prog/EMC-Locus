@@ -4489,10 +4489,12 @@ button.projectListItem.active {
 }
 
 .projectDialog {
+  background: #fff;
   width: min(620px, calc(100vw - 80px));
 }
 
 .projectDialogBody {
+  background: #fff;
   display: grid;
   gap: 14px;
 }

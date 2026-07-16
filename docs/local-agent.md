@@ -247,6 +247,7 @@ GET  /api/v1/service-schedule?week_start=YYYY-MM-DD
 GET  /api/v1/projects/{code}/schedule-items
 POST /api/v1/projects/{code}/schedule-items
 POST /api/v1/projects/{code}/schedule-items/{item_code}/reschedule
+POST /api/v1/projects/{code}/schedule-items/{item_code}/location-identification
 POST /api/v1/projects/{code}/schedule-items/{item_code}/transitions/{action}
 GET  /api/v1/projects/{code}/audit-events
 GET  /api/v1/projects/{code}/test-executions
@@ -419,6 +420,13 @@ and transition schedule items, inspect preparation options and revisions, and
 request a new assessment without opening `projects.sqlite`. Planning and
 preparation writes commit their domain record, project audit event and pending
 sync outbox operation atomically.
+
+The 0.21.1 external-review correction also routes historical location
+identification through the agent. Overlapping active rows with no stable
+location identity block conservatively; labels are never promoted to IDs. The
+dedicated optimistic mutation preserves the schedule context, increments its
+revision and writes `service_schedule_item_location_identified` audit/outbox
+evidence with the previous readable label.
 
 The Qt console accepts:
 

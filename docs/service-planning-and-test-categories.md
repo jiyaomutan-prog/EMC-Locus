@@ -60,9 +60,13 @@ surrounding whitespace cannot later be duplicated by a canonical repository
 insert.
 Repository inserts also reject overlapping active planning blocks when the new
 row would reserve the same operator or the same stable location ID. Location
-labels are never compared as identity. Adjacent blocks are
-allowed, and a completed or cancelled block no longer reserves that operator or
-location for conflict checks. The overlap check compares persisted block
+labels are never compared as identity. An overlapping active historical row
+whose stable location ID is absent is an unresolved physical reservation and
+also blocks creation or movement. Adjacent blocks are allowed, and a completed
+or cancelled block no longer reserves that operator or location for conflict
+checks. Multiple conflicts are selected deterministically: same operator,
+unresolved historical location, then same stable location ID. The overlap
+check compares persisted block
 windows after trimming surrounding whitespace, so constraint-bypassed imports
 reserve resources the same way they appear through normalized list reads. When
 an imported overlapping row carries an unknown or non-text status, the
@@ -172,6 +176,18 @@ shows only the label. Existing 0.21.0 rows without an ID stay visible; a new
 write must select an identified location. The retained direct Python adapter
 is migration/regression support and must not be used as a new application
 writer.
+
+An active historical row is shown as **Lieu à identifier**, with its former
+label retained as context. The operator resolves it through:
+
+```http
+POST /api/v1/projects/CEM-2026-001/schedule-items/PLAN-001/location-identification
+```
+
+The action requires the current row revision, a stable location selected from
+the ready-station projection and a reason. It preserves every other schedule
+field, increments the revision, writes project audit and sync outbox atomically,
+and makes prior preparation evidence stale. It is not a room-management API.
 
 The laboratory manager reads a canonical Monday-to-Friday projection across
 dossiers through:

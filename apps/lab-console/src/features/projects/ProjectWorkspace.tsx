@@ -1085,10 +1085,13 @@ function projectErrorMessage(caught: unknown): string {
   }
   const conflict = caught.details?.conflicting_item as Record<string, unknown> | undefined;
   if (caught.code === "service_schedule_operator_conflict" && conflict) {
-    return `${String(conflict.assigned_operator)} est déjà affecté au créneau « ${String(conflict.title)} » de ${String(conflict.planned_start_at)} à ${String(conflict.planned_end_at)}.`;
+    return `${String(conflict.assigned_operator)} est déjà affecté au créneau « ${String(conflict.title)} » le ${formatConflictSchedule(conflict)}.`;
   }
   if (caught.code === "service_schedule_location_conflict" && conflict) {
-    return `${String(conflict.laboratory_location_label)} est déjà réservé pour « ${String(conflict.title)} » de ${String(conflict.planned_start_at)} à ${String(conflict.planned_end_at)}.`;
+    return `${String(conflict.laboratory_location_label)} est déjà réservé pour « ${String(conflict.title)} » le ${formatConflictSchedule(conflict)}.`;
+  }
+  if (caught.code === "service_schedule_legacy_location_identity_required" && conflict) {
+    return `Un créneau existant utilise encore un lieu non identifié. Identifiez son lieu avant de réserver un autre créneau sur cette période. Créneau concerné : « ${String(conflict.title)} » du dossier ${String(conflict.project_code)}, le ${formatConflictSchedule(conflict)}, libellé historique « ${String(conflict.laboratory_location_label)} », état ${scheduleStatusLabel(String(conflict.status))}.`;
   }
   const messages: Record<string, string> = {
     contract_review_incomplete: "La revue du besoin n'est pas encore terminée.",
@@ -1099,6 +1102,22 @@ function projectErrorMessage(caught: unknown): string {
     local_agent_unavailable: "L'agent local ne répond pas. Vérifiez qu'il est démarré."
   };
   return messages[caught.code] ?? caught.message;
+}
+
+function scheduleStatusLabel(status: string): string {
+  return {
+    planned: "Prévu",
+    confirmed: "Confirmé",
+    in_progress: "En cours",
+    completed: "Terminé",
+    cancelled: "Annulé"
+  }[status] ?? status;
+}
+
+function formatConflictSchedule(conflict: Record<string, unknown>): string {
+  const start = String(conflict.planned_start_at);
+  const end = String(conflict.planned_end_at);
+  return `${formatDay(start)}, ${start.slice(11, 16)}–${end.slice(11, 16)}`;
 }
 
 function humanize(value: string | undefined): string {

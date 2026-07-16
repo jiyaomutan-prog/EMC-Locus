@@ -24,6 +24,26 @@ L'identifiant et l'empreinte de préparation font partie du fingerprint de la
 commande. Réutiliser un identifiant d'opération avec une preuve différente est
 un conflit de rejeu.
 
+## Réservation historique non résolue
+
+Une ligne migrée de 0.21.0 peut conserver un libellé de lieu sans
+`laboratory_location_id`. Tant qu'elle est **Prévue**, **Confirmée** ou **En
+cours**, elle représente une réservation physique non résolue : toute création
+ou tout déplacement qui chevauche sa période est refusé, même avec un autre
+opérateur. Les états **Terminé** et **Annulé** ne bloquent pas.
+
+Le refus `service_schedule_legacy_location_identity_required` cite le dossier,
+le créneau, son horaire, son état et le libellé historique, puis demande
+d'identifier le lieu. Les conflits sont choisis dans l'ordre : même opérateur,
+réservation historique non résolue, même ID stable. Le libellé n'est jamais
+comparé comme identité.
+
+L'action d'identification est limitée aux lignes actives dont l'ID est absent.
+Elle exige la révision attendue, un lieu stable existant dans le parcours et un
+motif. Elle préserve le reste du créneau, incrémente sa révision et écrit audit
+plus outbox avec l'ancien libellé et la nouvelle identité. Une préparation
+antérieure devient alors obsolète par différence de révision du créneau.
+
 ## Frontière de cohérence locale
 
 Le Local Agent ouvre `projects.sqlite` et lui attache :

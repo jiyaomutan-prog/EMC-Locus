@@ -333,9 +333,12 @@ adapter; it is not an identity in the Local Agent runtime.
 Existing `0.21.0` rows keep their exact label in
 `laboratory_location_label`, while `laboratory_location_id` remains `NULL`.
 The migration deliberately does not derive identity by trimming, case folding
-or matching labels. Such rows stay readable but cannot produce a ready
-planned-test preparation until the slot is rescheduled with an identified
-laboratory location.
+or matching labels. Such rows stay readable. While non-terminal, an overlapping
+row with this unresolved identity blocks a new or moved reservation until an
+operator explicitly identifies its real stable location. This correction
+requires no migration after `0008`: the identification mutation updates the
+existing ID/label columns under row-revision compare-and-set and records audit
+plus outbox evidence in the existing tables.
 
 ### planned_test_preparation_identities
 

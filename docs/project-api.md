@@ -20,6 +20,8 @@ POST /api/v1/projects/{code}/contract-review/items/{item}/complete
 POST /api/v1/projects/{code}/transitions/to-test-planning
 GET  /api/v1/projects/{code}/schedule-items
 POST /api/v1/projects/{code}/schedule-items
+POST /api/v1/projects/{code}/schedule-items/{item_code}/reschedule
+POST /api/v1/projects/{code}/schedule-items/{item_code}/location-identification
 POST /api/v1/projects/{code}/schedule-items/{item_code}/transitions/{action}
 GET  /api/v1/projects/{code}/schedule-items/{item_code}/preparation
 GET  /api/v1/projects/{code}/schedule-items/{item_code}/preparation/options
@@ -167,6 +169,12 @@ inside one business day and start as `planned`. Active slots reserve both their
 operator and location. Overlap errors return the conflicting slot and resource
 as structured details; adjacent slots remain allowed.
 
+An overlapping active historical row with no `laboratory_location_id` returns
+HTTP `409` and `service_schedule_legacy_location_identity_required`. The agent
+does not infer an identity from its readable label. Conflict selection is
+deterministic: same operator, unresolved historical location, then same stable
+location ID. Completed and cancelled rows no longer reserve a resource.
+
 Status actions are `confirm`, `start`, `complete`, and `cancel`. A transition
 requires the current `expected_revision`; a stale revision returns HTTP `409`
 without writing a partial audit or outbox operation.
@@ -176,6 +184,33 @@ preparation. The Local Agent revalidates the frozen method, physical setup and
 metrology evidence immediately before accepting `start`. A missing, blocked,
 stale or invalidated preparation returns HTTP `409` and leaves the schedule,
 audit and outbox unchanged.
+
+## Identify A Historical Location
+
+Only a non-terminal schedule item whose stable location ID is absent can use:
+
+```http
+POST /api/v1/projects/CEM-2026-001/schedule-items/PLAN-001/location-identification
+```
+
+```json
+{
+  "laboratory_location_id": "LAB-LOCATION-CEM-1",
+  "laboratory_location_label": "Poste CEM 1",
+  "expected_revision": 1,
+  "actor": "laboratory.manager",
+  "reason": "Lieu vérifié sur le dossier papier et le plan d'implantation",
+  "operation_id": "op-identify-location-PLAN-001"
+}
+```
+
+The mutation changes only the location ID/label snapshot, row revision and
+update evidence. It preserves project, title, times, operator, test references,
+equipment, notes and status. A stale revision returns
+`service_schedule_concurrent_update`. A success appends
+`service_schedule_item_location_identified` to project audit and sync outbox;
+the audit payload retains the previous readable label. Any preparation pinned
+to the previous schedule revision becomes stale.
 
 ## Prepare A Confirmed Test
 

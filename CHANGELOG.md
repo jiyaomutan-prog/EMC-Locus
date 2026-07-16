@@ -12,6 +12,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Added
 
+- Added an audited, optimistic-concurrency workflow for identifying the real
+  stable laboratory location of an active historical schedule item without
+  deleting or recreating its project.
 - Added a typed core compatibility decision for every test-method role and
   physical material in a selected setup, including category, capability,
   substitution, serviceability and applicable metrology evidence.
@@ -24,6 +27,10 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Changed
 
+- Active overlapping historical schedule items without a stable location ID
+  now conservatively reserve an unresolved physical resource until an operator
+  selects its real location; conflict priority is operator, unresolved legacy
+  location, then exact stable location ID.
 - Planned slots must now be confirmed before options can be read or a
   preparation assessment can be recorded; historical early assessments remain
   readable but inapplicable.
@@ -35,6 +42,9 @@ change should remain traceable through Git history, session logs, and this file.
 
 ### Fixed
 
+- Prevented a migrated 0.21.0 row with `laboratory_location_id = NULL` from
+  being missed as a physical-location conflict when the candidate booking uses
+  another operator; no ID is inferred from the historical label.
 - Prevented a changed current preparation, schedule revision or readiness input
   from authorizing a start with stale evidence.
 - Stopped using editable location labels as resource identity while preserving
