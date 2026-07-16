@@ -18,7 +18,7 @@ and its sync outbox operations. A planning row records:
 - optional test category and method references;
 - planned start and end timestamps;
 - assigned operator;
-- location;
+- stable laboratory location identity and readable label snapshot;
 - equipment under test;
 - status.
 
@@ -59,7 +59,8 @@ normalized persisted item codes as well, so a constraint-bypassed import with
 surrounding whitespace cannot later be duplicated by a canonical repository
 insert.
 Repository inserts also reject overlapping active planning blocks when the new
-row would reserve the same operator or the same location. Adjacent blocks are
+row would reserve the same operator or the same stable location ID. Location
+labels are never compared as identity. Adjacent blocks are
 allowed, and a completed or cancelled block no longer reserves that operator or
 location for conflict checks. The overlap check compares persisted block
 windows after trimming surrounding whitespace, so constraint-bypassed imports
@@ -156,6 +157,21 @@ Normal clients use the project-centred Local Agent route:
 ```http
 POST /api/v1/projects/CEM-2026-001/schedule-items
 ```
+
+Creation and rescheduling require both location fields:
+
+```json
+{
+  "laboratory_location_id": "LAB-LOCATION-CEM-1",
+  "laboratory_location_label": "Poste CEM 1"
+}
+```
+
+LAB CONSOLE derives normal choices from current ready station revisions and
+shows only the label. Existing 0.21.0 rows without an ID stay visible; a new
+write must select an identified location. The retained direct Python adapter
+is migration/regression support and must not be used as a new application
+writer.
 
 The laboratory manager reads a canonical Monday-to-Friday projection across
 dossiers through:

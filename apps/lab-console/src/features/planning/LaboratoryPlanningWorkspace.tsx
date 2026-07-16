@@ -20,6 +20,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, projectApi } from "../../api";
 import type {
+  LaboratoryLocationOption,
   LaboratoryScheduleItem,
   LaboratoryWeekSchedule,
   PlannedTestMethodSnapshot,
@@ -46,7 +47,7 @@ interface RescheduleForm {
   start_time: string;
   end_time: string;
   assigned_operator: string;
-  location: string;
+  laboratory_location_id: string;
   reason: string;
 }
 
@@ -55,6 +56,7 @@ export function LaboratoryPlanningWorkspace(props: {
 }) {
   const [weekStart, setWeekStart] = useState(() => mondayFor(new Date()));
   const [schedule, setSchedule] = useState<LaboratoryWeekSchedule | null>(null);
+  const [availableLocations, setAvailableLocations] = useState<LaboratoryLocationOption[]>([]);
   const [selectedItem, setSelectedItem] = useState<LaboratoryScheduleItem | null>(null);
   const [operatorFilter, setOperatorFilter] = useState("all");
   const [locationFilter, setLocationFilter] = useState("all");
@@ -67,8 +69,12 @@ export function LaboratoryPlanningWorkspace(props: {
       if (!silent) setLoadState("loading");
       setError(null);
       try {
-        const response = await projectApi.listLaboratoryWeek(weekStart);
+        const [response, locations] = await Promise.all([
+          projectApi.listLaboratoryWeek(weekStart),
+          projectApi.listLaboratoryLocations()
+        ]);
         setSchedule(response);
+        setAvailableLocations(locations);
         setLoadState("ready");
         if (!preserveSelected) {
           setSelectedItem((current) =>
@@ -93,8 +99,16 @@ export function LaboratoryPlanningWorkspace(props: {
     () => uniqueSorted(schedule?.schedule_items.map((item) => item.assigned_operator) ?? []),
     [schedule]
   );
-  const locations = useMemo(
-    () => uniqueSorted(schedule?.schedule_items.map((item) => item.location) ?? []),
+  const locationFilters = useMemo(
+    () => {
+      const values = new Map<string, string>();
+      for (const item of schedule?.schedule_items ?? []) {
+        values.set(scheduleLocationKey(item), item.laboratory_location_label);
+      }
+      return Array.from(values, ([value, label]) => ({ value, label })).sort((left, right) =>
+        left.label.localeCompare(right.label, "fr")
+      );
+    },
     [schedule]
   );
   const filteredItems = useMemo(
@@ -102,11 +116,30 @@ export function LaboratoryPlanningWorkspace(props: {
       (schedule?.schedule_items ?? []).filter(
         (item) =>
           (operatorFilter === "all" || item.assigned_operator === operatorFilter) &&
-          (locationFilter === "all" || item.location === locationFilter) &&
+          (locationFilter === "all" || scheduleLocationKey(item) === locationFilter) &&
           (statusFilter === "all" || item.status === statusFilter)
       ),
     [locationFilter, operatorFilter, schedule, statusFilter]
   );
+  const rescheduleLocations = useMemo(() => {
+    const values = new Map(
+      availableLocations.map((location) => [
+        location.laboratory_location_id,
+        location.laboratory_location_label
+      ])
+    );
+    for (const item of schedule?.schedule_items ?? []) {
+      if (item.laboratory_location_id) {
+        values.set(item.laboratory_location_id, item.laboratory_location_label);
+      }
+    }
+    return Array.from(values, ([laboratory_location_id, laboratory_location_label]) => ({
+      laboratory_location_id,
+      laboratory_location_label
+    })).sort((left, right) =>
+      left.laboratory_location_label.localeCompare(right.laboratory_location_label, "fr")
+    );
+  }, [availableLocations, schedule]);
   const days = useMemo(() => buildWeekDays(schedule?.week_start ?? weekStart), [schedule, weekStart]);
   const filtersActive =
     operatorFilter !== "all" || locationFilter !== "all" || statusFilter !== "all";
@@ -196,7 +229,9 @@ export function LaboratoryPlanningWorkspace(props: {
           Lieu
           <select value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
             <option value="all">Tous les lieux</option>
-            {locations.map((location) => <option key={location}>{location}</option>)}
+            {locationFilters.map((location) => (
+              <option key={location.value} value={location.value}>{location.label}</option>
+            ))}
           </select>
         </label>
         <label>
@@ -253,7 +288,7 @@ export function LaboratoryPlanningWorkspace(props: {
                       <span className="planningSlotTitle">{item.title}</span>
                       <span className="planningSlotProject">{item.project_code} · {item.customer_name}</span>
                       <span><UserRound size={13} /> {item.assigned_operator}</span>
-                      <span><MapPin size={13} /> {item.location}</span>
+                      <span><MapPin size={13} /> {item.laboratory_location_label}</span>
                       <span className={`scheduleStatus scheduleStatus-${item.status}`}>
                         {statusLabels[item.status]}
                       </span>
@@ -288,6 +323,7 @@ export function LaboratoryPlanningWorkspace(props: {
         <ScheduleDetailDialog
           key={`${selectedItem.item_code}-${selectedItem.revision}`}
           item={selectedItem}
+          locations={rescheduleLocations}
           onClose={() => setSelectedItem(null)}
           onOpenProject={() => props.onOpenProject(selectedItem.project_code)}
           onMoved={updateMovedItem}
@@ -300,6 +336,7 @@ export function LaboratoryPlanningWorkspace(props: {
 
 function ScheduleDetailDialog(props: {
   item: LaboratoryScheduleItem;
+  locations: LaboratoryLocationOption[];
   onClose: () => void;
   onOpenProject: () => void;
   onMoved: (item: LaboratoryScheduleItem) => void;
@@ -316,7 +353,7 @@ function ScheduleDetailDialog(props: {
     form.start_time &&
     form.end_time &&
     form.assigned_operator.trim() &&
-    form.location.trim() &&
+    form.laboratory_location_id &&
     form.reason.trim();
 
   const loadPreparation = useCallback(async () => {
@@ -339,6 +376,13 @@ function ScheduleDetailDialog(props: {
   }, [loadPreparation]);
 
   async function submit() {
+    const location = props.locations.find(
+      (candidate) => candidate.laboratory_location_id === form.laboratory_location_id
+    );
+    if (!location) {
+      setError("Choisissez un poste de laboratoire prêt à câbler.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -346,7 +390,8 @@ function ScheduleDetailDialog(props: {
         planned_start_at: `${form.date}T${form.start_time}`,
         planned_end_at: `${form.date}T${form.end_time}`,
         assigned_operator: form.assigned_operator,
-        location: form.location,
+        laboratory_location_id: location.laboratory_location_id,
+        laboratory_location_label: location.laboratory_location_label,
         actor: "Responsable laboratoire",
         reason: form.reason
       });
@@ -472,7 +517,7 @@ function ScheduleDetailDialog(props: {
             <dl className="planningDetailFacts">
               <div><dt><Clock3 size={15} /> Horaire</dt><dd>{formatFullDateTime(props.item)}</dd></div>
               <div><dt><UserRound size={15} /> Opérateur</dt><dd>{props.item.assigned_operator}</dd></div>
-              <div><dt><MapPin size={15} /> Lieu</dt><dd>{props.item.location}</dd></div>
+              <div><dt><MapPin size={15} /> Lieu</dt><dd>{props.item.laboratory_location_label}</dd></div>
               <div><dt>Équipement à tester</dt><dd>{props.item.equipment_under_test}</dd></div>
             </dl>
             {props.item.notes && <p className="planningDetailNote">{props.item.notes}</p>}
@@ -521,10 +566,22 @@ function ScheduleDetailDialog(props: {
             </label>
             <label>
               Lieu
-              <input
-                value={form.location}
-                onChange={(event) => setForm({ ...form, location: event.target.value })}
-              />
+              <select
+                value={form.laboratory_location_id}
+                onChange={(event) =>
+                  setForm({ ...form, laboratory_location_id: event.target.value })
+                }
+              >
+                <option value="">Sélectionner un poste prêt à câbler</option>
+                {props.locations.map((location) => (
+                  <option
+                    key={location.laboratory_location_id}
+                    value={location.laboratory_location_id}
+                  >
+                    {location.laboratory_location_label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               Raison du changement
@@ -776,7 +833,7 @@ function PreparationWorkspace(props: {
           <select value={setupRevisionId} onChange={(event) => setSetupRevisionId(event.target.value)}>
             {options.station_setups.map((candidate) => (
               <option key={candidate.station_setup.revision_id} value={candidate.station_setup.revision_id}>
-                {candidate.station_setup.label} · {candidate.station_setup.station_label}
+                {candidate.station_setup.label} · {candidate.station_setup.laboratory_location_label}
               </option>
             ))}
           </select>
@@ -963,9 +1020,13 @@ function rescheduleForm(item: LaboratoryScheduleItem): RescheduleForm {
     start_time: item.planned_start_at.slice(11, 16),
     end_time: item.planned_end_at.slice(11, 16),
     assigned_operator: item.assigned_operator,
-    location: item.location,
+    laboratory_location_id: item.laboratory_location_id ?? "",
     reason: ""
   };
+}
+
+function scheduleLocationKey(item: LaboratoryScheduleItem): string {
+  return item.laboratory_location_id ?? `legacy:${item.laboratory_location_label}`;
 }
 
 function planningErrorMessage(caught: unknown): string {

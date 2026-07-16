@@ -51,7 +51,8 @@ export interface ServiceScheduleItem {
   planned_start_at: string;
   planned_end_at: string;
   assigned_operator: string;
-  location: string;
+  laboratory_location_id: string | null;
+  laboratory_location_label: string;
   equipment_under_test: string;
   status: ServiceScheduleStatus;
   notes: string;
@@ -73,6 +74,20 @@ export interface LaboratoryWeekSchedule {
   week_start: string;
   week_end: string;
   schedule_items: LaboratoryScheduleItem[];
+}
+
+export interface LaboratoryLocationOption {
+  laboratory_location_id: string;
+  laboratory_location_label: string;
+}
+
+export interface StationSetupLocationSource {
+  current_ready_revision: {
+    definition: {
+      laboratory_location_id?: string | null;
+      laboratory_location_label?: string;
+    };
+  } | null;
 }
 
 export interface ProjectAuditEvent {
@@ -192,7 +207,8 @@ export interface PlannedStationSetupSnapshot {
   revision_status: "ready" | "superseded";
   definition_checksum: string;
   label: string;
-  station_label: string;
+  laboratory_location_id: string | null;
+  laboratory_location_label: string;
   planned_use_on: string;
   execution_mode: ProjectExecutionMode;
   assets: PlannedStationAssetSnapshot[];
@@ -214,7 +230,8 @@ export interface PlannedTestScheduleSnapshot {
   planned_start_at: string;
   planned_end_at: string;
   assigned_operator: string;
-  location: string;
+  laboratory_location_id: string | null;
+  laboratory_location_label: string;
   equipment_under_test: string;
   execution_mode: ProjectExecutionMode;
   status: ServiceScheduleStatus;

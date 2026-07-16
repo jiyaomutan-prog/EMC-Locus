@@ -16,7 +16,8 @@ pub(crate) struct StoredServiceScheduleItem {
     pub(crate) planned_start_at: String,
     pub(crate) planned_end_at: String,
     pub(crate) assigned_operator: String,
-    pub(crate) location: String,
+    pub(crate) laboratory_location_id: Option<String>,
+    pub(crate) laboratory_location_label: String,
     pub(crate) equipment_under_test: String,
     pub(crate) status: String,
     pub(crate) notes: String,
@@ -56,7 +57,8 @@ impl StoredServiceScheduleItem {
             planned_start_at: self.planned_start_at.clone(),
             planned_end_at: self.planned_end_at.clone(),
             assigned_operator: self.assigned_operator.clone(),
-            location: self.location.clone(),
+            laboratory_location_id: self.laboratory_location_id.clone(),
+            laboratory_location_label: self.laboratory_location_label.clone(),
             equipment_under_test: self.equipment_under_test.clone(),
             test_category_code: self.test_category_code.clone(),
             test_method_code: self.test_method_code.clone(),
@@ -74,7 +76,13 @@ pub(crate) fn ensure_service_schedule_table(connection: &Connection) -> Result<(
             "missing required table main.service_schedule_items",
         ));
     }
-    for column in ["revision", "created_by", "updated_by"] {
+    for column in [
+        "revision",
+        "created_by",
+        "updated_by",
+        "laboratory_location_id",
+        "laboratory_location_label",
+    ] {
         if !column_exists(connection, "service_schedule_items", column)? {
             return Err(AgentError::new(
                 "storage_migration_required",
@@ -124,7 +132,8 @@ pub(crate) fn load_laboratory_service_schedule_items(
         .prepare(concat!(
             "SELECT s.id, s.item_code, s.project_code, s.title, s.test_category_code, ",
             "s.test_method_code, s.planned_start_at, s.planned_end_at, ",
-            "s.assigned_operator, s.location, s.equipment_under_test, s.status, s.notes, ",
+            "s.assigned_operator, s.laboratory_location_id, s.laboratory_location_label, ",
+            "s.equipment_under_test, s.status, s.notes, ",
             "s.created_at, s.updated_at, s.revision, s.created_by, s.updated_by, ",
             "p.customer_name, p.stage ",
             "FROM service_schedule_items s JOIN projects p ON p.code = s.project_code ",
@@ -136,8 +145,8 @@ pub(crate) fn load_laboratory_service_schedule_items(
         .query_map(params![start_at, end_at_exclusive], |row| {
             Ok(StoredLaboratoryScheduleItem {
                 schedule_item: stored_schedule_item_from_row(row)?,
-                customer_name: row.get(18)?,
-                project_stage: row.get(19)?,
+                customer_name: row.get(19)?,
+                project_stage: row.get(20)?,
             })
         })
         .map_err(|error| AgentError::new("service_schedule_query_failed", error.to_string()))?;
@@ -160,7 +169,7 @@ pub(crate) fn find_service_schedule_conflict(
         .prepare(&format!(
             concat!(
                 "{} WHERE planned_start_at < ?1 AND planned_end_at > ?2 ",
-                "AND (assigned_operator = ?3 OR location = ?4) ",
+                "AND (assigned_operator = ?3 OR laboratory_location_id = ?4) ",
                 "ORDER BY planned_start_at, planned_end_at, item_code"
             ),
             schedule_select()
@@ -172,7 +181,7 @@ pub(crate) fn find_service_schedule_conflict(
                 candidate.planned_end_at(),
                 candidate.planned_start_at(),
                 candidate.assigned_operator(),
-                candidate.location()
+                candidate.laboratory_location_id()
             ],
             stored_schedule_item_from_row,
         )
@@ -206,10 +215,10 @@ pub(crate) fn insert_service_schedule_item(
                 "INSERT INTO service_schedule_items ",
                 "(item_code, project_code, title, test_category_code, test_method_code, ",
                 "planned_start_at, planned_end_at, assigned_operator, location, ",
-                "equipment_under_test, status, notes, created_at, updated_at, revision, ",
-                "created_by, updated_by) ",
-                "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ",
-                "?13, ?13, 1, ?14, ?14)"
+                "laboratory_location_id, laboratory_location_label, equipment_under_test, ",
+                "status, notes, created_at, updated_at, revision, created_by, updated_by) ",
+                "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ",
+                "?15, ?15, 1, ?16, ?16)"
             ),
             params![
                 item.item_code(),
@@ -220,7 +229,9 @@ pub(crate) fn insert_service_schedule_item(
                 item.planned_start_at(),
                 item.planned_end_at(),
                 item.assigned_operator(),
-                item.location(),
+                item.laboratory_location_label(),
+                item.laboratory_location_id(),
+                item.laboratory_location_label(),
                 item.equipment_under_test(),
                 item.status().as_str(),
                 item.notes(),
@@ -347,14 +358,17 @@ pub(crate) fn update_service_schedule_assignment(
             concat!(
                 "UPDATE service_schedule_items SET planned_start_at = ?1, ",
                 "planned_end_at = ?2, assigned_operator = ?3, location = ?4, ",
-                "revision = revision + 1, updated_by = ?5, updated_at = ?6 ",
-                "WHERE id = ?7 AND revision = ?8"
+                "laboratory_location_id = ?5, laboratory_location_label = ?6, ",
+                "revision = revision + 1, updated_by = ?7, updated_at = ?8 ",
+                "WHERE id = ?9 AND revision = ?10"
             ),
             params![
                 item.planned_start_at(),
                 item.planned_end_at(),
                 item.assigned_operator(),
-                item.location(),
+                item.laboratory_location_label(),
+                item.laboratory_location_id(),
+                item.laboratory_location_label(),
                 actor,
                 timestamp,
                 item_id,
@@ -374,8 +388,9 @@ pub(crate) fn update_service_schedule_assignment(
 fn schedule_select() -> &'static str {
     concat!(
         "SELECT id, item_code, project_code, title, test_category_code, test_method_code, ",
-        "planned_start_at, planned_end_at, assigned_operator, location, equipment_under_test, ",
-        "status, notes, created_at, updated_at, revision, created_by, updated_by ",
+        "planned_start_at, planned_end_at, assigned_operator, laboratory_location_id, ",
+        "laboratory_location_label, equipment_under_test, status, notes, created_at, ",
+        "updated_at, revision, created_by, updated_by ",
         "FROM service_schedule_items"
     )
 }
@@ -393,15 +408,16 @@ fn stored_schedule_item_from_row(
         planned_start_at: row.get(6)?,
         planned_end_at: row.get(7)?,
         assigned_operator: row.get(8)?,
-        location: row.get(9)?,
-        equipment_under_test: row.get(10)?,
-        status: row.get(11)?,
-        notes: row.get(12)?,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
-        revision: row.get(15)?,
-        created_by: row.get(16)?,
-        updated_by: row.get(17)?,
+        laboratory_location_id: row.get(9)?,
+        laboratory_location_label: row.get(10)?,
+        equipment_under_test: row.get(11)?,
+        status: row.get(12)?,
+        notes: row.get(13)?,
+        created_at: row.get(14)?,
+        updated_at: row.get(15)?,
+        revision: row.get(16)?,
+        created_by: row.get(17)?,
+        updated_by: row.get(18)?,
     })
 }
 

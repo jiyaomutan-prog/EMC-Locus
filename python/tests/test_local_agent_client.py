@@ -511,7 +511,8 @@ class LocalAgentClientTests(unittest.TestCase):
                 planned_start_at="2026-07-15T09:00",
                 planned_end_at="2026-07-15T12:00",
                 assigned_operator="Alice Martin",
-                location="Labo CEM 1",
+                laboratory_location_id="LAB-LOCATION-CEM-1",
+                laboratory_location_label="Labo CEM 1",
                 equipment_under_test="Convertisseur ferroviaire",
                 actor="responsable.laboratoire",
                 reason="Creneau convenu",
@@ -648,7 +649,8 @@ class LocalAgentClientTests(unittest.TestCase):
                 planned_start_at="2026-07-16T13:00",
                 planned_end_at="2026-07-16T16:00",
                 assigned_operator="Alice Martin",
-                location="Labo CEM 2",
+                laboratory_location_id="LAB-LOCATION-CEM-2",
+                laboratory_location_label="Labo CEM 2",
                 expected_revision=2,
                 actor="responsable.laboratoire",
                 reason="Reorganisation du laboratoire",
@@ -666,7 +668,14 @@ class LocalAgentClientTests(unittest.TestCase):
         )
         self.assertEqual(captured[1]["method"], "POST")
         self.assertEqual(captured[1]["body"]["expected_revision"], 2)
-        self.assertEqual(captured[1]["body"]["location"], "Labo CEM 2")
+        self.assertEqual(
+            captured[1]["body"]["laboratory_location_id"],
+            "LAB-LOCATION-CEM-2",
+        )
+        self.assertEqual(
+            captured[1]["body"]["laboratory_location_label"],
+            "Labo CEM 2",
+        )
 
     def test_local_agent_client_idempotency_conflict_maps_to_structured_error(self) -> None:
         expected_fingerprint = "sha256:" + "e" * 64
@@ -1261,10 +1270,11 @@ class LocalAgentClientTests(unittest.TestCase):
             )
 
         definition = {
-            "definition_schema_version": "emc-locus.station-measurement-setup-definition.v1",
+            "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-PY-001",
             "label": "Chaîne RF",
-            "station_label": "Salle CEM 1",
+            "laboratory_location_id": "LAB-LOCATION-CEM-1",
+            "laboratory_location_label": "Salle CEM 1",
             "planned_use_on": "2026-07-15",
             "execution_mode": "accredited",
             "asset_bindings": [],
@@ -1276,7 +1286,8 @@ class LocalAgentClientTests(unittest.TestCase):
             client.create_station_setup(
                 setup_id="SETUP-PY-001",
                 label="Chaîne RF",
-                station_label="Salle CEM 1",
+                laboratory_location_id="LAB-LOCATION-CEM-1",
+                laboratory_location_label="Salle CEM 1",
                 planned_use_on="2026-07-15",
                 execution_mode="accredited",
                 actor="operator.one",
@@ -1310,7 +1321,8 @@ class LocalAgentClientTests(unittest.TestCase):
             )
 
         self.assertEqual(captured[0][0:2], ("POST", "http://127.0.0.1:8765/api/v1/station-setups"))
-        self.assertEqual(captured[0][2]["station_label"], "Salle CEM 1")
+        self.assertEqual(captured[0][2]["laboratory_location_id"], "LAB-LOCATION-CEM-1")
+        self.assertEqual(captured[0][2]["laboratory_location_label"], "Salle CEM 1")
         self.assertEqual(captured[1][0], "PUT")
         self.assertTrue(captured[1][1].endswith("/SETUP-PY-001-rev-0001/definition"))
         self.assertEqual(captured[1][2]["expected_definition_checksum"], "sha256:" + "a" * 64)

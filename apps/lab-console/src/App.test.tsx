@@ -167,7 +167,7 @@ describe("LAB CONSOLE", () => {
     await user.click(planningButtons[0]);
 
     await user.type(screen.getByLabelText("Essai prévu"), "Émission conduite");
-    await user.type(screen.getByLabelText("Lieu"), "Labo CEM 1");
+    await user.selectOptions(screen.getByLabelText("Lieu"), "LAB-LOCATION-CEM-1");
     await user.type(screen.getByLabelText("Équipement à tester"), "Convertisseur prototype");
     await user.click(screen.getByRole("button", { name: "Réserver le créneau" }));
 
@@ -192,8 +192,9 @@ describe("LAB CONSOLE", () => {
     await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
     expect(await screen.findByText("CEM-LAB-001 · Industries Atlas")).toBeInTheDocument();
     expect(screen.getByText("CEM-LAB-002 · Mobilités Boréal")).toBeInTheDocument();
+    expect(screen.queryByText(/LAB-LOCATION-/)).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Lieu"), "Labo CEM 1");
+    await user.selectOptions(screen.getByLabelText("Lieu"), "LAB-LOCATION-CEM-1");
     expect(screen.getByText("CEM-LAB-001 · Industries Atlas")).toBeInTheDocument();
     expect(screen.queryByText("CEM-LAB-002 · Mobilités Boréal")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Effacer les filtres" }));
@@ -1875,7 +1876,8 @@ function mockProjectWorkflowApi() {
         planned_start_at: body.planned_start_at,
         planned_end_at: body.planned_end_at,
         assigned_operator: body.assigned_operator,
-        location: body.location,
+        laboratory_location_id: body.laboratory_location_id,
+        laboratory_location_label: body.laboratory_location_label,
         equipment_under_test: body.equipment_under_test,
         status: "planned",
         notes: body.notes ?? "",
@@ -1934,7 +1936,8 @@ function mockLaboratoryPlanningApi() {
     planned_start_at: "2026-07-15T09:00",
     planned_end_at: "2026-07-15T12:00",
     assigned_operator: "Alice Martin",
-    location: "Labo CEM 1",
+    laboratory_location_id: "LAB-LOCATION-CEM-1",
+    laboratory_location_label: "Labo CEM 1",
     equipment_under_test: "Convertisseur prototype",
     status: "planned",
     notes: "Préparer le réseau de stabilisation",
@@ -1955,7 +1958,8 @@ function mockLaboratoryPlanningApi() {
     planned_start_at: "2026-07-16T09:00",
     planned_end_at: "2026-07-16T12:00",
     assigned_operator: "Alice Martin",
-    location: "Chambre semi-anéchoïque",
+    laboratory_location_id: "LAB-LOCATION-ANECHOIC",
+    laboratory_location_label: "Chambre semi-anéchoïque",
     equipment_under_test: "Calculateur de bord",
     status: "confirmed",
     revision: 2,
@@ -1991,7 +1995,8 @@ function mockLaboratoryPlanningApi() {
     revision_status: "ready" as const,
     definition_checksum: canonicalChecksum("b"),
     label: "Chaîne immunité rayonnée",
-    station_label: "Chambre semi-anéchoïque",
+    laboratory_location_id: "LAB-LOCATION-ANECHOIC",
+    laboratory_location_label: "Chambre semi-anéchoïque",
     planned_use_on: "2026-07-16",
     execution_mode: "investigation" as const,
     assets: [
@@ -2098,7 +2103,8 @@ function mockLaboratoryPlanningApi() {
             planned_start_at: second.planned_start_at,
             planned_end_at: second.planned_end_at,
             assigned_operator: second.assigned_operator,
-            location: second.location,
+            laboratory_location_id: second.laboratory_location_id,
+            laboratory_location_label: second.laboratory_location_label,
             equipment_under_test: second.equipment_under_test,
             execution_mode: "investigation",
             status: second.status
@@ -2194,7 +2200,8 @@ function mockLaboratoryPlanningApi() {
                   planned_start_at: second.planned_start_at,
                   planned_end_at: second.planned_end_at,
                   assigned_operator: second.assigned_operator,
-                  location: second.location
+                  laboratory_location_id: second.laboratory_location_id,
+                  laboratory_location_label: second.laboratory_location_label
                 }
               }
             }
@@ -2206,7 +2213,8 @@ function mockLaboratoryPlanningApi() {
       first.planned_start_at = body.planned_start_at;
       first.planned_end_at = body.planned_end_at;
       first.assigned_operator = body.assigned_operator;
-      first.location = body.location;
+      first.laboratory_location_id = body.laboratory_location_id;
+      first.laboratory_location_label = body.laboratory_location_label;
       first.revision += 1;
       return jsonResponse({
         operation: "service_schedule_item_rescheduled",
@@ -2222,6 +2230,28 @@ function mockLaboratoryPlanningApi() {
 function mockBaseApiResponse(path: string, init?: RequestInit) {
   if (path === "/api/v1/health") return jsonResponse(healthFixture);
   if (path === "/api/v1/storage/status") return jsonResponse(storageFixture);
+  if (path === "/api/v1/station-setups") {
+    return jsonResponse({
+      station_setups: [
+        {
+          current_ready_revision: {
+            definition: {
+              laboratory_location_id: "LAB-LOCATION-CEM-1",
+              laboratory_location_label: "Labo CEM 1"
+            }
+          }
+        },
+        {
+          current_ready_revision: {
+            definition: {
+              laboratory_location_id: "LAB-LOCATION-ANECHOIC",
+              laboratory_location_label: "Chambre semi-anéchoïque"
+            }
+          }
+        }
+      ]
+    });
+  }
   if (path === "/api/v1/test-templates") return jsonResponse({ test_templates: [templateFixture()] });
   if (path.startsWith("/api/v1/equipment/categories/tree")) return jsonResponse({ categories: equipmentCategoryTreeFixture() });
   if (path.includes("/api/v1/equipment/categories/") && path.endsWith("/effective-template")) return jsonResponse({ effective_template: effectiveTemplateFixture() });

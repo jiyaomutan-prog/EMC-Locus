@@ -14,6 +14,12 @@ La commande de démarrage fournit donc :
 - l'empreinte canonique de cette préparation ;
 - l'identifiant d'opération utilisé pour l'idempotence.
 
+Le contexte figé compare aussi l'identifiant stable du lieu du créneau à celui
+du montage. Les libellés sont conservés comme instantanés lisibles mais ne
+participent jamais à la décision : un renommage reste compatible, tandis qu'un
+autre identifiant avec le même libellé est bloquant. Une preuve 0.21.0 sans
+identité produit un blocage explicite au lieu d'inférer un lieu depuis le texte.
+
 L'identifiant et l'empreinte de préparation font partie du fingerprint de la
 commande. Réutiliser un identifiant d'opération avec une preuve différente est
 un conflit de rejeu.

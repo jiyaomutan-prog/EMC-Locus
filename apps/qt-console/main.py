@@ -377,8 +377,10 @@ def _station_setup_tab(
     create_layout = qt.QHBoxLayout(create_group)
     new_label = qt.QLineEdit()
     new_label.setPlaceholderText("ex. Mesure d’émission conduite")
-    new_station = qt.QLineEdit()
-    new_station.setPlaceholderText("ex. Poste CEM mobile")
+    new_station = qt.QComboBox()
+    new_station.addItem("Nouveau poste…", None)
+    new_station_label = qt.QLineEdit()
+    new_station_label.setPlaceholderText("ex. Poste CEM mobile")
     new_date = qt.QLineEdit(date.today().isoformat())
     new_date.setMaximumWidth(120)
     new_mode = qt.QComboBox()
@@ -392,6 +394,7 @@ def _station_setup_tab(
     create_layout.addWidget(new_label, 2)
     create_layout.addWidget(qt.QLabel("Poste"))
     create_layout.addWidget(new_station, 2)
+    create_layout.addWidget(new_station_label, 2)
     create_layout.addWidget(qt.QLabel("Date"))
     create_layout.addWidget(new_date)
     create_layout.addWidget(new_mode)
@@ -556,8 +559,12 @@ def _station_setup_tab(
             "superseded": "Remplacé",
         }.get(str(revision.get("status")), str(revision.get("status", "")))
         dirty = " · modifications non sauvegardées" if state["dirty"] else ""
+        location_label = definition.get(
+            "laboratory_location_label",
+            definition.get("station_label", ""),
+        )
         summary.setText(
-            f"{definition.get('label', 'Montage')} · {definition.get('station_label', '')} · "
+            f"{definition.get('label', 'Montage')} · {location_label} · "
             f"{definition.get('planned_use_on', '')} · {status}{dirty}"
         )
 
@@ -804,6 +811,30 @@ def _station_setup_tab(
             instruments_response = client.list_metrology_instruments()
             state["setups"] = setups_response.get("station_setups", [])
             state["instruments"] = eligible_station_instruments(instruments_response)
+            selected_location_id = new_station.currentData()
+            locations: dict[str, str] = {}
+            for aggregate in state["setups"]:
+                revision = current_station_revision(aggregate)
+                definition = revision.get("definition") if isinstance(revision, dict) else None
+                if not isinstance(definition, dict):
+                    continue
+                location_id = str(definition.get("laboratory_location_id", "")).strip()
+                location_label = str(
+                    definition.get("laboratory_location_label", "")
+                ).strip()
+                if location_id and location_label:
+                    locations[location_id] = location_label
+            new_station.blockSignals(True)
+            new_station.clear()
+            new_station.addItem("Nouveau poste…", None)
+            for location_id, location_label in sorted(
+                locations.items(), key=lambda item: item[1].casefold()
+            ):
+                new_station.addItem(location_label, location_id)
+            location_index = new_station.findData(selected_location_id)
+            new_station.setCurrentIndex(location_index if location_index >= 0 else 0)
+            new_station.blockSignals(False)
+            new_station_label.setVisible(new_station.currentData() is None)
             instrument_selector.clear()
             for instrument in state["instruments"]:
                 instrument_selector.addItem(instrument_display_label(instrument), instrument)
@@ -826,15 +857,25 @@ def _station_setup_tab(
             fail(error)
 
     def create_setup(*_args: Any) -> None:
-        if not new_label.text().strip() or not new_station.text().strip():
+        existing_location_id = new_station.currentData()
+        location_label = (
+            new_station.currentText().strip()
+            if existing_location_id
+            else new_station_label.text().strip()
+        )
+        if not new_label.text().strip() or not location_label:
             qt.QMessageBox.warning(root, "EMC Locus", "Renseignez le nom du montage et le poste.")
             return
         setup_id = f"SETUP-{uuid.uuid4().hex[:12].upper()}"
+        location_id = str(existing_location_id) if existing_location_id else (
+            f"LAB-LOCATION-{uuid.uuid4().hex[:12].upper()}"
+        )
         try:
             client.create_station_setup(
                 setup_id=setup_id,
                 label=new_label.text().strip(),
-                station_label=new_station.text().strip(),
+                laboratory_location_id=location_id,
+                laboratory_location_label=location_label,
                 planned_use_on=new_date.text().strip(),
                 execution_mode=str(new_mode.currentData()),
                 actor="test.technician",
@@ -842,6 +883,7 @@ def _station_setup_tab(
             )
             create_group.setVisible(False)
             new_label.clear()
+            new_station_label.clear()
             refresh_all(setup_id)
             on_completed("Montage créé")
         except Exception as error:  # noqa: BLE001 - Qt boundary.
@@ -1039,6 +1081,9 @@ def _station_setup_tab(
     setup_selector.currentIndexChanged.connect(open_selected)
     refresh_button.clicked.connect(lambda _checked=False: refresh_all(setup_selector.currentData()))
     new_button.clicked.connect(lambda _checked=False: create_group.setVisible(True))
+    new_station.currentIndexChanged.connect(
+        lambda _index: new_station_label.setVisible(new_station.currentData() is None)
+    )
     cancel_create_button.clicked.connect(lambda _checked=False: create_group.setVisible(False))
     create_button.clicked.connect(create_setup)
     add_material_button.clicked.connect(add_material)

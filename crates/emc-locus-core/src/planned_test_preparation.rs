@@ -84,7 +84,10 @@ pub struct PlannedTestScheduleSnapshot {
     pub planned_start_at: String,
     pub planned_end_at: String,
     pub assigned_operator: String,
-    pub location: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub laboratory_location_id: Option<String>,
+    #[serde(alias = "location")]
+    pub laboratory_location_label: String,
     pub equipment_under_test: String,
     pub execution_mode: String,
     pub status: ServiceScheduleStatus,
@@ -157,7 +160,10 @@ pub struct PreparedStationSetupSnapshot {
     pub revision_status: StationSetupRevisionStatus,
     pub definition_checksum: String,
     pub label: String,
-    pub station_label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub laboratory_location_id: Option<String>,
+    #[serde(alias = "station_label")]
+    pub laboratory_location_label: String,
     pub planned_use_on: String,
     pub execution_mode: String,
     pub assets: Vec<PreparedStationAssetSnapshot>,
@@ -253,6 +259,28 @@ impl PlannedTestPreparationDefinition {
                 &error.to_string(),
             )]
         })?;
+        if normalized.schedule.laboratory_location_id.is_none()
+            && normalized.station_setup.laboratory_location_id.is_none()
+        {
+            let object = value
+                .as_object_mut()
+                .expect("planned test preparation is an object");
+            if let Some(schedule) = object.get_mut("schedule").and_then(Value::as_object_mut) {
+                schedule.remove("laboratory_location_id");
+                if let Some(label) = schedule.remove("laboratory_location_label") {
+                    schedule.insert("location".to_owned(), label);
+                }
+            }
+            if let Some(station) = object
+                .get_mut("station_setup")
+                .and_then(Value::as_object_mut)
+            {
+                station.remove("laboratory_location_id");
+                if let Some(label) = station.remove("laboratory_location_label") {
+                    station.insert("station_label".to_owned(), label);
+                }
+            }
+        }
         canonicalize_json_value(&mut value);
         let canonical_json = serde_json::to_string(&value).map_err(|error| {
             vec![validation_issue(
@@ -470,13 +498,19 @@ fn validate_definition_structure(
             "schedule.assigned_operator",
             definition.schedule.assigned_operator.as_str(),
         ),
-        ("schedule.location", definition.schedule.location.as_str()),
+        (
+            "schedule.laboratory_location_label",
+            definition.schedule.laboratory_location_label.as_str(),
+        ),
         (
             "schedule.equipment_under_test",
             definition.schedule.equipment_under_test.as_str(),
         ),
     ] {
         require_text(&mut issues, value, path);
+    }
+    if let Some(location_id) = definition.schedule.laboratory_location_id.as_deref() {
+        require_id(&mut issues, location_id, "schedule.laboratory_location_id");
     }
     if definition.schedule.planned_date().len() != 10 {
         issues.push(validation_issue(
@@ -572,9 +606,16 @@ fn validate_definition_structure(
     );
     require_text(
         &mut issues,
-        &definition.station_setup.station_label,
-        "station_setup.station_label",
+        &definition.station_setup.laboratory_location_label,
+        "station_setup.laboratory_location_label",
     );
+    if let Some(location_id) = definition.station_setup.laboratory_location_id.as_deref() {
+        require_id(
+            &mut issues,
+            location_id,
+            "station_setup.laboratory_location_id",
+        );
+    }
     if definition.station_setup.revision_number == 0 {
         issues.push(validation_issue(
             "invalid_planned_test_station_revision_number",
@@ -761,20 +802,35 @@ fn derive_static_readiness_issues(
             None,
         ));
     }
-    if !station
-        .station_label
-        .trim()
-        .eq_ignore_ascii_case(schedule.location.trim())
-    {
-        issues.push(blocking_issue(
-            "planned_test_station_location_mismatch",
-            PlannedTestPreparationDimension::ScheduleContext,
-            "Le poste du montage ne correspond pas au lieu réservé dans le planning.",
-            "Déplacez le créneau vers ce poste ou choisissez le montage du lieu réservé.",
-            None,
-            None,
-            None,
-        ));
+    match (
+        schedule.laboratory_location_id.as_deref(),
+        station.laboratory_location_id.as_deref(),
+    ) {
+        (Some(schedule_location_id), Some(station_location_id))
+            if schedule_location_id != station_location_id =>
+        {
+            issues.push(blocking_issue(
+                "planned_test_station_location_mismatch",
+                PlannedTestPreparationDimension::ScheduleContext,
+                "Le montage n'est pas rattaché au lieu réservé dans le planning.",
+                "Déplacez le créneau vers ce lieu ou choisissez un montage du lieu réservé.",
+                None,
+                None,
+                None,
+            ));
+        }
+        (None, _) | (_, None) => {
+            issues.push(blocking_issue(
+                "planned_test_location_identity_missing",
+                PlannedTestPreparationDimension::ScheduleContext,
+                "Le lieu du créneau ou du montage n'a pas d'identifiant stable.",
+                "Sélectionnez à nouveau un lieu identifié et un montage rattaché à ce lieu.",
+                None,
+                None,
+                None,
+            ));
+        }
+        _ => {}
     }
 
     let assignment_by_slot: BTreeMap<&str, &str> = assignments
@@ -997,7 +1053,11 @@ fn asset_ids_for_bindings(
 fn normalize_definition(definition: &mut PlannedTestPreparationDefinition) {
     definition.schedule.title = definition.schedule.title.trim().to_owned();
     definition.schedule.assigned_operator = definition.schedule.assigned_operator.trim().to_owned();
-    definition.schedule.location = definition.schedule.location.trim().to_owned();
+    definition.schedule.laboratory_location_label = definition
+        .schedule
+        .laboratory_location_label
+        .trim()
+        .to_owned();
     definition.schedule.equipment_under_test =
         definition.schedule.equipment_under_test.trim().to_owned();
     definition.method.title = definition.method.title.trim().to_owned();
@@ -1013,8 +1073,11 @@ fn normalize_definition(definition: &mut PlannedTestPreparationDefinition) {
         slot.depends_on_slots.dedup();
     }
     definition.station_setup.label = definition.station_setup.label.trim().to_owned();
-    definition.station_setup.station_label =
-        definition.station_setup.station_label.trim().to_owned();
+    definition.station_setup.laboratory_location_label = definition
+        .station_setup
+        .laboratory_location_label
+        .trim()
+        .to_owned();
     definition
         .station_setup
         .assets
@@ -1172,7 +1235,8 @@ mod tests {
                 planned_start_at: "2026-07-16T09:00".to_owned(),
                 planned_end_at: "2026-07-16T12:00".to_owned(),
                 assigned_operator: "Alice Martin".to_owned(),
-                location: "Poste CEM 1".to_owned(),
+                laboratory_location_id: Some("LAB-LOCATION-CEM-1".to_owned()),
+                laboratory_location_label: "Poste CEM 1".to_owned(),
                 equipment_under_test: "Calculateur Atlas".to_owned(),
                 execution_mode: "investigation".to_owned(),
                 status: ServiceScheduleStatus::Confirmed,
@@ -1206,7 +1270,8 @@ mod tests {
                 revision_status: StationSetupRevisionStatus::Ready,
                 definition_checksum: checksum('b'),
                 label: "Chaîne émission conduite".to_owned(),
-                station_label: "Poste CEM 1".to_owned(),
+                laboratory_location_id: Some("LAB-LOCATION-CEM-1".to_owned()),
+                laboratory_location_label: "Poste CEM 1".to_owned(),
                 planned_use_on: "2026-07-16".to_owned(),
                 execution_mode: "investigation".to_owned(),
                 assets: vec![PreparedStationAssetSnapshot {
@@ -1303,7 +1368,8 @@ mod tests {
         let mut assessment = input();
         assessment.station_setup.planned_use_on = "2026-07-17".to_owned();
         assessment.station_setup.execution_mode = "accredited".to_owned();
-        assessment.station_setup.station_label = "Poste CEM 2".to_owned();
+        assessment.station_setup.laboratory_location_id = Some("LAB-LOCATION-CEM-2".to_owned());
+        assessment.station_setup.laboratory_location_label = "Poste CEM 1".to_owned();
         assessment.station_readiness.checked_on = "2026-07-16".to_owned();
 
         let definition = assess_planned_test_preparation(assessment).unwrap();
@@ -1317,6 +1383,29 @@ mod tests {
         assert!(codes.contains("planned_test_station_date_mismatch"));
         assert!(codes.contains("planned_test_station_mode_mismatch"));
         assert!(codes.contains("planned_test_station_location_mismatch"));
+    }
+
+    #[test]
+    fn location_identity_ignores_label_changes_and_blocks_missing_identity() {
+        let mut renamed = input();
+        renamed.station_setup.laboratory_location_label = "Poste CEM renommé".to_owned();
+        let renamed = assess_planned_test_preparation(renamed).unwrap();
+        assert!(renamed.verdict.ready);
+        assert!(!renamed
+            .verdict
+            .issues
+            .iter()
+            .any(|issue| issue.code == "planned_test_station_location_mismatch"));
+
+        let mut missing = input();
+        missing.schedule.laboratory_location_id = None;
+        let missing = assess_planned_test_preparation(missing).unwrap();
+        assert!(!missing.verdict.ready);
+        assert!(missing
+            .verdict
+            .issues
+            .iter()
+            .any(|issue| issue.code == "planned_test_location_identity_missing"));
     }
 
     #[test]

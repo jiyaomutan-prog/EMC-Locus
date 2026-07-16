@@ -20,6 +20,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, projectApi } from "../../api";
 import type {
   ContractReviewStatus,
+  LaboratoryLocationOption,
   ProjectAuditEvent,
   ProjectExecutionMode,
   ProjectRecord,
@@ -86,7 +87,7 @@ interface ScheduleForm {
   start_time: string;
   end_time: string;
   assigned_operator: string;
-  location: string;
+  laboratory_location_id: string;
   equipment_under_test: string;
   notes: string;
 }
@@ -97,6 +98,7 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
   const [selectedProject, setSelectedProject] = useState<ProjectRecord | null>(null);
   const [review, setReview] = useState<ContractReviewStatus | null>(null);
   const [schedule, setSchedule] = useState<ServiceScheduleItem[]>([]);
+  const [locations, setLocations] = useState<LaboratoryLocationOption[]>([]);
   const [audit, setAudit] = useState<ProjectAuditEvent[]>([]);
   const [query, setQuery] = useState("");
   const [actor, setActor] = useState("Responsable laboratoire");
@@ -129,9 +131,13 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
       setLoadState("loading");
       setError(null);
       try {
-        const response = await projectApi.listProjects();
+        const [response, availableLocations] = await Promise.all([
+          projectApi.listProjects(),
+          projectApi.listLaboratoryLocations()
+        ]);
         if (!active) return;
         setProjects(response.projects);
+        setLocations(availableLocations);
         const preferredCode = response.projects.some(
           (project) => project.code === props.initialProjectCode
         )
@@ -166,8 +172,12 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
     setLoadState("loading");
     setError(null);
     try {
-      const response = await projectApi.listProjects();
+      const [response, availableLocations] = await Promise.all([
+        projectApi.listProjects(),
+        projectApi.listLaboratoryLocations()
+      ]);
       setProjects(response.projects);
+      setLocations(availableLocations);
       const nextCode = preferredCode ?? selectedCode ?? response.projects[0]?.code ?? null;
       setSelectedCode(nextCode);
       setLoadState("ready");
@@ -265,6 +275,13 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
 
   async function createScheduleItem() {
     if (!selectedProject) return;
+    const location = locations.find(
+      (candidate) => candidate.laboratory_location_id === scheduleForm.laboratory_location_id
+    );
+    if (!location) {
+      setError("Choisissez un poste de laboratoire prêt à câbler.");
+      return;
+    }
     setBusyAction("create-schedule");
     setError(null);
     try {
@@ -275,14 +292,15 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
         planned_start_at: `${scheduleForm.date}T${scheduleForm.start_time}`,
         planned_end_at: `${scheduleForm.date}T${scheduleForm.end_time}`,
         assigned_operator: scheduleForm.assigned_operator,
-        location: scheduleForm.location,
+        laboratory_location_id: location.laboratory_location_id,
+        laboratory_location_label: location.laboratory_location_label,
         equipment_under_test: scheduleForm.equipment_under_test,
         notes: scheduleForm.notes || undefined,
         actor,
         reason: "Réservation du créneau d'essai"
       });
       setShowSchedule(false);
-      setScheduleForm(defaultScheduleForm(actor));
+      setScheduleForm(defaultScheduleForm(actor, locations[0]?.laboratory_location_id));
       await loadProject(selectedProject.code);
     } catch (caught) {
       setError(projectErrorMessage(caught));
@@ -321,7 +339,7 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
   }
 
   function openScheduleForm() {
-    setScheduleForm(defaultScheduleForm(actor));
+    setScheduleForm(defaultScheduleForm(actor, locations[0]?.laboratory_location_id));
     setShowSchedule(true);
   }
 
@@ -438,6 +456,7 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
         <ScheduleDialog
           project={selectedProject}
           form={scheduleForm}
+          locations={locations}
           error={error}
           busy={busyAction === "create-schedule"}
           onChange={setScheduleForm}
@@ -712,7 +731,7 @@ function NextAction(props: {
         <div>
           <span>Prochaine action</span>
           <strong>Confirmer le créneau du {formatScheduleDate(props.firstOpenSchedule)}.</strong>
-          <p>{props.firstOpenSchedule.assigned_operator} · {props.firstOpenSchedule.location}</p>
+          <p>{props.firstOpenSchedule.assigned_operator} · {props.firstOpenSchedule.laboratory_location_label}</p>
         </div>
         <button
           disabled={props.busyAction !== null}
@@ -758,7 +777,7 @@ function ScheduleRow(props: {
         <p>{props.item.equipment_under_test}</p>
         <div className="scheduleResources">
           <span><UserRound size={14} /> {props.item.assigned_operator}</span>
-          <span><MapPin size={14} /> {props.item.location}</span>
+          <span><MapPin size={14} /> {props.item.laboratory_location_label}</span>
         </div>
       </div>
       <div className="scheduleActions">
@@ -879,6 +898,7 @@ function CreateProjectDialog(props: {
 function ScheduleDialog(props: {
   project: ProjectRecord;
   form: ScheduleForm;
+  locations: LaboratoryLocationOption[];
   error: string | null;
   busy: boolean;
   onChange: (value: ScheduleForm) => void;
@@ -892,7 +912,7 @@ function ScheduleDialog(props: {
     props.form.start_time &&
     props.form.end_time &&
     props.form.assigned_operator.trim() &&
-    props.form.location.trim() &&
+    props.form.laboratory_location_id &&
     props.form.equipment_under_test.trim();
   return (
     <div className="modalBackdrop" role="presentation">
@@ -968,11 +988,25 @@ function ScheduleDialog(props: {
           </label>
           <label>
             Lieu
-            <input
-              value={props.form.location}
-              onChange={(event) => props.onChange({ ...props.form, location: event.target.value })}
-              placeholder="Ex. Labo CEM 1"
-            />
+            <select
+              value={props.form.laboratory_location_id}
+              onChange={(event) =>
+                props.onChange({ ...props.form, laboratory_location_id: event.target.value })
+              }
+            >
+              <option value="">Sélectionner un poste prêt à câbler</option>
+              {props.locations.map((location) => (
+                <option
+                  key={location.laboratory_location_id}
+                  value={location.laboratory_location_id}
+                >
+                  {location.laboratory_location_label}
+                </option>
+              ))}
+            </select>
+            {props.locations.length === 0 && (
+              <small>Créez et validez d'abord un montage dans Test Station.</small>
+            )}
           </label>
           <label>
             Équipement à tester
@@ -1012,14 +1046,14 @@ function schedulePositiveAction(status: ServiceScheduleStatus): {
   return null;
 }
 
-function defaultScheduleForm(actor: string): ScheduleForm {
+function defaultScheduleForm(actor: string, locationId = ""): ScheduleForm {
   return {
     title: "",
     date: nextBusinessDate(),
     start_time: "09:00",
     end_time: "12:00",
     assigned_operator: actor,
-    location: "",
+    laboratory_location_id: locationId,
     equipment_under_test: "",
     notes: ""
   };
@@ -1054,7 +1088,7 @@ function projectErrorMessage(caught: unknown): string {
     return `${String(conflict.assigned_operator)} est déjà affecté au créneau « ${String(conflict.title)} » de ${String(conflict.planned_start_at)} à ${String(conflict.planned_end_at)}.`;
   }
   if (caught.code === "service_schedule_location_conflict" && conflict) {
-    return `${String(conflict.location)} est déjà réservé pour « ${String(conflict.title)} » de ${String(conflict.planned_start_at)} à ${String(conflict.planned_end_at)}.`;
+    return `${String(conflict.laboratory_location_label)} est déjà réservé pour « ${String(conflict.title)} » de ${String(conflict.planned_start_at)} à ${String(conflict.planned_end_at)}.`;
   }
   const messages: Record<string, string> = {
     contract_review_incomplete: "La revue du besoin n'est pas encore terminée.",

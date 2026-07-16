@@ -52,6 +52,7 @@ import type {
 import type {
   ContractReviewOperationResult,
   ContractReviewStatus,
+  LaboratoryLocationOption,
   LaboratoryWeekSchedule,
   ProjectAuditEvent,
   ProjectExecutionMode,
@@ -62,7 +63,8 @@ import type {
   PlannedTestPreparationOptions,
   PlannedTestPreparationRevision,
   ServiceScheduleItem,
-  ServiceScheduleOperationResult
+  ServiceScheduleOperationResult,
+  StationSetupLocationSource
 } from "./models/projects";
 
 export class ApiError extends Error {
@@ -714,6 +716,24 @@ export const metrologyApi = {
 };
 
 export const projectApi = {
+  listLaboratoryLocations: async (): Promise<LaboratoryLocationOption[]> => {
+    const response = await request<{ station_setups: StationSetupLocationSource[] }>(
+      "/api/v1/station-setups"
+    );
+    const locations = new Map<string, string>();
+    for (const aggregate of response.station_setups) {
+      const definition = aggregate.current_ready_revision?.definition;
+      const locationId = definition?.laboratory_location_id?.trim();
+      const locationLabel = definition?.laboratory_location_label?.trim();
+      if (locationId && locationLabel) locations.set(locationId, locationLabel);
+    }
+    return Array.from(locations, ([laboratory_location_id, laboratory_location_label]) => ({
+      laboratory_location_id,
+      laboratory_location_label
+    })).sort((left, right) =>
+      left.laboratory_location_label.localeCompare(right.laboratory_location_label, "fr")
+    );
+  },
   listProjects: () => request<{ projects: ProjectRecord[] }>("/api/v1/projects"),
   getProject: (projectCode: string) =>
     request<{ project: ProjectRecord }>(`/api/v1/projects/${encodeURIComponent(projectCode)}`),
@@ -819,7 +839,8 @@ export const projectApi = {
       planned_start_at: string;
       planned_end_at: string;
       assigned_operator: string;
-      location: string;
+      laboratory_location_id: string;
+      laboratory_location_label: string;
       equipment_under_test: string;
       notes?: string;
       actor: string;
@@ -861,7 +882,8 @@ export const projectApi = {
       planned_start_at: string;
       planned_end_at: string;
       assigned_operator: string;
-      location: string;
+      laboratory_location_id: string;
+      laboratory_location_label: string;
       actor: string;
       reason: string;
     }

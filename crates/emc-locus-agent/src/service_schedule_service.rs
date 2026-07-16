@@ -59,7 +59,8 @@ pub struct CreateServiceScheduleItemInput {
     pub planned_start_at: String,
     pub planned_end_at: String,
     pub assigned_operator: String,
-    pub location: String,
+    pub laboratory_location_id: String,
+    pub laboratory_location_label: String,
     pub equipment_under_test: String,
     pub test_category_code: Option<String>,
     pub test_method_code: Option<String>,
@@ -93,7 +94,8 @@ pub struct RescheduleServiceScheduleItemInput {
     pub planned_start_at: String,
     pub planned_end_at: String,
     pub assigned_operator: String,
-    pub location: String,
+    pub laboratory_location_id: String,
+    pub laboratory_location_label: String,
     pub expected_revision: u64,
     pub actor: String,
     pub reason: String,
@@ -119,7 +121,8 @@ pub fn create_service_schedule_item(
         planned_start_at: input.planned_start_at.clone(),
         planned_end_at: input.planned_end_at.clone(),
         assigned_operator: input.assigned_operator.clone(),
-        location: input.location.clone(),
+        laboratory_location_id: Some(input.laboratory_location_id.clone()),
+        laboratory_location_label: input.laboratory_location_label.clone(),
         equipment_under_test: input.equipment_under_test.clone(),
         test_category_code: input.test_category_code.clone(),
         test_method_code: input.test_method_code.clone(),
@@ -356,7 +359,8 @@ pub fn reschedule_service_schedule_item(
             planned_start_at: input.planned_start_at.clone(),
             planned_end_at: input.planned_end_at.clone(),
             assigned_operator: input.assigned_operator.clone(),
-            location: input.location.clone(),
+            laboratory_location_id: input.laboratory_location_id.clone(),
+            laboratory_location_label: input.laboratory_location_label.clone(),
         })
         .map_err(|issue| reschedule_error(issue, current.status()))?;
     if let Some(conflict) = find_service_schedule_conflict(&connection, &moved, Some(stored.id))? {
@@ -893,7 +897,8 @@ fn schedule_item_dto(
         planned_start_at: item.planned_start_at().to_owned(),
         planned_end_at: item.planned_end_at().to_owned(),
         assigned_operator: item.assigned_operator().to_owned(),
-        location: item.location().to_owned(),
+        laboratory_location_id: item.laboratory_location_id().map(str::to_owned),
+        laboratory_location_label: item.laboratory_location_label().to_owned(),
         equipment_under_test: item.equipment_under_test().to_owned(),
         status: item.status().as_str().to_owned(),
         notes: item.notes().to_owned(),
@@ -954,7 +959,8 @@ fn schedule_snapshot_payload(item: &ServiceScheduleItem) -> String {
         "planned_start_at": item.planned_start_at(),
         "planned_end_at": item.planned_end_at(),
         "assigned_operator": item.assigned_operator(),
-        "location": item.location(),
+        "laboratory_location_id": item.laboratory_location_id(),
+        "laboratory_location_label": item.laboratory_location_label(),
         "equipment_under_test": item.equipment_under_test(),
         "status": item.status().as_str(),
         "notes": item.notes(),
@@ -1018,7 +1024,8 @@ fn reschedule_command_payload(input: &RescheduleServiceScheduleItemInput) -> Str
         "planned_start_at": input.planned_start_at,
         "planned_end_at": input.planned_end_at,
         "assigned_operator": input.assigned_operator,
-        "location": input.location,
+        "laboratory_location_id": input.laboratory_location_id,
+        "laboratory_location_label": input.laboratory_location_label,
         "expected_revision": input.expected_revision,
         "reason": input.reason,
     }))
@@ -1029,7 +1036,8 @@ fn schedule_assignment_snapshot(item: &ServiceScheduleItem) -> serde_json::Value
         "planned_start_at": item.planned_start_at(),
         "planned_end_at": item.planned_end_at(),
         "assigned_operator": item.assigned_operator(),
-        "location": item.location(),
+        "laboratory_location_id": item.laboratory_location_id(),
+        "laboratory_location_label": item.laboratory_location_label(),
     })
 }
 
@@ -1046,7 +1054,7 @@ fn schedule_conflict_error(conflict: ScheduleConflict) -> AgentError {
             "service_schedule_location_conflict",
             "the selected laboratory location is already reserved during this period",
             "location",
-            item.location.clone(),
+            item.laboratory_location_label.clone(),
         ),
     };
     AgentError::with_details(
@@ -1062,7 +1070,8 @@ fn schedule_conflict_error(conflict: ScheduleConflict) -> AgentError {
                 "planned_start_at": item.planned_start_at,
                 "planned_end_at": item.planned_end_at,
                 "assigned_operator": item.assigned_operator,
-                "location": item.location,
+                "laboratory_location_id": item.laboratory_location_id,
+                "laboratory_location_label": item.laboratory_location_label,
             }
         }),
     )
@@ -1481,7 +1490,8 @@ mod tests {
             planned_start_at: "2026-07-15T09:00".to_owned(),
             planned_end_at: "2026-07-15T12:00".to_owned(),
             assigned_operator: operator.to_owned(),
-            location: location.to_owned(),
+            laboratory_location_id: test_location_id(location),
+            laboratory_location_label: location.to_owned(),
             equipment_under_test: "Convertisseur ferroviaire".to_owned(),
             test_category_code: Some("emission_conducted".to_owned()),
             test_method_code: None,
@@ -1533,7 +1543,8 @@ mod tests {
             planned_start_at: planned_start_at.to_owned(),
             planned_end_at: planned_end_at.to_owned(),
             assigned_operator: assigned_operator.to_owned(),
-            location: location.to_owned(),
+            laboratory_location_id: test_location_id(location),
+            laboratory_location_label: location.to_owned(),
             expected_revision,
             actor: "responsable.laboratoire".to_owned(),
             reason: "Réorganisation du laboratoire".to_owned(),
@@ -1541,6 +1552,13 @@ mod tests {
             correlation_id: format!("corr-reschedule-{suffix}"),
             device_id: "lab-console".to_owned(),
         }
+    }
+
+    fn test_location_id(label: &str) -> String {
+        format!(
+            "LAB-LOCATION-{}",
+            label.replace(' ', "-").to_ascii_uppercase()
+        )
     }
 
     fn create_project_for_test(storage_root: &Path, code: &str, ready_for_planning: bool) {

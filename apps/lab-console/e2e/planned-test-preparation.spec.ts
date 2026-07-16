@@ -390,11 +390,14 @@ async function createReadyStation(
     operationPrefix: string;
   }
 ) {
+  const locationId = `LAB-LOCATION-${input.setupId.replace("SETUP-PREP-", "")}`;
+  const locationLabel = `Poste CEM ${input.setupId.replace("SETUP-PREP-", "")}`;
   const created = await request.post("/api/v1/station-setups", {
     data: {
       setup_id: input.setupId,
       label: input.label,
-      station_label: `Poste CEM ${input.setupId.replace("SETUP-PREP-", "")}`,
+      laboratory_location_id: locationId,
+      laboratory_location_label: locationLabel,
       planned_use_on: input.plannedDate,
       execution_mode: "investigation",
       actor: "E2E technicien",
@@ -406,10 +409,11 @@ async function createReadyStation(
   const aggregate = (await created.json()).station_setup;
   const draft = aggregate.active_draft_revision;
   const definition = {
-    definition_schema_version: "emc-locus.station-measurement-setup-definition.v1",
+    definition_schema_version: "emc-locus.station-measurement-setup-definition.v2",
     setup_id: input.setupId,
     label: input.label,
-    station_label: `Poste CEM ${input.setupId.replace("SETUP-PREP-", "")}`,
+    laboratory_location_id: locationId,
+    laboratory_location_label: locationLabel,
     planned_use_on: input.plannedDate,
     execution_mode: "investigation",
     asset_bindings: [
@@ -537,7 +541,8 @@ async function createConfirmedSchedule(
         planned_start_at: `${input.plannedDate}T09:00`,
         planned_end_at: `${input.plannedDate}T12:00`,
         assigned_operator: input.operator,
-        location: `Poste CEM ${input.projectCode.replace("CEM-PREP-", "")}`,
+        laboratory_location_id: `LAB-LOCATION-${input.projectCode.replace("CEM-PREP-", "")}`,
+        laboratory_location_label: `Poste CEM ${input.projectCode.replace("CEM-PREP-", "")}`,
         equipment_under_test: "Convertisseur Horizon HCU-4",
         actor: "E2E responsable laboratoire",
         reason: "Planifier le scénario de pré-vol",
