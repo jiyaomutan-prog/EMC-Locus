@@ -169,7 +169,8 @@ pub(crate) fn find_service_schedule_conflict(
         .prepare(&format!(
             concat!(
                 "{} WHERE planned_start_at < ?1 AND planned_end_at > ?2 ",
-                "AND (assigned_operator = ?3 OR laboratory_location_id = ?4) ",
+                "AND (assigned_operator = ?3 OR laboratory_location_id IS NULL ",
+                "OR laboratory_location_id = ?4) ",
                 "ORDER BY planned_start_at, planned_end_at, item_code"
             ),
             schedule_select()
@@ -186,6 +187,7 @@ pub(crate) fn find_service_schedule_conflict(
             stored_schedule_item_from_row,
         )
         .map_err(|error| AgentError::new("service_schedule_query_failed", error.to_string()))?;
+    let mut selected: Option<(u8, ScheduleConflict)> = None;
     for row in rows {
         let stored = row
             .map_err(|error| AgentError::new("service_schedule_query_failed", error.to_string()))?;
@@ -194,13 +196,28 @@ pub(crate) fn find_service_schedule_conflict(
         }
         let existing = stored.to_domain()?;
         if let Some(kind) = candidate.resource_conflict(&existing) {
-            return Ok(Some(ScheduleConflict {
+            let priority = conflict_priority(kind);
+            let conflict = ScheduleConflict {
                 kind,
                 conflicting_item: stored,
-            }));
+            };
+            if selected
+                .as_ref()
+                .is_none_or(|(current_priority, _)| priority < *current_priority)
+            {
+                selected = Some((priority, conflict));
+            }
         }
     }
-    Ok(None)
+    Ok(selected.map(|(_, conflict)| conflict))
+}
+
+fn conflict_priority(kind: ScheduleResourceConflictKind) -> u8 {
+    match kind {
+        ScheduleResourceConflictKind::Operator => 1,
+        ScheduleResourceConflictKind::UnresolvedLocationIdentity => 2,
+        ScheduleResourceConflictKind::Location => 3,
+    }
 }
 
 pub(crate) fn insert_service_schedule_item(

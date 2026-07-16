@@ -1050,6 +1050,12 @@ fn schedule_conflict_error(conflict: ScheduleConflict) -> AgentError {
             "operator",
             item.assigned_operator.clone(),
         ),
+        ScheduleResourceConflictKind::UnresolvedLocationIdentity => (
+            "service_schedule_legacy_location_identity_required",
+            "Un créneau existant utilise encore un lieu non identifié. Identifiez son lieu avant de réserver un autre créneau sur cette période.",
+            "unresolved_location_identity",
+            item.laboratory_location_label.clone(),
+        ),
         ScheduleResourceConflictKind::Location => (
             "service_schedule_location_conflict",
             "the selected laboratory location is already reserved during this period",
@@ -1072,6 +1078,12 @@ fn schedule_conflict_error(conflict: ScheduleConflict) -> AgentError {
                 "assigned_operator": item.assigned_operator,
                 "laboratory_location_id": item.laboratory_location_id,
                 "laboratory_location_label": item.laboratory_location_label,
+                "status": item.status,
+            },
+            "next_action": if conflict.kind == ScheduleResourceConflictKind::UnresolvedLocationIdentity {
+                Some("identify_service_schedule_location")
+            } else {
+                None
             }
         }),
     )
@@ -1149,8 +1161,11 @@ mod tests {
     };
     use crate::{run_storage_action, StorageAction};
     use emc_locus_core::{required_contract_review_items, ExecutionMode};
-    use rusqlite::Connection;
-    use std::path::{Path, PathBuf};
+    use rusqlite::{params, Connection};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
 
     #[test]
     fn refuses_scheduling_before_contract_review_reaches_planning() {
@@ -1222,6 +1237,132 @@ mod tests {
         assert_eq!(table_count(&storage_root, "service_schedule_items"), 1);
         assert_eq!(operation_count(&storage_root, "op-PLAN-CONFLICT-002"), 0);
         assert_eq!(operation_count(&storage_root, "op-PLAN-CONFLICT-003"), 0);
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn migrated_legacy_active_schedule_items_block_creation_without_partial_evidence() {
+        for status in ["planned", "confirmed", "in_progress"] {
+            let storage_root =
+                temporary_storage_root(&format!("service-schedule-legacy-active-{status}"));
+            initialize_storage_with_legacy_schedule(&storage_root, status, "Alice");
+            let mut input = schedule_input(
+                "CEM-LEGACY-001",
+                &format!("PLAN-CANDIDATE-{status}"),
+                "Bob",
+                "Poste CEM moderne",
+            );
+            input.planned_start_at = "2026-07-15T10:00".to_owned();
+            input.planned_end_at = "2026-07-15T11:00".to_owned();
+
+            let error = create_service_schedule_item(&storage_root, input.clone()).unwrap_err();
+            let rendered = error.to_json();
+
+            assert_eq!(
+                error.code, "service_schedule_legacy_location_identity_required",
+                "status {status}"
+            );
+            assert!(rendered.contains("Un créneau existant utilise encore un lieu non identifié"));
+            assert!(rendered.contains("PLAN-LEGACY-001"));
+            assert!(rendered.contains("Ancien poste CEM"));
+            assert!(rendered.contains(&format!("\"status\":\"{status}\"")));
+            assert!(rendered.contains("identify_service_schedule_location"));
+            assert_eq!(table_count(&storage_root, "service_schedule_items"), 1);
+            assert_eq!(audit_count(&storage_root), 0);
+            assert_eq!(operation_count(&storage_root, &input.operation_id), 0);
+            remove_temporary_storage_root(&storage_root);
+        }
+    }
+
+    #[test]
+    fn migrated_legacy_terminal_schedule_items_do_not_block_creation() {
+        for status in ["completed", "cancelled"] {
+            let storage_root =
+                temporary_storage_root(&format!("service-schedule-legacy-terminal-{status}"));
+            initialize_storage_with_legacy_schedule(&storage_root, status, "Alice");
+            let mut input = schedule_input(
+                "CEM-LEGACY-001",
+                &format!("PLAN-CANDIDATE-{status}"),
+                "Bob",
+                "Poste CEM moderne",
+            );
+            input.planned_start_at = "2026-07-15T10:00".to_owned();
+            input.planned_end_at = "2026-07-15T11:00".to_owned();
+
+            let created = create_service_schedule_item(&storage_root, input).unwrap();
+
+            assert!(created.contains("\"replayed\":false"), "status {status}");
+            assert_eq!(table_count(&storage_root, "service_schedule_items"), 2);
+            remove_temporary_storage_root(&storage_root);
+        }
+    }
+
+    #[test]
+    fn migrated_legacy_item_keeps_operator_conflict_priority() {
+        let storage_root = temporary_storage_root("service-schedule-legacy-priority");
+        initialize_storage_with_legacy_schedule(&storage_root, "planned", "Alice");
+        let mut input = schedule_input(
+            "CEM-LEGACY-001",
+            "PLAN-CANDIDATE-PRIORITY",
+            "Alice",
+            "Autre poste",
+        );
+        input.planned_start_at = "2026-07-15T10:00".to_owned();
+        input.planned_end_at = "2026-07-15T11:00".to_owned();
+
+        let error = create_service_schedule_item(&storage_root, input).unwrap_err();
+
+        assert_eq!(error.code, "service_schedule_operator_conflict");
+        assert_eq!(table_count(&storage_root, "service_schedule_items"), 1);
+        assert_eq!(audit_count(&storage_root), 0);
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn migrated_legacy_item_blocks_reschedule_without_partial_evidence() {
+        let storage_root = temporary_storage_root("service-schedule-legacy-reschedule");
+        initialize_storage_with_legacy_schedule(&storage_root, "confirmed", "Alice");
+        let mut movable = schedule_input(
+            "CEM-LEGACY-001",
+            "PLAN-MOVABLE-LEGACY",
+            "Bob",
+            "Poste CEM moderne",
+        );
+        movable.planned_start_at = "2026-07-15T13:00".to_owned();
+        movable.planned_end_at = "2026-07-15T15:00".to_owned();
+        create_service_schedule_item(&storage_root, movable).unwrap();
+        let audit_before = audit_count(&storage_root);
+        let outbox_before = total_operation_count(&storage_root);
+
+        let error = reschedule_service_schedule_item(
+            &storage_root,
+            reschedule_input(
+                "CEM-LEGACY-001",
+                "PLAN-MOVABLE-LEGACY",
+                "2026-07-15T10:00",
+                "2026-07-15T11:00",
+                "Bob",
+                "Poste CEM moderne",
+                1,
+                "legacy-conflict",
+            ),
+        )
+        .unwrap_err();
+        let listed = list_project_service_schedule_items(&storage_root, "CEM-LEGACY-001").unwrap();
+
+        assert_eq!(
+            error.code,
+            "service_schedule_legacy_location_identity_required"
+        );
+        assert!(listed.contains("\"planned_start_at\":\"2026-07-15T13:00\""));
+        assert!(listed.contains("\"revision\":1"));
+        assert_eq!(table_count(&storage_root, "service_schedule_items"), 2);
+        assert_eq!(audit_count(&storage_root), audit_before);
+        assert_eq!(total_operation_count(&storage_root), outbox_before);
+        assert_eq!(
+            operation_count(&storage_root, "op-reschedule-legacy-conflict"),
+            0
+        );
         remove_temporary_storage_root(&storage_root);
     }
 
@@ -1623,6 +1764,76 @@ mod tests {
         .unwrap();
     }
 
+    fn initialize_storage_with_legacy_schedule(
+        storage_root: &Path,
+        status: &str,
+        assigned_operator: &str,
+    ) {
+        let migrations_root = repo_root().join("storage/sqlite");
+        fs::create_dir_all(storage_root).unwrap();
+        let projects_database = storage_root.join("projects.sqlite");
+        let connection = Connection::open(&projects_database).unwrap();
+        for migration in [
+            "0001_project_records.sql",
+            "0002_service_schedule.sql",
+            "0003_simulated_test_executions.sql",
+            "0004_attached_documents.sql",
+            "0005_simulated_execution_template_revision.sql",
+            "0006_service_schedule_agent_ownership.sql",
+            "0007_planned_test_preparations.sql",
+        ] {
+            let sql = fs::read_to_string(migrations_root.join("projects").join(migration)).unwrap();
+            connection.execute_batch(&sql).unwrap();
+        }
+        connection
+            .execute(
+                concat!(
+                    "INSERT INTO projects ",
+                    "(code, customer_name, stage, execution_mode, created_at) ",
+                    "VALUES ('CEM-LEGACY-001', 'Client historique', 'test_planning', ",
+                    "'non_accredited', '2026-07-14T08:00:00Z')"
+                ),
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                concat!(
+                    "INSERT INTO service_schedule_items ",
+                    "(item_code, project_code, title, planned_start_at, planned_end_at, ",
+                    "assigned_operator, location, equipment_under_test, status, notes, ",
+                    "created_at, updated_at) VALUES ",
+                    "('PLAN-LEGACY-001', 'CEM-LEGACY-001', 'Essai historique', ",
+                    "'2026-07-15T09:00', '2026-07-15T12:00', ?1, 'Ancien poste CEM', ",
+                    "'EUT historique', ?2, '', '2026-07-14T08:00:00Z', ",
+                    "'2026-07-14T08:00:00Z')"
+                ),
+                params![assigned_operator, status],
+            )
+            .unwrap();
+        drop(connection);
+
+        run_storage_action(
+            StorageAction::Init,
+            storage_root.to_path_buf(),
+            migrations_root,
+        )
+        .unwrap();
+        let connection = Connection::open(projects_database).unwrap();
+        let migrated: (u64, Option<String>, String) = connection
+            .query_row(
+                concat!(
+                    "SELECT MAX(version), laboratory_location_id, laboratory_location_label ",
+                    "FROM schema_migrations CROSS JOIN service_schedule_items ",
+                    "WHERE item_code = 'PLAN-LEGACY-001'"
+                ),
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(migrated, (8, None, "Ancien poste CEM".to_owned()));
+    }
+
     fn table_count(storage_root: &Path, table: &str) -> u64 {
         let connection = Connection::open(storage_root.join("projects.sqlite")).unwrap();
         connection
@@ -1640,6 +1851,22 @@ mod tests {
                 [operation_id],
                 |row| row.get(0),
             )
+            .unwrap()
+    }
+
+    fn total_operation_count(storage_root: &Path) -> u64 {
+        let connection = Connection::open(storage_root.join("sync.sqlite")).unwrap();
+        connection
+            .query_row("SELECT COUNT(*) FROM sync_operations", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    fn audit_count(storage_root: &Path) -> u64 {
+        let connection = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        connection
+            .query_row("SELECT COUNT(*) FROM project_audit_events", [], |row| {
+                row.get(0)
+            })
             .unwrap()
     }
 

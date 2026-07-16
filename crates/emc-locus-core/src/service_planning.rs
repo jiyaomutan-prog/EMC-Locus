@@ -59,6 +59,7 @@ impl ServiceScheduleStatus {
 #[serde(rename_all = "snake_case")]
 pub enum ScheduleResourceConflictKind {
     Operator,
+    UnresolvedLocationIdentity,
     Location,
 }
 
@@ -420,6 +421,9 @@ impl ServiceScheduleItem {
         if self.assigned_operator == other.assigned_operator {
             return Some(ScheduleResourceConflictKind::Operator);
         }
+        if self.laboratory_location_id.is_none() || other.laboratory_location_id.is_none() {
+            return Some(ScheduleResourceConflictKind::UnresolvedLocationIdentity);
+        }
         if self.laboratory_location_id.is_some()
             && self.laboratory_location_id == other.laboratory_location_id
         {
@@ -751,6 +755,71 @@ mod tests {
             Some(ScheduleResourceConflictKind::Location)
         );
         assert_eq!(first.resource_conflict(&same_label_other_location), None);
+    }
+
+    #[test]
+    fn unresolved_location_identity_blocks_without_guessing_from_the_label() {
+        let candidate = item(
+            "PLAN-CANDIDATE",
+            "2026-07-15T09:00",
+            "2026-07-15T12:00",
+            "Bob",
+            "Poste CEM 1",
+        );
+        let historical = ServiceScheduleItem::restore(ServiceScheduleItemInput {
+            item_code: "PLAN-HISTORICAL".to_owned(),
+            project_code: ProjectCode::parse("CEM-2026-001").unwrap(),
+            title: "Essai historique".to_owned(),
+            planned_start_at: "2026-07-15T10:00".to_owned(),
+            planned_end_at: "2026-07-15T11:00".to_owned(),
+            assigned_operator: "Alice".to_owned(),
+            laboratory_location_id: None,
+            laboratory_location_label: "Poste CEM 1".to_owned(),
+            equipment_under_test: "EUT".to_owned(),
+            test_category_code: None,
+            test_method_code: None,
+            status: ServiceScheduleStatus::Confirmed,
+            notes: None,
+        })
+        .unwrap();
+
+        assert_eq!(historical.laboratory_location_id(), None);
+        assert_eq!(
+            candidate.resource_conflict(&historical),
+            Some(ScheduleResourceConflictKind::UnresolvedLocationIdentity)
+        );
+    }
+
+    #[test]
+    fn operator_conflict_has_priority_over_unresolved_location_identity() {
+        let candidate = item(
+            "PLAN-CANDIDATE",
+            "2026-07-15T09:00",
+            "2026-07-15T12:00",
+            "Alice",
+            "Poste CEM 2",
+        );
+        let historical = ServiceScheduleItem::restore(ServiceScheduleItemInput {
+            item_code: "PLAN-HISTORICAL".to_owned(),
+            project_code: ProjectCode::parse("CEM-2026-001").unwrap(),
+            title: "Essai historique".to_owned(),
+            planned_start_at: "2026-07-15T10:00".to_owned(),
+            planned_end_at: "2026-07-15T11:00".to_owned(),
+            assigned_operator: "Alice".to_owned(),
+            laboratory_location_id: None,
+            laboratory_location_label: "Ancien libellé".to_owned(),
+            equipment_under_test: "EUT".to_owned(),
+            test_category_code: None,
+            test_method_code: None,
+            status: ServiceScheduleStatus::Planned,
+            notes: None,
+        })
+        .unwrap();
+
+        assert_eq!(
+            candidate.resource_conflict(&historical),
+            Some(ScheduleResourceConflictKind::Operator)
+        );
     }
 
     #[test]
