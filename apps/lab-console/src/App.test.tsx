@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { App } from "./App";
+import { retainCompatibleAssignments } from "./features/planning/LaboratoryPlanningWorkspace";
 import type { EquipmentModelDefinition } from "./models/equipment";
 import type { AssetCorrectionAssignment } from "./models/metrology";
 import type {
@@ -111,6 +112,31 @@ function mockBaseApi(templates = [templateFixture()]) {
 }
 
 describe("LAB CONSOLE", () => {
+  test("retains only assignments compatible with the newly selected method and setup", () => {
+    const current = {
+      receiver: "receiver-binding",
+      obsoleteRole: "old-binding"
+    };
+    const retained = retainCompatibleAssignments(current, ["receiver", "generator"], [
+      {
+        slot_id: "receiver",
+        binding_id: "receiver-binding",
+        compatible: true
+      },
+      {
+        slot_id: "generator",
+        binding_id: "generator-binding",
+        compatible: false,
+        reason: "La catégorie ne correspond pas."
+      }
+    ]);
+
+    expect(retained).toEqual({ receiver: "receiver-binding" });
+    expect(retainCompatibleAssignments(retained, ["receiver"], [
+      { slot_id: "receiver", binding_id: "receiver-binding", compatible: true }
+    ])).toBe(retained);
+  });
+
   test("renders an empty API library without fake business rows", async () => {
     mockBaseApi([]);
 
@@ -276,10 +302,9 @@ describe("LAB CONSOLE", () => {
     expect(await screen.findByText("Préparation bloquée")).toBeInTheDocument();
     expect(screen.getAllByText("Affectation des matériels").length).toBeGreaterThan(0);
 
-    await user.selectOptions(
-      screen.getByLabelText("Matériel pour Récepteur de mesure"),
-      "receiver-binding"
-    );
+    const materialSelect = screen.getByLabelText("Matériel pour Récepteur de mesure");
+    expect(within(materialSelect).queryByRole("option", { name: /SMW200A/ })).not.toBeInTheDocument();
+    await user.selectOptions(materialSelect, "receiver-binding");
     await user.click(screen.getByRole("button", { name: "Vérifier la préparation" }));
     expect(await screen.findByText("Prêt à démarrer")).toBeInTheDocument();
     expect(screen.getAllByText("Contrôle n° 1").length).toBeGreaterThan(0);
@@ -296,6 +321,24 @@ describe("LAB CONSOLE", () => {
       expect.stringContaining("/transitions/start"),
       expect.objectContaining({ method: "POST" })
     );
+  });
+
+  test("explains when a method role has no compatible material in the selected setup", async () => {
+    mockLaboratoryPlanningApi({ noCompatibleMaterials: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Immunité rayonnée, dossier CEM-LAB-002"
+      })
+    );
+    await user.click(await screen.findByRole("button", { name: "Préparer l'essai" }));
+
+    expect(await screen.findByText("Aucun matériel compatible dans ce montage.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Matériel pour Récepteur de mesure")).toBeDisabled();
+    expect(screen.getByText("Le modèle ne fournit pas la capacité spectrale requise.")).toBeInTheDocument();
   });
 
   test("loads templates, filters them, and opens the draft studio", async () => {
@@ -1923,7 +1966,7 @@ function mockProjectWorkflowApi() {
   });
 }
 
-function mockLaboratoryPlanningApi() {
+function mockLaboratoryPlanningApi(settings: { noCompatibleMaterials?: boolean } = {}) {
   let rescheduleAttempts = 0;
   const first: LaboratoryScheduleItem = {
     item_code: "PLAN-LAB-001",
@@ -2014,6 +2057,21 @@ function mockLaboratoryPlanningApi() {
         equipment_model_checksum: canonicalChecksum("c"),
         category_code: "emi_receiver",
         capabilities: []
+      },
+      {
+        binding_id: "generator-binding",
+        role_label: "Générateur RF",
+        asset_id: "ASSET-GEN-001",
+        asset_revision: "asset-revision-002",
+        inventory_code: "INV-GEN-001",
+        serial_number: "SN-SMW-101",
+        manufacturer: "Rohde & Schwarz",
+        model_name: "SMW200A",
+        equipment_model_id: "MODEL-SMW200A",
+        equipment_model_revision_id: "MODEL-SMW200A-rev-0001",
+        equipment_model_checksum: canonicalChecksum("f"),
+        category_code: "rf_signal_generator",
+        capabilities: []
       }
     ],
     corrections: []
@@ -2026,6 +2084,32 @@ function mockLaboratoryPlanningApi() {
       {
         station_setup: station,
         readiness: { ready: true, checked_on: "2026-07-16", issues: [] }
+      }
+    ],
+    material_compatibility: [
+      {
+        method_revision_id: method.revision_id,
+        station_setup_revision_id: station.revision_id,
+        materials: [
+          {
+            slot_id: "receiver",
+            binding_id: "receiver-binding",
+            compatible: !settings.noCompatibleMaterials,
+            reason: settings.noCompatibleMaterials
+              ? "Le modèle ne fournit pas la capacité spectrale requise."
+              : undefined,
+            next_action: settings.noCompatibleMaterials
+              ? "Choisissez un récepteur déclaré pour cette mesure."
+              : undefined
+          },
+          {
+            slot_id: "receiver",
+            binding_id: "generator-binding",
+            compatible: false,
+            reason: "Le générateur ne respecte pas la catégorie du rôle.",
+            next_action: "Choisissez un récepteur compatible."
+          }
+        ]
       }
     ]
   };

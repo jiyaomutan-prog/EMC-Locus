@@ -276,6 +276,14 @@ export interface PlannedTestPreparationAggregate {
   revision_count: number;
 }
 
+export interface PlannedTestMaterialCompatibility {
+  slot_id: string;
+  binding_id: string;
+  compatible: boolean;
+  reason?: string;
+  next_action?: string;
+}
+
 export interface PlannedTestPreparationOptions {
   project_code: string;
   schedule_item_code: string;
@@ -294,6 +302,11 @@ export interface PlannedTestPreparationOptions {
         connection_ids?: string[];
       }>;
     };
+  }>;
+  material_compatibility: Array<{
+    method_revision_id: string;
+    station_setup_revision_id: string;
+    materials: PlannedTestMaterialCompatibility[];
   }>;
 }
 

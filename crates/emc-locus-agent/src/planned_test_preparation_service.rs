@@ -2,9 +2,10 @@ use crate::equipment_repository::{load_equipment_model_revision, open_equipment_
 use crate::metrology_repository::{load_instrument, open_metrology_connection};
 use crate::planned_test_preparation_dto::{
     PlannedTestPreparationAggregateDto, PlannedTestPreparationEnvelopeDto,
-    PlannedTestPreparationOperationResultDto, PlannedTestPreparationOptionsDto,
-    PlannedTestPreparationRevisionDto, PlannedTestPreparationRevisionEnvelopeDto,
-    PlannedTestPreparationRevisionListDto, PlannedTestPreparationStationOptionDto,
+    PlannedTestPreparationMaterialCompatibilityDto, PlannedTestPreparationOperationResultDto,
+    PlannedTestPreparationOptionsDto, PlannedTestPreparationRevisionDto,
+    PlannedTestPreparationRevisionEnvelopeDto, PlannedTestPreparationRevisionListDto,
+    PlannedTestPreparationStationOptionDto,
 };
 use crate::planned_test_preparation_repository::{
     ensure_planned_test_preparation_tables, insert_planned_test_preparation_identity_if_missing,
@@ -35,8 +36,9 @@ use crate::test_template_repository::{
 use crate::{render_json, AgentError};
 use emc_locus_core::test_definitions::{TemplateRevisionStatus, TestTemplateDefinition};
 use emc_locus_core::{
-    assess_planned_test_preparation, AuditActor, AuditReason, EquipmentModelDefinition,
-    PlannedTestInstrumentAssignment, PlannedTestPreparationAssessmentInput,
+    assess_planned_test_material_compatibility, assess_planned_test_preparation, AuditActor,
+    AuditReason, EquipmentModelDefinition, PlannedTestInstrumentAssignment,
+    PlannedTestMaterialCompatibility, PlannedTestPreparationAssessmentInput,
     PlannedTestPreparationDefinition, PlannedTestPreparationState, PlannedTestScheduleSnapshot,
     PreparedEquipmentCapabilitySnapshot, PreparedStationAssetSnapshot,
     PreparedStationCorrectionSnapshot, PreparedStationSetupSnapshot, PreparedTestMethodSnapshot,
@@ -233,12 +235,29 @@ pub fn list_planned_test_preparation_options(
                     .cmp(&right.station_setup.setup_id)
             })
     });
+    let material_compatibility = methods
+        .iter()
+        .flat_map(|method| {
+            station_setups.iter().map(move |station| {
+                PlannedTestPreparationMaterialCompatibilityDto {
+                    method_revision_id: method.revision_id.clone(),
+                    station_setup_revision_id: station.station_setup.revision_id.clone(),
+                    materials: assess_planned_test_material_compatibility(
+                        method,
+                        &station.station_setup,
+                        &station.readiness,
+                    ),
+                }
+            })
+        })
+        .collect();
 
     Ok(render_json(&PlannedTestPreparationOptionsDto {
         project_code: project_code.to_owned(),
         schedule_item_code: schedule_item_code.to_owned(),
         methods,
         station_setups,
+        material_compatibility,
     }))
 }
 
@@ -356,6 +375,9 @@ pub fn assess_planned_test_preparation_for_schedule(
         &schedule.planned_start_at,
         &project.execution_mode,
     )?;
+    let material_compatibility =
+        assess_planned_test_material_compatibility(&method, &station.snapshot, &station.readiness);
+    ensure_assignments_are_compatible(&input.assignments, &material_compatibility)?;
     let schedule_snapshot = schedule_snapshot(&schedule, &project.execution_mode)?;
     let definition = assess_planned_test_preparation(PlannedTestPreparationAssessmentInput {
         schedule: schedule_snapshot,
@@ -487,6 +509,32 @@ pub fn assess_planned_test_preparation_for_schedule(
         .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
 
     operation_result(&projects, &schedule, &input.context.operation_id, false)
+}
+
+fn ensure_assignments_are_compatible(
+    assignments: &[PlannedTestInstrumentAssignment],
+    compatibility: &[PlannedTestMaterialCompatibility],
+) -> Result<(), AgentError> {
+    let incompatible = assignments
+        .iter()
+        .filter_map(|assignment| {
+            compatibility.iter().find(|candidate| {
+                candidate.slot_id == assignment.slot_id
+                    && candidate.binding_id == assignment.binding_id
+                    && !candidate.compatible
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if incompatible.is_empty() {
+        Ok(())
+    } else {
+        Err(AgentError::with_details(
+            "planned_test_material_incompatible",
+            "one or more assigned materials are incompatible with the selected method role",
+            json!({ "incompatible_assignments": incompatible }),
+        ))
+    }
 }
 
 pub(crate) fn require_planned_test_preparation_for_start(
@@ -1601,6 +1649,91 @@ mod tests {
         remove_temporary_storage_root(&storage_root);
     }
 
+    #[test]
+    fn compatibility_options_and_submission_reject_incompatible_or_external_materials() {
+        let storage_root = prepared_storage("planned-test-material-compatibility");
+        replace_method_required_category(&storage_root, "rf_signal_generator");
+
+        let options =
+            list_planned_test_preparation_options(&storage_root, PROJECT_CODE, ITEM_CODE).unwrap();
+        let options: Value = serde_json::from_str(&options).unwrap();
+        let matrix = options["material_compatibility"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| {
+                entry["method_revision_id"] == METHOD_REVISION_ID
+                    && entry["station_setup_revision_id"] == SETUP_REVISION_ID
+            })
+            .unwrap();
+        let materials = matrix["materials"].as_array().unwrap();
+        assert_eq!(materials.len(), 2);
+        assert!(materials
+            .iter()
+            .all(|material| material["compatible"] == false));
+        assert!(materials
+            .iter()
+            .all(|material| material["reason"].as_str().unwrap().contains("catégorie")));
+
+        let incompatible = assess_planned_test_preparation_for_schedule(
+            &storage_root,
+            assessment_input(
+                "op-prep-incompatible",
+                None,
+                vec![PlannedTestInstrumentAssignment {
+                    slot_id: SLOT_ID.to_owned(),
+                    binding_id: BINDING_ID.to_owned(),
+                }],
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(incompatible.code, "planned_test_material_incompatible");
+        assert_eq!(
+            incompatible.details.as_ref().unwrap()["incompatible_assignments"][0]["binding_id"],
+            BINDING_ID
+        );
+
+        let outside_setup = assess_planned_test_preparation_for_schedule(
+            &storage_root,
+            assessment_input(
+                "op-prep-outside-setup",
+                None,
+                vec![PlannedTestInstrumentAssignment {
+                    slot_id: SLOT_ID.to_owned(),
+                    binding_id: "external-binding".to_owned(),
+                }],
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(outside_setup.code, "invalid_planned_test_preparation");
+
+        let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        let persisted: (u64, u64) = projects
+            .query_row(
+                concat!(
+                    "SELECT (SELECT COUNT(*) FROM planned_test_preparation_revisions), ",
+                    "(SELECT COUNT(*) FROM project_audit_events WHERE action = ?1)"
+                ),
+                [PREPARATION_OPERATION],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(persisted, (0, 0));
+        drop(projects);
+        let sync = Connection::open(storage_root.join("sync.sqlite")).unwrap();
+        let outbox_count: u64 = sync
+            .query_row(
+                "SELECT COUNT(*) FROM sync_operations WHERE entity_type = 'planned_test_preparation'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(outbox_count, 0);
+        drop(sync);
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
     fn assessment_input(
         operation_id: &str,
         expected_current_revision_id: Option<&str>,
@@ -1790,6 +1923,33 @@ mod tests {
                     canonical.canonical_json,
                     canonical.definition_checksum,
                     "2026-07-15T08:00:00Z"
+                ],
+            )
+            .unwrap();
+    }
+
+    fn replace_method_required_category(storage_root: &Path, category_code: &str) {
+        let connection = Connection::open(storage_root.join("test_definitions.sqlite")).unwrap();
+        let definition_json: String = connection
+            .query_row(
+                "SELECT definition_json FROM test_template_revisions WHERE revision_id = ?1",
+                [METHOD_REVISION_ID],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut definition = TestTemplateDefinition::from_json_str(&definition_json).unwrap();
+        definition.instrumentation_chain[0].required_category = Some(category_code.to_owned());
+        let canonical = definition.canonicalize().unwrap();
+        connection
+            .execute(
+                concat!(
+                    "UPDATE test_template_revisions SET definition_json = ?1, ",
+                    "definition_checksum = ?2 WHERE revision_id = ?3"
+                ),
+                params![
+                    canonical.canonical_json,
+                    canonical.definition_checksum,
+                    METHOD_REVISION_ID
                 ],
             )
             .unwrap();

@@ -152,7 +152,8 @@ review has moved the project to `test_planning`.
   "planned_start_at": "2026-07-15T09:00",
   "planned_end_at": "2026-07-15T12:00",
   "assigned_operator": "Alice Martin",
-  "location": "EMC laboratory 1",
+  "laboratory_location_id": "LAB-LOCATION-CEM-1",
+  "laboratory_location_label": "EMC laboratory 1",
   "equipment_under_test": "Railway converter",
   "notes": "First agreed slot",
   "actor": "laboratory.manager",
@@ -176,12 +177,12 @@ metrology evidence immediately before accepting `start`. A missing, blocked,
 stale or invalidated preparation returns HTTP `409` and leaves the schedule,
 audit and outbox unchanged.
 
-## Prepare A Planned Test
+## Prepare A Confirmed Test
 
-Release `0.21.0` adds a revisioned preparation aggregate owned by one project
-slot. Read routes expose the current aggregate, selectable approved methods and
-ready physical setups, and the immutable revision history. The client submits
-choices rather than snapshots:
+Release `0.21.1` consolidates the revisioned preparation owned by one confirmed
+project slot. Read routes expose the current decision, selectable approved
+methods and ready physical setups, and the immutable revision history. The
+client submits choices rather than snapshots:
 
 ```json
 {
@@ -217,6 +218,16 @@ nonconformity and selected correction evidence. It persists either `blocked` or
 error. Every revision contains structured issues with a stable code,
 dimension, severity, human message and affected references. Assessment,
 project audit and sync outbox are one attached-SQLite transaction.
+
+The options response includes `material_compatibility`, grouped by method and
+station revision. Each entry contains `slot_id`, `binding_id`, `compatible`,
+and, for a refusal, a French `reason` plus `next_action`. It covers the method
+category/capability contract, substitution policy, setup membership and the
+serviceability/metrology evidence available before assessment. Clients use
+this decision to guide the normal selector; they do not reproduce the rules.
+The assessment route independently rejects a submitted incompatible material
+with HTTP `409` and `planned_test_material_incompatible`, without creating a
+preparation revision, audit event or outbox operation.
 
 Moving the slot increments its schedule revision, which makes the previous
 preparation `stale` without deleting it. A later assessment creates the next

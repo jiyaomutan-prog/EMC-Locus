@@ -23,6 +23,7 @@ import type {
   LaboratoryLocationOption,
   LaboratoryScheduleItem,
   LaboratoryWeekSchedule,
+  PlannedTestMaterialCompatibility,
   PlannedTestMethodSnapshot,
   PlannedTestPreparationAggregate,
   PlannedTestPreparationIssue,
@@ -41,6 +42,31 @@ const statusLabels: Record<ServiceScheduleStatus, string> = {
 };
 
 const weekdayLabels = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
+const noMaterialCompatibility: PlannedTestMaterialCompatibility[] = [];
+
+export function retainCompatibleAssignments(
+  assignments: Record<string, string>,
+  activeSlotIds: string[],
+  compatibility: PlannedTestMaterialCompatibility[]
+): Record<string, string> {
+  const activeSlots = new Set(activeSlotIds);
+  const retained = Object.fromEntries(
+    Object.entries(assignments).filter(([slotId, bindingId]) =>
+      activeSlots.has(slotId)
+      && compatibility.some((candidate) =>
+        candidate.slot_id === slotId
+        && candidate.binding_id === bindingId
+        && candidate.compatible
+      )
+    )
+  );
+  const retainedEntries = Object.entries(retained);
+  const currentEntries = Object.entries(assignments);
+  return retainedEntries.length === currentEntries.length
+    && retainedEntries.every(([slotId, bindingId]) => assignments[slotId] === bindingId)
+    ? assignments
+    : retained;
+}
 
 interface RescheduleForm {
   date: string;
@@ -750,6 +776,22 @@ function PreparationWorkspace(props: {
   const stationOption = options?.station_setups.find(
     (candidate) => candidate.station_setup.revision_id === setupRevisionId
   );
+  const materialCompatibility =
+    options?.material_compatibility.find(
+      (candidate) =>
+        candidate.method_revision_id === methodRevisionId
+        && candidate.station_setup_revision_id === setupRevisionId
+    )?.materials ?? noMaterialCompatibility;
+
+  useEffect(() => {
+    setAssignments((current) =>
+      retainCompatibleAssignments(
+        current,
+        method?.instrumentation_chain.map((slot) => slot.slot_id) ?? [],
+        materialCompatibility
+      )
+    );
+  }, [materialCompatibility, method]);
 
   async function assess() {
     if (!method || !stationOption) return;
@@ -856,28 +898,49 @@ function PreparationWorkspace(props: {
             <span>3</span><div><strong>Affectation des matériels</strong><small>Un matériel physique pour chaque rôle de la méthode</small></div>
           </div>
           <div className="instrumentAssignmentList">
-            {method.instrumentation_chain.map((slot) => (
-              <label key={slot.slot_id}>
-                <span className="assignmentLabel">
-                  {slot.label}
-                  <small>{slot.required ? "Obligatoire" : "Optionnel"}</small>
-                </span>
-                <select
-                  aria-label={`Matériel pour ${slot.label}`}
-                  value={assignments[slot.slot_id] ?? ""}
-                  onChange={(event) =>
-                    setAssignments({ ...assignments, [slot.slot_id]: event.target.value })
-                  }
-                >
-                  <option value="">Non affecté</option>
-                  {stationOption.station_setup.assets.map((asset) => (
-                    <option key={asset.binding_id} value={asset.binding_id}>
-                      {assetOptionLabel(asset)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ))}
+            {method.instrumentation_chain.map((slot) => {
+              const slotCompatibility = materialCompatibility.filter(
+                (candidate) => candidate.slot_id === slot.slot_id
+              );
+              const compatibleAssets = stationOption.station_setup.assets.filter((asset) =>
+                slotCompatibility.some(
+                  (candidate) => candidate.binding_id === asset.binding_id && candidate.compatible
+                )
+              );
+              const firstRejection = slotCompatibility.find((candidate) => !candidate.compatible);
+              return (
+                <div className="instrumentAssignmentRow" key={slot.slot_id}>
+                  <span className="assignmentLabel">
+                    {slot.label}
+                    <small>{slot.required ? "Obligatoire" : "Optionnel"}</small>
+                  </span>
+                  <div className="materialAssignmentControl">
+                    <select
+                      aria-label={`Matériel pour ${slot.label}`}
+                      disabled={compatibleAssets.length === 0}
+                      value={assignments[slot.slot_id] ?? ""}
+                      onChange={(event) =>
+                        setAssignments({ ...assignments, [slot.slot_id]: event.target.value })
+                      }
+                    >
+                      <option value="">Non affecté</option>
+                      {compatibleAssets.map((asset) => (
+                        <option key={asset.binding_id} value={asset.binding_id}>
+                          {assetOptionLabel(asset)}
+                        </option>
+                      ))}
+                    </select>
+                    {compatibleAssets.length === 0 && (
+                      <div className="materialCompatibilityEmpty" role="status">
+                        <strong>Aucun matériel compatible dans ce montage.</strong>
+                        {firstRejection?.reason && <span>{firstRejection.reason}</span>}
+                        {firstRejection?.next_action && <small>{firstRejection.next_action}</small>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </section>
       )}

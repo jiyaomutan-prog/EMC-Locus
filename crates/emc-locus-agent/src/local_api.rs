@@ -2961,6 +2961,7 @@ fn status_for_error(code: &str) -> u16 {
         | "station_setup_active_draft_exists"
         | "station_setup_source_not_ready"
         | "station_setup_not_ready"
+        | "planned_test_schedule_not_confirmed"
         | "planned_test_schedule_concurrent_update"
         | "planned_test_preparation_concurrent_update"
         | "planned_test_preparation_required"
@@ -2969,6 +2970,7 @@ fn status_for_error(code: &str) -> u16 {
         | "planned_test_not_confirmed"
         | "planned_test_method_not_approved"
         | "planned_test_station_setup_not_ready"
+        | "planned_test_material_incompatible"
         | "planned_test_schedule_not_preparable"
         | "planned_test_method_reference_changed"
         | "planned_test_station_reference_changed" => 409,
@@ -7944,7 +7946,7 @@ mod tests {
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
             lab_console_dist: repo_root().join("apps/lab-console/dist"),
-            max_requests: Some(12),
+            max_requests: Some(13),
         });
 
         assert_eq!(wait_for_http(&first_address, "/api/v1/health").0, 200);
@@ -7967,6 +7969,43 @@ mod tests {
         assert!(options.1.contains("METHOD-PREP-HTTP-rev-0001"));
         assert!(options.1.contains("SETUP-PREP-HTTP-rev-0001"));
         assert!(options.1.contains("SA-RECEIVER-STATION-001"));
+        let options_json: Value = serde_json::from_str(&options.1).unwrap();
+        let compatibility = options_json["material_compatibility"][0]["materials"]
+            .as_array()
+            .unwrap();
+        assert!(compatibility.iter().any(|material| {
+            material["binding_id"] == "receiver" && material["compatible"] == true
+        }));
+        assert!(compatibility.iter().any(|material| {
+            material["binding_id"] == "cable"
+                && material["compatible"] == false
+                && material["reason"].as_str().unwrap().contains("catégorie")
+        }));
+
+        let incompatible = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/preparation/assessments",
+            &json!({
+                "expected_schedule_revision": 2,
+                "expected_current_revision_id": null,
+                "method_template_id": "METHOD-PREP-HTTP",
+                "method_revision_id": "METHOD-PREP-HTTP-rev-0001",
+                "station_setup_id": "SETUP-PREP-HTTP",
+                "station_setup_revision_id": "SETUP-PREP-HTTP-rev-0001",
+                "assignments": [{"slot_id": "receiver", "binding_id": "cable"}],
+                "actor": "operator.http",
+                "reason": "reject incompatible cable",
+                "operation_id": "op-http-preparation-incompatible",
+                "device_id": "http-e2e",
+                "correlation_id": "corr-http-preparation-incompatible"
+            })
+            .to_string(),
+        );
+        assert_eq!(incompatible.0, 409, "{}", incompatible.1);
+        assert!(incompatible
+            .1
+            .contains("planned_test_material_incompatible"));
 
         let blocked_body = json!({
             "expected_schedule_revision": 2,

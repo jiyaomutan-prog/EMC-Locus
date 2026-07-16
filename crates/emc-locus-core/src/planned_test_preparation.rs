@@ -3,7 +3,10 @@ use crate::station_setup::{
     StationCorrectionKind, StationReadinessDimension, StationReadinessSeverity,
     StationSetupReadiness, StationSetupRevisionStatus,
 };
-use crate::test_definitions::{InstrumentationChainSlot, MeasurementAxis, TemplateRevisionStatus};
+use crate::test_definitions::{
+    CalibrationRequirement, InstrumentSubstitutionPolicy, InstrumentationChainSlot,
+    MeasurementAxis, TemplateRevisionStatus,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -175,6 +178,17 @@ pub struct PreparedStationSetupSnapshot {
 pub struct PlannedTestInstrumentAssignment {
     pub slot_id: String,
     pub binding_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlannedTestMaterialCompatibility {
+    pub slot_id: String,
+    pub binding_id: String,
+    pub compatible: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_action: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -349,6 +363,132 @@ pub fn assess_planned_test_preparation(
         Ok(definition)
     } else {
         Err(integrity_issues)
+    }
+}
+
+pub fn assess_planned_test_material_compatibility(
+    method: &PreparedTestMethodSnapshot,
+    station: &PreparedStationSetupSnapshot,
+    station_readiness: &StationSetupReadiness,
+) -> Vec<PlannedTestMaterialCompatibility> {
+    let mut results = method
+        .instrumentation_chain
+        .iter()
+        .flat_map(|slot| {
+            station.assets.iter().map(move |asset| {
+                let incompatibility = material_incompatibility(slot, asset, station_readiness);
+                PlannedTestMaterialCompatibility {
+                    slot_id: slot.slot_id.clone(),
+                    binding_id: asset.binding_id.clone(),
+                    compatible: incompatibility.is_none(),
+                    reason: incompatibility.as_ref().map(|value| value.0.clone()),
+                    next_action: incompatibility.map(|value| value.1),
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    results.sort_by(|left, right| {
+        left.slot_id
+            .cmp(&right.slot_id)
+            .then_with(|| left.binding_id.cmp(&right.binding_id))
+    });
+    results
+}
+
+fn material_incompatibility(
+    slot: &InstrumentationChainSlot,
+    asset: &PreparedStationAssetSnapshot,
+    station_readiness: &StationSetupReadiness,
+) -> Option<(String, String)> {
+    if let Some(required_category) = slot.required_category.as_deref() {
+        if !asset
+            .category_code
+            .trim()
+            .eq_ignore_ascii_case(required_category.trim())
+        {
+            return Some((
+                substitution_mismatch_reason(slot, asset, "catégorie"),
+                "Choisissez un matériel de la catégorie attendue ou mettez à jour son modèle."
+                    .to_owned(),
+            ));
+        }
+    }
+    if let Some(required_capability) = slot.required_capability.as_deref() {
+        let has_capability = asset.capabilities.iter().any(|capability| {
+            capability
+                .capability_id
+                .trim()
+                .eq_ignore_ascii_case(required_capability.trim())
+                || capability
+                    .capability_kind
+                    .trim()
+                    .eq_ignore_ascii_case(required_capability.trim())
+        });
+        if !has_capability {
+            return Some((
+                substitution_mismatch_reason(slot, asset, "capacité"),
+                "Choisissez un matériel dont le modèle déclare la capacité attendue.".to_owned(),
+            ));
+        }
+    }
+
+    station_readiness
+        .issues
+        .iter()
+        .find(|issue| {
+            issue.severity == StationReadinessSeverity::Blocking
+                && issue
+                    .binding_ids
+                    .iter()
+                    .any(|binding_id| binding_id == &asset.binding_id)
+                && material_readiness_dimension_applies(slot, issue.dimension)
+        })
+        .map(|issue| {
+            (
+                issue.message.clone(),
+                station_issue_next_action(issue.dimension).to_owned(),
+            )
+        })
+}
+
+fn substitution_mismatch_reason(
+    slot: &InstrumentationChainSlot,
+    asset: &PreparedStationAssetSnapshot,
+    requirement: &str,
+) -> String {
+    let policy = match slot.substitution_policy {
+        InstrumentSubstitutionPolicy::NoSubstitution => {
+            "La substitution n'est pas autorisée pour ce rôle."
+        }
+        InstrumentSubstitutionPolicy::SameCategory => "La substitution exige la même catégorie.",
+        InstrumentSubstitutionPolicy::SameCapability => "La substitution exige la même capacité.",
+        InstrumentSubstitutionPolicy::ApprovedEquivalent => {
+            "Aucune équivalence approuvée ne permet de relâcher l'exigence déclarée."
+        }
+    };
+    format!(
+        "{} ne respecte pas l'exigence de {requirement} pour « {} ». {policy}",
+        material_label(asset),
+        slot.label,
+    )
+}
+
+fn material_readiness_dimension_applies(
+    slot: &InstrumentationChainSlot,
+    dimension: StationReadinessDimension,
+) -> bool {
+    match dimension {
+        StationReadinessDimension::AssetIdentity
+        | StationReadinessDimension::Serviceability
+        | StationReadinessDimension::Nonconformance
+        | StationReadinessDimension::CorrectionValidity => true,
+        StationReadinessDimension::CalibrationValidity
+        | StationReadinessDimension::MissingEvidence => {
+            slot.calibration_requirement != CalibrationRequirement::NotRequired
+        }
+        StationReadinessDimension::Structure | StationReadinessDimension::PortCompatibility => {
+            false
+        }
     }
 }
 
@@ -1361,6 +1501,115 @@ mod tests {
             .issues
             .iter()
             .any(|issue| issue.code == "planned_test_role_capability_mismatch"));
+    }
+
+    #[test]
+    fn material_compatibility_explains_category_and_capability_mismatches() {
+        let mut assessment = input();
+        let mut wrong_category = assessment.station_setup.assets[0].clone();
+        wrong_category.binding_id = "generator-binding".to_owned();
+        wrong_category.asset_id = "ASSET-GEN-001".to_owned();
+        wrong_category.inventory_code = "INV-GEN-001".to_owned();
+        wrong_category.serial_number = "SN-GEN-001".to_owned();
+        wrong_category.model_name = "SMW200A".to_owned();
+        wrong_category.category_code = "rf_signal_generator".to_owned();
+        assessment.station_setup.assets.push(wrong_category);
+        let mut missing_capability = assessment.station_setup.assets[0].clone();
+        missing_capability.binding_id = "receiver-without-spectrum-binding".to_owned();
+        missing_capability.asset_id = "ASSET-RX-002".to_owned();
+        missing_capability.inventory_code = "INV-RX-002".to_owned();
+        missing_capability.serial_number = "SN-RX-002".to_owned();
+        missing_capability.capabilities.clear();
+        assessment.station_setup.assets.push(missing_capability);
+
+        let compatibility = assess_planned_test_material_compatibility(
+            &assessment.method,
+            &assessment.station_setup,
+            &assessment.station_readiness,
+        );
+
+        assert_eq!(compatibility.len(), 3);
+        assert!(compatibility
+            .iter()
+            .any(|result| result.binding_id == "receiver-binding" && result.compatible));
+        let category_rejection = compatibility
+            .iter()
+            .find(|result| result.binding_id == "generator-binding")
+            .unwrap();
+        assert!(!category_rejection.compatible);
+        assert!(category_rejection
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("catégorie"));
+        let capability_rejection = compatibility
+            .iter()
+            .find(|result| result.binding_id == "receiver-without-spectrum-binding")
+            .unwrap();
+        assert!(!capability_rejection.compatible);
+        assert!(capability_rejection
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("capacité"));
+    }
+
+    #[test]
+    fn material_compatibility_applies_serviceability_and_calibration_policy() {
+        let mut assessment = input();
+        assessment.station_readiness = StationSetupReadiness::from_issues(
+            "2026-07-16",
+            vec![StationReadinessIssue {
+                code: "calibration_expired".to_owned(),
+                severity: StationReadinessSeverity::Blocking,
+                dimension: StationReadinessDimension::CalibrationValidity,
+                message: "L'étalonnage requis est expiré à la date prévue.".to_owned(),
+                binding_ids: vec!["receiver-binding".to_owned()],
+                connection_ids: Vec::new(),
+            }],
+        );
+
+        let required = assess_planned_test_material_compatibility(
+            &assessment.method,
+            &assessment.station_setup,
+            &assessment.station_readiness,
+        );
+        assert!(!required[0].compatible);
+        assert_eq!(
+            required[0].reason.as_deref(),
+            Some("L'étalonnage requis est expiré à la date prévue.")
+        );
+
+        assessment.method.instrumentation_chain[0].calibration_requirement =
+            CalibrationRequirement::NotRequired;
+        let not_required = assess_planned_test_material_compatibility(
+            &assessment.method,
+            &assessment.station_setup,
+            &assessment.station_readiness,
+        );
+        assert!(not_required[0].compatible);
+
+        assessment.station_readiness.issues[0].dimension =
+            StationReadinessDimension::Serviceability;
+        assessment.station_readiness.issues[0].message = "Le matériel est hors service.".to_owned();
+        let out_of_service = assess_planned_test_material_compatibility(
+            &assessment.method,
+            &assessment.station_setup,
+            &assessment.station_readiness,
+        );
+        assert!(!out_of_service[0].compatible);
+    }
+
+    #[test]
+    fn optional_role_can_remain_unassigned() {
+        let mut assessment = input();
+        assessment.method.instrumentation_chain[0].required = false;
+        assessment.assignments.clear();
+
+        let definition = assess_planned_test_preparation(assessment).unwrap();
+
+        assert!(definition.verdict.ready);
+        assert!(definition.verdict.issues.is_empty());
     }
 
     #[test]

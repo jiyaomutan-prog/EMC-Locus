@@ -116,8 +116,14 @@ or outbox evidence.
 
 Preparation options are assembled by the agent from approved test-method
 revisions, ready physical station-setup revisions, their real materials and the
-current metrology evidence. An assessment request sends only the selected
-method, setup, role assignments and command metadata. The agent freezes the
+current metrology evidence. For each method/setup pair, the response includes a
+typed `material_compatibility` decision for every role/material pair, with a
+French reason and next action when incompatible. Category, capability,
+substitution, serviceability and applicable metrology requirements are decided
+by the core; clients must not duplicate these rules. An assessment request
+sends only the selected method, setup, role assignments and command metadata.
+The agent rejects incompatible or external assignments independently before it
+freezes the
 resolved evidence in an immutable preparation revision and writes the project
 audit plus sync outbox operation atomically. A blocked assessment is valid
 persisted evidence. Both the options and assessment routes require the schedule

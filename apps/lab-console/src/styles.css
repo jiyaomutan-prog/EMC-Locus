@@ -533,11 +533,31 @@ button.planningSlot-cancelled {
   gap: 8px;
 }
 
-.instrumentAssignmentList label {
+.instrumentAssignmentRow {
   align-items: center;
   display: grid;
   gap: 10px;
   grid-template-columns: minmax(150px, 0.65fr) minmax(260px, 1.35fr);
+}
+
+.materialAssignmentControl {
+  display: grid;
+  gap: 5px;
+}
+
+.materialCompatibilityEmpty {
+  border-left: 3px solid #c17a38;
+  color: #6f4a2c;
+  display: grid;
+  font-size: 11px;
+  gap: 2px;
+  padding: 3px 0 3px 9px;
+}
+
+.materialCompatibilityEmpty span,
+.materialCompatibilityEmpty small {
+  color: #735f4d;
+  font-size: 10px;
 }
 
 .assignmentLabel {
@@ -4651,7 +4671,7 @@ button.projectListItem.active {
   .preparationSummary,
   .preparationSection,
   .preparationAssessmentBar,
-  .instrumentAssignmentList label {
+  .instrumentAssignmentRow {
     grid-template-columns: 1fr;
   }
 
