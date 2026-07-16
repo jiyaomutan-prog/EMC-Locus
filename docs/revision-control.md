@@ -90,21 +90,21 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.20.0` was validated on 2026-07-15 with the CI-equivalent command
+Version `0.21.0` was validated on 2026-07-15 with the CI-equivalent command
 set. Its checks cover the same path as GitHub Actions: Rust format, Clippy,
 Rust tests, Python compile/tests, SQLite migration validation, LAB CONSOLE
 typecheck/lint/unit/build, versioned `dist` verification, Playwright E2E,
 release consistency, launcher smoke and whitespace checks. The commands were
 run directly with the bundled Node.js runtime available in the workspace.
-For `0.20.0`, Playwright adds the laboratory-week workflow to the existing
-dossier, method, equipment, measurement-engineering and metrology paths. It
-prepares two investigation dossiers, reads both reservations in one week,
-filters resources, proves that a conflicting move is refused without dropping
-the form, applies a free move, and checks persistence, audit, outbox and return
-to the dossier through the real Rust agent. Week and detail views are captured
-and reviewed at exactly 1440 x 900 and 1280 x 720. Rust tests cover the week
-window, rescheduling state rule, self-exclusion from conflicts, idempotence,
-optimistic concurrency, atomic audit/outbox writes and real HTTP persistence
+For `0.21.0`, Playwright adds the planned-test preparation workflow to the
+existing dossier, planning, method, equipment, station and metrology paths. It
+creates the required approved and ready evidence through public APIs, records
+a blocked assessment for a missing role, corrects the real-material assignment,
+records a ready revision, starts the slot and checks audit/outbox evidence.
+Blocked, ready and started states are captured and reviewed at exactly
+1440 x 900 and 1280 x 720. Rust tests cover the typed aggregate, immutable
+history, optimistic concurrency, deterministic replay, stale scheduling,
+dynamic start revalidation, atomic audit/outbox writes and real HTTP persistence
 after restart. Python tests cover the agent-backed client and retained
 repository compatibility paths.
 

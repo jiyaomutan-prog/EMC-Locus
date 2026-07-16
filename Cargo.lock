@@ -100,7 +100,7 @@ dependencies = [
 
 [[package]]
 name = "emc-locus-agent"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "base64",
  "emc-locus-core",
@@ -114,7 +114,7 @@ dependencies = [
 
 [[package]]
 name = "emc-locus-core"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "serde",
  "serde_json",

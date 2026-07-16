@@ -80,8 +80,9 @@ vertical slice can exercise the contract-review gate and the transition to
 
 Release `0.19.0` moves the first service-planning write path behind the Local
 Agent. Release `0.20.0` adds a laboratory-wide weekly projection and a
-controlled move while keeping every write under its owning dossier. LAB
-CONSOLE and Python clients use:
+controlled move while keeping every write under its owning dossier. Release
+`0.21.0` adds the revisioned technical preparation required before a confirmed
+slot may start. LAB CONSOLE and Python clients use:
 
 ```text
 GET  /api/v1/projects/{project_code}/schedule-items
@@ -89,6 +90,11 @@ POST /api/v1/projects/{project_code}/schedule-items
 POST /api/v1/projects/{project_code}/schedule-items/{item_code}/transitions/{action}
 GET  /api/v1/service-schedule?week_start=YYYY-MM-DD
 POST /api/v1/projects/{project_code}/schedule-items/{item_code}/reschedule
+GET  /api/v1/projects/{project_code}/schedule-items/{item_code}/preparation
+GET  /api/v1/projects/{project_code}/schedule-items/{item_code}/preparation/options
+GET  /api/v1/projects/{project_code}/schedule-items/{item_code}/preparation/revisions
+GET  /api/v1/projects/{project_code}/schedule-items/{item_code}/preparation/revisions/{revision_id}
+POST /api/v1/projects/{project_code}/schedule-items/{item_code}/preparation/assessments
 ```
 
 The supported actions are `confirm`, `start`, `complete`, and `cancel`. The
@@ -105,6 +111,16 @@ Rescheduling accepts a new same-day business block, operator, location,
 `confirmed` slots can move; their status, dossier, test title and equipment
 remain unchanged. Conflict and stale-revision refusals produce no partial audit
 or outbox evidence.
+
+Preparation options are assembled by the agent from approved test-method
+revisions, ready physical station-setup revisions, their real materials and the
+current metrology evidence. An assessment request sends only the selected
+method, setup, role assignments and command metadata. The agent freezes the
+resolved evidence in an immutable preparation revision and writes the project
+audit plus sync outbox operation atomically. A blocked assessment is valid
+persisted evidence. The `start` transition dynamically rechecks the current
+ready revision; a missing, blocked, stale or no-longer-applicable preparation
+returns a structured conflict and leaves the slot unchanged.
 
 ## Metrology Registry Commands
 
@@ -384,11 +400,13 @@ Version `0.5.5` also routes migrated project reads through the agent when
 - project audit events;
 - pending sync outbox.
 
-Version `0.20.0` routes project-context creation, transitions and rescheduling,
-plus the laboratory-wide weekly read, through the agent. The Python client can
-list a dossier schedule, read a week, create, move and transition schedule
-items without opening `projects.sqlite`. Planning writes commit the row, project
-audit event and pending sync outbox operation atomically.
+Version `0.21.0` routes project-context creation, transitions, rescheduling and
+planned-test preparation, plus the laboratory-wide weekly read, through the
+agent. The Python client can list a dossier schedule, read a week, create, move
+and transition schedule items, inspect preparation options and revisions, and
+request a new assessment without opening `projects.sqlite`. Planning and
+preparation writes commit their domain record, project audit event and pending
+sync outbox operation atomically.
 
 The Qt console accepts:
 

@@ -325,6 +325,74 @@ and the optimistic `revision`; audit and outbox writes remain in the same
 attached-SQLite transaction. No second calendar table or copied planning row is
 created.
 
+### planned_test_preparation_identities
+
+Projects migration `7` adds one stable preparation identity per schedule item:
+
+```sql
+CREATE TABLE planned_test_preparation_identities (
+    project_code TEXT NOT NULL REFERENCES projects(code),
+    schedule_item_code TEXT NOT NULL UNIQUE
+        REFERENCES service_schedule_items(item_code),
+    current_revision_id TEXT REFERENCES planned_test_preparation_revisions(revision_id)
+        DEFERRABLE INITIALLY DEFERRED,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (project_code, schedule_item_code)
+);
+```
+
+The current pointer is a convenience for reads and optimistic concurrency. It
+does not replace or renumber historical evidence. The deferred reference lets
+the agent create the identity and its first revision inside one transaction.
+
+### planned_test_preparation_revisions
+
+Each technical assessment appends an immutable row with a deterministic number
+and explicit parent:
+
+```sql
+CREATE TABLE planned_test_preparation_revisions (
+    revision_id TEXT PRIMARY KEY,
+    project_code TEXT NOT NULL,
+    schedule_item_code TEXT NOT NULL,
+    revision_number INTEGER NOT NULL CHECK (revision_number > 0),
+    parent_revision_id TEXT REFERENCES planned_test_preparation_revisions(revision_id),
+    schedule_revision INTEGER NOT NULL CHECK (schedule_revision > 0),
+    method_template_id TEXT NOT NULL,
+    method_revision_id TEXT NOT NULL,
+    method_definition_checksum TEXT NOT NULL,
+    station_setup_id TEXT NOT NULL,
+    station_setup_revision_id TEXT NOT NULL,
+    station_setup_definition_checksum TEXT NOT NULL,
+    verdict_state TEXT NOT NULL CHECK (verdict_state IN ('blocked', 'ready')),
+    definition_schema_version TEXT NOT NULL,
+    definition_json TEXT NOT NULL,
+    definition_checksum TEXT NOT NULL,
+    operation_id TEXT NOT NULL UNIQUE,
+    request_checksum TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    correlation_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (project_code, schedule_item_code, revision_number)
+);
+```
+
+`definition_json` is the canonical, versioned core-domain snapshot of the slot,
+approved method, ready physical setup, real-material assignments and structured
+verdict. All definition and request checksums use canonical lowercase
+`sha256:<64 hex>` values. The runtime reads only this new model; migration `7`
+does not reset existing projects or schedule items and requires no data backfill
+because release `0.20.0` had no preparation rows.
+
+Assessment, project audit and sync outbox writes are committed atomically. A
+slot move does not mutate preparation history: the changed schedule revision
+makes prior evidence stale. The guarded `start` transition records the
+preparation revision it revalidated in the existing project audit stream.
+
 ### asset_characterization_events
 
 Migration `storage/sqlite/metrology/0009_asset_characterizations.sql` adds an

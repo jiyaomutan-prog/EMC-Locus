@@ -84,7 +84,16 @@ This repository is in active pre-production development. The current focus is
 closing complete laboratory workflows across the Rust agent, local storage and
 operator interfaces while keeping each domain traceable and offline-capable.
 
-Current software version: `0.20.0`.
+Current software version: `0.21.0`.
+
+Version `0.21.0` adds a technical preparation gate between a confirmed test
+slot and its start. An operator selects an approved method, a physical setup
+already declared ready, and the real serialized materials assigned to each
+instrument role. The Rust Local Agent rebuilds the evidence, records an
+immutable blocked or ready revision, and explains every blocking dimension.
+Starting the slot revalidates that evidence and is refused when it is missing,
+blocked or stale. This release prepares a planned test; it does not acquire a
+signal, control an instrument or create scientific measurement data.
 
 Version `0.20.0` adds the first laboratory-wide weekly planning surface. A
 laboratory manager can read Monday-to-Friday slots across dossiers, filter them

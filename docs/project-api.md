@@ -21,6 +21,11 @@ POST /api/v1/projects/{code}/transitions/to-test-planning
 GET  /api/v1/projects/{code}/schedule-items
 POST /api/v1/projects/{code}/schedule-items
 POST /api/v1/projects/{code}/schedule-items/{item_code}/transitions/{action}
+GET  /api/v1/projects/{code}/schedule-items/{item_code}/preparation
+GET  /api/v1/projects/{code}/schedule-items/{item_code}/preparation/options
+GET  /api/v1/projects/{code}/schedule-items/{item_code}/preparation/revisions
+GET  /api/v1/projects/{code}/schedule-items/{item_code}/preparation/revisions/{revision_id}
+POST /api/v1/projects/{code}/schedule-items/{item_code}/preparation/assessments
 GET  /api/v1/projects/{code}/audit-events
 GET  /api/v1/projects/{code}/test-executions
 GET  /api/v1/documents
@@ -164,6 +169,60 @@ as structured details; adjacent slots remain allowed.
 Status actions are `confirm`, `start`, `complete`, and `cancel`. A transition
 requires the current `expected_revision`; a stale revision returns HTTP `409`
 without writing a partial audit or outbox operation.
+
+Starting a confirmed slot additionally requires a current **ready** technical
+preparation. The Local Agent revalidates the frozen method, physical setup and
+metrology evidence immediately before accepting `start`. A missing, blocked,
+stale or invalidated preparation returns HTTP `409` and leaves the schedule,
+audit and outbox unchanged.
+
+## Prepare A Planned Test
+
+Release `0.21.0` adds a revisioned preparation aggregate owned by one project
+slot. Read routes expose the current aggregate, selectable approved methods and
+ready physical setups, and the immutable revision history. The client submits
+choices rather than snapshots:
+
+```json
+{
+  "expected_schedule_revision": 2,
+  "expected_current_revision_id": null,
+  "method_template_id": "METHOD-RF-001",
+  "method_revision_id": "METHOD-RF-001-rev-0001",
+  "station_setup_id": "SETUP-RF-001",
+  "station_setup_revision_id": "SETUP-RF-001-rev-0001",
+  "assignments": [
+    {
+      "slot_id": "rf-power-meter",
+      "binding_id": "BIND-WATTMETER-001"
+    }
+  ],
+  "actor": "operator.one",
+  "reason": "Technical check before test",
+  "operation_id": "op-prepare-PLAN-RF-001-001",
+  "correlation_id": "corr-PLAN-RF-001",
+  "device_id": "station-a"
+}
+```
+
+`expected_current_revision_id` is `null` for the first assessment and must name
+the current revision for every later assessment. A stale value is an optimistic
+concurrency conflict. Replaying the same `operation_id` and canonical command
+returns the original result; reusing it for a different command is refused.
+
+The agent resolves the schedule, approved method revision, ready station-setup
+revision, physical material bindings, models, calibration, serviceability,
+nonconformity and selected correction evidence. It persists either `blocked` or
+`ready`; a blocked verdict is therefore successful evidence, not a transport
+error. Every revision contains structured issues with a stable code,
+dimension, severity, human message and affected references. Assessment,
+project audit and sync outbox are one attached-SQLite transaction.
+
+Moving the slot increments its schedule revision, which makes the previous
+preparation `stale` without deleting it. A later assessment creates the next
+immutable revision with an explicit parent. The preparation only authorizes a
+schedule transition to **En cours**; it does not start instruments, acquire a
+signal or create a measurement dataset.
 
 ## Simulated EMC Execution
 

@@ -185,6 +185,12 @@ Deliverables:
   moved row, atomic audit/outbox evidence and restart persistence. This is not
   a drag-and-drop capacity calendar, absence/competency planner or execution
   runtime.
+- `0.21.0` connects a planned slot to one approved method revision, one ready
+  physical setup revision and explicit real-material role assignments. Each
+  assessment produces immutable blocked or ready evidence; the Local Agent
+  revalidates it before allowing the slot to start. This is technical
+  preparation and traceability, not instrument control, acquisition or a
+  scientific execution runtime.
 
 ## Phase 3: Measurement Runtime
 

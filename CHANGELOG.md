@@ -8,6 +8,38 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-07-15
+
+### Added
+
+- Added a typed, revisioned planned-test preparation aggregate that freezes the
+  schedule revision, approved method, ready physical setup, real-material role
+  assignments and an explainable readiness verdict.
+- Added Local Agent routes for preparation options, current evidence, immutable
+  history and assessment, backed by projects migration `7`, atomic project
+  audit and sync outbox writes.
+- Added the LAB CONSOLE **Préparer l'essai** workflow with structured blocking
+  causes, material assignment, readiness history and a guarded start action.
+- Added Python and TypeScript clients, real-HTTP restart coverage, a public-API
+  demo seed and an end-to-end Playwright scenario reviewed at 1440 x 900 and
+  1280 x 720.
+
+### Changed
+
+- The `confirm` to `start` schedule transition now requires a current ready
+  preparation and revalidates its method, setup and metrology evidence on the
+  server immediately before the transition.
+- Moving a planned or confirmed slot now makes its previous preparation
+  inapplicable through the schedule revision while retaining every historical
+  preparation decision.
+
+### Fixed
+
+- Prevented a hidden or stale client-side state from bypassing the technical
+  preparation gate; the Rust Local Agent remains the sole decision point.
+- Removed the redundant planning action and double modal scroll while keeping
+  technical identifiers out of normal operator labels.
+
 ## [0.20.0] - 2026-07-15
 
 ### Added
