@@ -82,7 +82,9 @@ Release `0.19.0` moves the first service-planning write path behind the Local
 Agent. Release `0.20.0` adds a laboratory-wide weekly projection and a
 controlled move while keeping every write under its owning dossier. Release
 `0.21.0` adds the revisioned technical preparation required before a confirmed
-slot may start. LAB CONSOLE and Python clients use:
+slot may start. Release `0.21.1` closes the workflow so a slot must first be
+confirmed before its preparation options can be read or a new assessment can
+be recorded. LAB CONSOLE and Python clients use:
 
 ```text
 GET  /api/v1/projects/{project_code}/schedule-items
@@ -118,9 +120,13 @@ current metrology evidence. An assessment request sends only the selected
 method, setup, role assignments and command metadata. The agent freezes the
 resolved evidence in an immutable preparation revision and writes the project
 audit plus sync outbox operation atomically. A blocked assessment is valid
-persisted evidence. The `start` transition dynamically rechecks the current
-ready revision; a missing, blocked, stale or no-longer-applicable preparation
-returns a structured conflict and leaves the slot unchanged.
+persisted evidence. Both the options and assessment routes require the schedule
+status `confirmed`; a `planned` slot returns
+`planned_test_schedule_not_confirmed` without a new revision, audit or outbox
+operation. Preparation revisions created by `0.21.0` for a `planned` slot remain
+readable as inapplicable history. The `start` transition dynamically rechecks
+the current ready revision; a missing, blocked, stale or no-longer-applicable
+preparation returns a structured conflict and leaves the slot unchanged.
 
 ## Metrology Registry Commands
 

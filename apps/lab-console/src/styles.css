@@ -316,7 +316,8 @@ button.planningSlot-cancelled {
 }
 
 .preparationState-missing,
-.preparationState-stale {
+.preparationState-stale,
+.preparationState-inapplicable {
   background: #fff7df;
   border-color: #d9b65d;
   color: #71561a;

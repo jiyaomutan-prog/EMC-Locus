@@ -107,7 +107,12 @@ export interface ServiceScheduleOperationResult {
   schedule_item: ServiceScheduleItem;
 }
 
-export type PlannedTestPreparationState = "missing" | "blocked" | "ready" | "stale";
+export type PlannedTestPreparationState =
+  | "missing"
+  | "blocked"
+  | "ready"
+  | "stale"
+  | "inapplicable";
 
 export type PlannedTestPreparationDimension =
   | "schedule_context"
@@ -233,7 +238,7 @@ export interface PlannedTestPreparationRevision {
   revision_number: number;
   parent_revision_id: string | null;
   recorded_state: "blocked" | "ready";
-  effective_state: "blocked" | "ready" | "stale" | "historical";
+  effective_state: "blocked" | "ready" | "stale" | "historical" | "inapplicable";
   is_current: boolean;
   definition: PlannedTestPreparationDefinition;
   definition_checksum: string;

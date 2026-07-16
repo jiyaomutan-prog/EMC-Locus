@@ -288,6 +288,10 @@ pub fn assess_planned_test_preparation_for_schedule(
     let mut projects = open_project_connection(storage_root)?;
     ensure_service_schedule_table(&projects)?;
     ensure_planned_test_preparation_tables(&projects)?;
+    let project = load_project(&projects, &input.project_code)?
+        .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
+    let schedule = load_owned_schedule(&projects, &input.project_code, &input.schedule_item_code)?;
+    ensure_schedule_is_preparable(&schedule)?;
     if let Some(revision) =
         load_planned_test_preparation_operation(&projects, &input.context.operation_id)?
     {
@@ -304,10 +308,6 @@ pub fn assess_planned_test_preparation_for_schedule(
         ));
     }
 
-    let project = load_project(&projects, &input.project_code)?
-        .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
-    let schedule = load_owned_schedule(&projects, &input.project_code, &input.schedule_item_code)?;
-    ensure_schedule_is_preparable(&schedule)?;
     if schedule.revision != input.expected_schedule_revision {
         return Err(AgentError::with_details(
             "planned_test_schedule_concurrent_update",
@@ -929,7 +929,9 @@ fn stored_revision_dto(
 ) -> Result<PlannedTestPreparationRevisionDto, AgentError> {
     let definition = validated_stored_definition(stored)?;
     let is_current = current_revision_id == Some(stored.revision_id.as_str());
-    let effective_state = if is_current {
+    let effective_state = if is_current && current_status == ServiceScheduleStatus::Planned {
+        "inapplicable".to_owned()
+    } else if is_current {
         preparation_state_text(definition.effective_state(current_schedule_revision)).to_owned()
     } else {
         "historical".to_owned()
@@ -1023,17 +1025,18 @@ fn load_owned_schedule(
 
 fn ensure_schedule_is_preparable(schedule: &StoredServiceScheduleItem) -> Result<(), AgentError> {
     let status = schedule.to_domain()?.status();
-    if matches!(
-        status,
-        ServiceScheduleStatus::Planned | ServiceScheduleStatus::Confirmed
-    ) {
-        Ok(())
-    } else {
-        Err(AgentError::with_details(
-            "planned_test_schedule_not_preparable",
-            "only a planned or confirmed scheduled test can be prepared",
+    match status {
+        ServiceScheduleStatus::Confirmed => Ok(()),
+        ServiceScheduleStatus::Planned => Err(AgentError::with_details(
+            "planned_test_schedule_not_confirmed",
+            "Confirmez le créneau avant de préparer l'essai.",
             json!({ "status": status.as_str() }),
-        ))
+        )),
+        _ => Err(AgentError::with_details(
+            "planned_test_schedule_not_preparable",
+            "only a confirmed scheduled test can be prepared",
+            json!({ "status": status.as_str() }),
+        )),
     }
 }
 
@@ -1501,6 +1504,97 @@ mod tests {
             get_planned_test_preparation(&storage_root, PROJECT_CODE, ITEM_CODE).unwrap();
         let aggregate: Value = serde_json::from_str(&aggregate).unwrap();
         assert_eq!(aggregate["preparation"]["current_state"], "stale");
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn planned_schedule_requires_confirmation_and_keeps_prior_evidence_inapplicable() {
+        let storage_root = prepared_storage("planned-test-confirmation-gate");
+        assess_planned_test_preparation_for_schedule(
+            &storage_root,
+            assessment_input("op-prep-before-planned", None, Vec::new()),
+        )
+        .unwrap();
+
+        let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        projects
+            .execute(
+                "UPDATE service_schedule_items SET status = 'planned' WHERE item_code = ?1",
+                [ITEM_CODE],
+            )
+            .unwrap();
+        let audit_count_before: u64 = projects
+            .query_row(
+                "SELECT COUNT(*) FROM project_audit_events WHERE project_code = ?1",
+                [PROJECT_CODE],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(projects);
+
+        let aggregate =
+            get_planned_test_preparation(&storage_root, PROJECT_CODE, ITEM_CODE).unwrap();
+        let aggregate: Value = serde_json::from_str(&aggregate).unwrap();
+        assert_eq!(aggregate["preparation"]["current_state"], "inapplicable");
+        assert_eq!(aggregate["preparation"]["can_start"], false);
+        assert_eq!(aggregate["preparation"]["revision_count"], 1);
+        assert_eq!(
+            aggregate["preparation"]["current_revision"]["effective_state"],
+            "inapplicable"
+        );
+
+        let options_error =
+            list_planned_test_preparation_options(&storage_root, PROJECT_CODE, ITEM_CODE)
+                .unwrap_err();
+        assert_eq!(options_error.code, "planned_test_schedule_not_confirmed");
+        assert_eq!(
+            options_error.message,
+            "Confirmez le créneau avant de préparer l'essai."
+        );
+
+        let assessment_error = assess_planned_test_preparation_for_schedule(
+            &storage_root,
+            assessment_input(
+                "op-prep-on-planned",
+                Some("PLAN-PREP-001-prep-rev-0001"),
+                Vec::new(),
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(assessment_error.code, "planned_test_schedule_not_confirmed");
+        let replay_error = assess_planned_test_preparation_for_schedule(
+            &storage_root,
+            assessment_input("op-prep-before-planned", None, Vec::new()),
+        )
+        .unwrap_err();
+        assert_eq!(replay_error.code, "planned_test_schedule_not_confirmed");
+
+        let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        let persisted: (String, u64, u64) = projects
+            .query_row(
+                concat!(
+                    "SELECT s.status, ",
+                    "(SELECT COUNT(*) FROM planned_test_preparation_revisions), ",
+                    "(SELECT COUNT(*) FROM project_audit_events WHERE project_code = ?1) ",
+                    "FROM service_schedule_items s WHERE s.item_code = ?2"
+                ),
+                params![PROJECT_CODE, ITEM_CODE],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(persisted, ("planned".to_owned(), 1, audit_count_before));
+        drop(projects);
+        let sync = Connection::open(storage_root.join("sync.sqlite")).unwrap();
+        let outbox_count: u64 = sync
+            .query_row(
+                "SELECT COUNT(*) FROM sync_operations WHERE entity_type = 'planned_test_preparation'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(outbox_count, 1);
+        drop(sync);
 
         remove_temporary_storage_root(&storage_root);
     }

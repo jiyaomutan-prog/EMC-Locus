@@ -228,7 +228,35 @@ describe("LAB CONSOLE", () => {
     );
   });
 
-  test("blocks then authorizes a planned test from its preparation workflow", async () => {
+  test("requires confirmation before a planned slot can be prepared", async () => {
+    mockLaboratoryPlanningApi();
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Émission conduite, dossier CEM-LAB-001"
+      })
+    );
+
+    expect((await screen.findAllByText("À confirmer", { exact: true })).length).toBeGreaterThan(0);
+    expect(
+      screen.getByText("Confirmez le créneau avant de préparer l'essai.")
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Préparer l'essai" })).not.toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([path]) => String(path).includes("PLAN-LAB-001/preparation/options"))
+    ).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Confirmer le créneau" }));
+
+    expect((await screen.findAllByText("À préparer", { exact: true })).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Préparer l'essai" })).toBeInTheDocument();
+  });
+
+  test("blocks then authorizes a confirmed slot from its preparation workflow", async () => {
     mockLaboratoryPlanningApi();
     const user = userEvent.setup();
 
@@ -2132,6 +2160,20 @@ function mockLaboratoryPlanningApi() {
         operation_id: "op-start",
         replayed: false,
         schedule_item: second
+      });
+    }
+    if (
+      path.endsWith("/schedule-items/PLAN-LAB-001/transitions/confirm") &&
+      init?.method === "POST"
+    ) {
+      first.status = "confirmed";
+      first.revision += 1;
+      first.available_transitions = ["in_progress", "cancelled"];
+      return jsonResponse({
+        operation: "service_schedule_item_status_changed",
+        operation_id: "op-confirm",
+        replayed: false,
+        schedule_item: first
       });
     }
     if (path.endsWith("/schedule-items/PLAN-LAB-001/reschedule") && init?.method === "POST") {

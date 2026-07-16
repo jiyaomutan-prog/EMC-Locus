@@ -358,7 +358,7 @@ function ScheduleDetailDialog(props: {
       });
       setMode("details");
       setPreparation((current) =>
-        current
+        current?.current_revision
           ? { ...current, current_state: "stale", can_start: false }
           : current
       );
@@ -399,7 +399,9 @@ function ScheduleDetailDialog(props: {
       });
       if (action === "confirm") {
         setPreparation((current) =>
-          current ? { ...current, current_state: "stale", can_start: false } : current
+          current?.current_revision
+            ? { ...current, current_state: "stale", can_start: false }
+            : current
         );
       }
     } catch (caught) {
@@ -457,7 +459,13 @@ function ScheduleDetailDialog(props: {
                 {statusLabels[props.item.status]}
               </span>
               {matchesPreparationStatus(props.item.status) && !preparationLoading && (
-                <PreparationStateBadge state={preparation?.current_state ?? "missing"} />
+                <PreparationStateBadge
+                  state={
+                    props.item.status === "planned"
+                      ? "inapplicable"
+                      : preparation?.current_state ?? "missing"
+                  }
+                />
               )}
               {!props.item.can_reschedule && <small>Ce créneau ne peut plus être déplacé.</small>}
             </div>
@@ -469,7 +477,7 @@ function ScheduleDetailDialog(props: {
             </dl>
             {props.item.notes && <p className="planningDetailNote">{props.item.notes}</p>}
             {matchesPreparationStatus(props.item.status) && !preparationLoading && (
-              <PreparationSummary preparation={preparation} />
+              <PreparationSummary status={props.item.status} preparation={preparation} />
             )}
           </div>
         ) : mode === "move" ? (
@@ -548,14 +556,14 @@ function ScheduleDetailDialog(props: {
                   <PencilLine size={16} /> Déplacer
                 </button>
               )}
-              {matchesPreparationStatus(props.item.status) && (
+              {props.item.status === "confirmed" && (
                 <button className="secondary" onClick={() => setMode("prepare")}>
                   <ClipboardCheck size={16} /> Préparer l'essai
                 </button>
               )}
               {props.item.status === "planned" && (
                 <button disabled={busy} onClick={() => void transition("confirm")}>
-                  <CheckCircle2 size={16} /> Confirmer
+                  <CheckCircle2 size={16} /> Confirmer le créneau
                 </button>
               )}
               {props.item.status === "confirmed" && (
@@ -593,10 +601,14 @@ function ScheduleDetailDialog(props: {
 }
 
 function PreparationSummary(props: {
+  status: ServiceScheduleStatus;
   preparation: PlannedTestPreparationAggregate | null;
 }) {
   const current = props.preparation?.current_revision;
-  const state = props.preparation?.current_state ?? "missing";
+  const state =
+    props.status === "planned"
+      ? "inapplicable"
+      : props.preparation?.current_state ?? "missing";
   const blocking = current?.definition.verdict.issues.filter(
     (issue) => issue.severity === "blocking"
   ).length ?? 0;
@@ -614,6 +626,8 @@ function PreparationSummary(props: {
               ? `${blocking} point${blocking === 1 ? "" : "s"} à corriger avant le démarrage.`
               : state === "stale"
                 ? "Le créneau a changé depuis le dernier contrôle. Une nouvelle vérification est requise."
+                : state === "inapplicable"
+                  ? "Confirmez le créneau avant de préparer l'essai."
                 : "Choisissez la méthode, le montage et les matériels avant de lancer l'essai."}
         </p>
       </div>
@@ -897,7 +911,8 @@ function preparationStateTitle(state: PlannedTestPreparationAggregate["current_s
     missing: "À préparer",
     blocked: "Préparation bloquée",
     ready: "Prêt à démarrer",
-    stale: "À revérifier"
+    stale: "À revérifier",
+    inapplicable: "À confirmer"
   }[state];
 }
 
@@ -987,8 +1002,12 @@ function planningErrorMessage(caught: unknown): string {
       "Le créneau a changé depuis le dernier contrôle. Vérifiez à nouveau la préparation.",
     planned_test_preparation_concurrent_update:
       "Une autre vérification a été enregistrée. Fermez puis rouvrez la préparation avant de continuer.",
+    planned_test_preparation_changed_before_start:
+      "La préparation a changé. Vérifiez-la de nouveau.",
     planned_test_schedule_concurrent_update:
       "Le créneau a changé pendant la vérification. Actualisez le planning puis recommencez.",
+    planned_test_schedule_not_confirmed:
+      "Confirmez le créneau avant de préparer l'essai.",
     planned_test_schedule_not_preparable:
       "Cet essai a déjà démarré ou est terminé. Sa préparation ne peut plus être modifiée.",
     planned_test_method_not_approved:

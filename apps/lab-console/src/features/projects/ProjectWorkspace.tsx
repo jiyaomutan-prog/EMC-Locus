@@ -10,7 +10,6 @@ import {
   FolderKanban,
   History,
   MapPin,
-  Play,
   RefreshCw,
   Search,
   UserRound,
@@ -768,9 +767,12 @@ function ScheduleRow(props: {
             disabled={props.busyAction !== null}
             onClick={() => props.onTransition(positiveAction.action)}
           >
-            {positiveAction.action === "start" ? <Play size={15} /> : <Check size={15} />}
+            <Check size={15} />
             {positiveAction.label}
           </button>
+        )}
+        {props.item.status === "confirmed" && (
+          <small>Préparez l'essai depuis le planning du laboratoire.</small>
         )}
         {props.item.available_transitions.includes("cancelled") && (
           <button
@@ -1002,11 +1004,10 @@ function ScheduleDialog(props: {
 
 function schedulePositiveAction(status: ServiceScheduleStatus): {
   target: ServiceScheduleStatus;
-  action: "confirm" | "start" | "complete";
+  action: "confirm" | "complete";
   label: string;
 } | null {
   if (status === "planned") return { target: "confirmed", action: "confirm", label: "Confirmer" };
-  if (status === "confirmed") return { target: "in_progress", action: "start", label: "Démarrer" };
   if (status === "in_progress") return { target: "completed", action: "complete", label: "Terminer" };
   return null;
 }
