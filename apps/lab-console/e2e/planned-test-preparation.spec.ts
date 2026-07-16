@@ -8,10 +8,10 @@ const viewports = [
 ];
 
 test("a planned slot must be confirmed before preparation", async ({ page, request }) => {
-  const suffix = `PLANNED-${Date.now().toString(36).toUpperCase()}`;
+  const suffix = "PLANNED-0211";
   const projectCode = `CEM-PREP-${suffix}`;
   const itemCode = `PLAN-PREP-${suffix}`;
-  const plannedDate = addDays(mondayFor(new Date()), 2);
+  const plannedDate = addDays(mondayFor(new Date(2026, 6, 13, 12)), 2);
   await createSchedule(request, {
     projectCode,
     itemCode,
@@ -69,7 +69,7 @@ test("an operator resolves a blocked preparation before starting the planned tes
   page,
   request
 }) => {
-  const suffix = Date.now().toString(36).toUpperCase();
+  const suffix = "0211";
   const projectCode = `CEM-PREP-${suffix}`;
   const itemCode = `PLAN-PREP-${suffix}`;
   const methodId = `METHOD-PREP-${suffix}`;
@@ -82,7 +82,7 @@ test("an operator resolves a blocked preparation before starting the planned tes
   const meterModelId = `EQM-PM-${suffix}`;
   const generatorAssetId = `GEN-${suffix}`;
   const meterAssetId = `PM-${suffix}`;
-  const plannedDate = addDays(mondayFor(new Date()), 3);
+  const plannedDate = addDays(mondayFor(new Date(2026, 6, 13, 12)), 3);
 
   const generatorModel = await createApprovedPresetModel(request, {
     modelId: generatorModelId,
@@ -397,14 +397,14 @@ test("an operator resolves a blocked preparation before starting the planned tes
 test("a matching label cannot replace a different laboratory location identity", async ({
   request
 }) => {
-  const suffix = `LOCATION-${Date.now().toString(36).toUpperCase()}`;
+  const suffix = "LOCATION-0211";
   const projectCode = `CEM-PREP-${suffix}`;
   const itemCode = `PLAN-PREP-${suffix}`;
   const methodId = `METHOD-PREP-${suffix}`;
   const setupId = `SETUP-PREP-${suffix}`;
   const generatorModelId = `EQM-GEN-${suffix}`;
   const meterModelId = `EQM-PM-${suffix}`;
-  const plannedDate = addDays(mondayFor(new Date()), 4);
+  const plannedDate = addDays(mondayFor(new Date(2026, 6, 13, 12)), 4);
   const locationLabel = `Poste CEM ${suffix}`;
 
   const generatorModel = await createApprovedPresetModel(request, {
@@ -914,9 +914,27 @@ async function assertNoHorizontalOverflow(page: Page) {
 }
 
 async function captureReleaseScreenshot(page: Page, name: string) {
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
   await page.evaluate(() => document.fonts.ready);
+  await page.locator("small").evaluateAll((elements) => {
+    for (const element of elements) {
+      if (element.textContent) {
+        element.textContent = element.textContent.replace(
+          /\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}/g,
+          "16/07/2026 12:00"
+        );
+      }
+    }
+  });
   await page.waitForTimeout(80);
   const body = await page.screenshot({ animations: "disabled", fullPage: false });
+  if (process.env.EMC_LOCUS_REFRESH_0211_SCREENSHOTS !== "1") {
+    return;
+  }
   const evidenceDirectory = path.resolve(process.cwd(), "../../docs/ux/0.21.1/screenshots");
   await mkdir(evidenceDirectory, { recursive: true });
   await writeFile(path.join(evidenceDirectory, name), body);
