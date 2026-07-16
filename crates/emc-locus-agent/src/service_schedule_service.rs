@@ -1,8 +1,8 @@
 use crate::planned_test_preparation_service::require_planned_test_preparation_for_start;
 use crate::project_repository::{
     ensure_operation_replay, existing_operation, insert_audit_event, insert_sync_operation,
-    load_project, next_audit_sequence, open_project_connection, AuditEventInput,
-    OperationFingerprintInput, SyncOperationInput,
+    load_project, next_audit_sequence, open_project_connection, open_start_consistency_connection,
+    AuditEventInput, OperationFingerprintInput, SyncOperationInput,
 };
 use crate::service_schedule_dto::{
     LaboratoryScheduleItemDto, LaboratoryWeekScheduleDto, ServiceScheduleItemDto,
@@ -11,8 +11,9 @@ use crate::service_schedule_dto::{
 use crate::service_schedule_repository::{
     ensure_service_schedule_table, find_service_schedule_conflict, insert_service_schedule_item,
     load_laboratory_service_schedule_items, load_project_service_schedule_items,
-    load_service_schedule_item, update_service_schedule_assignment, update_service_schedule_status,
-    ScheduleConflict, StoredLaboratoryScheduleItem, StoredServiceScheduleItem,
+    load_service_schedule_item, start_service_schedule_with_preparation,
+    update_service_schedule_assignment, update_service_schedule_status, ScheduleConflict,
+    StartServiceScheduleInput, StoredLaboratoryScheduleItem, StoredServiceScheduleItem,
 };
 use crate::{render_json, AgentError};
 use emc_locus_core::{
@@ -20,9 +21,35 @@ use emc_locus_core::{
     ServiceScheduleItem, ServiceScheduleItemInput, ServiceScheduleRescheduleInput,
     ServiceScheduleStatus, ServiceScheduleWeek, StableId,
 };
+use rusqlite::TransactionBehavior;
 use serde_json::json;
 use std::path::Path;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub(crate) enum StartConsistencyTestAction {
+    InstallBlockedPreparation {
+        source_revision_id: String,
+        new_revision_id: String,
+    },
+    PointToPreparation {
+        revision_id: String,
+    },
+    AdvanceScheduleRevision,
+    AssertReadinessWritersLocked,
+}
+
+#[cfg(test)]
+thread_local! {
+    static START_CONSISTENCY_TEST_ACTION: std::cell::RefCell<Option<StartConsistencyTestAction>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn set_start_consistency_test_action(action: StartConsistencyTestAction) {
+    START_CONSISTENCY_TEST_ACTION.with(|current| current.replace(Some(action)));
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CreateServiceScheduleItemInput {
@@ -50,6 +77,8 @@ pub struct TransitionServiceScheduleItemInput {
     pub item_code: String,
     pub target_status: String,
     pub expected_revision: u64,
+    pub expected_preparation_revision_id: Option<String>,
+    pub expected_preparation_checksum: Option<String>,
     pub actor: String,
     pub reason: String,
     pub operation_id: String,
@@ -420,7 +449,12 @@ pub fn transition_service_schedule_item(
         ));
     }
     let target = ServiceScheduleStatus::parse(&input.target_status).map_err(planning_error)?;
-    let payload_json = transition_command_payload(target, &input.reason);
+    validate_start_evidence_fields(target, &input)?;
+    let payload_json = transition_command_payload(target, &input);
+
+    if target == ServiceScheduleStatus::InProgress {
+        return start_service_schedule_item(storage_root, input, project_code, actor, payload_json);
+    }
 
     let mut connection = open_project_connection(storage_root)?;
     ensure_service_schedule_table(&connection)?;
@@ -490,24 +524,13 @@ pub fn transition_service_schedule_item(
             }),
         )
     })?;
-    let preparation_evidence = if target == ServiceScheduleStatus::InProgress {
-        Some(require_planned_test_preparation_for_start(
-            storage_root,
-            project_code.as_str(),
-            &input.item_code,
-            stored.revision,
-        )?)
-    } else {
-        None
-    };
-
     let timestamp = utc_timestamp()?;
     let audit_sequence = next_audit_sequence(&connection, project_code.as_str())?;
     let audit_payload = render_json(&json!({
         "item_code": item.item_code(),
         "previous_status": previous_status.as_str(),
         "new_status": target.as_str(),
-        "planned_test_preparation": preparation_evidence,
+        "planned_test_preparation": null,
     }));
     let base_revision = revision_text(stored.revision);
     let resulting_revision = revision_text(stored.revision + 1);
@@ -567,6 +590,294 @@ pub fn transition_service_schedule_item(
         false,
         &updated,
     )
+}
+
+fn start_service_schedule_item(
+    storage_root: &Path,
+    input: TransitionServiceScheduleItemInput,
+    project_code: ProjectCode,
+    actor: AuditActor,
+    payload_json: String,
+) -> Result<String, AgentError> {
+    let expected_preparation_revision_id = input
+        .expected_preparation_revision_id
+        .as_deref()
+        .unwrap_or_default();
+    let expected_preparation_checksum = input
+        .expected_preparation_checksum
+        .as_deref()
+        .unwrap_or_default();
+    let mut connection = open_start_consistency_connection(storage_root)?;
+    ensure_service_schedule_table(&connection)?;
+    if let Some(operation) = existing_operation(&connection, &input.operation_id)? {
+        ensure_operation_replay(
+            &operation,
+            &input.operation_id,
+            OperationFingerprintInput {
+                domain: "project_records",
+                entity_type: "service_schedule_item",
+                entity_id: &input.item_code,
+                operation_kind: "service_schedule_item_status_changed",
+                base_revision: &operation.base_revision,
+                actor_id: &input.actor,
+                device_id: &input.device_id,
+                correlation_id: &input.correlation_id,
+                payload_json: &payload_json,
+            },
+        )?;
+        let stored =
+            load_service_schedule_item(&connection, &input.item_code)?.ok_or_else(|| {
+                AgentError::new(
+                    "operation_replay_missing_entity",
+                    "operation exists but service schedule item is missing",
+                )
+            })?;
+        return schedule_operation_json(
+            "service_schedule_item_status_changed",
+            &input.operation_id,
+            true,
+            &stored,
+        );
+    }
+
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    load_project(&transaction, project_code.as_str())?
+        .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
+    let stored = load_service_schedule_item(&transaction, &input.item_code)?.ok_or_else(|| {
+        AgentError::new("service_schedule_item_not_found", "schedule item not found")
+    })?;
+    if stored.project_code != project_code.as_str() {
+        return Err(AgentError::new(
+            "service_schedule_item_not_found",
+            "schedule item does not belong to this project",
+        ));
+    }
+    if stored.revision != input.expected_revision {
+        return Err(AgentError::with_details(
+            "service_schedule_concurrent_update",
+            "the service schedule item changed; refresh the project before trying again",
+            json!({
+                "item_code": stored.item_code,
+                "expected_revision": input.expected_revision,
+                "actual_revision": stored.revision,
+            }),
+        ));
+    }
+    let mut item = stored.to_domain()?;
+    let previous_status = item.status();
+    item.transition_to(ServiceScheduleStatus::InProgress)
+        .map_err(|issue| {
+            AgentError::with_details(
+                "invalid_service_schedule_transition",
+                "the requested planning action is not available from the current state",
+                json!({
+                    "from": previous_status.as_str(),
+                    "to": ServiceScheduleStatus::InProgress.as_str(),
+                    "cause": issue.code,
+                }),
+            )
+        })?;
+    let preparation_evidence = require_planned_test_preparation_for_start(
+        storage_root,
+        &transaction,
+        project_code.as_str(),
+        &input.item_code,
+        stored.revision,
+        expected_preparation_revision_id,
+        expected_preparation_checksum,
+    )?;
+    run_start_consistency_test_action(&transaction, storage_root, &stored)?;
+
+    let timestamp = utc_timestamp()?;
+    let audit_sequence = next_audit_sequence(&transaction, project_code.as_str())?;
+    let audit_payload = render_json(&json!({
+        "item_code": item.item_code(),
+        "previous_status": previous_status.as_str(),
+        "new_status": ServiceScheduleStatus::InProgress.as_str(),
+        "planned_test_preparation": &preparation_evidence,
+    }));
+    let base_revision = revision_text(stored.revision);
+    let resulting_revision = revision_text(stored.revision + 1);
+    start_service_schedule_with_preparation(
+        &transaction,
+        StartServiceScheduleInput {
+            item_id: stored.id,
+            project_code: project_code.as_str(),
+            schedule_item_code: &input.item_code,
+            expected_schedule_revision: stored.revision,
+            expected_preparation_revision_id: &preparation_evidence.revision_id,
+            expected_preparation_checksum: &preparation_evidence.definition_checksum,
+            actor: actor.as_str(),
+            timestamp: &timestamp,
+        },
+    )?;
+    insert_audit_event(
+        &transaction,
+        AuditEventInput {
+            project_code: project_code.as_str(),
+            sequence: audit_sequence,
+            actor: actor.as_str(),
+            action: "service_schedule_item_status_changed",
+            reason: Some(&input.reason),
+            payload_json: &audit_payload,
+            timestamp: &timestamp,
+        },
+    )?;
+    insert_sync_operation(
+        &transaction,
+        SyncOperationInput {
+            domain: "project_records",
+            entity_type: "service_schedule_item",
+            operation_id: &input.operation_id,
+            entity_id: item.item_code(),
+            operation_kind: "service_schedule_item_status_changed",
+            base_revision: &base_revision,
+            resulting_revision: &resulting_revision,
+            actor_id: &input.actor,
+            device_id: &input.device_id,
+            correlation_id: &input.correlation_id,
+            payload_json: &payload_json,
+            timestamp: &timestamp,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+
+    let updated = load_service_schedule_item(&connection, item.item_code())?.ok_or_else(|| {
+        AgentError::new(
+            "service_schedule_read_failed",
+            "updated schedule item is missing",
+        )
+    })?;
+    schedule_operation_json(
+        "service_schedule_item_status_changed",
+        &input.operation_id,
+        false,
+        &updated,
+    )
+}
+
+#[cfg(not(test))]
+fn run_start_consistency_test_action(
+    _transaction: &rusqlite::Transaction<'_>,
+    _storage_root: &Path,
+    _schedule: &StoredServiceScheduleItem,
+) -> Result<(), AgentError> {
+    Ok(())
+}
+
+#[cfg(test)]
+fn run_start_consistency_test_action(
+    transaction: &rusqlite::Transaction<'_>,
+    storage_root: &Path,
+    schedule: &StoredServiceScheduleItem,
+) -> Result<(), AgentError> {
+    use rusqlite::{params, ErrorCode};
+    use std::time::Duration;
+
+    let action = START_CONSISTENCY_TEST_ACTION.with(|current| current.borrow_mut().take());
+    match action {
+        None => Ok(()),
+        Some(StartConsistencyTestAction::InstallBlockedPreparation {
+            source_revision_id,
+            new_revision_id,
+        }) => {
+            let inserted = transaction
+                .execute(
+                    concat!(
+                        "INSERT INTO planned_test_preparation_revisions (",
+                        "revision_id, project_code, schedule_item_code, revision_number, parent_revision_id, ",
+                        "schedule_revision, method_template_id, method_revision_id, method_definition_checksum, ",
+                        "station_setup_id, station_setup_revision_id, station_setup_definition_checksum, ",
+                        "verdict_state, definition_schema_version, definition_json, definition_checksum, ",
+                        "operation_id, request_checksum, actor, reason, device_id, correlation_id, created_at",
+                        ") SELECT ?1, project_code, schedule_item_code, 9999, revision_id, ",
+                        "schedule_revision, method_template_id, method_revision_id, method_definition_checksum, ",
+                        "station_setup_id, station_setup_revision_id, station_setup_definition_checksum, ",
+                        "'blocked', definition_schema_version, definition_json, definition_checksum, ",
+                        "?2, request_checksum, actor, 'deterministic start race fixture', ",
+                        "device_id, correlation_id, created_at ",
+                        "FROM planned_test_preparation_revisions WHERE revision_id = ?3"
+                    ),
+                    params![
+                        new_revision_id,
+                        format!("op-{new_revision_id}"),
+                        source_revision_id
+                    ],
+                )
+                .map_err(|error| AgentError::new("test_hook_failed", error.to_string()))?;
+            if inserted != 1 {
+                return Err(AgentError::new(
+                    "test_hook_failed",
+                    "blocked preparation race fixture was not inserted",
+                ));
+            }
+            transaction
+                .execute(
+                    concat!(
+                        "UPDATE planned_test_preparation_identities SET current_revision_id = ?1 ",
+                        "WHERE project_code = ?2 AND schedule_item_code = ?3"
+                    ),
+                    params![new_revision_id, schedule.project_code, schedule.item_code],
+                )
+                .map_err(|error| AgentError::new("test_hook_failed", error.to_string()))?;
+            Ok(())
+        }
+        Some(StartConsistencyTestAction::AdvanceScheduleRevision) => {
+            transaction
+                .execute(
+                    "UPDATE service_schedule_items SET revision = revision + 1 WHERE id = ?1",
+                    params![schedule.id],
+                )
+                .map_err(|error| AgentError::new("test_hook_failed", error.to_string()))?;
+            Ok(())
+        }
+        Some(StartConsistencyTestAction::PointToPreparation { revision_id }) => {
+            let updated = transaction
+                .execute(
+                    concat!(
+                        "UPDATE planned_test_preparation_identities SET current_revision_id = ?1 ",
+                        "WHERE project_code = ?2 AND schedule_item_code = ?3"
+                    ),
+                    params![revision_id, schedule.project_code, schedule.item_code],
+                )
+                .map_err(|error| AgentError::new("test_hook_failed", error.to_string()))?;
+            if updated != 1 {
+                return Err(AgentError::new(
+                    "test_hook_failed",
+                    "preparation pointer race fixture was not installed",
+                ));
+            }
+            Ok(())
+        }
+        Some(StartConsistencyTestAction::AssertReadinessWritersLocked) => {
+            for database in ["metrology.sqlite", "station.sqlite"] {
+                let connection = rusqlite::Connection::open(storage_root.join(database))
+                    .map_err(|error| AgentError::new("test_hook_failed", error.to_string()))?;
+                connection
+                    .busy_timeout(Duration::ZERO)
+                    .map_err(|error| AgentError::new("test_hook_failed", error.to_string()))?;
+                let error = connection
+                    .execute_batch("BEGIN IMMEDIATE")
+                    .expect_err("readiness database writer must be locked during start");
+                let locked = matches!(
+                    error,
+                    rusqlite::Error::SqliteFailure(ref details, _)
+                        if matches!(details.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked)
+                );
+                if !locked {
+                    return Err(AgentError::new(
+                        "test_hook_failed",
+                        format!("{database} accepted a concurrent readiness write"),
+                    ));
+                }
+            }
+            Ok(())
+        }
+    }
 }
 
 fn schedule_item_dto(
@@ -650,8 +961,56 @@ fn schedule_snapshot_payload(item: &ServiceScheduleItem) -> String {
     }))
 }
 
-fn transition_command_payload(target: ServiceScheduleStatus, reason: &str) -> String {
-    render_json(&json!({ "target_status": target.as_str(), "reason": reason }))
+fn transition_command_payload(
+    target: ServiceScheduleStatus,
+    input: &TransitionServiceScheduleItemInput,
+) -> String {
+    render_json(&json!({
+        "target_status": target.as_str(),
+        "expected_preparation_revision_id": input.expected_preparation_revision_id,
+        "expected_preparation_checksum": input.expected_preparation_checksum,
+        "reason": input.reason,
+    }))
+}
+
+fn validate_start_evidence_fields(
+    target: ServiceScheduleStatus,
+    input: &TransitionServiceScheduleItemInput,
+) -> Result<(), AgentError> {
+    let revision = input.expected_preparation_revision_id.as_deref();
+    let checksum = input.expected_preparation_checksum.as_deref();
+    if target != ServiceScheduleStatus::InProgress {
+        if revision.is_some() || checksum.is_some() {
+            return Err(AgentError::new(
+                "invalid_service_schedule_request",
+                "preparation evidence is accepted only for the start action",
+            ));
+        }
+        return Ok(());
+    }
+    if revision.is_some() != checksum.is_some() {
+        return Err(AgentError::new(
+            "invalid_service_schedule_request",
+            "start preparation revision and checksum must be provided together",
+        ));
+    }
+    if let Some(revision) = revision {
+        validate_stable_id(revision, "expected_preparation_revision_id")?;
+    }
+    if let Some(checksum) = checksum {
+        let digest = checksum.strip_prefix("sha256:").unwrap_or_default();
+        if digest.len() != 64
+            || !digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(AgentError::new(
+                "invalid_service_schedule_request",
+                "expected_preparation_checksum must use canonical sha256:<64 lowercase hex>",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn reschedule_command_payload(input: &RescheduleServiceScheduleItemInput) -> String {
@@ -1147,6 +1506,8 @@ mod tests {
             item_code: item_code.to_owned(),
             target_status: target_status.to_owned(),
             expected_revision,
+            expected_preparation_revision_id: None,
+            expected_preparation_checksum: None,
             actor: "responsable.laboratoire".to_owned(),
             reason: "Mise à jour du planning".to_owned(),
             operation_id: format!("op-status-{suffix}"),

@@ -521,11 +521,13 @@ class LocalAgentClientTests(unittest.TestCase):
             client.transition_service_schedule_item(
                 project_code="CEM-PY-001",
                 item_code="PLAN-PY-001",
-                action="confirm",
+                action="start",
                 expected_revision=1,
                 actor="responsable.laboratoire",
                 reason="Ressources confirmees",
-                operation_id="op-schedule-confirm",
+                operation_id="op-schedule-start",
+                expected_preparation_revision_id="PLAN-PREP-001-prep-rev-0002",
+                expected_preparation_checksum=f"sha256:{'a' * 64}",
             )
 
         self.assertEqual(
@@ -536,9 +538,17 @@ class LocalAgentClientTests(unittest.TestCase):
         self.assertEqual(captured[0]["body"]["notes"], "Premier creneau")
         self.assertEqual(
             captured[1]["url"],
-            "http://127.0.0.1:8765/api/v1/projects/CEM-PY-001/schedule-items/PLAN-PY-001/transitions/confirm",
+            "http://127.0.0.1:8765/api/v1/projects/CEM-PY-001/schedule-items/PLAN-PY-001/transitions/start",
         )
         self.assertEqual(captured[1]["body"]["expected_revision"], 1)
+        self.assertEqual(
+            captured[1]["body"]["expected_preparation_revision_id"],
+            "PLAN-PREP-001-prep-rev-0002",
+        )
+        self.assertEqual(
+            captured[1]["body"]["expected_preparation_checksum"],
+            f"sha256:{'a' * 64}",
+        )
 
     def test_reads_and_assesses_planned_test_preparation(self) -> None:
         captured: list[dict[str, object]] = []

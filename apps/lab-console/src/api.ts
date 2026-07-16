@@ -838,12 +838,15 @@ export const projectApi = {
     item: ServiceScheduleItem,
     action: "confirm" | "start" | "complete" | "cancel",
     actor: string,
-    reason: string
+    reason: string,
+    preparation?: { revision_id: string; definition_checksum: string }
   ) =>
     post<ServiceScheduleOperationResult>(
       `/api/v1/projects/${encodeURIComponent(projectCode)}/schedule-items/${encodeURIComponent(item.item_code)}/transitions/${action}`,
       {
         expected_revision: item.revision,
+        expected_preparation_revision_id: preparation?.revision_id,
+        expected_preparation_checksum: preparation?.definition_checksum,
         actor,
         reason,
         operation_id: operationId(

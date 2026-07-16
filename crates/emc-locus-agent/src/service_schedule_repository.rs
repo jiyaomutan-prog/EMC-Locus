@@ -264,6 +264,76 @@ pub(crate) fn update_service_schedule_status(
     Ok(())
 }
 
+pub(crate) struct StartServiceScheduleInput<'a> {
+    pub(crate) item_id: i64,
+    pub(crate) project_code: &'a str,
+    pub(crate) schedule_item_code: &'a str,
+    pub(crate) expected_schedule_revision: u64,
+    pub(crate) expected_preparation_revision_id: &'a str,
+    pub(crate) expected_preparation_checksum: &'a str,
+    pub(crate) actor: &'a str,
+    pub(crate) timestamp: &'a str,
+}
+
+pub(crate) fn start_service_schedule_with_preparation(
+    transaction: &Transaction<'_>,
+    input: StartServiceScheduleInput<'_>,
+) -> Result<(), AgentError> {
+    let updated = transaction
+        .execute(
+            concat!(
+                "UPDATE service_schedule_items ",
+                "SET status = 'in_progress', revision = revision + 1, ",
+                "updated_by = ?1, updated_at = ?2 ",
+                "WHERE id = ?3 AND project_code = ?4 AND item_code = ?5 ",
+                "AND revision = ?6 AND status = 'confirmed' ",
+                "AND EXISTS (",
+                "SELECT 1 FROM planned_test_preparation_identities i ",
+                "JOIN planned_test_preparation_revisions r ON r.revision_id = i.current_revision_id ",
+                "WHERE i.project_code = ?4 AND i.schedule_item_code = ?5 ",
+                "AND i.current_revision_id = ?7 AND r.definition_checksum = ?8 ",
+                "AND r.verdict_state = 'ready'",
+                ")"
+            ),
+            params![
+                input.actor,
+                input.timestamp,
+                input.item_id,
+                input.project_code,
+                input.schedule_item_code,
+                input.expected_schedule_revision,
+                input.expected_preparation_revision_id,
+                input.expected_preparation_checksum,
+            ],
+        )
+        .map_err(|error| AgentError::new("service_schedule_write_failed", error.to_string()))?;
+    if updated == 1 {
+        return Ok(());
+    }
+
+    let current = load_service_schedule_item(transaction, input.schedule_item_code)?;
+    if current.as_ref().is_some_and(|item| {
+        item.id == input.item_id
+            && item.project_code == input.project_code
+            && item.revision == input.expected_schedule_revision
+            && item.status == "confirmed"
+    }) {
+        return Err(AgentError::with_details(
+            "planned_test_preparation_changed_before_start",
+            "La préparation de l'essai a changé pendant le démarrage. Vérifiez-la de nouveau.",
+            serde_json::json!({
+                "schedule_item_code": input.schedule_item_code,
+                "expected_preparation_revision_id": input.expected_preparation_revision_id,
+                "expected_preparation_checksum": input.expected_preparation_checksum,
+            }),
+        ));
+    }
+    Err(AgentError::new(
+        "service_schedule_concurrent_update",
+        "the service schedule item changed before this operation was applied",
+    ))
+}
+
 pub(crate) fn update_service_schedule_assignment(
     transaction: &Transaction<'_>,
     item_id: i64,

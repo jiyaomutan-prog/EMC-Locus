@@ -1674,6 +1674,8 @@ class LocalAgentClient:
         operation_id: str | None = None,
         correlation_id: str | None = None,
         device_id: str | None = None,
+        expected_preparation_revision_id: str | None = None,
+        expected_preparation_checksum: str | None = None,
     ) -> dict[str, Any]:
         if action not in {"confirm", "start", "complete", "cancel"}:
             raise ValueError(f"unknown service schedule action: {action}")
@@ -1688,6 +1690,16 @@ class LocalAgentClient:
             "reason": reason,
             "operation_id": operation_id,
         }
+        _put_optional(
+            payload,
+            "expected_preparation_revision_id",
+            expected_preparation_revision_id,
+        )
+        _put_optional(
+            payload,
+            "expected_preparation_checksum",
+            expected_preparation_checksum,
+        )
         _put_optional(payload, "correlation_id", correlation_id)
         _put_optional(payload, "device_id", device_id)
         return self.request_json(

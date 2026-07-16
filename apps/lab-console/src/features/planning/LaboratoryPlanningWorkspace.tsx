@@ -383,7 +383,13 @@ function ScheduleDetailDialog(props: {
         "Opérateur CEM",
         action === "confirm"
           ? "Créneau et ressources confirmés"
-          : "Préparation vérifiée avant démarrage"
+          : "Préparation vérifiée avant démarrage",
+        action === "start" && preparation?.current_revision
+          ? {
+              revision_id: preparation.current_revision.revision_id,
+              definition_checksum: preparation.current_revision.definition_checksum
+            }
+          : undefined
       );
       props.onMoved({
         ...props.item,

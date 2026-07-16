@@ -491,33 +491,47 @@ pub fn assess_planned_test_preparation_for_schedule(
 
 pub(crate) fn require_planned_test_preparation_for_start(
     storage_root: &Path,
+    projects: &rusqlite::Connection,
     project_code: &str,
     schedule_item_code: &str,
     schedule_revision: u64,
+    expected_preparation_revision_id: &str,
+    expected_preparation_checksum: &str,
 ) -> Result<PlannedTestPreparationStartEvidence, AgentError> {
-    let projects = open_project_connection(storage_root)?;
-    ensure_planned_test_preparation_tables(&projects)?;
-    let project = load_project(&projects, project_code)?
+    ensure_planned_test_preparation_tables(projects)?;
+    let project = load_project(projects, project_code)?
         .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
-    let schedule = load_owned_schedule(&projects, project_code, schedule_item_code)?;
+    let schedule = load_owned_schedule(projects, project_code, schedule_item_code)?;
     if schedule.revision != schedule_revision {
         return Err(AgentError::new(
             "planned_test_preparation_stale",
             "the scheduled test changed after the start request was prepared",
         ));
     }
-    let stored = load_current_planned_test_preparation_revision(
-        &projects,
-        project_code,
-        schedule_item_code,
-    )?
-    .ok_or_else(|| {
-        AgentError::with_details(
-            "planned_test_preparation_required",
-            "prepare this scheduled test before starting it",
-            json!({ "schedule_item_code": schedule_item_code }),
-        )
-    })?;
+    let stored =
+        load_current_planned_test_preparation_revision(projects, project_code, schedule_item_code)?
+            .ok_or_else(|| {
+                AgentError::with_details(
+                    "planned_test_preparation_required",
+                    "prepare this scheduled test before starting it",
+                    json!({ "schedule_item_code": schedule_item_code }),
+                )
+            })?;
+    if stored.revision_id != expected_preparation_revision_id
+        || stored.definition_checksum != expected_preparation_checksum
+    {
+        return Err(AgentError::with_details(
+            "planned_test_preparation_changed_before_start",
+            "La préparation de l'essai a changé pendant le démarrage. Vérifiez-la de nouveau.",
+            json!({
+                "schedule_item_code": schedule_item_code,
+                "expected_preparation_revision_id": expected_preparation_revision_id,
+                "actual_preparation_revision_id": &stored.revision_id,
+                "expected_preparation_checksum": expected_preparation_checksum,
+                "actual_preparation_checksum": &stored.definition_checksum,
+            }),
+        ));
+    }
     let definition = validated_stored_definition(&stored)?;
     if definition.schedule.revision != schedule_revision {
         return Err(AgentError::with_details(
@@ -1171,7 +1185,8 @@ mod tests {
         register_metrology_instrument, MetrologyOperationContext, RegisterInstrumentInput,
     };
     use crate::service_schedule_service::{
-        transition_service_schedule_item, TransitionServiceScheduleItemInput,
+        set_start_consistency_test_action, transition_service_schedule_item,
+        StartConsistencyTestAction, TransitionServiceScheduleItemInput,
     };
     use crate::{run_storage_action, StorageAction};
     use emc_locus_core::equipment::{
@@ -1229,9 +1244,20 @@ mod tests {
             Value::String("planned_test_required_role_unassigned".to_owned())
         );
 
-        let start_error =
-            transition_service_schedule_item(&storage_root, start_input("op-start-blocked", 1))
-                .unwrap_err();
+        let start_error = transition_service_schedule_item(
+            &storage_root,
+            start_input(
+                "op-start-blocked",
+                1,
+                blocked["preparation"]["current_revision"]["revision_id"]
+                    .as_str()
+                    .unwrap(),
+                blocked["preparation"]["current_revision"]["definition_checksum"]
+                    .as_str()
+                    .unwrap(),
+            ),
+        )
+        .unwrap_err();
         assert_eq!(start_error.code, "planned_test_preparation_not_ready");
 
         let ready_input = assessment_input(
@@ -1267,11 +1293,104 @@ mod tests {
         assert_eq!(revisions["revisions"][1]["recorded_state"], "blocked");
         assert_eq!(revisions["revisions"][1]["effective_state"], "historical");
 
-        let started =
-            transition_service_schedule_item(&storage_root, start_input("op-start-ready", 1))
-                .unwrap();
+        let ready_revision_id = ready["preparation"]["current_revision"]["revision_id"]
+            .as_str()
+            .unwrap();
+        let ready_checksum = ready["preparation"]["current_revision"]["definition_checksum"]
+            .as_str()
+            .unwrap();
+
+        set_start_consistency_test_action(StartConsistencyTestAction::InstallBlockedPreparation {
+            source_revision_id: "PLAN-PREP-001-prep-rev-0001".to_owned(),
+            new_revision_id: "PLAN-PREP-001-prep-rev-race".to_owned(),
+        });
+        let preparation_race = transition_service_schedule_item(
+            &storage_root,
+            start_input(
+                "op-start-preparation-race",
+                1,
+                ready_revision_id,
+                ready_checksum,
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(
+            preparation_race.code,
+            "planned_test_preparation_changed_before_start"
+        );
+
+        set_start_consistency_test_action(StartConsistencyTestAction::PointToPreparation {
+            revision_id: "PLAN-PREP-001-prep-rev-0001".to_owned(),
+        });
+        let pointer_race = transition_service_schedule_item(
+            &storage_root,
+            start_input(
+                "op-start-pointer-race",
+                1,
+                ready_revision_id,
+                ready_checksum,
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(
+            pointer_race.code,
+            "planned_test_preparation_changed_before_start"
+        );
+
+        set_start_consistency_test_action(StartConsistencyTestAction::AdvanceScheduleRevision);
+        let schedule_race = transition_service_schedule_item(
+            &storage_root,
+            start_input(
+                "op-start-schedule-race",
+                1,
+                ready_revision_id,
+                ready_checksum,
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(schedule_race.code, "service_schedule_concurrent_update");
+
+        let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        let unchanged: (String, u64, String) = projects
+            .query_row(
+                concat!(
+                    "SELECT s.status, s.revision, i.current_revision_id ",
+                    "FROM service_schedule_items s ",
+                    "JOIN planned_test_preparation_identities i ON i.schedule_item_code = s.item_code ",
+                    "WHERE s.item_code = ?1"
+                ),
+                params![ITEM_CODE],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            unchanged,
+            ("confirmed".to_owned(), 1, ready_revision_id.to_owned())
+        );
+        let race_revision_count: u64 = projects
+            .query_row(
+                "SELECT COUNT(*) FROM planned_test_preparation_revisions WHERE revision_id = 'PLAN-PREP-001-prep-rev-race'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(race_revision_count, 0);
+        drop(projects);
+
+        let start_input = start_input("op-start-ready", 1, ready_revision_id, ready_checksum);
+        set_start_consistency_test_action(StartConsistencyTestAction::AssertReadinessWritersLocked);
+        let started = transition_service_schedule_item(&storage_root, start_input.clone()).unwrap();
         let started: Value = serde_json::from_str(&started).unwrap();
         assert_eq!(started["schedule_item"]["status"], "in_progress");
+
+        let replayed =
+            transition_service_schedule_item(&storage_root, start_input.clone()).unwrap();
+        let replayed: Value = serde_json::from_str(&replayed).unwrap();
+        assert_eq!(replayed["replayed"], true);
+        let mut mismatched = start_input;
+        mismatched.expected_preparation_checksum = Some(format!("sha256:{}", "f".repeat(64)));
+        let mismatch = transition_service_schedule_item(&storage_root, mismatched).unwrap_err();
+        assert_eq!(mismatch.code, "operation_replay_mismatch");
 
         let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
         let preparation_audit: u64 = projects
@@ -1294,6 +1413,10 @@ mod tests {
             start_payload["planned_test_preparation"]["revision_id"],
             "PLAN-PREP-001-prep-rev-0002"
         );
+        assert_eq!(
+            start_payload["planned_test_preparation"]["definition_checksum"],
+            ready_checksum
+        );
         drop(projects);
 
         let sync = Connection::open(storage_root.join("sync.sqlite")).unwrap();
@@ -1305,6 +1428,22 @@ mod tests {
             )
             .unwrap();
         assert_eq!(preparation_outbox, 2);
+        let start_outbox_payload: String = sync
+            .query_row(
+                "SELECT payload_json FROM sync_operations WHERE operation_id = 'op-start-ready'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let start_outbox_payload: Value = serde_json::from_str(&start_outbox_payload).unwrap();
+        assert_eq!(
+            start_outbox_payload["expected_preparation_revision_id"],
+            ready_revision_id
+        );
+        assert_eq!(
+            start_outbox_payload["expected_preparation_checksum"],
+            ready_checksum
+        );
         drop(sync);
 
         let historical = get_planned_test_preparation_revision_json(
@@ -1394,12 +1533,16 @@ mod tests {
     fn start_input(
         operation_id: &str,
         expected_revision: u64,
+        expected_preparation_revision_id: &str,
+        expected_preparation_checksum: &str,
     ) -> TransitionServiceScheduleItemInput {
         TransitionServiceScheduleItemInput {
             project_code: PROJECT_CODE.to_owned(),
             item_code: ITEM_CODE.to_owned(),
             target_status: "in_progress".to_owned(),
             expected_revision,
+            expected_preparation_revision_id: Some(expected_preparation_revision_id.to_owned()),
+            expected_preparation_checksum: Some(expected_preparation_checksum.to_owned()),
             actor: "operateur.cem".to_owned(),
             reason: "Démarrage de l'essai préparé".to_owned(),
             operation_id: operation_id.to_owned(),

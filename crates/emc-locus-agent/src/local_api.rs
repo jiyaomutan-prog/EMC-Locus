@@ -1580,6 +1580,11 @@ fn transition_service_schedule_item_input(
         item_code: item_code.to_owned(),
         target_status: target_status.to_owned(),
         expected_revision: required_u64(payload, "expected_revision")?,
+        expected_preparation_revision_id: optional_string(
+            payload,
+            "expected_preparation_revision_id",
+        ),
+        expected_preparation_checksum: optional_string(payload, "expected_preparation_checksum"),
         actor: required_string(payload, "actor")?,
         reason: required_string(payload, "reason")?,
         correlation_id: optional_string(payload, "correlation_id")
@@ -7975,6 +7980,7 @@ mod tests {
         assert_eq!(blocked.0, 200, "{}", blocked.1);
         assert!(blocked.1.contains("\"current_state\":\"blocked\""));
         assert!(blocked.1.contains("planned_test_required_role_unassigned"));
+        let blocked_json: Value = serde_json::from_str(&blocked.1).unwrap();
 
         let blocked_start = http_request(
             "POST",
@@ -7982,6 +7988,8 @@ mod tests {
             "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/transitions/start",
             &json!({
                 "expected_revision": 2,
+                "expected_preparation_revision_id": blocked_json["preparation"]["current_revision"]["revision_id"],
+                "expected_preparation_checksum": blocked_json["preparation"]["current_revision"]["definition_checksum"],
                 "actor": "operator.http",
                 "reason": "attempt blocked start",
                 "operation_id": "op-http-start-blocked",
@@ -8019,6 +8027,7 @@ mod tests {
         assert_eq!(ready.0, 200, "{}", ready.1);
         assert!(ready.1.contains("\"current_state\":\"ready\""));
         assert!(ready.1.contains("\"can_start\":true"));
+        let ready_json: Value = serde_json::from_str(&ready.1).unwrap();
 
         let replay = http_request(
             "POST",
@@ -8060,6 +8069,8 @@ mod tests {
             "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/transitions/start",
             &json!({
                 "expected_revision": 2,
+                "expected_preparation_revision_id": ready_json["preparation"]["current_revision"]["revision_id"],
+                "expected_preparation_checksum": ready_json["preparation"]["current_revision"]["definition_checksum"],
                 "actor": "operator.http",
                 "reason": "start after ready preparation",
                 "operation_id": "op-http-start-ready",
