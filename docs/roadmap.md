@@ -191,6 +191,11 @@ Deliverables:
   revalidates it before allowing the slot to start. This is technical
   preparation and traceability, not instrument control, acquisition or a
   scientific execution runtime.
+- `0.21.1` closes that preparation vertical: confirmation precedes technical
+  preparation, locations use stable identities, material choices come from a
+  typed backend compatibility decision, and start validation plus transition
+  share one Local Agent consistency boundary. Historical decisions and release
+  screenshots remain immutable.
 
 ## Phase 3: Measurement Runtime
 
@@ -548,12 +553,11 @@ Deliverables:
 
 ## Near-Term Next Session
 
-Recommended next vertical: `0.21.0 - Planned Slot Preparation Package`. It
-should bind one scheduled slot to an approved test-method revision and one
-ready physical station-setup revision, then expose an explainable preparation
-verdict before the operator can enter execution. It should reuse the existing
-metrology and correction readiness evidence without becoming real acquisition,
-an FFT engine, report generator, RBAC implementation or central sync.
+Recommended next vertical after review of `0.21.1`: return to the unfinished
+serial-specific metrology correction workflow. The next slice should prove how
+an approved material correction is selected and carried into simulated
+measurement lineage without redesigning acquisition, FFT, reporting, RBAC or
+central synchronization in the same release.
 
 The parallel runtime stream should continue guarded serial or VISA IO behind the
 adapter skeletons.

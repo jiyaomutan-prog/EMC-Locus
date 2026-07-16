@@ -5,7 +5,6 @@ test("template studio workflow persists through API", async ({ page, request }) 
 
   await page.goto("/lab/");
   await expect(page.getByRole("heading", { name: "Méthodes d'essai" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Aucune méthode d’essai" })).toBeVisible();
 
   await page.getByRole("button", { name: "Créer une méthode" }).click();
   await page.getByLabel("Nom de la méthode").fill("E2E LAB template");

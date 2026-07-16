@@ -1119,8 +1119,8 @@ fn readiness_issue(
 
 fn material_label(asset: &PreparedStationAssetSnapshot) -> String {
     format!(
-        "Le matériel {} / {} ({})",
-        asset.inventory_code, asset.serial_number, asset.model_name
+        "Le matériel {} {}, n° de série {}",
+        asset.manufacturer, asset.model_name, asset.serial_number
     )
 }
 
@@ -1501,6 +1501,12 @@ mod tests {
             .issues
             .iter()
             .any(|issue| issue.code == "planned_test_role_capability_mismatch"));
+        assert!(definition.verdict.issues.iter().all(|issue| {
+            issue
+                .message
+                .contains("Le matériel Rohde & Schwarz ESW, n° de série SN-RX-001")
+                && !issue.message.contains("INV-RX-001")
+        }));
     }
 
     #[test]

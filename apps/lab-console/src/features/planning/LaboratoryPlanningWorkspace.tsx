@@ -784,14 +784,15 @@ function PreparationWorkspace(props: {
     )?.materials ?? noMaterialCompatibility;
 
   useEffect(() => {
+    if (!options || !method || !stationOption) return;
     setAssignments((current) =>
       retainCompatibleAssignments(
         current,
-        method?.instrumentation_chain.map((slot) => slot.slot_id) ?? [],
+        method.instrumentation_chain.map((slot) => slot.slot_id),
         materialCompatibility
       )
     );
-  }, [materialCompatibility, method]);
+  }, [materialCompatibility, method, options, stationOption]);
 
   async function assess() {
     if (!method || !stationOption) return;

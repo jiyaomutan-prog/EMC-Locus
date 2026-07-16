@@ -2964,6 +2964,7 @@ fn status_for_error(code: &str) -> u16 {
         | "planned_test_schedule_not_confirmed"
         | "planned_test_schedule_concurrent_update"
         | "planned_test_preparation_concurrent_update"
+        | "planned_test_preparation_changed_before_start"
         | "planned_test_preparation_required"
         | "planned_test_preparation_stale"
         | "planned_test_preparation_not_ready"
@@ -3095,6 +3096,14 @@ mod tests {
         thread,
         time::{Duration, Instant},
     };
+
+    #[test]
+    fn start_consistency_conflict_maps_to_http_conflict() {
+        assert_eq!(
+            status_for_error("planned_test_preparation_changed_before_start"),
+            409
+        );
+    }
 
     #[test]
     fn local_api_serves_lab_console_build_and_keeps_api_accessible() {

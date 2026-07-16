@@ -84,7 +84,16 @@ This repository is in active pre-production development. The current focus is
 closing complete laboratory workflows across the Rust agent, local storage and
 operator interfaces while keeping each domain traceable and offline-capable.
 
-Current software version: `0.21.0`.
+Current software version: `0.21.1`.
+
+Version `0.21.1` closes the planned-test preparation workflow. A slot must be
+confirmed before preparation, laboratory locations use stable identities, and
+the Local Agent computes which real materials are compatible with each method
+role before LAB CONSOLE offers them. Final start authorization and the schedule
+transition share one attached-SQLite consistency boundary, so changed evidence
+cannot silently authorize a stale start. This remains preparation and
+traceability only: no instrument control, acquisition or scientific execution
+runtime is introduced.
 
 Version `0.21.0` adds a technical preparation gate between a confirmed test
 slot and its start. An operator selects an approved method, a physical setup

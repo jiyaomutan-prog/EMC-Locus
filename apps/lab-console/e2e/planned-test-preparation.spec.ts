@@ -7,6 +7,64 @@ const viewports = [
   { width: 1280, height: 720 }
 ];
 
+test("a planned slot must be confirmed before preparation", async ({ page, request }) => {
+  const suffix = `PLANNED-${Date.now().toString(36).toUpperCase()}`;
+  const projectCode = `CEM-PREP-${suffix}`;
+  const itemCode = `PLAN-PREP-${suffix}`;
+  const plannedDate = addDays(mondayFor(new Date()), 2);
+  await createSchedule(request, {
+    projectCode,
+    itemCode,
+    plannedDate,
+    title: `Émission conduite ${suffix}`,
+    operator: `Alice ${suffix}`,
+    operationPrefix: `prep-planned-${suffix}`,
+    confirm: false
+  });
+
+  const options = await request.get(
+    `/api/v1/projects/${projectCode}/schedule-items/${itemCode}/preparation/options`
+  );
+  expect(options.status()).toBe(409);
+  expect((await options.json()).error.code).toBe("planned_test_schedule_not_confirmed");
+  const assessment = await request.post(
+    `/api/v1/projects/${projectCode}/schedule-items/${itemCode}/preparation/assessments`,
+    {
+      data: {
+        expected_schedule_revision: 1,
+        expected_current_revision_id: null,
+        method_template_id: `METHOD-${suffix}`,
+        method_revision_id: `METHOD-${suffix}-rev-0001`,
+        station_setup_id: `SETUP-${suffix}`,
+        station_setup_revision_id: `SETUP-${suffix}-rev-0001`,
+        assignments: [],
+        actor: "E2E opérateur",
+        reason: "Tentative avant confirmation",
+        operation_id: `op-prep-planned-assessment-${suffix}`,
+        device_id: "playwright",
+        correlation_id: `corr-prep-planned-${suffix}`
+      }
+    }
+  );
+  expect(assessment.status()).toBe(409);
+  expect((await assessment.json()).error.code).toBe("planned_test_schedule_not_confirmed");
+
+  await page.setViewportSize(viewports[0]);
+  await page.goto("/lab/");
+  await page.getByRole("button", { name: "Planning du laboratoire" }).click();
+  await page
+    .getByRole("button", { name: `Ouvrir Émission conduite ${suffix}, dossier ${projectCode}` })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("À confirmer", { exact: true }).first()).toBeVisible();
+  await expect(
+    dialog.getByText("Confirmez le créneau avant de préparer l'essai.", { exact: true })
+  ).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Confirmer le créneau" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Préparer l'essai" })).toHaveCount(0);
+  await captureReleaseScreenshot(page, "creneau-a-confirmer-1440x900.png");
+});
+
 test("an operator resolves a blocked preparation before starting the planned test", async ({
   page,
   request
@@ -16,6 +74,8 @@ test("an operator resolves a blocked preparation before starting the planned tes
   const itemCode = `PLAN-PREP-${suffix}`;
   const methodId = `METHOD-PREP-${suffix}`;
   const methodTitle = `Vérification RF ${suffix}`;
+  const incompatibleMethodId = `METHOD-NO-MATERIAL-${suffix}`;
+  const incompatibleMethodTitle = `Mesure spectrale ${suffix}`;
   const setupId = `SETUP-PREP-${suffix}`;
   const setupLabel = `Chaîne RF ${suffix}`;
   const generatorModelId = `EQM-GEN-${suffix}`;
@@ -60,6 +120,12 @@ test("an operator resolves a blocked preparation before starting the planned tes
     requiredCategory: "rf_power_meter",
     operationPrefix: `prep-method-${suffix}`
   });
+  await createApprovedMethod(request, {
+    methodId: incompatibleMethodId,
+    title: incompatibleMethodTitle,
+    requiredCategory: "emi_receiver",
+    operationPrefix: `prep-no-material-method-${suffix}`
+  });
   await createReadyStation(request, {
     setupId,
     label: setupLabel,
@@ -70,13 +136,14 @@ test("an operator resolves a blocked preparation before starting the planned tes
     meterModel,
     operationPrefix: `prep-station-${suffix}`
   });
-  await createConfirmedSchedule(request, {
+  await createSchedule(request, {
     projectCode,
     itemCode,
     plannedDate,
     title: `Vérification RF du convertisseur ${suffix}`,
     operator: `Alice ${suffix}`,
-    operationPrefix: `prep-project-${suffix}`
+    operationPrefix: `prep-project-${suffix}`,
+    locationLabel: `Poste CEM ${suffix} renommé`
   });
 
   await page.setViewportSize(viewports[0]);
@@ -99,6 +166,42 @@ test("an operator resolves a blocked preparation before starting the planned tes
   await preparationDialog
     .getByRole("combobox", { name: "Montage" })
     .selectOption({ label: `${setupLabel} · Poste CEM ${suffix}` });
+
+  await preparationDialog
+    .getByRole("combobox", { name: "Méthode" })
+    .selectOption({ label: `${incompatibleMethodTitle} · version 1` });
+  await expect(
+    preparationDialog.getByText("Aucun matériel compatible dans ce montage.", { exact: true })
+  ).toBeVisible();
+  await expect(
+    preparationDialog.getByRole("combobox", { name: "Matériel pour Wattmètre RF" })
+  ).toBeDisabled();
+  await captureReleaseScreenshot(page, "aucun-materiel-compatible-1440x900.png");
+
+  await preparationDialog
+    .getByRole("combobox", { name: "Méthode" })
+    .selectOption({ label: `${methodTitle} · version 1` });
+  const materialSelector = preparationDialog.getByRole("combobox", {
+    name: "Matériel pour Wattmètre RF"
+  });
+  await expect(materialSelector).toBeEnabled();
+  await expect(materialSelector.locator("option")).toHaveCount(2);
+  await expect(materialSelector.locator("option", { hasText: `Generator ${suffix}` })).toHaveCount(0);
+  const normalText = await preparationDialog.innerText();
+  for (const forbidden of [
+    methodId,
+    setupId,
+    "sha256:",
+    "aggregate",
+    "artifact",
+    "binding",
+    "checksum",
+    "resolver",
+    "slot",
+    "stale"
+  ]) {
+    expect(normalText.toLowerCase()).not.toContain(forbidden.toLowerCase());
+  }
 
   const blockedResponse = page.waitForResponse(
     (response) =>
@@ -127,7 +230,8 @@ test("an operator resolves a blocked preparation before starting the planned tes
       ) && response.request().method() === "POST"
   );
   await preparationDialog.getByRole("button", { name: "Vérifier la préparation" }).click();
-  expect((await readyResponse).ok()).toBeTruthy();
+  const firstReadyHttp = await readyResponse;
+  expect(firstReadyHttp.ok()).toBeTruthy();
   await expect(preparationDialog.getByText("Prêt à démarrer", { exact: true })).toBeVisible();
   await expect(preparationDialog.getByText("Contrôle n° 2", { exact: true }).last()).toBeVisible();
   await expect(preparationDialog.getByText("Contrôle n° 1", { exact: true }).last()).toBeVisible();
@@ -144,16 +248,120 @@ test("an operator resolves a blocked preparation before starting the planned tes
 
   await preparationDialog.getByRole("button", { name: "Retour au créneau" }).click();
   await expect(slotDialog.getByRole("button", { name: "Démarrer l'essai" })).toBeEnabled();
-  const startResponse = page.waitForResponse(
+
+  await slotDialog.getByRole("button", { name: "Déplacer" }).click();
+  await slotDialog.getByLabel("Début").fill("13:00");
+  await slotDialog.getByLabel("Fin").fill("16:00");
+  await slotDialog.getByLabel("Raison du changement").fill("Disponibilité du poste confirmée");
+  const moveResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(
+        `/api/v1/projects/${projectCode}/schedule-items/${itemCode}/reschedule`
+      ) && response.request().method() === "POST"
+  );
+  await slotDialog.getByRole("button", { name: "Enregistrer le déplacement" }).click();
+  expect((await moveResponse).ok()).toBeTruthy();
+  await expect(slotDialog.getByText("À revérifier", { exact: true }).first()).toBeVisible();
+  await expect(slotDialog.getByRole("button", { name: "Démarrer l'essai" })).toBeDisabled();
+  await captureReleaseScreenshot(page, "preparation-a-reverifier-1280x720.png");
+
+  await slotDialog.getByRole("button", { name: "Préparer l'essai" }).click();
+  const movedPreparationDialog = page.getByRole("dialog", { name: "Préparer l'essai" });
+  await expect(
+    movedPreparationDialog.getByRole("combobox", { name: "Matériel pour Wattmètre RF" })
+  ).toHaveValue("power_meter");
+  const movedReadyResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(
+        `/api/v1/projects/${projectCode}/schedule-items/${itemCode}/preparation/assessments`
+      ) && response.request().method() === "POST"
+  );
+  await movedPreparationDialog
+    .getByRole("button", { name: "Vérifier la préparation" })
+    .click();
+  const movedReadyHttp = await movedReadyResponse;
+  expect(movedReadyHttp.ok()).toBeTruthy();
+  const movedReady = await movedReadyHttp.json();
+  expect(movedReady.preparation.current_revision.revision_number).toBe(3);
+  await expect(movedPreparationDialog.getByText("Prêt à démarrer", { exact: true })).toBeVisible();
+  await movedPreparationDialog.getByRole("button", { name: "Retour au créneau" }).click();
+
+  const changedPreparation = await request.post(
+    `/api/v1/projects/${projectCode}/schedule-items/${itemCode}/preparation/assessments`,
+    {
+      data: {
+        expected_schedule_revision: 3,
+        expected_current_revision_id: movedReady.preparation.current_revision.revision_id,
+        method_template_id: methodId,
+        method_revision_id: `${methodId}-rev-0001`,
+        station_setup_id: setupId,
+        station_setup_revision_id: `${setupId}-rev-0001`,
+        assignments: [],
+        actor: "E2E opérateur concurrent",
+        reason: "Retrait contrôlé du matériel avant démarrage",
+        operation_id: `op-prep-change-before-start-${suffix}`,
+        device_id: "playwright-api",
+        correlation_id: `corr-prep-change-before-start-${suffix}`
+      }
+    }
+  );
+  expect(changedPreparation.ok(), await changedPreparation.text()).toBeTruthy();
+  expect((await changedPreparation.json()).preparation.current_state).toBe("blocked");
+
+  const rejectedStartResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith(
         `/api/v1/projects/${projectCode}/schedule-items/${itemCode}/transitions/start`
       ) && response.request().method() === "POST"
   );
   await slotDialog.getByRole("button", { name: "Démarrer l'essai" }).click();
+  expect((await rejectedStartResponse).status()).toBe(409);
+  await expect(
+    slotDialog.getByText("La préparation a changé. Vérifiez-la de nouveau.", { exact: true })
+  ).toBeVisible();
+  await expect(slotDialog.getByText("Confirmé", { exact: true })).toBeVisible();
+  await captureReleaseScreenshot(page, "preparation-changee-au-demarrage-1280x720.png");
+
+  await slotDialog.getByRole("button", { name: "Fermer", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: `Ouvrir Vérification RF du convertisseur ${suffix}, dossier ${projectCode}`
+    })
+    .click();
+  const refreshedSlotDialog = page.getByRole("dialog");
+  await expect(refreshedSlotDialog.getByText("Préparation bloquée", { exact: true }).first()).toBeVisible();
+  await refreshedSlotDialog.getByRole("button", { name: "Préparer l'essai" }).click();
+  const finalPreparationDialog = page.getByRole("dialog", { name: "Préparer l'essai" });
+  await finalPreparationDialog
+    .getByRole("combobox", { name: "Matériel pour Wattmètre RF" })
+    .selectOption("power_meter");
+  const finalReadyResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(
+        `/api/v1/projects/${projectCode}/schedule-items/${itemCode}/preparation/assessments`
+      ) && response.request().method() === "POST"
+  );
+  await finalPreparationDialog
+    .getByRole("button", { name: "Vérifier la préparation" })
+    .click();
+  const finalReadyHttp = await finalReadyResponse;
+  expect(finalReadyHttp.ok()).toBeTruthy();
+  const finalReady = await finalReadyHttp.json();
+  expect(finalReady.preparation.current_revision.revision_number).toBe(5);
+  await expect(finalPreparationDialog.getByText("Contrôle n° 5", { exact: true }).last()).toBeVisible();
+  await expect(finalPreparationDialog.getByText("Contrôle n° 4", { exact: true }).last()).toBeVisible();
+  await finalPreparationDialog.getByRole("button", { name: "Retour au créneau" }).click();
+
+  const startResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(
+        `/api/v1/projects/${projectCode}/schedule-items/${itemCode}/transitions/start`
+      ) && response.request().method() === "POST"
+  );
+  await refreshedSlotDialog.getByRole("button", { name: "Démarrer l'essai" }).click();
   expect((await startResponse).ok()).toBeTruthy();
-  await expect(slotDialog.getByText("En cours", { exact: true })).toBeVisible();
-  await expect(slotDialog.getByText("À revérifier", { exact: true })).toHaveCount(0);
+  await expect(refreshedSlotDialog.getByText("En cours", { exact: true })).toBeVisible();
+  await expect(refreshedSlotDialog.getByText("À revérifier", { exact: true })).toHaveCount(0);
   await captureReleaseScreenshot(page, "essai-demarre-1280x720.png");
 
   const scheduleResponse = await request.get(
@@ -167,21 +375,121 @@ test("an operator resolves a blocked preparation before starting the planned tes
   );
   expect(revisionsResponse.ok(), await revisionsResponse.text()).toBeTruthy();
   const revisions = (await revisionsResponse.json()).revisions;
-  expect(revisions).toHaveLength(2);
+  expect(revisions).toHaveLength(5);
   expect(revisions.map((revision: { recorded_state: string }) => revision.recorded_state)).toEqual(
-    ["ready", "blocked"]
+    ["ready", "blocked", "ready", "ready", "blocked"]
   );
 
   const auditResponse = await request.get(`/api/v1/projects/${projectCode}/audit-events`);
   expect(auditResponse.ok(), await auditResponse.text()).toBeTruthy();
   const auditText = JSON.stringify(await auditResponse.json());
   expect(auditText).toContain("planned_test_preparation_assessed");
-  expect(auditText).toContain(`${itemCode}-prep-rev-0002`);
+  expect(auditText).toContain(finalReady.preparation.current_revision.revision_id);
+  expect(auditText).toContain(finalReady.preparation.current_revision.definition_checksum);
 
   const outboxResponse = await request.get("/api/v1/sync/outbox");
   expect(outboxResponse.ok(), await outboxResponse.text()).toBeTruthy();
   expect(JSON.stringify(await outboxResponse.json())).toContain(
     "planned_test_preparation_assessed"
+  );
+});
+
+test("a matching label cannot replace a different laboratory location identity", async ({
+  request
+}) => {
+  const suffix = `LOCATION-${Date.now().toString(36).toUpperCase()}`;
+  const projectCode = `CEM-PREP-${suffix}`;
+  const itemCode = `PLAN-PREP-${suffix}`;
+  const methodId = `METHOD-PREP-${suffix}`;
+  const setupId = `SETUP-PREP-${suffix}`;
+  const generatorModelId = `EQM-GEN-${suffix}`;
+  const meterModelId = `EQM-PM-${suffix}`;
+  const plannedDate = addDays(mondayFor(new Date()), 4);
+  const locationLabel = `Poste CEM ${suffix}`;
+
+  const generatorModel = await createApprovedPresetModel(request, {
+    modelId: generatorModelId,
+    presetId: "rf_generator",
+    manufacturer: "Locus Demo",
+    modelName: `Generator ${suffix}`,
+    operationPrefix: `location-generator-${suffix}`
+  });
+  const meterModel = await createApprovedPresetModel(request, {
+    modelId: meterModelId,
+    presetId: "rf_power_meter",
+    manufacturer: "Locus Demo",
+    modelName: `Wattmeter ${suffix}`,
+    operationPrefix: `location-meter-${suffix}`
+  });
+  const generator = await registerInstrument(request, {
+    assetId: `GEN-${suffix}`,
+    family: "Générateur RF",
+    categoryCode: "rf_signal_generator",
+    serialNumber: `GEN-${suffix}`,
+    model: generatorModel,
+    operationId: `op-location-register-generator-${suffix}`
+  });
+  const meter = await registerInstrument(request, {
+    assetId: `PM-${suffix}`,
+    family: "Wattmètre RF",
+    categoryCode: "rf_power_meter",
+    serialNumber: `PM-${suffix}`,
+    model: meterModel,
+    operationId: `op-location-register-meter-${suffix}`
+  });
+  await createApprovedMethod(request, {
+    methodId,
+    title: `Contrôle identité lieu ${suffix}`,
+    requiredCategory: "rf_power_meter",
+    operationPrefix: `location-method-${suffix}`
+  });
+  await createReadyStation(request, {
+    setupId,
+    label: `Chaîne identité lieu ${suffix}`,
+    plannedDate,
+    generator,
+    meter,
+    generatorModel,
+    meterModel,
+    operationPrefix: `location-station-${suffix}`
+  });
+  await createSchedule(request, {
+    projectCode,
+    itemCode,
+    plannedDate,
+    title: `Essai identité lieu ${suffix}`,
+    operator: `Bob ${suffix}`,
+    operationPrefix: `location-project-${suffix}`,
+    locationId: `LAB-LOCATION-DIFFERENT-${suffix}`,
+    locationLabel
+  });
+
+  const assessment = await request.post(
+    `/api/v1/projects/${projectCode}/schedule-items/${itemCode}/preparation/assessments`,
+    {
+      data: {
+        expected_schedule_revision: 2,
+        expected_current_revision_id: null,
+        method_template_id: methodId,
+        method_revision_id: `${methodId}-rev-0001`,
+        station_setup_id: setupId,
+        station_setup_revision_id: `${setupId}-rev-0001`,
+        assignments: [{ slot_id: "measurement_receiver", binding_id: "power_meter" }],
+        actor: "E2E opérateur",
+        reason: "Vérifier l'identité stable du lieu",
+        operation_id: `op-location-assessment-${suffix}`,
+        device_id: "playwright-api",
+        correlation_id: `corr-location-assessment-${suffix}`
+      }
+    }
+  );
+  expect(assessment.ok(), await assessment.text()).toBeTruthy();
+  const body = await assessment.json();
+  expect(body.preparation.current_state).toBe("blocked");
+  expect(body.preparation.current_revision.definition.verdict.issues).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ code: "planned_test_station_location_mismatch" })
+    ])
   );
 });
 
@@ -481,7 +789,7 @@ function stationBinding(
   };
 }
 
-async function createConfirmedSchedule(
+async function createSchedule(
   request: APIRequestContext,
   input: {
     projectCode: string;
@@ -490,6 +798,9 @@ async function createConfirmedSchedule(
     title: string;
     operator: string;
     operationPrefix: string;
+    confirm?: boolean;
+    locationId?: string;
+    locationLabel?: string;
   }
 ) {
   const created = await request.post("/api/v1/projects", {
@@ -541,8 +852,12 @@ async function createConfirmedSchedule(
         planned_start_at: `${input.plannedDate}T09:00`,
         planned_end_at: `${input.plannedDate}T12:00`,
         assigned_operator: input.operator,
-        laboratory_location_id: `LAB-LOCATION-${input.projectCode.replace("CEM-PREP-", "")}`,
-        laboratory_location_label: `Poste CEM ${input.projectCode.replace("CEM-PREP-", "")}`,
+        laboratory_location_id:
+          input.locationId
+          ?? `LAB-LOCATION-${input.projectCode.replace("CEM-PREP-", "")}`,
+        laboratory_location_label:
+          input.locationLabel
+          ?? `Poste CEM ${input.projectCode.replace("CEM-PREP-", "")}`,
         equipment_under_test: "Convertisseur Horizon HCU-4",
         actor: "E2E responsable laboratoire",
         reason: "Planifier le scénario de pré-vol",
@@ -552,6 +867,7 @@ async function createConfirmedSchedule(
   );
   expect(scheduled.ok(), await scheduled.text()).toBeTruthy();
   const scheduleItem = (await scheduled.json()).schedule_item;
+  if (input.confirm === false) return scheduleItem;
   const confirmed = await request.post(
     `/api/v1/projects/${input.projectCode}/schedule-items/${input.itemCode}/transitions/confirm`,
     {
@@ -564,6 +880,7 @@ async function createConfirmedSchedule(
     }
   );
   expect(confirmed.ok(), await confirmed.text()).toBeTruthy();
+  return (await confirmed.json()).schedule_item;
 }
 
 function mondayFor(date: Date): string {
@@ -600,7 +917,7 @@ async function captureReleaseScreenshot(page: Page, name: string) {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(80);
   const body = await page.screenshot({ animations: "disabled", fullPage: false });
-  const evidenceDirectory = path.resolve(process.cwd(), "../../docs/ux/0.21.0/screenshots");
+  const evidenceDirectory = path.resolve(process.cwd(), "../../docs/ux/0.21.1/screenshots");
   await mkdir(evidenceDirectory, { recursive: true });
   await writeFile(path.join(evidenceDirectory, name), body);
 }

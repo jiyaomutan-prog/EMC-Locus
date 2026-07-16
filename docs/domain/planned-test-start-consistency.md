@@ -78,7 +78,8 @@ Une modification contrôlée entre la validation et le compare-and-set produit
 > La préparation de l'essai a changé pendant le démarrage. Vérifiez-la de
 > nouveau.
 
-La transaction est alors annulée et le créneau reste **Confirmé**.
+La transaction est alors annulée et le créneau reste **Confirmé**. La route
+HTTP traduit ce refus métier en conflit `409`, jamais en erreur serveur `500`.
 
 ## Preuves automatisées
 

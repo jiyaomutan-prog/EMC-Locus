@@ -8,6 +8,40 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-07-16
+
+### Added
+
+- Added a typed core compatibility decision for every test-method role and
+  physical material in a selected setup, including category, capability,
+  substitution, serviceability and applicable metrology evidence.
+- Added stable laboratory location identities with readable label snapshots
+  to planning and station setup revisions through projects migration `8` and
+  station migration `2`.
+- Added deterministic concurrency, real HTTP, Vitest and Playwright evidence
+  for confirmation-first preparation, filtered materials, stale rechecks and
+  exact start authorization.
+
+### Changed
+
+- Planned slots must now be confirmed before options can be read or a
+  preparation assessment can be recorded; historical early assessments remain
+  readable but inapplicable.
+- LAB CONSOLE now offers only materials declared compatible by the Local Agent,
+  preserves assignments that remain compatible after method/setup changes and
+  explains when a role has no suitable material.
+- Final start validation and the schedule transition now run inside one
+  attached-database `BEGIN IMMEDIATE` boundary controlled by the Local Agent.
+
+### Fixed
+
+- Prevented a changed current preparation, schedule revision or readiness input
+  from authorizing a start with stale evidence.
+- Stopped using editable location labels as resource identity while preserving
+  legacy 0.21.0 rows without inventing identifiers.
+- Moved new visual evidence to `docs/ux/0.21.1/screenshots` and added an
+  automated check that historical release screenshots remain unchanged.
+
 ## [0.21.0] - 2026-07-15
 
 ### Added

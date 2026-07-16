@@ -263,6 +263,7 @@ async function captureReleaseScreenshot(page: Page, name: string) {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(80);
   const body = await page.screenshot({ animations: "disabled", fullPage: false });
+  if (process.env.EMC_LOCUS_REFRESH_HISTORICAL_SCREENSHOTS !== "1") return;
   const evidenceDirectory = path.resolve(process.cwd(), "../../docs/ux/0.20.0/screenshots");
   await mkdir(evidenceDirectory, { recursive: true });
   await writeFile(path.join(evidenceDirectory, name), body);
