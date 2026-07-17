@@ -10,6 +10,23 @@ const viewports = [
 test("an investigation dossier reaches a confirmed laboratory slot", async ({ page, request }) => {
   const suffix = Date.now().toString(36).toUpperCase();
   const projectCode = `CEM-E2E-${suffix}`;
+  await page.route("**/api/v1/station-setups", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        station_setups: [
+          {
+            current_ready_revision: {
+              definition: {
+                laboratory_location_id: "LAB-LOCATION-CEM-1",
+                laboratory_location_label: "Labo CEM 1"
+              }
+            }
+          }
+        ]
+      })
+    });
+  });
 
   await page.setViewportSize(viewports[0]);
   await page.goto("/lab/");
@@ -44,7 +61,7 @@ test("an investigation dossier reaches a confirmed laboratory slot", async ({ pa
 
   await page.getByRole("button", { name: "Planifier un essai" }).first().click();
   await page.getByLabel("Essai prévu").fill("Émission conduite");
-  await page.getByLabel("Lieu").fill("Labo CEM 1");
+  await page.getByLabel("Lieu").selectOption({ label: "Labo CEM 1" });
   await page.getByLabel("Équipement à tester").fill("Convertisseur prototype");
   const scheduleResponse = page.waitForResponse(
     (response) =>
@@ -59,7 +76,7 @@ test("an investigation dossier reaches a confirmed laboratory slot", async ({ pa
 
   await page.getByRole("button", { name: "Planifier un essai" }).click();
   await page.getByLabel("Essai prévu").fill("Essai en conflit");
-  await page.getByLabel("Lieu").fill("Labo CEM 1");
+  await page.getByLabel("Lieu").selectOption({ label: "Labo CEM 1" });
   await page.getByLabel("Équipement à tester").fill("Second prototype");
   const conflictResponse = page.waitForResponse(
     (response) =>
@@ -158,6 +175,7 @@ async function captureReleaseScreenshot(
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(80);
   const body = await page.screenshot({ animations: "disabled" });
+  if (process.env.EMC_LOCUS_REFRESH_HISTORICAL_SCREENSHOTS !== "1") return;
   const evidenceDirectory = path.resolve(
     process.cwd(),
     "../../docs/ux/0.19.0/screenshots"

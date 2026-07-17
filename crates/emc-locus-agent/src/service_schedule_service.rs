@@ -1,8 +1,8 @@
 use crate::planned_test_preparation_service::require_planned_test_preparation_for_start;
 use crate::project_repository::{
     ensure_operation_replay, existing_operation, insert_audit_event, insert_sync_operation,
-    load_project, next_audit_sequence, open_project_connection, AuditEventInput,
-    OperationFingerprintInput, SyncOperationInput,
+    load_project, next_audit_sequence, open_project_connection, open_start_consistency_connection,
+    AuditEventInput, OperationFingerprintInput, SyncOperationInput,
 };
 use crate::service_schedule_dto::{
     LaboratoryScheduleItemDto, LaboratoryWeekScheduleDto, ServiceScheduleItemDto,
@@ -11,18 +11,46 @@ use crate::service_schedule_dto::{
 use crate::service_schedule_repository::{
     ensure_service_schedule_table, find_service_schedule_conflict, insert_service_schedule_item,
     load_laboratory_service_schedule_items, load_project_service_schedule_items,
-    load_service_schedule_item, update_service_schedule_assignment, update_service_schedule_status,
-    ScheduleConflict, StoredLaboratoryScheduleItem, StoredServiceScheduleItem,
+    load_service_schedule_item, start_service_schedule_with_preparation,
+    update_service_schedule_assignment, update_service_schedule_location_identification,
+    update_service_schedule_status, ScheduleConflict, StartServiceScheduleInput,
+    StoredLaboratoryScheduleItem, StoredServiceScheduleItem,
 };
 use crate::{render_json, AgentError};
 use emc_locus_core::{
     AuditActor, AuditReason, PlanningValidationIssue, ProjectCode, ScheduleResourceConflictKind,
-    ServiceScheduleItem, ServiceScheduleItemInput, ServiceScheduleRescheduleInput,
-    ServiceScheduleStatus, ServiceScheduleWeek, StableId,
+    ServiceScheduleItem, ServiceScheduleItemInput, ServiceScheduleLocationIdentificationInput,
+    ServiceScheduleRescheduleInput, ServiceScheduleStatus, ServiceScheduleWeek, StableId,
 };
+use rusqlite::TransactionBehavior;
 use serde_json::json;
 use std::path::Path;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub(crate) enum StartConsistencyTestAction {
+    InstallBlockedPreparation {
+        source_revision_id: String,
+        new_revision_id: String,
+    },
+    PointToPreparation {
+        revision_id: String,
+    },
+    AdvanceScheduleRevision,
+    AssertReadinessWritersLocked,
+}
+
+#[cfg(test)]
+thread_local! {
+    static START_CONSISTENCY_TEST_ACTION: std::cell::RefCell<Option<StartConsistencyTestAction>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn set_start_consistency_test_action(action: StartConsistencyTestAction) {
+    START_CONSISTENCY_TEST_ACTION.with(|current| current.replace(Some(action)));
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CreateServiceScheduleItemInput {
@@ -32,7 +60,8 @@ pub struct CreateServiceScheduleItemInput {
     pub planned_start_at: String,
     pub planned_end_at: String,
     pub assigned_operator: String,
-    pub location: String,
+    pub laboratory_location_id: String,
+    pub laboratory_location_label: String,
     pub equipment_under_test: String,
     pub test_category_code: Option<String>,
     pub test_method_code: Option<String>,
@@ -50,6 +79,8 @@ pub struct TransitionServiceScheduleItemInput {
     pub item_code: String,
     pub target_status: String,
     pub expected_revision: u64,
+    pub expected_preparation_revision_id: Option<String>,
+    pub expected_preparation_checksum: Option<String>,
     pub actor: String,
     pub reason: String,
     pub operation_id: String,
@@ -64,7 +95,22 @@ pub struct RescheduleServiceScheduleItemInput {
     pub planned_start_at: String,
     pub planned_end_at: String,
     pub assigned_operator: String,
-    pub location: String,
+    pub laboratory_location_id: String,
+    pub laboratory_location_label: String,
+    pub expected_revision: u64,
+    pub actor: String,
+    pub reason: String,
+    pub operation_id: String,
+    pub correlation_id: String,
+    pub device_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IdentifyServiceScheduleLocationInput {
+    pub project_code: String,
+    pub item_code: String,
+    pub laboratory_location_id: String,
+    pub laboratory_location_label: String,
     pub expected_revision: u64,
     pub actor: String,
     pub reason: String,
@@ -90,7 +136,8 @@ pub fn create_service_schedule_item(
         planned_start_at: input.planned_start_at.clone(),
         planned_end_at: input.planned_end_at.clone(),
         assigned_operator: input.assigned_operator.clone(),
-        location: input.location.clone(),
+        laboratory_location_id: Some(input.laboratory_location_id.clone()),
+        laboratory_location_label: input.laboratory_location_label.clone(),
         equipment_under_test: input.equipment_under_test.clone(),
         test_category_code: input.test_category_code.clone(),
         test_method_code: input.test_method_code.clone(),
@@ -327,7 +374,8 @@ pub fn reschedule_service_schedule_item(
             planned_start_at: input.planned_start_at.clone(),
             planned_end_at: input.planned_end_at.clone(),
             assigned_operator: input.assigned_operator.clone(),
-            location: input.location.clone(),
+            laboratory_location_id: input.laboratory_location_id.clone(),
+            laboratory_location_label: input.laboratory_location_label.clone(),
         })
         .map_err(|issue| reschedule_error(issue, current.status()))?;
     if let Some(conflict) = find_service_schedule_conflict(&connection, &moved, Some(stored.id))? {
@@ -402,6 +450,166 @@ pub fn reschedule_service_schedule_item(
     )
 }
 
+pub fn identify_service_schedule_location(
+    storage_root: &Path,
+    input: IdentifyServiceScheduleLocationInput,
+) -> Result<String, AgentError> {
+    let project_code = ProjectCode::parse(input.project_code.clone()).map_err(domain_error)?;
+    let actor = AuditActor::parse(input.actor.clone()).map_err(domain_error)?;
+    AuditReason::parse(input.reason.clone()).map_err(domain_error)?;
+    validate_stable_id(&input.operation_id, "operation_id")?;
+    validate_stable_id(&input.correlation_id, "correlation_id")?;
+    validate_stable_id(&input.device_id, "device_id")?;
+    if input.expected_revision == 0 {
+        return Err(AgentError::with_details(
+            "invalid_service_schedule_request",
+            "expected_revision must be at least 1",
+            json!({ "field": "expected_revision" }),
+        ));
+    }
+    let payload_json = location_identification_command_payload(&input);
+
+    let mut connection = open_project_connection(storage_root)?;
+    ensure_service_schedule_table(&connection)?;
+    if let Some(operation) = existing_operation(&connection, &input.operation_id)? {
+        ensure_operation_replay(
+            &operation,
+            &input.operation_id,
+            OperationFingerprintInput {
+                domain: "project_records",
+                entity_type: "service_schedule_item",
+                entity_id: &input.item_code,
+                operation_kind: "service_schedule_item_location_identified",
+                base_revision: &operation.base_revision,
+                actor_id: &input.actor,
+                device_id: &input.device_id,
+                correlation_id: &input.correlation_id,
+                payload_json: &payload_json,
+            },
+        )?;
+        let stored =
+            load_service_schedule_item(&connection, &input.item_code)?.ok_or_else(|| {
+                AgentError::new(
+                    "operation_replay_missing_entity",
+                    "operation exists but service schedule item is missing",
+                )
+            })?;
+        return schedule_operation_json(
+            "service_schedule_item_location_identified",
+            &input.operation_id,
+            true,
+            &stored,
+        );
+    }
+
+    load_project(&connection, project_code.as_str())?
+        .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
+    let stored = load_service_schedule_item(&connection, &input.item_code)?.ok_or_else(|| {
+        AgentError::new("service_schedule_item_not_found", "schedule item not found")
+    })?;
+    if stored.project_code != project_code.as_str() {
+        return Err(AgentError::new(
+            "service_schedule_item_not_found",
+            "schedule item does not belong to this project",
+        ));
+    }
+    if stored.revision != input.expected_revision {
+        return Err(AgentError::with_details(
+            "service_schedule_concurrent_update",
+            "the service schedule item changed; refresh the planning before identifying its location",
+            json!({
+                "item_code": stored.item_code,
+                "expected_revision": input.expected_revision,
+                "actual_revision": stored.revision,
+            }),
+        ));
+    }
+    let current = stored.to_domain()?;
+    let identified = current
+        .identified_location(ServiceScheduleLocationIdentificationInput {
+            laboratory_location_id: input.laboratory_location_id.clone(),
+            laboratory_location_label: input.laboratory_location_label.clone(),
+        })
+        .map_err(location_identification_error)?;
+
+    let timestamp = utc_timestamp()?;
+    let audit_sequence = next_audit_sequence(&connection, project_code.as_str())?;
+    let audit_payload = render_json(&json!({
+        "item_code": identified.item_code(),
+        "previous": {
+            "laboratory_location_id": current.laboratory_location_id(),
+            "laboratory_location_label": current.laboratory_location_label(),
+        },
+        "new": {
+            "laboratory_location_id": identified.laboratory_location_id(),
+            "laboratory_location_label": identified.laboratory_location_label(),
+        },
+        "status": identified.status().as_str(),
+    }));
+    let base_revision = revision_text(stored.revision);
+    let resulting_revision = revision_text(stored.revision + 1);
+    let transaction = connection
+        .transaction()
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    update_service_schedule_location_identification(
+        &transaction,
+        stored.id,
+        stored.revision,
+        identified
+            .laboratory_location_id()
+            .expect("identified location has a stable ID"),
+        identified.laboratory_location_label(),
+        actor.as_str(),
+        &timestamp,
+    )?;
+    insert_audit_event(
+        &transaction,
+        AuditEventInput {
+            project_code: project_code.as_str(),
+            sequence: audit_sequence,
+            actor: actor.as_str(),
+            action: "service_schedule_item_location_identified",
+            reason: Some(&input.reason),
+            payload_json: &audit_payload,
+            timestamp: &timestamp,
+        },
+    )?;
+    insert_sync_operation(
+        &transaction,
+        SyncOperationInput {
+            domain: "project_records",
+            entity_type: "service_schedule_item",
+            operation_id: &input.operation_id,
+            entity_id: identified.item_code(),
+            operation_kind: "service_schedule_item_location_identified",
+            base_revision: &base_revision,
+            resulting_revision: &resulting_revision,
+            actor_id: &input.actor,
+            device_id: &input.device_id,
+            correlation_id: &input.correlation_id,
+            payload_json: &payload_json,
+            timestamp: &timestamp,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+
+    let updated =
+        load_service_schedule_item(&connection, identified.item_code())?.ok_or_else(|| {
+            AgentError::new(
+                "service_schedule_read_failed",
+                "identified schedule item is missing",
+            )
+        })?;
+    schedule_operation_json(
+        "service_schedule_item_location_identified",
+        &input.operation_id,
+        false,
+        &updated,
+    )
+}
+
 pub fn transition_service_schedule_item(
     storage_root: &Path,
     input: TransitionServiceScheduleItemInput,
@@ -420,7 +628,12 @@ pub fn transition_service_schedule_item(
         ));
     }
     let target = ServiceScheduleStatus::parse(&input.target_status).map_err(planning_error)?;
-    let payload_json = transition_command_payload(target, &input.reason);
+    validate_start_evidence_fields(target, &input)?;
+    let payload_json = transition_command_payload(target, &input);
+
+    if target == ServiceScheduleStatus::InProgress {
+        return start_service_schedule_item(storage_root, input, project_code, actor, payload_json);
+    }
 
     let mut connection = open_project_connection(storage_root)?;
     ensure_service_schedule_table(&connection)?;
@@ -490,24 +703,13 @@ pub fn transition_service_schedule_item(
             }),
         )
     })?;
-    let preparation_evidence = if target == ServiceScheduleStatus::InProgress {
-        Some(require_planned_test_preparation_for_start(
-            storage_root,
-            project_code.as_str(),
-            &input.item_code,
-            stored.revision,
-        )?)
-    } else {
-        None
-    };
-
     let timestamp = utc_timestamp()?;
     let audit_sequence = next_audit_sequence(&connection, project_code.as_str())?;
     let audit_payload = render_json(&json!({
         "item_code": item.item_code(),
         "previous_status": previous_status.as_str(),
         "new_status": target.as_str(),
-        "planned_test_preparation": preparation_evidence,
+        "planned_test_preparation": null,
     }));
     let base_revision = revision_text(stored.revision);
     let resulting_revision = revision_text(stored.revision + 1);
@@ -569,6 +771,294 @@ pub fn transition_service_schedule_item(
     )
 }
 
+fn start_service_schedule_item(
+    storage_root: &Path,
+    input: TransitionServiceScheduleItemInput,
+    project_code: ProjectCode,
+    actor: AuditActor,
+    payload_json: String,
+) -> Result<String, AgentError> {
+    let expected_preparation_revision_id = input
+        .expected_preparation_revision_id
+        .as_deref()
+        .unwrap_or_default();
+    let expected_preparation_checksum = input
+        .expected_preparation_checksum
+        .as_deref()
+        .unwrap_or_default();
+    let mut connection = open_start_consistency_connection(storage_root)?;
+    ensure_service_schedule_table(&connection)?;
+    if let Some(operation) = existing_operation(&connection, &input.operation_id)? {
+        ensure_operation_replay(
+            &operation,
+            &input.operation_id,
+            OperationFingerprintInput {
+                domain: "project_records",
+                entity_type: "service_schedule_item",
+                entity_id: &input.item_code,
+                operation_kind: "service_schedule_item_status_changed",
+                base_revision: &operation.base_revision,
+                actor_id: &input.actor,
+                device_id: &input.device_id,
+                correlation_id: &input.correlation_id,
+                payload_json: &payload_json,
+            },
+        )?;
+        let stored =
+            load_service_schedule_item(&connection, &input.item_code)?.ok_or_else(|| {
+                AgentError::new(
+                    "operation_replay_missing_entity",
+                    "operation exists but service schedule item is missing",
+                )
+            })?;
+        return schedule_operation_json(
+            "service_schedule_item_status_changed",
+            &input.operation_id,
+            true,
+            &stored,
+        );
+    }
+
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    load_project(&transaction, project_code.as_str())?
+        .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
+    let stored = load_service_schedule_item(&transaction, &input.item_code)?.ok_or_else(|| {
+        AgentError::new("service_schedule_item_not_found", "schedule item not found")
+    })?;
+    if stored.project_code != project_code.as_str() {
+        return Err(AgentError::new(
+            "service_schedule_item_not_found",
+            "schedule item does not belong to this project",
+        ));
+    }
+    if stored.revision != input.expected_revision {
+        return Err(AgentError::with_details(
+            "service_schedule_concurrent_update",
+            "the service schedule item changed; refresh the project before trying again",
+            json!({
+                "item_code": stored.item_code,
+                "expected_revision": input.expected_revision,
+                "actual_revision": stored.revision,
+            }),
+        ));
+    }
+    let mut item = stored.to_domain()?;
+    let previous_status = item.status();
+    item.transition_to(ServiceScheduleStatus::InProgress)
+        .map_err(|issue| {
+            AgentError::with_details(
+                "invalid_service_schedule_transition",
+                "the requested planning action is not available from the current state",
+                json!({
+                    "from": previous_status.as_str(),
+                    "to": ServiceScheduleStatus::InProgress.as_str(),
+                    "cause": issue.code,
+                }),
+            )
+        })?;
+    let preparation_evidence = require_planned_test_preparation_for_start(
+        storage_root,
+        &transaction,
+        project_code.as_str(),
+        &input.item_code,
+        stored.revision,
+        expected_preparation_revision_id,
+        expected_preparation_checksum,
+    )?;
+    run_start_consistency_test_action(&transaction, storage_root, &stored)?;
+
+    let timestamp = utc_timestamp()?;
+    let audit_sequence = next_audit_sequence(&transaction, project_code.as_str())?;
+    let audit_payload = render_json(&json!({
+        "item_code": item.item_code(),
+        "previous_status": previous_status.as_str(),
+        "new_status": ServiceScheduleStatus::InProgress.as_str(),
+        "planned_test_preparation": &preparation_evidence,
+    }));
+    let base_revision = revision_text(stored.revision);
+    let resulting_revision = revision_text(stored.revision + 1);
+    start_service_schedule_with_preparation(
+        &transaction,
+        StartServiceScheduleInput {
+            item_id: stored.id,
+            project_code: project_code.as_str(),
+            schedule_item_code: &input.item_code,
+            expected_schedule_revision: stored.revision,
+            expected_preparation_revision_id: &preparation_evidence.revision_id,
+            expected_preparation_checksum: &preparation_evidence.definition_checksum,
+            actor: actor.as_str(),
+            timestamp: &timestamp,
+        },
+    )?;
+    insert_audit_event(
+        &transaction,
+        AuditEventInput {
+            project_code: project_code.as_str(),
+            sequence: audit_sequence,
+            actor: actor.as_str(),
+            action: "service_schedule_item_status_changed",
+            reason: Some(&input.reason),
+            payload_json: &audit_payload,
+            timestamp: &timestamp,
+        },
+    )?;
+    insert_sync_operation(
+        &transaction,
+        SyncOperationInput {
+            domain: "project_records",
+            entity_type: "service_schedule_item",
+            operation_id: &input.operation_id,
+            entity_id: item.item_code(),
+            operation_kind: "service_schedule_item_status_changed",
+            base_revision: &base_revision,
+            resulting_revision: &resulting_revision,
+            actor_id: &input.actor,
+            device_id: &input.device_id,
+            correlation_id: &input.correlation_id,
+            payload_json: &payload_json,
+            timestamp: &timestamp,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+
+    let updated = load_service_schedule_item(&connection, item.item_code())?.ok_or_else(|| {
+        AgentError::new(
+            "service_schedule_read_failed",
+            "updated schedule item is missing",
+        )
+    })?;
+    schedule_operation_json(
+        "service_schedule_item_status_changed",
+        &input.operation_id,
+        false,
+        &updated,
+    )
+}
+
+#[cfg(not(test))]
+fn run_start_consistency_test_action(
+    _transaction: &rusqlite::Transaction<'_>,
+    _storage_root: &Path,
+    _schedule: &StoredServiceScheduleItem,
+) -> Result<(), AgentError> {
+    Ok(())
+}
+
+#[cfg(test)]
+fn run_start_consistency_test_action(
+    transaction: &rusqlite::Transaction<'_>,
+    storage_root: &Path,
+    schedule: &StoredServiceScheduleItem,
+) -> Result<(), AgentError> {
+    use rusqlite::{params, ErrorCode};
+    use std::time::Duration;
+
+    let action = START_CONSISTENCY_TEST_ACTION.with(|current| current.borrow_mut().take());
+    match action {
+        None => Ok(()),
+        Some(StartConsistencyTestAction::InstallBlockedPreparation {
+            source_revision_id,
+            new_revision_id,
+        }) => {
+            let inserted = transaction
+                .execute(
+                    concat!(
+                        "INSERT INTO planned_test_preparation_revisions (",
+                        "revision_id, project_code, schedule_item_code, revision_number, parent_revision_id, ",
+                        "schedule_revision, method_template_id, method_revision_id, method_definition_checksum, ",
+                        "station_setup_id, station_setup_revision_id, station_setup_definition_checksum, ",
+                        "verdict_state, definition_schema_version, definition_json, definition_checksum, ",
+                        "operation_id, request_checksum, actor, reason, device_id, correlation_id, created_at",
+                        ") SELECT ?1, project_code, schedule_item_code, 9999, revision_id, ",
+                        "schedule_revision, method_template_id, method_revision_id, method_definition_checksum, ",
+                        "station_setup_id, station_setup_revision_id, station_setup_definition_checksum, ",
+                        "'blocked', definition_schema_version, definition_json, definition_checksum, ",
+                        "?2, request_checksum, actor, 'deterministic start race fixture', ",
+                        "device_id, correlation_id, created_at ",
+                        "FROM planned_test_preparation_revisions WHERE revision_id = ?3"
+                    ),
+                    params![
+                        new_revision_id,
+                        format!("op-{new_revision_id}"),
+                        source_revision_id
+                    ],
+                )
+                .map_err(|error| AgentError::new("test_hook_failed", error.to_string()))?;
+            if inserted != 1 {
+                return Err(AgentError::new(
+                    "test_hook_failed",
+                    "blocked preparation race fixture was not inserted",
+                ));
+            }
+            transaction
+                .execute(
+                    concat!(
+                        "UPDATE planned_test_preparation_identities SET current_revision_id = ?1 ",
+                        "WHERE project_code = ?2 AND schedule_item_code = ?3"
+                    ),
+                    params![new_revision_id, schedule.project_code, schedule.item_code],
+                )
+                .map_err(|error| AgentError::new("test_hook_failed", error.to_string()))?;
+            Ok(())
+        }
+        Some(StartConsistencyTestAction::AdvanceScheduleRevision) => {
+            transaction
+                .execute(
+                    "UPDATE service_schedule_items SET revision = revision + 1 WHERE id = ?1",
+                    params![schedule.id],
+                )
+                .map_err(|error| AgentError::new("test_hook_failed", error.to_string()))?;
+            Ok(())
+        }
+        Some(StartConsistencyTestAction::PointToPreparation { revision_id }) => {
+            let updated = transaction
+                .execute(
+                    concat!(
+                        "UPDATE planned_test_preparation_identities SET current_revision_id = ?1 ",
+                        "WHERE project_code = ?2 AND schedule_item_code = ?3"
+                    ),
+                    params![revision_id, schedule.project_code, schedule.item_code],
+                )
+                .map_err(|error| AgentError::new("test_hook_failed", error.to_string()))?;
+            if updated != 1 {
+                return Err(AgentError::new(
+                    "test_hook_failed",
+                    "preparation pointer race fixture was not installed",
+                ));
+            }
+            Ok(())
+        }
+        Some(StartConsistencyTestAction::AssertReadinessWritersLocked) => {
+            for database in ["metrology.sqlite", "station.sqlite"] {
+                let connection = rusqlite::Connection::open(storage_root.join(database))
+                    .map_err(|error| AgentError::new("test_hook_failed", error.to_string()))?;
+                connection
+                    .busy_timeout(Duration::ZERO)
+                    .map_err(|error| AgentError::new("test_hook_failed", error.to_string()))?;
+                let error = connection
+                    .execute_batch("BEGIN IMMEDIATE")
+                    .expect_err("readiness database writer must be locked during start");
+                let locked = matches!(
+                    error,
+                    rusqlite::Error::SqliteFailure(ref details, _)
+                        if matches!(details.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked)
+                );
+                if !locked {
+                    return Err(AgentError::new(
+                        "test_hook_failed",
+                        format!("{database} accepted a concurrent readiness write"),
+                    ));
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
 fn schedule_item_dto(
     stored: &StoredServiceScheduleItem,
 ) -> Result<ServiceScheduleItemDto, AgentError> {
@@ -582,7 +1072,8 @@ fn schedule_item_dto(
         planned_start_at: item.planned_start_at().to_owned(),
         planned_end_at: item.planned_end_at().to_owned(),
         assigned_operator: item.assigned_operator().to_owned(),
-        location: item.location().to_owned(),
+        laboratory_location_id: item.laboratory_location_id().map(str::to_owned),
+        laboratory_location_label: item.laboratory_location_label().to_owned(),
         equipment_under_test: item.equipment_under_test().to_owned(),
         status: item.status().as_str().to_owned(),
         notes: item.notes().to_owned(),
@@ -643,15 +1134,64 @@ fn schedule_snapshot_payload(item: &ServiceScheduleItem) -> String {
         "planned_start_at": item.planned_start_at(),
         "planned_end_at": item.planned_end_at(),
         "assigned_operator": item.assigned_operator(),
-        "location": item.location(),
+        "laboratory_location_id": item.laboratory_location_id(),
+        "laboratory_location_label": item.laboratory_location_label(),
         "equipment_under_test": item.equipment_under_test(),
         "status": item.status().as_str(),
         "notes": item.notes(),
     }))
 }
 
-fn transition_command_payload(target: ServiceScheduleStatus, reason: &str) -> String {
-    render_json(&json!({ "target_status": target.as_str(), "reason": reason }))
+fn transition_command_payload(
+    target: ServiceScheduleStatus,
+    input: &TransitionServiceScheduleItemInput,
+) -> String {
+    render_json(&json!({
+        "target_status": target.as_str(),
+        "expected_preparation_revision_id": input.expected_preparation_revision_id,
+        "expected_preparation_checksum": input.expected_preparation_checksum,
+        "reason": input.reason,
+    }))
+}
+
+fn validate_start_evidence_fields(
+    target: ServiceScheduleStatus,
+    input: &TransitionServiceScheduleItemInput,
+) -> Result<(), AgentError> {
+    let revision = input.expected_preparation_revision_id.as_deref();
+    let checksum = input.expected_preparation_checksum.as_deref();
+    if target != ServiceScheduleStatus::InProgress {
+        if revision.is_some() || checksum.is_some() {
+            return Err(AgentError::new(
+                "invalid_service_schedule_request",
+                "preparation evidence is accepted only for the start action",
+            ));
+        }
+        return Ok(());
+    }
+    if revision.is_some() != checksum.is_some() {
+        return Err(AgentError::new(
+            "invalid_service_schedule_request",
+            "start preparation revision and checksum must be provided together",
+        ));
+    }
+    if let Some(revision) = revision {
+        validate_stable_id(revision, "expected_preparation_revision_id")?;
+    }
+    if let Some(checksum) = checksum {
+        let digest = checksum.strip_prefix("sha256:").unwrap_or_default();
+        if digest.len() != 64
+            || !digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(AgentError::new(
+                "invalid_service_schedule_request",
+                "expected_preparation_checksum must use canonical sha256:<64 lowercase hex>",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn reschedule_command_payload(input: &RescheduleServiceScheduleItemInput) -> String {
@@ -659,7 +1199,17 @@ fn reschedule_command_payload(input: &RescheduleServiceScheduleItemInput) -> Str
         "planned_start_at": input.planned_start_at,
         "planned_end_at": input.planned_end_at,
         "assigned_operator": input.assigned_operator,
-        "location": input.location,
+        "laboratory_location_id": input.laboratory_location_id,
+        "laboratory_location_label": input.laboratory_location_label,
+        "expected_revision": input.expected_revision,
+        "reason": input.reason,
+    }))
+}
+
+fn location_identification_command_payload(input: &IdentifyServiceScheduleLocationInput) -> String {
+    render_json(&json!({
+        "laboratory_location_id": input.laboratory_location_id,
+        "laboratory_location_label": input.laboratory_location_label,
         "expected_revision": input.expected_revision,
         "reason": input.reason,
     }))
@@ -670,7 +1220,8 @@ fn schedule_assignment_snapshot(item: &ServiceScheduleItem) -> serde_json::Value
         "planned_start_at": item.planned_start_at(),
         "planned_end_at": item.planned_end_at(),
         "assigned_operator": item.assigned_operator(),
-        "location": item.location(),
+        "laboratory_location_id": item.laboratory_location_id(),
+        "laboratory_location_label": item.laboratory_location_label(),
     })
 }
 
@@ -683,11 +1234,17 @@ fn schedule_conflict_error(conflict: ScheduleConflict) -> AgentError {
             "operator",
             item.assigned_operator.clone(),
         ),
+        ScheduleResourceConflictKind::UnresolvedLocationIdentity => (
+            "service_schedule_legacy_location_identity_required",
+            "Un créneau existant utilise encore un lieu non identifié. Identifiez son lieu avant de réserver un autre créneau sur cette période.",
+            "unresolved_location_identity",
+            item.laboratory_location_label.clone(),
+        ),
         ScheduleResourceConflictKind::Location => (
             "service_schedule_location_conflict",
             "the selected laboratory location is already reserved during this period",
             "location",
-            item.location.clone(),
+            item.laboratory_location_label.clone(),
         ),
     };
     AgentError::with_details(
@@ -703,7 +1260,14 @@ fn schedule_conflict_error(conflict: ScheduleConflict) -> AgentError {
                 "planned_start_at": item.planned_start_at,
                 "planned_end_at": item.planned_end_at,
                 "assigned_operator": item.assigned_operator,
-                "location": item.location,
+                "laboratory_location_id": item.laboratory_location_id,
+                "laboratory_location_label": item.laboratory_location_label,
+                "status": item.status,
+            },
+            "next_action": if conflict.kind == ScheduleResourceConflictKind::UnresolvedLocationIdentity {
+                Some("identify_service_schedule_location")
+            } else {
+                None
             }
         }),
     )
@@ -738,6 +1302,25 @@ fn reschedule_error(issue: PlanningValidationIssue, status: ServiceScheduleStatu
     } else {
         planning_error(issue)
     }
+}
+
+fn location_identification_error(issue: PlanningValidationIssue) -> AgentError {
+    let (code, message) = match issue.code.as_str() {
+        "schedule_location_already_identified" => (
+            "service_schedule_location_already_identified",
+            "the service schedule item already has a stable location identity",
+        ),
+        "schedule_location_identification_not_allowed" => (
+            "service_schedule_location_identification_not_allowed",
+            "the location of a completed or cancelled schedule item cannot be identified",
+        ),
+        _ => return planning_error(issue),
+    };
+    AgentError::with_details(
+        code,
+        message,
+        json!({ "field": issue.field, "cause": issue.code }),
+    )
 }
 
 fn domain_error(error: emc_locus_core::DomainError) -> AgentError {
@@ -781,8 +1364,11 @@ mod tests {
     };
     use crate::{run_storage_action, StorageAction};
     use emc_locus_core::{required_contract_review_items, ExecutionMode};
-    use rusqlite::Connection;
-    use std::path::{Path, PathBuf};
+    use rusqlite::{params, Connection};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
 
     #[test]
     fn refuses_scheduling_before_contract_review_reaches_planning() {
@@ -854,6 +1440,212 @@ mod tests {
         assert_eq!(table_count(&storage_root, "service_schedule_items"), 1);
         assert_eq!(operation_count(&storage_root, "op-PLAN-CONFLICT-002"), 0);
         assert_eq!(operation_count(&storage_root, "op-PLAN-CONFLICT-003"), 0);
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn migrated_legacy_active_schedule_items_block_creation_without_partial_evidence() {
+        for status in ["planned", "confirmed", "in_progress"] {
+            let storage_root =
+                temporary_storage_root(&format!("service-schedule-legacy-active-{status}"));
+            initialize_storage_with_legacy_schedule(&storage_root, status, "Alice");
+            let mut input = schedule_input(
+                "CEM-LEGACY-001",
+                &format!("PLAN-CANDIDATE-{status}"),
+                "Bob",
+                "Poste CEM moderne",
+            );
+            input.planned_start_at = "2026-07-15T10:00".to_owned();
+            input.planned_end_at = "2026-07-15T11:00".to_owned();
+
+            let error = create_service_schedule_item(&storage_root, input.clone()).unwrap_err();
+            let rendered = error.to_json();
+
+            assert_eq!(
+                error.code, "service_schedule_legacy_location_identity_required",
+                "status {status}"
+            );
+            assert!(rendered.contains("Un créneau existant utilise encore un lieu non identifié"));
+            assert!(rendered.contains("PLAN-LEGACY-001"));
+            assert!(rendered.contains("Ancien poste CEM"));
+            assert!(rendered.contains(&format!("\"status\":\"{status}\"")));
+            assert!(rendered.contains("identify_service_schedule_location"));
+            assert_eq!(table_count(&storage_root, "service_schedule_items"), 1);
+            assert_eq!(audit_count(&storage_root), 0);
+            assert_eq!(operation_count(&storage_root, &input.operation_id), 0);
+            remove_temporary_storage_root(&storage_root);
+        }
+    }
+
+    #[test]
+    fn migrated_legacy_terminal_schedule_items_do_not_block_creation() {
+        for status in ["completed", "cancelled"] {
+            let storage_root =
+                temporary_storage_root(&format!("service-schedule-legacy-terminal-{status}"));
+            initialize_storage_with_legacy_schedule(&storage_root, status, "Alice");
+            let mut input = schedule_input(
+                "CEM-LEGACY-001",
+                &format!("PLAN-CANDIDATE-{status}"),
+                "Bob",
+                "Poste CEM moderne",
+            );
+            input.planned_start_at = "2026-07-15T10:00".to_owned();
+            input.planned_end_at = "2026-07-15T11:00".to_owned();
+
+            let created = create_service_schedule_item(&storage_root, input).unwrap();
+
+            assert!(created.contains("\"replayed\":false"), "status {status}");
+            assert_eq!(table_count(&storage_root, "service_schedule_items"), 2);
+            remove_temporary_storage_root(&storage_root);
+        }
+    }
+
+    #[test]
+    fn migrated_legacy_item_keeps_operator_conflict_priority() {
+        let storage_root = temporary_storage_root("service-schedule-legacy-priority");
+        initialize_storage_with_legacy_schedule(&storage_root, "planned", "Alice");
+        let mut input = schedule_input(
+            "CEM-LEGACY-001",
+            "PLAN-CANDIDATE-PRIORITY",
+            "Alice",
+            "Autre poste",
+        );
+        input.planned_start_at = "2026-07-15T10:00".to_owned();
+        input.planned_end_at = "2026-07-15T11:00".to_owned();
+
+        let error = create_service_schedule_item(&storage_root, input).unwrap_err();
+
+        assert_eq!(error.code, "service_schedule_operator_conflict");
+        assert_eq!(table_count(&storage_root, "service_schedule_items"), 1);
+        assert_eq!(audit_count(&storage_root), 0);
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn migrated_legacy_item_blocks_reschedule_without_partial_evidence() {
+        let storage_root = temporary_storage_root("service-schedule-legacy-reschedule");
+        initialize_storage_with_legacy_schedule(&storage_root, "confirmed", "Alice");
+        let mut movable = schedule_input(
+            "CEM-LEGACY-001",
+            "PLAN-MOVABLE-LEGACY",
+            "Bob",
+            "Poste CEM moderne",
+        );
+        movable.planned_start_at = "2026-07-15T13:00".to_owned();
+        movable.planned_end_at = "2026-07-15T15:00".to_owned();
+        create_service_schedule_item(&storage_root, movable).unwrap();
+        let audit_before = audit_count(&storage_root);
+        let outbox_before = total_operation_count(&storage_root);
+
+        let error = reschedule_service_schedule_item(
+            &storage_root,
+            reschedule_input(
+                "CEM-LEGACY-001",
+                "PLAN-MOVABLE-LEGACY",
+                "2026-07-15T10:00",
+                "2026-07-15T11:00",
+                "Bob",
+                "Poste CEM moderne",
+                1,
+                "legacy-conflict",
+            ),
+        )
+        .unwrap_err();
+        let listed = list_project_service_schedule_items(&storage_root, "CEM-LEGACY-001").unwrap();
+
+        assert_eq!(
+            error.code,
+            "service_schedule_legacy_location_identity_required"
+        );
+        assert!(listed.contains("\"planned_start_at\":\"2026-07-15T13:00\""));
+        assert!(listed.contains("\"revision\":1"));
+        assert_eq!(table_count(&storage_root, "service_schedule_items"), 2);
+        assert_eq!(audit_count(&storage_root), audit_before);
+        assert_eq!(total_operation_count(&storage_root), outbox_before);
+        assert_eq!(
+            operation_count(&storage_root, "op-reschedule-legacy-conflict"),
+            0
+        );
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn identifies_migrated_legacy_location_with_audit_outbox_and_stable_id_conflicts() {
+        let storage_root = temporary_storage_root("service-schedule-legacy-identification");
+        initialize_storage_with_legacy_schedule(&storage_root, "planned", "Alice");
+        let input = location_identification_input(
+            "CEM-LEGACY-001",
+            "PLAN-LEGACY-001",
+            "LAB-STABLE-001",
+            "Poste CEM 1",
+            1,
+            "success",
+        );
+
+        let identified = identify_service_schedule_location(&storage_root, input.clone()).unwrap();
+        let replayed = identify_service_schedule_location(&storage_root, input).unwrap();
+        let listed = list_project_service_schedule_items(&storage_root, "CEM-LEGACY-001").unwrap();
+        let audits = list_audit_events(&storage_root, "CEM-LEGACY-001").unwrap();
+        let outbox = list_sync_outbox(&storage_root).unwrap();
+
+        assert!(identified.contains("\"operation\":\"service_schedule_item_location_identified\""));
+        assert!(identified.contains("\"laboratory_location_id\":\"LAB-STABLE-001\""));
+        assert!(identified.contains("\"laboratory_location_label\":\"Poste CEM 1\""));
+        assert!(identified.contains("\"status\":\"planned\""));
+        assert!(identified.contains("\"revision\":2"));
+        assert!(replayed.contains("\"replayed\":true"));
+        assert!(listed.contains("\"planned_start_at\":\"2026-07-15T09:00\""));
+        assert!(listed.contains("\"assigned_operator\":\"Alice\""));
+        assert!(audits.contains("service_schedule_item_location_identified"));
+        assert!(audits.contains("Ancien poste CEM"));
+        assert!(audits.contains("LAB-STABLE-001"));
+        assert!(outbox.contains("service_schedule_item_location_identified"));
+        assert_eq!(audit_count(&storage_root), 1);
+        assert_eq!(
+            operation_count(&storage_root, "op-identify-location-success"),
+            1
+        );
+
+        let stale = identify_service_schedule_location(
+            &storage_root,
+            location_identification_input(
+                "CEM-LEGACY-001",
+                "PLAN-LEGACY-001",
+                "LAB-STABLE-002",
+                "Poste CEM 2",
+                1,
+                "stale",
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(stale.code, "service_schedule_concurrent_update");
+        assert_eq!(
+            operation_count(&storage_root, "op-identify-location-stale"),
+            0
+        );
+
+        let mut same_id_different_label = schedule_input(
+            "CEM-LEGACY-001",
+            "PLAN-SAME-STABLE-ID",
+            "Bob",
+            "Nom actuel du poste",
+        );
+        same_id_different_label.laboratory_location_id = "LAB-STABLE-001".to_owned();
+        same_id_different_label.planned_start_at = "2026-07-15T10:00".to_owned();
+        same_id_different_label.planned_end_at = "2026-07-15T11:00".to_owned();
+        let same_id_error =
+            create_service_schedule_item(&storage_root, same_id_different_label).unwrap_err();
+        assert_eq!(same_id_error.code, "service_schedule_location_conflict");
+
+        let mut same_label_different_id =
+            schedule_input("CEM-LEGACY-001", "PLAN-SAME-LABEL", "Bob", "Poste CEM 1");
+        same_label_different_id.laboratory_location_id = "LAB-STABLE-002".to_owned();
+        same_label_different_id.planned_start_at = "2026-07-15T10:00".to_owned();
+        same_label_different_id.planned_end_at = "2026-07-15T11:00".to_owned();
+        let different_id =
+            create_service_schedule_item(&storage_root, same_label_different_id).unwrap();
+        assert!(different_id.contains("\"laboratory_location_id\":\"LAB-STABLE-002\""));
+        assert_eq!(table_count(&storage_root, "service_schedule_items"), 2);
         remove_temporary_storage_root(&storage_root);
     }
 
@@ -1122,7 +1914,8 @@ mod tests {
             planned_start_at: "2026-07-15T09:00".to_owned(),
             planned_end_at: "2026-07-15T12:00".to_owned(),
             assigned_operator: operator.to_owned(),
-            location: location.to_owned(),
+            laboratory_location_id: test_location_id(location),
+            laboratory_location_label: location.to_owned(),
             equipment_under_test: "Convertisseur ferroviaire".to_owned(),
             test_category_code: Some("emission_conducted".to_owned()),
             test_method_code: None,
@@ -1147,6 +1940,8 @@ mod tests {
             item_code: item_code.to_owned(),
             target_status: target_status.to_owned(),
             expected_revision,
+            expected_preparation_revision_id: None,
+            expected_preparation_checksum: None,
             actor: "responsable.laboratoire".to_owned(),
             reason: "Mise à jour du planning".to_owned(),
             operation_id: format!("op-status-{suffix}"),
@@ -1172,7 +1967,8 @@ mod tests {
             planned_start_at: planned_start_at.to_owned(),
             planned_end_at: planned_end_at.to_owned(),
             assigned_operator: assigned_operator.to_owned(),
-            location: location.to_owned(),
+            laboratory_location_id: test_location_id(location),
+            laboratory_location_label: location.to_owned(),
             expected_revision,
             actor: "responsable.laboratoire".to_owned(),
             reason: "Réorganisation du laboratoire".to_owned(),
@@ -1180,6 +1976,36 @@ mod tests {
             correlation_id: format!("corr-reschedule-{suffix}"),
             device_id: "lab-console".to_owned(),
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn location_identification_input(
+        project_code: &str,
+        item_code: &str,
+        laboratory_location_id: &str,
+        laboratory_location_label: &str,
+        expected_revision: u64,
+        suffix: &str,
+    ) -> IdentifyServiceScheduleLocationInput {
+        IdentifyServiceScheduleLocationInput {
+            project_code: project_code.to_owned(),
+            item_code: item_code.to_owned(),
+            laboratory_location_id: laboratory_location_id.to_owned(),
+            laboratory_location_label: laboratory_location_label.to_owned(),
+            expected_revision,
+            actor: "responsable.laboratoire".to_owned(),
+            reason: "Identification du lieu historique".to_owned(),
+            operation_id: format!("op-identify-location-{suffix}"),
+            correlation_id: format!("corr-identify-location-{suffix}"),
+            device_id: "lab-console".to_owned(),
+        }
+    }
+
+    fn test_location_id(label: &str) -> String {
+        format!(
+            "LAB-LOCATION-{}",
+            label.replace(' ', "-").to_ascii_uppercase()
+        )
     }
 
     fn create_project_for_test(storage_root: &Path, code: &str, ready_for_planning: bool) {
@@ -1244,6 +2070,76 @@ mod tests {
         .unwrap();
     }
 
+    fn initialize_storage_with_legacy_schedule(
+        storage_root: &Path,
+        status: &str,
+        assigned_operator: &str,
+    ) {
+        let migrations_root = repo_root().join("storage/sqlite");
+        fs::create_dir_all(storage_root).unwrap();
+        let projects_database = storage_root.join("projects.sqlite");
+        let connection = Connection::open(&projects_database).unwrap();
+        for migration in [
+            "0001_project_records.sql",
+            "0002_service_schedule.sql",
+            "0003_simulated_test_executions.sql",
+            "0004_attached_documents.sql",
+            "0005_simulated_execution_template_revision.sql",
+            "0006_service_schedule_agent_ownership.sql",
+            "0007_planned_test_preparations.sql",
+        ] {
+            let sql = fs::read_to_string(migrations_root.join("projects").join(migration)).unwrap();
+            connection.execute_batch(&sql).unwrap();
+        }
+        connection
+            .execute(
+                concat!(
+                    "INSERT INTO projects ",
+                    "(code, customer_name, stage, execution_mode, created_at) ",
+                    "VALUES ('CEM-LEGACY-001', 'Client historique', 'test_planning', ",
+                    "'non_accredited', '2026-07-14T08:00:00Z')"
+                ),
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                concat!(
+                    "INSERT INTO service_schedule_items ",
+                    "(item_code, project_code, title, planned_start_at, planned_end_at, ",
+                    "assigned_operator, location, equipment_under_test, status, notes, ",
+                    "created_at, updated_at) VALUES ",
+                    "('PLAN-LEGACY-001', 'CEM-LEGACY-001', 'Essai historique', ",
+                    "'2026-07-15T09:00', '2026-07-15T12:00', ?1, 'Ancien poste CEM', ",
+                    "'EUT historique', ?2, '', '2026-07-14T08:00:00Z', ",
+                    "'2026-07-14T08:00:00Z')"
+                ),
+                params![assigned_operator, status],
+            )
+            .unwrap();
+        drop(connection);
+
+        run_storage_action(
+            StorageAction::Init,
+            storage_root.to_path_buf(),
+            migrations_root,
+        )
+        .unwrap();
+        let connection = Connection::open(projects_database).unwrap();
+        let migrated: (u64, Option<String>, String) = connection
+            .query_row(
+                concat!(
+                    "SELECT MAX(version), laboratory_location_id, laboratory_location_label ",
+                    "FROM schema_migrations CROSS JOIN service_schedule_items ",
+                    "WHERE item_code = 'PLAN-LEGACY-001'"
+                ),
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(migrated, (8, None, "Ancien poste CEM".to_owned()));
+    }
+
     fn table_count(storage_root: &Path, table: &str) -> u64 {
         let connection = Connection::open(storage_root.join("projects.sqlite")).unwrap();
         connection
@@ -1261,6 +2157,22 @@ mod tests {
                 [operation_id],
                 |row| row.get(0),
             )
+            .unwrap()
+    }
+
+    fn total_operation_count(storage_root: &Path) -> u64 {
+        let connection = Connection::open(storage_root.join("sync.sqlite")).unwrap();
+        connection
+            .query_row("SELECT COUNT(*) FROM sync_operations", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    fn audit_count(storage_root: &Path) -> u64 {
+        let connection = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        connection
+            .query_row("SELECT COUNT(*) FROM project_audit_events", [], |row| {
+                row.get(0)
+            })
             .unwrap()
     }
 

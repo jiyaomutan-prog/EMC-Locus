@@ -217,7 +217,8 @@ async function createScheduleItem(
       planned_start_at: `${input.date}T09:00`,
       planned_end_at: `${input.date}T12:00`,
       assigned_operator: input.operator,
-      location: input.location,
+      laboratory_location_id: `LAB-LOCATION-${input.itemCode}`,
+      laboratory_location_label: input.location,
       equipment_under_test: input.equipment,
       actor: "Responsable laboratoire",
       reason: "Créneau convenu",
@@ -262,6 +263,7 @@ async function captureReleaseScreenshot(page: Page, name: string) {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(80);
   const body = await page.screenshot({ animations: "disabled", fullPage: false });
+  if (process.env.EMC_LOCUS_REFRESH_HISTORICAL_SCREENSHOTS !== "1") return;
   const evidenceDirectory = path.resolve(process.cwd(), "../../docs/ux/0.20.0/screenshots");
   await mkdir(evidenceDirectory, { recursive: true });
   await writeFile(path.join(evidenceDirectory, name), body);

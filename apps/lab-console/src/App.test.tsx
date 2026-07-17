@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { App } from "./App";
+import { retainCompatibleAssignments } from "./features/planning/LaboratoryPlanningWorkspace";
 import type { EquipmentModelDefinition } from "./models/equipment";
 import type { AssetCorrectionAssignment } from "./models/metrology";
 import type {
@@ -111,6 +112,31 @@ function mockBaseApi(templates = [templateFixture()]) {
 }
 
 describe("LAB CONSOLE", () => {
+  test("retains only assignments compatible with the newly selected method and setup", () => {
+    const current = {
+      receiver: "receiver-binding",
+      obsoleteRole: "old-binding"
+    };
+    const retained = retainCompatibleAssignments(current, ["receiver", "generator"], [
+      {
+        slot_id: "receiver",
+        binding_id: "receiver-binding",
+        compatible: true
+      },
+      {
+        slot_id: "generator",
+        binding_id: "generator-binding",
+        compatible: false,
+        reason: "La catégorie ne correspond pas."
+      }
+    ]);
+
+    expect(retained).toEqual({ receiver: "receiver-binding" });
+    expect(retainCompatibleAssignments(retained, ["receiver"], [
+      { slot_id: "receiver", binding_id: "receiver-binding", compatible: true }
+    ])).toBe(retained);
+  });
+
   test("renders an empty API library without fake business rows", async () => {
     mockBaseApi([]);
 
@@ -167,7 +193,7 @@ describe("LAB CONSOLE", () => {
     await user.click(planningButtons[0]);
 
     await user.type(screen.getByLabelText("Essai prévu"), "Émission conduite");
-    await user.type(screen.getByLabelText("Lieu"), "Labo CEM 1");
+    await user.selectOptions(screen.getByLabelText("Lieu"), "LAB-LOCATION-CEM-1");
     await user.type(screen.getByLabelText("Équipement à tester"), "Convertisseur prototype");
     await user.click(screen.getByRole("button", { name: "Réserver le créneau" }));
 
@@ -192,8 +218,9 @@ describe("LAB CONSOLE", () => {
     await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
     expect(await screen.findByText("CEM-LAB-001 · Industries Atlas")).toBeInTheDocument();
     expect(screen.getByText("CEM-LAB-002 · Mobilités Boréal")).toBeInTheDocument();
+    expect(screen.queryByText(/LAB-LOCATION-/)).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Lieu"), "Labo CEM 1");
+    await user.selectOptions(screen.getByLabelText("Lieu"), "LAB-LOCATION-CEM-1");
     expect(screen.getByText("CEM-LAB-001 · Industries Atlas")).toBeInTheDocument();
     expect(screen.queryByText("CEM-LAB-002 · Mobilités Boréal")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Effacer les filtres" }));
@@ -228,7 +255,126 @@ describe("LAB CONSOLE", () => {
     );
   });
 
-  test("blocks then authorizes a planned test from its preparation workflow", async () => {
+  test("identifies a historical planning location without exposing its stable id", async () => {
+    mockLaboratoryPlanningApi({ legacyLocation: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    expect((await screen.findAllByText("Lieu à identifier")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("LAB-LOCATION-CEM-1")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Émission conduite, dossier CEM-LAB-001"
+      })
+    );
+
+    expect(screen.getByText("Libellé historique : Poste CEM historique")).toBeInTheDocument();
+    expect(screen.getByText(/créé avant l’identification stable des lieux/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Identifier le lieu" }));
+
+    const save = screen.getByRole("button", { name: "Enregistrer le lieu" });
+    expect(save).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText("Lieu réel"), "LAB-LOCATION-CEM-1");
+    expect(save).toBeDisabled();
+    await user.type(
+      screen.getByLabelText("Motif de l’identification"),
+      "Vérification du plan d’implantation"
+    );
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    expect((await screen.findAllByText("Labo CEM 1")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Libellé historique : Poste CEM historique")).not.toBeInTheDocument();
+    expect(screen.queryByText("LAB-LOCATION-CEM-1")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/schedule-items/PLAN-LAB-001/location-identification"),
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  test("refreshes laboratory planning after concurrent historical location identification", async () => {
+    mockLaboratoryPlanningApi({ legacyLocation: true, identificationConcurrency: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Émission conduite, dossier CEM-LAB-001"
+      })
+    );
+    await user.click(screen.getByRole("button", { name: "Identifier le lieu" }));
+    await user.selectOptions(screen.getByLabelText("Lieu réel"), "LAB-LOCATION-CEM-1");
+    await user.type(screen.getByLabelText("Motif de l’identification"), "Contrôle concurrent");
+    await user.click(screen.getByRole("button", { name: "Enregistrer le lieu" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Ce créneau a changé sur un autre écran"
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([path]) => String(path).startsWith("/api/v1/service-schedule?"))
+      ).toHaveLength(2)
+    );
+  });
+
+  test("explains a blocking historical location reservation with booking details", async () => {
+    mockLaboratoryPlanningApi({ legacyConflict: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Émission conduite, dossier CEM-LAB-001"
+      })
+    );
+    await user.click(screen.getByRole("button", { name: "Déplacer" }));
+    await user.type(screen.getByLabelText("Raison du changement"), "Déplacement demandé");
+    await user.click(screen.getByRole("button", { name: "Enregistrer le déplacement" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Un créneau existant utilise encore un lieu non identifié. Identifiez son lieu avant de réserver un autre créneau sur cette période."
+    );
+    expect(alert).toHaveTextContent("« Essai historique » du dossier CEM-HIST-001");
+    expect(alert).toHaveTextContent("Poste CEM historique");
+    expect(alert).toHaveTextContent("Confirmé");
+  });
+
+  test("requires confirmation before a planned slot can be prepared", async () => {
+    mockLaboratoryPlanningApi();
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Émission conduite, dossier CEM-LAB-001"
+      })
+    );
+
+    expect((await screen.findAllByText("À confirmer", { exact: true })).length).toBeGreaterThan(0);
+    expect(
+      screen.getByText("Confirmez le créneau avant de préparer l'essai.")
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Préparer l'essai" })).not.toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([path]) => String(path).includes("PLAN-LAB-001/preparation/options"))
+    ).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Confirmer le créneau" }));
+
+    expect((await screen.findAllByText("À préparer", { exact: true })).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Préparer l'essai" })).toBeInTheDocument();
+  });
+
+  test("blocks then authorizes a confirmed slot from its preparation workflow", async () => {
     mockLaboratoryPlanningApi();
     const user = userEvent.setup();
 
@@ -247,10 +393,9 @@ describe("LAB CONSOLE", () => {
     expect(await screen.findByText("Préparation bloquée")).toBeInTheDocument();
     expect(screen.getAllByText("Affectation des matériels").length).toBeGreaterThan(0);
 
-    await user.selectOptions(
-      screen.getByLabelText("Matériel pour Récepteur de mesure"),
-      "receiver-binding"
-    );
+    const materialSelect = screen.getByLabelText("Matériel pour Récepteur de mesure");
+    expect(within(materialSelect).queryByRole("option", { name: /SMW200A/ })).not.toBeInTheDocument();
+    await user.selectOptions(materialSelect, "receiver-binding");
     await user.click(screen.getByRole("button", { name: "Vérifier la préparation" }));
     expect(await screen.findByText("Prêt à démarrer")).toBeInTheDocument();
     expect(screen.getAllByText("Contrôle n° 1").length).toBeGreaterThan(0);
@@ -267,6 +412,24 @@ describe("LAB CONSOLE", () => {
       expect.stringContaining("/transitions/start"),
       expect.objectContaining({ method: "POST" })
     );
+  });
+
+  test("explains when a method role has no compatible material in the selected setup", async () => {
+    mockLaboratoryPlanningApi({ noCompatibleMaterials: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Immunité rayonnée, dossier CEM-LAB-002"
+      })
+    );
+    await user.click(await screen.findByRole("button", { name: "Préparer l'essai" }));
+
+    expect(await screen.findByText("Aucun matériel compatible dans ce montage.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Matériel pour Récepteur de mesure")).toBeDisabled();
+    expect(screen.getByText("Le modèle ne fournit pas la capacité spectrale requise.")).toBeInTheDocument();
   });
 
   test("loads templates, filters them, and opens the draft studio", async () => {
@@ -1847,7 +2010,8 @@ function mockProjectWorkflowApi() {
         planned_start_at: body.planned_start_at,
         planned_end_at: body.planned_end_at,
         assigned_operator: body.assigned_operator,
-        location: body.location,
+        laboratory_location_id: body.laboratory_location_id,
+        laboratory_location_label: body.laboratory_location_label,
         equipment_under_test: body.equipment_under_test,
         status: "planned",
         notes: body.notes ?? "",
@@ -1893,7 +2057,12 @@ function mockProjectWorkflowApi() {
   });
 }
 
-function mockLaboratoryPlanningApi() {
+function mockLaboratoryPlanningApi(settings: {
+  noCompatibleMaterials?: boolean;
+  legacyLocation?: boolean;
+  identificationConcurrency?: boolean;
+  legacyConflict?: boolean;
+} = {}) {
   let rescheduleAttempts = 0;
   const first: LaboratoryScheduleItem = {
     item_code: "PLAN-LAB-001",
@@ -1906,7 +2075,8 @@ function mockLaboratoryPlanningApi() {
     planned_start_at: "2026-07-15T09:00",
     planned_end_at: "2026-07-15T12:00",
     assigned_operator: "Alice Martin",
-    location: "Labo CEM 1",
+    laboratory_location_id: "LAB-LOCATION-CEM-1",
+    laboratory_location_label: "Labo CEM 1",
     equipment_under_test: "Convertisseur prototype",
     status: "planned",
     notes: "Préparer le réseau de stabilisation",
@@ -1927,12 +2097,17 @@ function mockLaboratoryPlanningApi() {
     planned_start_at: "2026-07-16T09:00",
     planned_end_at: "2026-07-16T12:00",
     assigned_operator: "Alice Martin",
-    location: "Chambre semi-anéchoïque",
+    laboratory_location_id: "LAB-LOCATION-ANECHOIC",
+    laboratory_location_label: "Chambre semi-anéchoïque",
     equipment_under_test: "Calculateur de bord",
     status: "confirmed",
     revision: 2,
     available_transitions: ["in_progress", "cancelled"]
   };
+  if (settings.legacyLocation) {
+    first.laboratory_location_id = null;
+    first.laboratory_location_label = "Poste CEM historique";
+  }
   const method = {
     template_id: "METHOD-RI-001",
     revision_id: "METHOD-RI-001-rev-0002",
@@ -1963,7 +2138,8 @@ function mockLaboratoryPlanningApi() {
     revision_status: "ready" as const,
     definition_checksum: canonicalChecksum("b"),
     label: "Chaîne immunité rayonnée",
-    station_label: "Chambre semi-anéchoïque",
+    laboratory_location_id: "LAB-LOCATION-ANECHOIC",
+    laboratory_location_label: "Chambre semi-anéchoïque",
     planned_use_on: "2026-07-16",
     execution_mode: "investigation" as const,
     assets: [
@@ -1981,6 +2157,21 @@ function mockLaboratoryPlanningApi() {
         equipment_model_checksum: canonicalChecksum("c"),
         category_code: "emi_receiver",
         capabilities: []
+      },
+      {
+        binding_id: "generator-binding",
+        role_label: "Générateur RF",
+        asset_id: "ASSET-GEN-001",
+        asset_revision: "asset-revision-002",
+        inventory_code: "INV-GEN-001",
+        serial_number: "SN-SMW-101",
+        manufacturer: "Rohde & Schwarz",
+        model_name: "SMW200A",
+        equipment_model_id: "MODEL-SMW200A",
+        equipment_model_revision_id: "MODEL-SMW200A-rev-0001",
+        equipment_model_checksum: canonicalChecksum("f"),
+        category_code: "rf_signal_generator",
+        capabilities: []
       }
     ],
     corrections: []
@@ -1993,6 +2184,32 @@ function mockLaboratoryPlanningApi() {
       {
         station_setup: station,
         readiness: { ready: true, checked_on: "2026-07-16", issues: [] }
+      }
+    ],
+    material_compatibility: [
+      {
+        method_revision_id: method.revision_id,
+        station_setup_revision_id: station.revision_id,
+        materials: [
+          {
+            slot_id: "receiver",
+            binding_id: "receiver-binding",
+            compatible: !settings.noCompatibleMaterials,
+            reason: settings.noCompatibleMaterials
+              ? "Le modèle ne fournit pas la capacité spectrale requise."
+              : undefined,
+            next_action: settings.noCompatibleMaterials
+              ? "Choisissez un récepteur déclaré pour cette mesure."
+              : undefined
+          },
+          {
+            slot_id: "receiver",
+            binding_id: "generator-binding",
+            compatible: false,
+            reason: "Le générateur ne respecte pas la catégorie du rôle.",
+            next_action: "Choisissez un récepteur compatible."
+          }
+        ]
       }
     ]
   };
@@ -2070,7 +2287,8 @@ function mockLaboratoryPlanningApi() {
             planned_start_at: second.planned_start_at,
             planned_end_at: second.planned_end_at,
             assigned_operator: second.assigned_operator,
-            location: second.location,
+            laboratory_location_id: second.laboratory_location_id,
+            laboratory_location_label: second.laboratory_location_label,
             equipment_under_test: second.equipment_under_test,
             execution_mode: "investigation",
             status: second.status
@@ -2134,8 +2352,49 @@ function mockLaboratoryPlanningApi() {
         schedule_item: second
       });
     }
+    if (
+      path.endsWith("/schedule-items/PLAN-LAB-001/transitions/confirm") &&
+      init?.method === "POST"
+    ) {
+      first.status = "confirmed";
+      first.revision += 1;
+      first.available_transitions = ["in_progress", "cancelled"];
+      return jsonResponse({
+        operation: "service_schedule_item_status_changed",
+        operation_id: "op-confirm",
+        replayed: false,
+        schedule_item: first
+      });
+    }
     if (path.endsWith("/schedule-items/PLAN-LAB-001/reschedule") && init?.method === "POST") {
       rescheduleAttempts += 1;
+      if (settings.legacyConflict) {
+        return jsonResponse(
+          {
+            error: {
+              code: "service_schedule_legacy_location_identity_required",
+              message: "Un créneau existant utilise encore un lieu non identifié.",
+              details: {
+                resource: "unresolved_location_identity",
+                value: "Poste CEM historique",
+                conflicting_item: {
+                  item_code: "PLAN-HIST-001",
+                  project_code: "CEM-HIST-001",
+                  title: "Essai historique",
+                  planned_start_at: "2026-07-15T10:00",
+                  planned_end_at: "2026-07-15T11:00",
+                  assigned_operator: "Bob Martin",
+                  laboratory_location_id: null,
+                  laboratory_location_label: "Poste CEM historique",
+                  status: "confirmed"
+                },
+                next_action: "identify_service_schedule_location"
+              }
+            }
+          },
+          409
+        );
+      }
       if (rescheduleAttempts === 1) {
         return jsonResponse(
           {
@@ -2152,7 +2411,8 @@ function mockLaboratoryPlanningApi() {
                   planned_start_at: second.planned_start_at,
                   planned_end_at: second.planned_end_at,
                   assigned_operator: second.assigned_operator,
-                  location: second.location
+                  laboratory_location_id: second.laboratory_location_id,
+                  laboratory_location_label: second.laboratory_location_label
                 }
               }
             }
@@ -2164,11 +2424,39 @@ function mockLaboratoryPlanningApi() {
       first.planned_start_at = body.planned_start_at;
       first.planned_end_at = body.planned_end_at;
       first.assigned_operator = body.assigned_operator;
-      first.location = body.location;
+      first.laboratory_location_id = body.laboratory_location_id;
+      first.laboratory_location_label = body.laboratory_location_label;
       first.revision += 1;
       return jsonResponse({
         operation: "service_schedule_item_rescheduled",
         operation_id: "op-reschedule",
+        replayed: false,
+        schedule_item: first
+      });
+    }
+    if (
+      path.endsWith("/schedule-items/PLAN-LAB-001/location-identification")
+      && init?.method === "POST"
+    ) {
+      if (settings.identificationConcurrency) {
+        return jsonResponse(
+          {
+            error: {
+              code: "service_schedule_concurrent_update",
+              message: "schedule changed",
+              details: { expected_revision: 1, actual_revision: 2 }
+            }
+          },
+          409
+        );
+      }
+      const body = JSON.parse(String(init.body)) as Record<string, string>;
+      first.laboratory_location_id = body.laboratory_location_id;
+      first.laboratory_location_label = body.laboratory_location_label;
+      first.revision += 1;
+      return jsonResponse({
+        operation: "service_schedule_item_location_identified",
+        operation_id: "op-identify-location",
         replayed: false,
         schedule_item: first
       });
@@ -2180,6 +2468,28 @@ function mockLaboratoryPlanningApi() {
 function mockBaseApiResponse(path: string, init?: RequestInit) {
   if (path === "/api/v1/health") return jsonResponse(healthFixture);
   if (path === "/api/v1/storage/status") return jsonResponse(storageFixture);
+  if (path === "/api/v1/station-setups") {
+    return jsonResponse({
+      station_setups: [
+        {
+          current_ready_revision: {
+            definition: {
+              laboratory_location_id: "LAB-LOCATION-CEM-1",
+              laboratory_location_label: "Labo CEM 1"
+            }
+          }
+        },
+        {
+          current_ready_revision: {
+            definition: {
+              laboratory_location_id: "LAB-LOCATION-ANECHOIC",
+              laboratory_location_label: "Chambre semi-anéchoïque"
+            }
+          }
+        }
+      ]
+    });
+  }
   if (path === "/api/v1/test-templates") return jsonResponse({ test_templates: [templateFixture()] });
   if (path.startsWith("/api/v1/equipment/categories/tree")) return jsonResponse({ categories: equipmentCategoryTreeFixture() });
   if (path.includes("/api/v1/equipment/categories/") && path.endsWith("/effective-template")) return jsonResponse({ effective_template: effectiveTemplateFixture() });

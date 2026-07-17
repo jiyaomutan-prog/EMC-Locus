@@ -8,6 +8,50 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-07-16
+
+### Added
+
+- Added an audited, optimistic-concurrency workflow for identifying the real
+  stable laboratory location of an active historical schedule item without
+  deleting or recreating its project.
+- Added a typed core compatibility decision for every test-method role and
+  physical material in a selected setup, including category, capability,
+  substitution, serviceability and applicable metrology evidence.
+- Added stable laboratory location identities with readable label snapshots
+  to planning and station setup revisions through projects migration `8` and
+  station migration `2`.
+- Added deterministic concurrency, real HTTP, Vitest and Playwright evidence
+  for confirmation-first preparation, filtered materials, stale rechecks and
+  exact start authorization.
+
+### Changed
+
+- Active overlapping historical schedule items without a stable location ID
+  now conservatively reserve an unresolved physical resource until an operator
+  selects its real location; conflict priority is operator, unresolved legacy
+  location, then exact stable location ID.
+- Planned slots must now be confirmed before options can be read or a
+  preparation assessment can be recorded; historical early assessments remain
+  readable but inapplicable.
+- LAB CONSOLE now offers only materials declared compatible by the Local Agent,
+  preserves assignments that remain compatible after method/setup changes and
+  explains when a role has no suitable material.
+- Final start validation and the schedule transition now run inside one
+  attached-database `BEGIN IMMEDIATE` boundary controlled by the Local Agent.
+
+### Fixed
+
+- Prevented a migrated 0.21.0 row with `laboratory_location_id = NULL` from
+  being missed as a physical-location conflict when the candidate booking uses
+  another operator; no ID is inferred from the historical label.
+- Prevented a changed current preparation, schedule revision or readiness input
+  from authorizing a start with stale evidence.
+- Stopped using editable location labels as resource identity while preserving
+  legacy 0.21.0 rows without inventing identifiers.
+- Moved new visual evidence to `docs/ux/0.21.1/screenshots` and added an
+  automated check that historical release screenshots remain unchanged.
+
 ## [0.21.0] - 2026-07-15
 
 ### Added

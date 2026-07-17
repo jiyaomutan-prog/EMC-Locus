@@ -25,8 +25,10 @@ GET  /api/v1/station-setups/{setup_id}/audit-events
 
 A station definition contains:
 
-- stable setup identity, readable label, station, planned use date and quality
-  mode;
+- stable setup identity and readable label;
+- stable `laboratory_location_id` plus its readable
+  `laboratory_location_label` snapshot;
+- planned use date and quality mode;
 - real asset bindings with the asset revision and pinned approved model
   revision/checksum;
 - physical connections from one typed model port to another;
@@ -35,6 +37,32 @@ A station definition contains:
 
 The agent canonicalizes the complete definition and returns a prefixed SHA-256
 checksum. Collection order does not change the checksum.
+
+New definitions use
+`emc-locus.station-measurement-setup-definition.v2`. Creation requires both
+location fields:
+
+```json
+{
+  "setup_id": "SETUP-RF-001",
+  "label": "Chaîne de mesure RF",
+  "laboratory_location_id": "LAB-LOCATION-CEM-1",
+  "laboratory_location_label": "Poste CEM 1",
+  "planned_use_on": "2026-07-16",
+  "execution_mode": "accredited",
+  "actor": "test.technician",
+  "reason": "préparer le montage"
+}
+```
+
+The location ID is compared with the planned slot's location ID. Labels are
+display snapshots only: renaming a location does not break compatibility, and
+two locations with the same label remain distinct. Normal application users
+select a location by label and never type the ID.
+
+Historical v1 definitions remain readable with their original checksum. Their
+missing stable identity is explicit and blocks their use in a new ready
+planned-test preparation until a v2 draft is created.
 
 ## Draft Replacement
 

@@ -20,8 +20,10 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, projectApi } from "../../api";
 import type {
+  LaboratoryLocationOption,
   LaboratoryScheduleItem,
   LaboratoryWeekSchedule,
+  PlannedTestMaterialCompatibility,
   PlannedTestMethodSnapshot,
   PlannedTestPreparationAggregate,
   PlannedTestPreparationIssue,
@@ -40,13 +42,43 @@ const statusLabels: Record<ServiceScheduleStatus, string> = {
 };
 
 const weekdayLabels = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
+const noMaterialCompatibility: PlannedTestMaterialCompatibility[] = [];
+
+export function retainCompatibleAssignments(
+  assignments: Record<string, string>,
+  activeSlotIds: string[],
+  compatibility: PlannedTestMaterialCompatibility[]
+): Record<string, string> {
+  const activeSlots = new Set(activeSlotIds);
+  const retained = Object.fromEntries(
+    Object.entries(assignments).filter(([slotId, bindingId]) =>
+      activeSlots.has(slotId)
+      && compatibility.some((candidate) =>
+        candidate.slot_id === slotId
+        && candidate.binding_id === bindingId
+        && candidate.compatible
+      )
+    )
+  );
+  const retainedEntries = Object.entries(retained);
+  const currentEntries = Object.entries(assignments);
+  return retainedEntries.length === currentEntries.length
+    && retainedEntries.every(([slotId, bindingId]) => assignments[slotId] === bindingId)
+    ? assignments
+    : retained;
+}
 
 interface RescheduleForm {
   date: string;
   start_time: string;
   end_time: string;
   assigned_operator: string;
-  location: string;
+  laboratory_location_id: string;
+  reason: string;
+}
+
+interface LocationIdentificationForm {
+  laboratory_location_id: string;
   reason: string;
 }
 
@@ -55,6 +87,7 @@ export function LaboratoryPlanningWorkspace(props: {
 }) {
   const [weekStart, setWeekStart] = useState(() => mondayFor(new Date()));
   const [schedule, setSchedule] = useState<LaboratoryWeekSchedule | null>(null);
+  const [availableLocations, setAvailableLocations] = useState<LaboratoryLocationOption[]>([]);
   const [selectedItem, setSelectedItem] = useState<LaboratoryScheduleItem | null>(null);
   const [operatorFilter, setOperatorFilter] = useState("all");
   const [locationFilter, setLocationFilter] = useState("all");
@@ -67,8 +100,12 @@ export function LaboratoryPlanningWorkspace(props: {
       if (!silent) setLoadState("loading");
       setError(null);
       try {
-        const response = await projectApi.listLaboratoryWeek(weekStart);
+        const [response, locations] = await Promise.all([
+          projectApi.listLaboratoryWeek(weekStart),
+          projectApi.listLaboratoryLocations()
+        ]);
         setSchedule(response);
+        setAvailableLocations(locations);
         setLoadState("ready");
         if (!preserveSelected) {
           setSelectedItem((current) =>
@@ -93,8 +130,19 @@ export function LaboratoryPlanningWorkspace(props: {
     () => uniqueSorted(schedule?.schedule_items.map((item) => item.assigned_operator) ?? []),
     [schedule]
   );
-  const locations = useMemo(
-    () => uniqueSorted(schedule?.schedule_items.map((item) => item.location) ?? []),
+  const locationFilters = useMemo(
+    () => {
+      const values = new Map<string, string>();
+      for (const item of schedule?.schedule_items ?? []) {
+        values.set(
+          scheduleLocationKey(item),
+          item.laboratory_location_id ? item.laboratory_location_label : "Lieu à identifier"
+        );
+      }
+      return Array.from(values, ([value, label]) => ({ value, label })).sort((left, right) =>
+        left.label.localeCompare(right.label, "fr")
+      );
+    },
     [schedule]
   );
   const filteredItems = useMemo(
@@ -102,11 +150,30 @@ export function LaboratoryPlanningWorkspace(props: {
       (schedule?.schedule_items ?? []).filter(
         (item) =>
           (operatorFilter === "all" || item.assigned_operator === operatorFilter) &&
-          (locationFilter === "all" || item.location === locationFilter) &&
+          (locationFilter === "all" || scheduleLocationKey(item) === locationFilter) &&
           (statusFilter === "all" || item.status === statusFilter)
       ),
     [locationFilter, operatorFilter, schedule, statusFilter]
   );
+  const rescheduleLocations = useMemo(() => {
+    const values = new Map(
+      availableLocations.map((location) => [
+        location.laboratory_location_id,
+        location.laboratory_location_label
+      ])
+    );
+    for (const item of schedule?.schedule_items ?? []) {
+      if (item.laboratory_location_id) {
+        values.set(item.laboratory_location_id, item.laboratory_location_label);
+      }
+    }
+    return Array.from(values, ([laboratory_location_id, laboratory_location_label]) => ({
+      laboratory_location_id,
+      laboratory_location_label
+    })).sort((left, right) =>
+      left.laboratory_location_label.localeCompare(right.laboratory_location_label, "fr")
+    );
+  }, [availableLocations, schedule]);
   const days = useMemo(() => buildWeekDays(schedule?.week_start ?? weekStart), [schedule, weekStart]);
   const filtersActive =
     operatorFilter !== "all" || locationFilter !== "all" || statusFilter !== "all";
@@ -196,7 +263,9 @@ export function LaboratoryPlanningWorkspace(props: {
           Lieu
           <select value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
             <option value="all">Tous les lieux</option>
-            {locations.map((location) => <option key={location}>{location}</option>)}
+            {locationFilters.map((location) => (
+              <option key={location.value} value={location.value}>{location.label}</option>
+            ))}
           </select>
         </label>
         <label>
@@ -253,7 +322,10 @@ export function LaboratoryPlanningWorkspace(props: {
                       <span className="planningSlotTitle">{item.title}</span>
                       <span className="planningSlotProject">{item.project_code} · {item.customer_name}</span>
                       <span><UserRound size={13} /> {item.assigned_operator}</span>
-                      <span><MapPin size={13} /> {item.location}</span>
+                      <span className={!item.laboratory_location_id ? "planningSlotUnresolvedLocation" : undefined}>
+                        <MapPin size={13} />
+                        {item.laboratory_location_id ? item.laboratory_location_label : "Lieu à identifier"}
+                      </span>
                       <span className={`scheduleStatus scheduleStatus-${item.status}`}>
                         {statusLabels[item.status]}
                       </span>
@@ -288,6 +360,7 @@ export function LaboratoryPlanningWorkspace(props: {
         <ScheduleDetailDialog
           key={`${selectedItem.item_code}-${selectedItem.revision}`}
           item={selectedItem}
+          locations={rescheduleLocations}
           onClose={() => setSelectedItem(null)}
           onOpenProject={() => props.onOpenProject(selectedItem.project_code)}
           onMoved={updateMovedItem}
@@ -300,13 +373,18 @@ export function LaboratoryPlanningWorkspace(props: {
 
 function ScheduleDetailDialog(props: {
   item: LaboratoryScheduleItem;
+  locations: LaboratoryLocationOption[];
   onClose: () => void;
   onOpenProject: () => void;
   onMoved: (item: LaboratoryScheduleItem) => void;
   onConcurrentRefresh: () => Promise<void>;
 }) {
-  const [mode, setMode] = useState<"details" | "move" | "prepare">("details");
+  const [mode, setMode] = useState<"details" | "move" | "identify-location" | "prepare">("details");
   const [form, setForm] = useState<RescheduleForm>(() => rescheduleForm(props.item));
+  const [identificationForm, setIdentificationForm] = useState<LocationIdentificationForm>({
+    laboratory_location_id: "",
+    reason: ""
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preparation, setPreparation] = useState<PlannedTestPreparationAggregate | null>(null);
@@ -316,8 +394,14 @@ function ScheduleDetailDialog(props: {
     form.start_time &&
     form.end_time &&
     form.assigned_operator.trim() &&
-    form.location.trim() &&
+    form.laboratory_location_id &&
     form.reason.trim();
+  const locationNeedsIdentification =
+    !props.item.laboratory_location_id
+    && props.item.status !== "completed"
+    && props.item.status !== "cancelled";
+  const identificationValid =
+    identificationForm.laboratory_location_id && identificationForm.reason.trim();
 
   const loadPreparation = useCallback(async () => {
     setPreparationLoading(true);
@@ -339,6 +423,13 @@ function ScheduleDetailDialog(props: {
   }, [loadPreparation]);
 
   async function submit() {
+    const location = props.locations.find(
+      (candidate) => candidate.laboratory_location_id === form.laboratory_location_id
+    );
+    if (!location) {
+      setError("Choisissez un poste de laboratoire prêt à câbler.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -346,7 +437,8 @@ function ScheduleDetailDialog(props: {
         planned_start_at: `${form.date}T${form.start_time}`,
         planned_end_at: `${form.date}T${form.end_time}`,
         assigned_operator: form.assigned_operator,
-        location: form.location,
+        laboratory_location_id: location.laboratory_location_id,
+        laboratory_location_label: location.laboratory_location_label,
         actor: "Responsable laboratoire",
         reason: form.reason
       });
@@ -358,10 +450,50 @@ function ScheduleDetailDialog(props: {
       });
       setMode("details");
       setPreparation((current) =>
-        current
+        current?.current_revision
           ? { ...current, current_state: "stale", can_start: false }
           : current
       );
+    } catch (caught) {
+      setError(planningErrorMessage(caught));
+      if (caught instanceof ApiError && caught.code === "service_schedule_concurrent_update") {
+        await props.onConcurrentRefresh();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function identifyLocation() {
+    const location = props.locations.find(
+      (candidate) =>
+        candidate.laboratory_location_id === identificationForm.laboratory_location_id
+    );
+    if (!location) {
+      setError("Sélectionnez le poste réellement réservé.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await projectApi.identifyScheduleLocation(props.item, {
+        laboratory_location_id: location.laboratory_location_id,
+        laboratory_location_label: location.laboratory_location_label,
+        actor: "Responsable laboratoire",
+        reason: identificationForm.reason
+      });
+      props.onMoved({
+        ...props.item,
+        ...result.schedule_item,
+        customer_name: props.item.customer_name,
+        project_stage: props.item.project_stage
+      });
+      setPreparation((current) =>
+        current?.current_revision
+          ? { ...current, current_state: "stale", can_start: false }
+          : current
+      );
+      setMode("details");
     } catch (caught) {
       setError(planningErrorMessage(caught));
       if (caught instanceof ApiError && caught.code === "service_schedule_concurrent_update") {
@@ -383,7 +515,13 @@ function ScheduleDetailDialog(props: {
         "Opérateur CEM",
         action === "confirm"
           ? "Créneau et ressources confirmés"
-          : "Préparation vérifiée avant démarrage"
+          : "Préparation vérifiée avant démarrage",
+        action === "start" && preparation?.current_revision
+          ? {
+              revision_id: preparation.current_revision.revision_id,
+              definition_checksum: preparation.current_revision.definition_checksum
+            }
+          : undefined
       );
       props.onMoved({
         ...props.item,
@@ -393,7 +531,9 @@ function ScheduleDetailDialog(props: {
       });
       if (action === "confirm") {
         setPreparation((current) =>
-          current ? { ...current, current_state: "stale", can_start: false } : current
+          current?.current_revision
+            ? { ...current, current_state: "stale", can_start: false }
+            : current
         );
       }
     } catch (caught) {
@@ -420,6 +560,8 @@ function ScheduleDetailDialog(props: {
             <h2 id="planning-detail-title">
               {mode === "move"
                 ? "Déplacer le créneau"
+                : mode === "identify-location"
+                  ? "Identifier le lieu"
                 : mode === "prepare"
                   ? "Préparer l'essai"
                   : props.item.title}
@@ -451,19 +593,47 @@ function ScheduleDetailDialog(props: {
                 {statusLabels[props.item.status]}
               </span>
               {matchesPreparationStatus(props.item.status) && !preparationLoading && (
-                <PreparationStateBadge state={preparation?.current_state ?? "missing"} />
+                <PreparationStateBadge
+                  state={
+                    props.item.status === "planned"
+                      ? "inapplicable"
+                      : preparation?.current_state ?? "missing"
+                  }
+                />
               )}
               {!props.item.can_reschedule && <small>Ce créneau ne peut plus être déplacé.</small>}
             </div>
             <dl className="planningDetailFacts">
               <div><dt><Clock3 size={15} /> Horaire</dt><dd>{formatFullDateTime(props.item)}</dd></div>
               <div><dt><UserRound size={15} /> Opérateur</dt><dd>{props.item.assigned_operator}</dd></div>
-              <div><dt><MapPin size={15} /> Lieu</dt><dd>{props.item.location}</dd></div>
+              <div>
+                <dt><MapPin size={15} /> Lieu</dt>
+                <dd>
+                  {locationNeedsIdentification ? (
+                    <span className="unresolvedLocationValue">
+                      <strong>Lieu à identifier</strong>
+                      <small>Libellé historique : {props.item.laboratory_location_label}</small>
+                    </span>
+                  ) : props.item.laboratory_location_label}
+                </dd>
+              </div>
               <div><dt>Équipement à tester</dt><dd>{props.item.equipment_under_test}</dd></div>
             </dl>
+            {locationNeedsIdentification && (
+              <section className="historicalLocationNotice" aria-label="Lieu historique à identifier">
+                <MapPin size={19} />
+                <div>
+                  <strong>Réservation historique incomplète</strong>
+                  <p>
+                    Ce créneau a été créé avant l’identification stable des lieux. Sélectionnez le
+                    poste réellement réservé.
+                  </p>
+                </div>
+              </section>
+            )}
             {props.item.notes && <p className="planningDetailNote">{props.item.notes}</p>}
             {matchesPreparationStatus(props.item.status) && !preparationLoading && (
-              <PreparationSummary preparation={preparation} />
+              <PreparationSummary status={props.item.status} preparation={preparation} />
             )}
           </div>
         ) : mode === "move" ? (
@@ -507,10 +677,22 @@ function ScheduleDetailDialog(props: {
             </label>
             <label>
               Lieu
-              <input
-                value={form.location}
-                onChange={(event) => setForm({ ...form, location: event.target.value })}
-              />
+              <select
+                value={form.laboratory_location_id}
+                onChange={(event) =>
+                  setForm({ ...form, laboratory_location_id: event.target.value })
+                }
+              >
+                <option value="">Sélectionner un poste prêt à câbler</option>
+                {props.locations.map((location) => (
+                  <option
+                    key={location.laboratory_location_id}
+                    value={location.laboratory_location_id}
+                  >
+                    {location.laboratory_location_label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               Raison du changement
@@ -519,6 +701,49 @@ function ScheduleDetailDialog(props: {
                 onChange={(event) => setForm({ ...form, reason: event.target.value })}
                 placeholder="Ex. disponibilité du laboratoire confirmée avec le client"
                 autoFocus
+              />
+            </label>
+          </div>
+        ) : mode === "identify-location" ? (
+          <div className="wizardBody projectDialogBody locationIdentificationBody">
+            <p className="sectionIntro">
+              Ce créneau a été créé avant l’identification stable des lieux. Sélectionnez le poste
+              réellement réservé.
+            </p>
+            <div className="historicalLocationContext">
+              <span>Libellé historique</span>
+              <strong>{props.item.laboratory_location_label}</strong>
+            </div>
+            <label>
+              Lieu réel
+              <select
+                value={identificationForm.laboratory_location_id}
+                onChange={(event) =>
+                  setIdentificationForm({
+                    ...identificationForm,
+                    laboratory_location_id: event.target.value
+                  })
+                }
+              >
+                <option value="">Sélectionner un lieu</option>
+                {props.locations.map((location) => (
+                  <option
+                    key={location.laboratory_location_id}
+                    value={location.laboratory_location_id}
+                  >
+                    {location.laboratory_location_label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Motif de l’identification
+              <textarea
+                value={identificationForm.reason}
+                onChange={(event) =>
+                  setIdentificationForm({ ...identificationForm, reason: event.target.value })
+                }
+                placeholder="Ex. vérification sur le dossier papier et le plan d’implantation"
               />
             </label>
           </div>
@@ -537,22 +762,22 @@ function ScheduleDetailDialog(props: {
               <button className="secondary" onClick={props.onOpenProject}>
                 <FolderKanban size={16} /> Ouvrir le dossier
               </button>
-              {props.item.can_reschedule && (
+              {props.item.can_reschedule && !locationNeedsIdentification && (
                 <button className="secondary" onClick={() => setMode("move")}>
                   <PencilLine size={16} /> Déplacer
                 </button>
               )}
-              {matchesPreparationStatus(props.item.status) && (
+              {props.item.status === "confirmed" && !locationNeedsIdentification && (
                 <button className="secondary" onClick={() => setMode("prepare")}>
                   <ClipboardCheck size={16} /> Préparer l'essai
                 </button>
               )}
-              {props.item.status === "planned" && (
+              {props.item.status === "planned" && !locationNeedsIdentification && (
                 <button disabled={busy} onClick={() => void transition("confirm")}>
-                  <CheckCircle2 size={16} /> Confirmer
+                  <CheckCircle2 size={16} /> Confirmer le créneau
                 </button>
               )}
-              {props.item.status === "confirmed" && (
+              {props.item.status === "confirmed" && !locationNeedsIdentification && (
                 <button
                   disabled={busy || !preparation?.can_start}
                   onClick={() => void transition("start")}
@@ -565,6 +790,11 @@ function ScheduleDetailDialog(props: {
                   <Play size={16} /> Démarrer l'essai
                 </button>
               )}
+              {locationNeedsIdentification && (
+                <button disabled={busy} onClick={() => setMode("identify-location")}>
+                  <MapPin size={16} /> Identifier le lieu
+                </button>
+              )}
             </>
           ) : mode === "move" ? (
             <>
@@ -573,6 +803,15 @@ function ScheduleDetailDialog(props: {
               </button>
               <button disabled={busy || !valid} onClick={() => void submit()}>
                 <CalendarDays size={16} /> Enregistrer le déplacement
+              </button>
+            </>
+          ) : mode === "identify-location" ? (
+            <>
+              <button className="secondary" onClick={() => { setMode("details"); setError(null); }}>
+                Annuler
+              </button>
+              <button disabled={busy || !identificationValid} onClick={() => void identifyLocation()}>
+                <MapPin size={16} /> Enregistrer le lieu
               </button>
             </>
           ) : (
@@ -587,10 +826,14 @@ function ScheduleDetailDialog(props: {
 }
 
 function PreparationSummary(props: {
+  status: ServiceScheduleStatus;
   preparation: PlannedTestPreparationAggregate | null;
 }) {
   const current = props.preparation?.current_revision;
-  const state = props.preparation?.current_state ?? "missing";
+  const state =
+    props.status === "planned"
+      ? "inapplicable"
+      : props.preparation?.current_state ?? "missing";
   const blocking = current?.definition.verdict.issues.filter(
     (issue) => issue.severity === "blocking"
   ).length ?? 0;
@@ -608,6 +851,8 @@ function PreparationSummary(props: {
               ? `${blocking} point${blocking === 1 ? "" : "s"} à corriger avant le démarrage.`
               : state === "stale"
                 ? "Le créneau a changé depuis le dernier contrôle. Une nouvelle vérification est requise."
+                : state === "inapplicable"
+                  ? "Confirmez le créneau avant de préparer l'essai."
                 : "Choisissez la méthode, le montage et les matériels avant de lancer l'essai."}
         </p>
       </div>
@@ -673,6 +918,23 @@ function PreparationWorkspace(props: {
   const stationOption = options?.station_setups.find(
     (candidate) => candidate.station_setup.revision_id === setupRevisionId
   );
+  const materialCompatibility =
+    options?.material_compatibility.find(
+      (candidate) =>
+        candidate.method_revision_id === methodRevisionId
+        && candidate.station_setup_revision_id === setupRevisionId
+    )?.materials ?? noMaterialCompatibility;
+
+  useEffect(() => {
+    if (!options || !method || !stationOption) return;
+    setAssignments((current) =>
+      retainCompatibleAssignments(
+        current,
+        method.instrumentation_chain.map((slot) => slot.slot_id),
+        materialCompatibility
+      )
+    );
+  }, [materialCompatibility, method, options, stationOption]);
 
   async function assess() {
     if (!method || !stationOption) return;
@@ -756,7 +1018,7 @@ function PreparationWorkspace(props: {
           <select value={setupRevisionId} onChange={(event) => setSetupRevisionId(event.target.value)}>
             {options.station_setups.map((candidate) => (
               <option key={candidate.station_setup.revision_id} value={candidate.station_setup.revision_id}>
-                {candidate.station_setup.label} · {candidate.station_setup.station_label}
+                {candidate.station_setup.label} · {candidate.station_setup.laboratory_location_label}
               </option>
             ))}
           </select>
@@ -779,28 +1041,49 @@ function PreparationWorkspace(props: {
             <span>3</span><div><strong>Affectation des matériels</strong><small>Un matériel physique pour chaque rôle de la méthode</small></div>
           </div>
           <div className="instrumentAssignmentList">
-            {method.instrumentation_chain.map((slot) => (
-              <label key={slot.slot_id}>
-                <span className="assignmentLabel">
-                  {slot.label}
-                  <small>{slot.required ? "Obligatoire" : "Optionnel"}</small>
-                </span>
-                <select
-                  aria-label={`Matériel pour ${slot.label}`}
-                  value={assignments[slot.slot_id] ?? ""}
-                  onChange={(event) =>
-                    setAssignments({ ...assignments, [slot.slot_id]: event.target.value })
-                  }
-                >
-                  <option value="">Non affecté</option>
-                  {stationOption.station_setup.assets.map((asset) => (
-                    <option key={asset.binding_id} value={asset.binding_id}>
-                      {assetOptionLabel(asset)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ))}
+            {method.instrumentation_chain.map((slot) => {
+              const slotCompatibility = materialCompatibility.filter(
+                (candidate) => candidate.slot_id === slot.slot_id
+              );
+              const compatibleAssets = stationOption.station_setup.assets.filter((asset) =>
+                slotCompatibility.some(
+                  (candidate) => candidate.binding_id === asset.binding_id && candidate.compatible
+                )
+              );
+              const firstRejection = slotCompatibility.find((candidate) => !candidate.compatible);
+              return (
+                <div className="instrumentAssignmentRow" key={slot.slot_id}>
+                  <span className="assignmentLabel">
+                    {slot.label}
+                    <small>{slot.required ? "Obligatoire" : "Optionnel"}</small>
+                  </span>
+                  <div className="materialAssignmentControl">
+                    <select
+                      aria-label={`Matériel pour ${slot.label}`}
+                      disabled={compatibleAssets.length === 0}
+                      value={assignments[slot.slot_id] ?? ""}
+                      onChange={(event) =>
+                        setAssignments({ ...assignments, [slot.slot_id]: event.target.value })
+                      }
+                    >
+                      <option value="">Non affecté</option>
+                      {compatibleAssets.map((asset) => (
+                        <option key={asset.binding_id} value={asset.binding_id}>
+                          {assetOptionLabel(asset)}
+                        </option>
+                      ))}
+                    </select>
+                    {compatibleAssets.length === 0 && (
+                      <div className="materialCompatibilityEmpty" role="status">
+                        <strong>Aucun matériel compatible dans ce montage.</strong>
+                        {firstRejection?.reason && <span>{firstRejection.reason}</span>}
+                        {firstRejection?.next_action && <small>{firstRejection.next_action}</small>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </section>
       )}
@@ -891,7 +1174,8 @@ function preparationStateTitle(state: PlannedTestPreparationAggregate["current_s
     missing: "À préparer",
     blocked: "Préparation bloquée",
     ready: "Prêt à démarrer",
-    stale: "À revérifier"
+    stale: "À revérifier",
+    inapplicable: "À confirmer"
   }[state];
 }
 
@@ -942,9 +1226,13 @@ function rescheduleForm(item: LaboratoryScheduleItem): RescheduleForm {
     start_time: item.planned_start_at.slice(11, 16),
     end_time: item.planned_end_at.slice(11, 16),
     assigned_operator: item.assigned_operator,
-    location: item.location,
+    laboratory_location_id: item.laboratory_location_id ?? "",
     reason: ""
   };
+}
+
+function scheduleLocationKey(item: LaboratoryScheduleItem): string {
+  return item.laboratory_location_id ?? "unresolved-location-identity";
 }
 
 function planningErrorMessage(caught: unknown): string {
@@ -957,6 +1245,10 @@ function planningErrorMessage(caught: unknown): string {
   }
   if (caught.code === "service_schedule_location_conflict" && conflict) {
     return `${String(caught.details?.value)} est déjà réservé pour « ${String(conflict.title)} » du dossier ${String(conflict.project_code)}, de ${formatApiDateTime(String(conflict.planned_start_at))} à ${String(conflict.planned_end_at).slice(11, 16)}.`;
+  }
+  if (caught.code === "service_schedule_legacy_location_identity_required" && conflict) {
+    const start = String(conflict.planned_start_at);
+    return `Un créneau existant utilise encore un lieu non identifié. Identifiez son lieu avant de réserver un autre créneau sur cette période. Créneau concerné : « ${String(conflict.title)} » du dossier ${String(conflict.project_code)}, le ${formatShortDate(start.slice(0, 10))} de ${start.slice(11, 16)} à ${String(conflict.planned_end_at).slice(11, 16)}, libellé historique « ${String(conflict.laboratory_location_label)} », état ${statusLabels[String(conflict.status) as ServiceScheduleStatus] ?? String(conflict.status)}.`;
   }
   if (caught.code === "planned_test_preparation_not_ready") {
     const issues = caught.details?.issues as
@@ -973,6 +1265,10 @@ function planningErrorMessage(caught: unknown): string {
       "Ce créneau a changé sur un autre écran. La semaine a été actualisée ; votre saisie est conservée.",
     service_schedule_item_not_reschedulable:
       "Ce créneau a déjà démarré ou est terminé. Il ne peut plus être déplacé.",
+    service_schedule_location_already_identified:
+      "Le lieu de ce créneau a déjà été identifié. Le planning a peut-être changé.",
+    service_schedule_location_identification_not_allowed:
+      "Le lieu d’un créneau terminé ou annulé ne peut plus être modifié.",
     invalid_service_schedule_request:
       "Le nouvel horaire n'est pas valide. Vérifiez la date, le début et la fin.",
     planned_test_preparation_required:
@@ -981,8 +1277,12 @@ function planningErrorMessage(caught: unknown): string {
       "Le créneau a changé depuis le dernier contrôle. Vérifiez à nouveau la préparation.",
     planned_test_preparation_concurrent_update:
       "Une autre vérification a été enregistrée. Fermez puis rouvrez la préparation avant de continuer.",
+    planned_test_preparation_changed_before_start:
+      "La préparation a changé. Vérifiez-la de nouveau.",
     planned_test_schedule_concurrent_update:
       "Le créneau a changé pendant la vérification. Actualisez le planning puis recommencez.",
+    planned_test_schedule_not_confirmed:
+      "Confirmez le créneau avant de préparer l'essai.",
     planned_test_schedule_not_preparable:
       "Cet essai a déjà démarré ou est terminé. Sa préparation ne peut plus être modifiée.",
     planned_test_method_not_approved:

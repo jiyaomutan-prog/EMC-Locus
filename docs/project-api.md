@@ -20,6 +20,8 @@ POST /api/v1/projects/{code}/contract-review/items/{item}/complete
 POST /api/v1/projects/{code}/transitions/to-test-planning
 GET  /api/v1/projects/{code}/schedule-items
 POST /api/v1/projects/{code}/schedule-items
+POST /api/v1/projects/{code}/schedule-items/{item_code}/reschedule
+POST /api/v1/projects/{code}/schedule-items/{item_code}/location-identification
 POST /api/v1/projects/{code}/schedule-items/{item_code}/transitions/{action}
 GET  /api/v1/projects/{code}/schedule-items/{item_code}/preparation
 GET  /api/v1/projects/{code}/schedule-items/{item_code}/preparation/options
@@ -152,7 +154,8 @@ review has moved the project to `test_planning`.
   "planned_start_at": "2026-07-15T09:00",
   "planned_end_at": "2026-07-15T12:00",
   "assigned_operator": "Alice Martin",
-  "location": "EMC laboratory 1",
+  "laboratory_location_id": "LAB-LOCATION-CEM-1",
+  "laboratory_location_label": "EMC laboratory 1",
   "equipment_under_test": "Railway converter",
   "notes": "First agreed slot",
   "actor": "laboratory.manager",
@@ -166,6 +169,12 @@ inside one business day and start as `planned`. Active slots reserve both their
 operator and location. Overlap errors return the conflicting slot and resource
 as structured details; adjacent slots remain allowed.
 
+An overlapping active historical row with no `laboratory_location_id` returns
+HTTP `409` and `service_schedule_legacy_location_identity_required`. The agent
+does not infer an identity from its readable label. Conflict selection is
+deterministic: same operator, unresolved historical location, then same stable
+location ID. Completed and cancelled rows no longer reserve a resource.
+
 Status actions are `confirm`, `start`, `complete`, and `cancel`. A transition
 requires the current `expected_revision`; a stale revision returns HTTP `409`
 without writing a partial audit or outbox operation.
@@ -176,12 +185,39 @@ metrology evidence immediately before accepting `start`. A missing, blocked,
 stale or invalidated preparation returns HTTP `409` and leaves the schedule,
 audit and outbox unchanged.
 
-## Prepare A Planned Test
+## Identify A Historical Location
 
-Release `0.21.0` adds a revisioned preparation aggregate owned by one project
-slot. Read routes expose the current aggregate, selectable approved methods and
-ready physical setups, and the immutable revision history. The client submits
-choices rather than snapshots:
+Only a non-terminal schedule item whose stable location ID is absent can use:
+
+```http
+POST /api/v1/projects/CEM-2026-001/schedule-items/PLAN-001/location-identification
+```
+
+```json
+{
+  "laboratory_location_id": "LAB-LOCATION-CEM-1",
+  "laboratory_location_label": "Poste CEM 1",
+  "expected_revision": 1,
+  "actor": "laboratory.manager",
+  "reason": "Lieu vérifié sur le dossier papier et le plan d'implantation",
+  "operation_id": "op-identify-location-PLAN-001"
+}
+```
+
+The mutation changes only the location ID/label snapshot, row revision and
+update evidence. It preserves project, title, times, operator, test references,
+equipment, notes and status. A stale revision returns
+`service_schedule_concurrent_update`. A success appends
+`service_schedule_item_location_identified` to project audit and sync outbox;
+the audit payload retains the previous readable label. Any preparation pinned
+to the previous schedule revision becomes stale.
+
+## Prepare A Confirmed Test
+
+Release `0.21.1` consolidates the revisioned preparation owned by one confirmed
+project slot. Read routes expose the current decision, selectable approved
+methods and ready physical setups, and the immutable revision history. The
+client submits choices rather than snapshots:
 
 ```json
 {
@@ -217,6 +253,16 @@ nonconformity and selected correction evidence. It persists either `blocked` or
 error. Every revision contains structured issues with a stable code,
 dimension, severity, human message and affected references. Assessment,
 project audit and sync outbox are one attached-SQLite transaction.
+
+The options response includes `material_compatibility`, grouped by method and
+station revision. Each entry contains `slot_id`, `binding_id`, `compatible`,
+and, for a refusal, a French `reason` plus `next_action`. It covers the method
+category/capability contract, substitution policy, setup membership and the
+serviceability/metrology evidence available before assessment. Clients use
+this decision to guide the normal selector; they do not reproduce the rules.
+The assessment route independently rejects a submitted incompatible material
+with HTTP `409` and `planned_test_material_incompatible`, without creating a
+preparation revision, audit event or outbox operation.
 
 Moving the slot increments its schedule revision, which makes the previous
 preparation `stale` without deleting it. A later assessment creates the next

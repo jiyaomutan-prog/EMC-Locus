@@ -51,7 +51,8 @@ export interface ServiceScheduleItem {
   planned_start_at: string;
   planned_end_at: string;
   assigned_operator: string;
-  location: string;
+  laboratory_location_id: string | null;
+  laboratory_location_label: string;
   equipment_under_test: string;
   status: ServiceScheduleStatus;
   notes: string;
@@ -73,6 +74,20 @@ export interface LaboratoryWeekSchedule {
   week_start: string;
   week_end: string;
   schedule_items: LaboratoryScheduleItem[];
+}
+
+export interface LaboratoryLocationOption {
+  laboratory_location_id: string;
+  laboratory_location_label: string;
+}
+
+export interface StationSetupLocationSource {
+  current_ready_revision: {
+    definition: {
+      laboratory_location_id?: string | null;
+      laboratory_location_label?: string;
+    };
+  } | null;
 }
 
 export interface ProjectAuditEvent {
@@ -107,7 +122,12 @@ export interface ServiceScheduleOperationResult {
   schedule_item: ServiceScheduleItem;
 }
 
-export type PlannedTestPreparationState = "missing" | "blocked" | "ready" | "stale";
+export type PlannedTestPreparationState =
+  | "missing"
+  | "blocked"
+  | "ready"
+  | "stale"
+  | "inapplicable";
 
 export type PlannedTestPreparationDimension =
   | "schedule_context"
@@ -187,7 +207,8 @@ export interface PlannedStationSetupSnapshot {
   revision_status: "ready" | "superseded";
   definition_checksum: string;
   label: string;
-  station_label: string;
+  laboratory_location_id: string | null;
+  laboratory_location_label: string;
   planned_use_on: string;
   execution_mode: ProjectExecutionMode;
   assets: PlannedStationAssetSnapshot[];
@@ -209,7 +230,8 @@ export interface PlannedTestScheduleSnapshot {
   planned_start_at: string;
   planned_end_at: string;
   assigned_operator: string;
-  location: string;
+  laboratory_location_id: string | null;
+  laboratory_location_label: string;
   equipment_under_test: string;
   execution_mode: ProjectExecutionMode;
   status: ServiceScheduleStatus;
@@ -233,7 +255,7 @@ export interface PlannedTestPreparationRevision {
   revision_number: number;
   parent_revision_id: string | null;
   recorded_state: "blocked" | "ready";
-  effective_state: "blocked" | "ready" | "stale" | "historical";
+  effective_state: "blocked" | "ready" | "stale" | "historical" | "inapplicable";
   is_current: boolean;
   definition: PlannedTestPreparationDefinition;
   definition_checksum: string;
@@ -254,6 +276,14 @@ export interface PlannedTestPreparationAggregate {
   revision_count: number;
 }
 
+export interface PlannedTestMaterialCompatibility {
+  slot_id: string;
+  binding_id: string;
+  compatible: boolean;
+  reason?: string;
+  next_action?: string;
+}
+
 export interface PlannedTestPreparationOptions {
   project_code: string;
   schedule_item_code: string;
@@ -272,6 +302,11 @@ export interface PlannedTestPreparationOptions {
         connection_ids?: string[];
       }>;
     };
+  }>;
+  material_compatibility: Array<{
+    method_revision_id: string;
+    station_setup_revision_id: string;
+    materials: PlannedTestMaterialCompatibility[];
   }>;
 }
 

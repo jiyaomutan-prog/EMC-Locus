@@ -72,9 +72,10 @@ use crate::project_agent::{
     AdvanceToTestPlanningInput, CompleteReviewItemInput, CreateProjectInput,
 };
 use crate::service_schedule_service::{
-    create_service_schedule_item, list_laboratory_week_schedule,
-    list_project_service_schedule_items, reschedule_service_schedule_item,
-    transition_service_schedule_item, CreateServiceScheduleItemInput,
+    create_service_schedule_item, identify_service_schedule_location,
+    list_laboratory_week_schedule, list_project_service_schedule_items,
+    reschedule_service_schedule_item, transition_service_schedule_item,
+    CreateServiceScheduleItemInput, IdentifyServiceScheduleLocationInput,
     RescheduleServiceScheduleItemInput, TransitionServiceScheduleItemInput,
 };
 use crate::station_setup_service::{
@@ -892,6 +893,15 @@ fn route_api_request(
                 reschedule_service_schedule_item_input(code, item_code, &payload)?,
             )
         }
+        ["api", "v1", "projects", code, "schedule-items", item_code, "location-identification"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            identify_service_schedule_location(
+                &config.storage_root,
+                identify_service_schedule_location_input(code, item_code, &payload)?,
+            )
+        }
         ["api", "v1", "projects", code, "schedule-items", item_code, "transitions", action]
             if method == "POST" =>
         {
@@ -1540,7 +1550,8 @@ fn create_service_schedule_item_input(
         planned_start_at: required_string(payload, "planned_start_at")?,
         planned_end_at: required_string(payload, "planned_end_at")?,
         assigned_operator: required_string(payload, "assigned_operator")?,
-        location: required_string(payload, "location")?,
+        laboratory_location_id: required_string(payload, "laboratory_location_id")?,
+        laboratory_location_label: required_string(payload, "laboratory_location_label")?,
         equipment_under_test: required_string(payload, "equipment_under_test")?,
         test_category_code: optional_string(payload, "test_category_code"),
         test_method_code: optional_string(payload, "test_method_code"),
@@ -1580,6 +1591,11 @@ fn transition_service_schedule_item_input(
         item_code: item_code.to_owned(),
         target_status: target_status.to_owned(),
         expected_revision: required_u64(payload, "expected_revision")?,
+        expected_preparation_revision_id: optional_string(
+            payload,
+            "expected_preparation_revision_id",
+        ),
+        expected_preparation_checksum: optional_string(payload, "expected_preparation_checksum"),
         actor: required_string(payload, "actor")?,
         reason: required_string(payload, "reason")?,
         correlation_id: optional_string(payload, "correlation_id")
@@ -1648,7 +1664,30 @@ fn reschedule_service_schedule_item_input(
         planned_start_at: required_string(payload, "planned_start_at")?,
         planned_end_at: required_string(payload, "planned_end_at")?,
         assigned_operator: required_string(payload, "assigned_operator")?,
-        location: required_string(payload, "location")?,
+        laboratory_location_id: required_string(payload, "laboratory_location_id")?,
+        laboratory_location_label: required_string(payload, "laboratory_location_label")?,
+        expected_revision: required_u64(payload, "expected_revision")?,
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn identify_service_schedule_location_input(
+    project_code: &str,
+    item_code: &str,
+    payload: &Value,
+) -> Result<IdentifyServiceScheduleLocationInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(IdentifyServiceScheduleLocationInput {
+        project_code: project_code.to_owned(),
+        item_code: item_code.to_owned(),
+        laboratory_location_id: required_string(payload, "laboratory_location_id")?,
+        laboratory_location_label: required_string(payload, "laboratory_location_label")?,
         expected_revision: required_u64(payload, "expected_revision")?,
         actor: required_string(payload, "actor")?,
         reason: required_string(payload, "reason")?,
@@ -1926,7 +1965,8 @@ fn create_station_setup_input(payload: &Value) -> Result<CreateStationSetupInput
     Ok(CreateStationSetupInput {
         setup_id: required_string(payload, "setup_id")?,
         label: required_string(payload, "label")?,
-        station_label: required_string(payload, "station_label")?,
+        laboratory_location_id: required_string(payload, "laboratory_location_id")?,
+        laboratory_location_label: required_string(payload, "laboratory_location_label")?,
         planned_use_on: required_string(payload, "planned_use_on")?,
         execution_mode: required_string(payload, "execution_mode")?,
         context: station_operation_context(payload)?,
@@ -2891,9 +2931,12 @@ fn status_for_error(code: &str) -> u16 {
         | "service_schedule_item_already_exists"
         | "service_schedule_operator_conflict"
         | "service_schedule_location_conflict"
+        | "service_schedule_legacy_location_identity_required"
         | "service_schedule_concurrent_update"
         | "invalid_service_schedule_transition"
         | "service_schedule_item_not_reschedulable"
+        | "service_schedule_location_already_identified"
+        | "service_schedule_location_identification_not_allowed"
         | "project_already_exists"
         | "test_execution_attempt_exists"
         | "test_execution_template_not_approved"
@@ -2953,14 +2996,17 @@ fn status_for_error(code: &str) -> u16 {
         | "station_setup_active_draft_exists"
         | "station_setup_source_not_ready"
         | "station_setup_not_ready"
+        | "planned_test_schedule_not_confirmed"
         | "planned_test_schedule_concurrent_update"
         | "planned_test_preparation_concurrent_update"
+        | "planned_test_preparation_changed_before_start"
         | "planned_test_preparation_required"
         | "planned_test_preparation_stale"
         | "planned_test_preparation_not_ready"
         | "planned_test_not_confirmed"
         | "planned_test_method_not_approved"
         | "planned_test_station_setup_not_ready"
+        | "planned_test_material_incompatible"
         | "planned_test_schedule_not_preparable"
         | "planned_test_method_reference_changed"
         | "planned_test_station_reference_changed" => 409,
@@ -3079,12 +3125,21 @@ fn ensure_no_unknown_flags(flags: BTreeMap<String, String>) -> Result<(), AgentE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::Connection;
     use std::{
         io::{Read, Write},
         net::{TcpListener, TcpStream},
         thread,
         time::{Duration, Instant},
     };
+
+    #[test]
+    fn start_consistency_conflict_maps_to_http_conflict() {
+        assert_eq!(
+            status_for_error("planned_test_preparation_changed_before_start"),
+            409
+        );
+    }
 
     #[test]
     fn local_api_serves_lab_console_build_and_keeps_api_accessible() {
@@ -4923,7 +4978,8 @@ mod tests {
             &json!({
                 "setup_id": "SETUP-RF-STATION-001",
                 "label": "Mesure RF câble vers récepteur",
-                "station_label": "Poste CEM mobile",
+                "laboratory_location_id": "LAB-LOCATION-MOBILE",
+                "laboratory_location_label": "Poste CEM mobile",
                 "planned_use_on": "2026-07-15",
                 "execution_mode": "accredited",
                 "actor": "test.technician",
@@ -4971,10 +5027,11 @@ mod tests {
         assert!(premature_ready.body.contains("station_setup_not_ready"));
 
         let definition = json!({
-            "definition_schema_version": "emc-locus.station-measurement-setup-definition.v1",
+            "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-RF-STATION-001",
             "label": "Mesure RF câble vers récepteur",
-            "station_label": "Poste CEM mobile",
+            "laboratory_location_id": "LAB-LOCATION-MOBILE",
+            "laboratory_location_label": "Poste CEM mobile",
             "planned_use_on": "2026-07-15",
             "execution_mode": "accredited",
             "asset_bindings": [
@@ -5258,7 +5315,8 @@ mod tests {
                 "planned_start_at": "2026-07-15T09:00",
                 "planned_end_at": "2026-07-15T12:00",
                 "assigned_operator": "Alice Martin",
-                "location": "Labo CEM 1",
+                "laboratory_location_id": "LAB-LOCATION-CEM-1",
+                "laboratory_location_label": "Labo CEM 1",
                 "equipment_under_test": "Convertisseur ferroviaire",
                 "notes": "Premier creneau",
                 "actor": "quality.lead",
@@ -5280,7 +5338,8 @@ mod tests {
                 "planned_start_at": "2026-07-15T10:00",
                 "planned_end_at": "2026-07-15T11:00",
                 "assigned_operator": "Alice Martin",
-                "location": "Labo CEM 2",
+                "laboratory_location_id": "LAB-LOCATION-CEM-2",
+                "laboratory_location_label": "Labo CEM 2",
                 "equipment_under_test": "Convertisseur ferroviaire",
                 "actor": "quality.lead",
                 "reason": "conflicting planning",
@@ -5325,7 +5384,8 @@ mod tests {
                 "planned_start_at": "2026-07-16T13:00",
                 "planned_end_at": "2026-07-16T16:00",
                 "assigned_operator": "Alice Martin",
-                "location": "Labo CEM 1",
+                "laboratory_location_id": "LAB-LOCATION-CEM-1",
+                "laboratory_location_label": "Labo CEM 1",
                 "expected_revision": 2,
                 "actor": "quality.lead",
                 "reason": "laboratory reorganization",
@@ -5339,6 +5399,40 @@ mod tests {
             .contains("\"planned_start_at\":\"2026-07-16T13:00\""));
         assert!(rescheduled.body.contains("\"status\":\"confirmed\""));
         assert!(rescheduled.body.contains("\"revision\":3"));
+
+        let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        projects
+            .execute(
+                concat!(
+                    "UPDATE service_schedule_items SET laboratory_location_id = NULL, ",
+                    "laboratory_location_label = 'Libelle historique', location = 'Libelle historique' ",
+                    "WHERE item_code = 'PLAN-API-001'"
+                ),
+                [],
+            )
+            .unwrap();
+        drop(projects);
+        let identified = handle_api_request(
+            "POST",
+            "/api/v1/projects/CEM-API-001/schedule-items/PLAN-API-001/location-identification",
+            r#"{
+                "laboratory_location_id": "LAB-LOCATION-CEM-1",
+                "laboratory_location_label": "Labo CEM 1",
+                "expected_revision": 3,
+                "actor": "quality.lead",
+                "reason": "historical location identified",
+                "operation_id": "op-api-schedule-identify-location"
+            }"#,
+            &config,
+        );
+        assert_eq!(identified.status, 200, "{}", identified.body);
+        assert!(identified
+            .body
+            .contains("\"operation\":\"service_schedule_item_location_identified\""));
+        assert!(identified
+            .body
+            .contains("\"laboratory_location_id\":\"LAB-LOCATION-CEM-1\""));
+        assert!(identified.body.contains("\"revision\":4"));
 
         let schedule = handle_api_request(
             "GET",
@@ -5366,10 +5460,17 @@ mod tests {
         assert!(outbox.body.contains("service_schedule_item_planned"));
         assert!(outbox.body.contains("service_schedule_item_status_changed"));
         assert!(outbox.body.contains("service_schedule_item_rescheduled"));
+        assert!(outbox
+            .body
+            .contains("service_schedule_item_location_identified"));
         assert!(audit.body.contains("\"action\":\"project_stage_advanced\""));
         assert!(audit.body.contains("service_schedule_item_planned"));
         assert!(audit.body.contains("service_schedule_item_status_changed"));
         assert!(audit.body.contains("service_schedule_item_rescheduled"));
+        assert!(audit
+            .body
+            .contains("service_schedule_item_location_identified"));
+        assert!(audit.body.contains("Libelle historique"));
 
         remove_temporary_storage_root(&storage_root);
     }
@@ -6926,7 +7027,8 @@ mod tests {
                 "planned_start_at":"2026-07-15T09:00",
                 "planned_end_at":"2026-07-15T12:00",
                 "assigned_operator":"Alice Martin",
-                "location":"Labo CEM 1",
+                "laboratory_location_id":"LAB-LOCATION-CEM-1",
+                "laboratory_location_label":"Labo CEM 1",
                 "equipment_under_test":"Prototype E2E",
                 "actor":"quality.lead",
                 "reason":"first reservation",
@@ -6950,7 +7052,8 @@ mod tests {
                 "planned_start_at":"2026-07-16T13:00",
                 "planned_end_at":"2026-07-16T16:00",
                 "assigned_operator":"Alice Martin",
-                "location":"Labo CEM 2",
+                "laboratory_location_id":"LAB-LOCATION-CEM-2",
+                "laboratory_location_label":"Labo CEM 2",
                 "expected_revision":1,
                 "actor":"quality.lead",
                 "reason":"laboratory reorganization",
@@ -7741,7 +7844,8 @@ mod tests {
             &json!({
                 "setup_id": "SETUP-RF-HTTP-001",
                 "label": "Mesure RF câble vers récepteur",
-                "station_label": "Poste CEM mobile",
+                "laboratory_location_id": "LAB-LOCATION-MOBILE",
+                "laboratory_location_label": "Poste CEM mobile",
                 "planned_use_on": "2026-07-15",
                 "execution_mode": "accredited",
                 "actor": "test.technician",
@@ -7756,10 +7860,11 @@ mod tests {
         let revision_id = draft["revision_id"].as_str().unwrap();
         let initial_checksum = draft["definition_checksum"].as_str().unwrap();
         let definition = json!({
-            "definition_schema_version": "emc-locus.station-measurement-setup-definition.v1",
+            "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-RF-HTTP-001",
             "label": "Mesure RF câble vers récepteur",
-            "station_label": "Poste CEM mobile",
+            "laboratory_location_id": "LAB-LOCATION-MOBILE",
+            "laboratory_location_label": "Poste CEM mobile",
             "planned_use_on": "2026-07-15",
             "execution_mode": "accredited",
             "asset_bindings": [
@@ -7927,7 +8032,7 @@ mod tests {
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
             lab_console_dist: repo_root().join("apps/lab-console/dist"),
-            max_requests: Some(12),
+            max_requests: Some(13),
         });
 
         assert_eq!(wait_for_http(&first_address, "/api/v1/health").0, 200);
@@ -7950,6 +8055,43 @@ mod tests {
         assert!(options.1.contains("METHOD-PREP-HTTP-rev-0001"));
         assert!(options.1.contains("SETUP-PREP-HTTP-rev-0001"));
         assert!(options.1.contains("SA-RECEIVER-STATION-001"));
+        let options_json: Value = serde_json::from_str(&options.1).unwrap();
+        let compatibility = options_json["material_compatibility"][0]["materials"]
+            .as_array()
+            .unwrap();
+        assert!(compatibility.iter().any(|material| {
+            material["binding_id"] == "receiver" && material["compatible"] == true
+        }));
+        assert!(compatibility.iter().any(|material| {
+            material["binding_id"] == "cable"
+                && material["compatible"] == false
+                && material["reason"].as_str().unwrap().contains("catégorie")
+        }));
+
+        let incompatible = http_request(
+            "POST",
+            &first_address,
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/preparation/assessments",
+            &json!({
+                "expected_schedule_revision": 2,
+                "expected_current_revision_id": null,
+                "method_template_id": "METHOD-PREP-HTTP",
+                "method_revision_id": "METHOD-PREP-HTTP-rev-0001",
+                "station_setup_id": "SETUP-PREP-HTTP",
+                "station_setup_revision_id": "SETUP-PREP-HTTP-rev-0001",
+                "assignments": [{"slot_id": "receiver", "binding_id": "cable"}],
+                "actor": "operator.http",
+                "reason": "reject incompatible cable",
+                "operation_id": "op-http-preparation-incompatible",
+                "device_id": "http-e2e",
+                "correlation_id": "corr-http-preparation-incompatible"
+            })
+            .to_string(),
+        );
+        assert_eq!(incompatible.0, 409, "{}", incompatible.1);
+        assert!(incompatible
+            .1
+            .contains("planned_test_material_incompatible"));
 
         let blocked_body = json!({
             "expected_schedule_revision": 2,
@@ -7975,6 +8117,7 @@ mod tests {
         assert_eq!(blocked.0, 200, "{}", blocked.1);
         assert!(blocked.1.contains("\"current_state\":\"blocked\""));
         assert!(blocked.1.contains("planned_test_required_role_unassigned"));
+        let blocked_json: Value = serde_json::from_str(&blocked.1).unwrap();
 
         let blocked_start = http_request(
             "POST",
@@ -7982,6 +8125,8 @@ mod tests {
             "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/transitions/start",
             &json!({
                 "expected_revision": 2,
+                "expected_preparation_revision_id": blocked_json["preparation"]["current_revision"]["revision_id"],
+                "expected_preparation_checksum": blocked_json["preparation"]["current_revision"]["definition_checksum"],
                 "actor": "operator.http",
                 "reason": "attempt blocked start",
                 "operation_id": "op-http-start-blocked",
@@ -8019,6 +8164,7 @@ mod tests {
         assert_eq!(ready.0, 200, "{}", ready.1);
         assert!(ready.1.contains("\"current_state\":\"ready\""));
         assert!(ready.1.contains("\"can_start\":true"));
+        let ready_json: Value = serde_json::from_str(&ready.1).unwrap();
 
         let replay = http_request(
             "POST",
@@ -8060,6 +8206,8 @@ mod tests {
             "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/transitions/start",
             &json!({
                 "expected_revision": 2,
+                "expected_preparation_revision_id": ready_json["preparation"]["current_revision"]["revision_id"],
+                "expected_preparation_checksum": ready_json["preparation"]["current_revision"]["definition_checksum"],
                 "actor": "operator.http",
                 "reason": "start after ready preparation",
                 "operation_id": "op-http-start-ready",
@@ -8548,7 +8696,8 @@ mod tests {
             &json!({
                 "setup_id": "SETUP-PREP-HTTP",
                 "label": "HTTP RF preparation chain",
-                "station_label": "HTTP EMC station",
+                "laboratory_location_id": "LAB-LOCATION-HTTP-EMC",
+                "laboratory_location_label": "HTTP EMC station",
                 "planned_use_on": "2026-07-15",
                 "execution_mode": "investigation",
                 "actor": "station.technician",
@@ -8570,10 +8719,11 @@ mod tests {
             .unwrap();
         assert_eq!(station_revision_id, "SETUP-PREP-HTTP-rev-0001");
         let station_definition = json!({
-            "definition_schema_version": "emc-locus.station-measurement-setup-definition.v1",
+            "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-PREP-HTTP",
             "label": "HTTP RF preparation chain",
-            "station_label": "HTTP EMC station",
+            "laboratory_location_id": "LAB-LOCATION-HTTP-EMC",
+            "laboratory_location_label": "HTTP EMC station",
             "planned_use_on": "2026-07-15",
             "execution_mode": "investigation",
             "asset_bindings": [
@@ -8696,7 +8846,8 @@ mod tests {
                 "planned_start_at": "2026-07-15T09:00",
                 "planned_end_at": "2026-07-15T12:00",
                 "assigned_operator": "HTTP Operator",
-                "location": "HTTP EMC station",
+                "laboratory_location_id": "LAB-LOCATION-HTTP-EMC",
+                "laboratory_location_label": "HTTP EMC station",
                 "equipment_under_test": "HTTP EUT",
                 "actor": "project.lead",
                 "reason": "schedule HTTP preparation test",

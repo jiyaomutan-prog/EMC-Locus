@@ -9,6 +9,10 @@ const ATOMIC_MULTI_DATABASE_JOURNAL_MODES: [&str; 3] = ["delete", "truncate", "p
 pub(crate) enum AttachedDatabase {
     Main,
     SyncDb,
+    TestDefinitionsDb,
+    StationDb,
+    MetrologyDb,
+    EquipmentDb,
 }
 
 impl AttachedDatabase {
@@ -16,6 +20,10 @@ impl AttachedDatabase {
         match self {
             Self::Main => "main",
             Self::SyncDb => "sync_db",
+            Self::TestDefinitionsDb => "test_definitions_db",
+            Self::StationDb => "station_db",
+            Self::MetrologyDb => "metrology_db",
+            Self::EquipmentDb => "equipment_db",
         }
     }
 }
@@ -78,13 +86,13 @@ fn ensure_multi_database_atomicity_mode(
     Err(AgentError::with_details(
         "storage_journal_mode_incompatible",
         format!(
-            "{database_label} uses journal_mode={mode}, which is incompatible with the project/sync multi-SQLite transaction policy"
+            "{database_label} uses journal_mode={mode}, which is incompatible with the Local Agent multi-SQLite transaction policy"
         ),
         json!({
             "database": database_label,
             "journal_mode": normalize_journal_mode(mode),
             "compatible_journal_modes": ATOMIC_MULTI_DATABASE_JOURNAL_MODES,
-            "policy": "project/sync writes require rollback-journal modes so SQLite can keep attached database commits atomic",
+            "policy": "Local Agent multi-database writes require rollback-journal modes so SQLite can keep attached database commits atomic",
         }),
     ))
 }
