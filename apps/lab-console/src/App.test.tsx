@@ -162,9 +162,9 @@ describe("LAB CONSOLE", () => {
     expect(screen.getByRole("button", { name: "Déployer la navigation" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Catalogue des modèles" }));
-    expect(await screen.findByLabelText("Recherche equipement")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Rechercher un modèle")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Administration du référentiel" }));
-    expect(screen.queryByLabelText("Recherche equipement")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Rechercher un modèle")).not.toBeInTheDocument();
   });
 
   test("moves a dossier from contract review to a confirmed laboratory slot", async () => {
@@ -633,7 +633,7 @@ describe("LAB CONSOLE", () => {
     const modelButton = await screen.findByRole("treeitem", { name: /NRP6AN/ });
     await user.click(modelButton);
     expect(await screen.findByText("Vous consultez un modèle générique.")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Drivers et actions" }));
+    await user.click(screen.getByRole("button", { name: "Drivers et pilotage" }));
     await user.click(await screen.findByRole("button", { name: /NRP6AN SCPI/ }));
     expect(await screen.findByText(/No VISA implementation installed/)).toBeInTheDocument();
   });
@@ -696,7 +696,7 @@ describe("LAB CONSOLE", () => {
     await user.click(await screen.findByRole("button", { name: "Ajouter un exemplaire" }));
     await user.type(screen.getByLabelText(/Code inventaire/), "SA-LAB-001");
     await user.type(screen.getByLabelText(/Numéro de série/), "SN-7788");
-    await user.type(screen.getByLabelText(/Part number/), "PN-NRP6AN");
+    await user.type(screen.getByLabelText(/Référence fabricant/), "PN-NRP6AN");
     await user.selectOptions(screen.getByLabelText(/Emplacement/), "LAB-LOCATION-CEM-1");
     await user.click(screen.getByRole("button", { name: "Enregistrer l'exemplaire" }));
 
@@ -939,7 +939,7 @@ describe("LAB CONSOLE", () => {
 
     await user.click(await screen.findByRole("button", { name: "Catalogue des modèles" }));
     await screen.findByRole("heading", { level: 1, name: "Catalogue des modèles" });
-    await user.selectOptions(screen.getByLabelText("Filtre categorie racine"), "rf_equipment");
+    await user.selectOptions(screen.getByLabelText("Filtrer par famille"), "rf_equipment");
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("root_category_id=rf_equipment"),
@@ -948,7 +948,7 @@ describe("LAB CONSOLE", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /Nouveau modèle/ }));
-    const creationPanel = (await screen.findByText("Nouveau modèle équipement")).closest(".creationPanel");
+    const creationPanel = (await screen.findByText("Nouveau modèle constructeur")).closest(".creationPanel");
     expect(creationPanel).not.toBeNull();
     const wizard = within(creationPanel as HTMLElement);
     expect(wizard.queryByRole("button", { name: /radiofr/i })).not.toBeInTheDocument();
@@ -962,8 +962,8 @@ describe("LAB CONSOLE", () => {
     await user.type(wizard.getByLabelText(/Connecteur A/), "N");
     await user.type(wizard.getByLabelText(/Connecteur B/), "N");
     await user.click(wizard.getByRole("button", { name: "Continuer" }));
-    await user.type(wizard.getByLabelText(/ID modele optionnel/), "EQM-RF-CABLE-DEMO");
-    await user.click(wizard.getByRole("button", { name: /Creer brouillon/ }));
+    expect(wizard.queryByLabelText(/identifiant interne/i)).not.toBeInTheDocument();
+    await user.click(wizard.getByRole("button", { name: /Créer le brouillon/ }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/v1/equipment-models/from-category-template",
@@ -1146,10 +1146,10 @@ describe("LAB CONSOLE", () => {
     expect(screen.getByRole("button", { name: "Formulaire" })).toHaveClass("active");
 
     await user.click(screen.getByText("Amplificateurs"));
-    await user.click(screen.getByRole("button", { name: "Sous-categories" }));
-    await user.type(screen.getByLabelText(/Nom de la sous-categorie/), "Amplificateurs faible bruit");
+    await user.click(screen.getByRole("button", { name: "Sous-catégories" }));
+    await user.type(screen.getByLabelText(/Nom de la sous-catégorie/), "Amplificateurs faible bruit");
     expect(screen.getByLabelText(/Identifiant interne/)).not.toBeVisible();
-    await user.click(screen.getByRole("button", { name: /Creer la sous-categorie/ }));
+    await user.click(screen.getByRole("button", { name: /Créer la sous-catégorie/ }));
     await waitFor(() => expect(document.querySelector('[data-category-id="amplificateurs_faible_bruit"]')).not.toBeNull());
 
     await user.click(document.querySelector('[data-category-id="amplificateurs_faible_bruit"]') as HTMLElement);
@@ -1159,7 +1159,7 @@ describe("LAB CONSOLE", () => {
     await user.type(screen.getByPlaceholderText("Nouvelle valeur"), "Surveillance");
     await user.click(screen.getByRole("button", { name: "Ajouter une valeur" }));
     expect(screen.getByText("Surveillance")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Creer le champ/ }));
+    await user.click(screen.getByRole("button", { name: /Créer le champ/ }));
     await waitFor(() => expect(fields.some((field) => field.field_code === "criticite_terrain")).toBe(true));
     await user.click(screen.getByRole("button", { name: "Modifier Criticite terrain" }));
     await user.clear(screen.getByLabelText("Nom du champ"));
@@ -1168,7 +1168,7 @@ describe("LAB CONSOLE", () => {
     await waitFor(() => expect(fields.some((field) => field.label === "Criticite mission")).toBe(true));
     await user.click(screen.getByRole("button", { name: /Ajouter au formulaire/ }));
 
-    await user.click(screen.getByRole("button", { name: "Apercu" }));
+    await user.click(screen.getByRole("button", { name: "Aperçu" }));
     expect(await screen.findByText("Criticite mission")).toBeInTheDocument();
     expect(screen.getByText(canonicalChecksum("9"))).not.toBeVisible();
     await user.click(screen.getByText("Informations techniques"));

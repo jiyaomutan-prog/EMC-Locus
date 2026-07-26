@@ -45,6 +45,23 @@ function Get-ApprovedEquipmentModel {
     return $model
 }
 
+function Ensure-LaboratoryLocation {
+    param([string]$Label)
+
+    $locations = (Invoke-EmcApi -Method GET -Path "/api/v1/laboratory-locations?include_archived=true").locations
+    $location = $locations | Where-Object { $_.label -eq $Label -and $_.status -eq "active" } | Select-Object -First 1
+    if ($location) {
+        return $location
+    }
+    return (Invoke-EmcApi -Method POST -Path "/api/v1/laboratory-locations" -Body ([ordered]@{
+        label = $Label
+        description = "Lieu de demonstration pour la preparation des essais"
+        actor = "demo.laboratory.manager"
+        reason = "Creer le lieu stable de la demonstration"
+        operation_id = "seed-planned-preparation-location-create"
+    })).location
+}
+
 function Ensure-ApprovedMethod {
     $templateId = "METHOD-DEMO-RF-PREP"
     $templates = (Invoke-EmcApi -Method GET -Path "/api/v1/test-templates").test_templates
@@ -197,7 +214,8 @@ function Ensure-ReadyStation {
         [object]$Generator,
         [object]$PowerMeter,
         [object]$GeneratorModel,
-        [object]$PowerMeterModel
+        [object]$PowerMeterModel,
+        [object]$Location
     )
 
     $setupId = "SETUP-DEMO-RF-PREP"
@@ -207,8 +225,8 @@ function Ensure-ReadyStation {
         $created = Invoke-EmcApi -Method POST -Path "/api/v1/station-setups" -Body ([ordered]@{
             setup_id = $setupId
             label = "Chaine RF de verification"
-            laboratory_location_id = "LAB-LOCATION-DEMO-CEM-1"
-            laboratory_location_label = "Poste CEM 1"
+            laboratory_location_id = $Location.location_id
+            laboratory_location_label = $Location.label
             planned_use_on = "2026-07-16"
             execution_mode = "investigation"
             actor = "demo.technician"
@@ -229,8 +247,8 @@ function Ensure-ReadyStation {
         definition_schema_version = "emc-locus.station-measurement-setup-definition.v2"
         setup_id = $setupId
         label = "Chaine RF de verification"
-        laboratory_location_id = "LAB-LOCATION-DEMO-CEM-1"
-        laboratory_location_label = "Poste CEM 1"
+        laboratory_location_id = $Location.location_id
+        laboratory_location_label = $Location.label
         planned_use_on = "2026-07-16"
         execution_mode = "investigation"
         asset_bindings = @(
@@ -270,6 +288,7 @@ function Ensure-ReadyStation {
 }
 
 function Ensure-ProjectAndSchedule {
+    param([object]$Location)
     $projectCode = "CEM-DEMO-PREP-001"
     $itemCode = "PLAN-DEMO-PREP-001"
     $projects = (Invoke-EmcApi -Method GET -Path "/api/v1/projects").projects
@@ -312,8 +331,8 @@ function Ensure-ProjectAndSchedule {
             planned_start_at = "2026-07-16T09:00"
             planned_end_at = "2026-07-16T12:00"
             assigned_operator = "Alice Martin"
-            laboratory_location_id = "LAB-LOCATION-DEMO-CEM-1"
-            laboratory_location_label = "Poste CEM 1"
+            laboratory_location_id = $Location.location_id
+            laboratory_location_label = $Location.label
             equipment_under_test = "Convertisseur Horizon HCU-4"
             notes = "Preparation metrologique requise avant demarrage."
             actor = "demo.project.lead"
@@ -336,10 +355,11 @@ Invoke-EmcApi -Method GET -Path "/api/v1/health" | Out-Null
 $method = Ensure-ApprovedMethod
 $generatorModel = Get-ApprovedEquipmentModel -ModelId "EQM-PRESET-RF-GENERATOR"
 $powerMeterModel = Get-ApprovedEquipmentModel -ModelId "EQM-DEMO-NRP6AN-FWD"
+$location = Ensure-LaboratoryLocation -Label "Poste CEM 1"
 $generator = Ensure-Instrument -AssetId "GEN-DEMO-RF-001" -Family "Generateur RF" -CategoryCode "rf_signal_generator" -SerialNumber "GEN-RF-2026-001" -Model $generatorModel
 $powerMeter = Ensure-Instrument -AssetId "PM-DEMO-RF-001" -Family "Wattmetre RF" -CategoryCode "rf_power_meter" -SerialNumber "PM-RF-2026-001" -Model $powerMeterModel
-$station = Ensure-ReadyStation -Generator $generator -PowerMeter $powerMeter -GeneratorModel $generatorModel -PowerMeterModel $powerMeterModel
-Ensure-ProjectAndSchedule
+$station = Ensure-ReadyStation -Generator $generator -PowerMeter $powerMeter -GeneratorModel $generatorModel -PowerMeterModel $powerMeterModel -Location $location
+Ensure-ProjectAndSchedule -Location $location
 $schedule = (Invoke-EmcApi -Method GET -Path "/api/v1/projects/CEM-DEMO-PREP-001/schedule-items").schedule_items |
     Where-Object { $_.item_code -eq "PLAN-DEMO-PREP-001" } |
     Select-Object -First 1

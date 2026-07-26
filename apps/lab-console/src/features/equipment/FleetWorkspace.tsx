@@ -482,7 +482,7 @@ function AssetIdentificationEditor(props: {
       <div className="formGrid">
         <label>Code inventaire <Required /><input value={inventoryCode} onChange={(event) => setInventoryCode(event.target.value)} /></label>
         <label>Numéro de série <span className="fieldHint">Facultatif</span><input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} /></label>
-        <label>Part number <span className="fieldHint">Facultatif</span><input value={partNumber} onChange={(event) => setPartNumber(event.target.value)} /></label>
+        <label>Référence fabricant <span className="fieldHint">Facultatif</span><input value={partNumber} onChange={(event) => setPartNumber(event.target.value)} /></label>
         <label>Propriété / source <Required /><select value={ownership} onChange={(event) => setOwnership(event.target.value as OwnershipSource)}>{ownershipChoices.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
         <label className="wideField">Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
       </div>
@@ -613,7 +613,7 @@ function CreateAssetDialog(props: {
         <label>Modèle constructeur <Required /><select id="fleet-model" value={modelId} onChange={(event) => setModelId(event.target.value)}><option value="">Sélectionner...</option>{props.models.map((model) => <option key={model.identity.equipment_model_id} value={model.identity.equipment_model_id}>{model.identity.manufacturer} {model.identity.model_name}{model.identity.variant ? ` ${model.identity.variant}` : ""}</option>)}</select></label>
         <label>Code inventaire <Required /><input id="fleet-inventory" value={inventoryCode} onChange={(event) => setInventoryCode(event.target.value)} placeholder="INV-0042" /></label>
         <label>Numéro de série <span className="fieldHint">Facultatif</span><input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} /></label>
-        <label>Part number <span className="fieldHint">Facultatif</span><input value={partNumber} onChange={(event) => setPartNumber(event.target.value)} /></label>
+        <label>Référence fabricant <span className="fieldHint">Facultatif</span><input value={partNumber} onChange={(event) => setPartNumber(event.target.value)} /></label>
         <label>Propriété / source <Required /><select value={ownership} onChange={(event) => setOwnership(event.target.value as OwnershipSource)}>{ownershipChoices.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
         <label>Emplacement <Required /><select id="fleet-location" value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={Boolean(props.locationsError)}><option value="">Sélectionner...</option>{props.locations.map((location) => <option value={location.location_id} key={location.location_id}>{location.label}</option>)}</select></label>
         <label>État de service <Required /><select value={serviceState} onChange={(event) => setServiceState(event.target.value as ServiceState)}>{serviceStateChoices.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>

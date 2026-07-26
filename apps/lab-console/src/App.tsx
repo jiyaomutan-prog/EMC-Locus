@@ -185,7 +185,7 @@ export function App() {
 
   useEffect(() => {
     const page = activeView === "equipment"
-      ? "Équipements"
+      ? "Ressources techniques"
       : activeView === "projects"
         ? "Dossiers d'essai"
       : activeView === "system"
@@ -589,7 +589,7 @@ export function App() {
             }}
           />
         )}
-        {activeView === "equipment" && <EquipmentWorkspace initialSpace={equipmentSpace} />}
+        {activeView === "equipment" && <EquipmentWorkspace initialSpace={equipmentSpace} onSpaceChange={setEquipmentSpace} />}
         {activeView === "library" && (
           <LibraryView
             templates={filteredTemplates}
@@ -697,7 +697,7 @@ function LibraryView(props: {
           />
         </label>
         <select
-          aria-label="Filtre categorie"
+          aria-label="Filtrer par catégorie"
           value={props.categoryFilter}
           onChange={(event) => props.onCategoryChange(event.target.value)}
         >

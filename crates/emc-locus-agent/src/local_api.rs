@@ -2973,11 +2973,8 @@ fn required_file_string(
 }
 
 fn required_query_value(query: &str, key: &'static str) -> Result<String, AgentError> {
-    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
-        let (candidate, value) = pair.split_once('=').unwrap_or((pair, ""));
-        if candidate == key && !value.trim().is_empty() {
-            return Ok(value.to_owned());
-        }
+    if let Some(value) = optional_query_value(query, key) {
+        return Ok(value);
     }
     Err(AgentError::with_details(
         "missing_query_field",
@@ -2987,13 +2984,10 @@ fn required_query_value(query: &str, key: &'static str) -> Result<String, AgentE
 }
 
 fn optional_query_value(query: &str, key: &'static str) -> Option<String> {
-    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
-        let (candidate, value) = pair.split_once('=').unwrap_or((pair, ""));
-        if candidate == key && !value.trim().is_empty() {
-            return Some(value.to_owned());
-        }
-    }
-    None
+    form_urlencoded::parse(query.as_bytes())
+        .find(|(candidate, _)| candidate == key)
+        .map(|(_, value)| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
 }
 
 fn query_flag(query: &str, key: &'static str) -> bool {
@@ -3376,6 +3370,18 @@ mod tests {
         assert_eq!(
             status_for_error("planned_test_preparation_changed_before_start"),
             409
+        );
+    }
+
+    #[test]
+    fn query_values_decode_form_urlencoded_spaces_and_accents() {
+        assert_eq!(
+            optional_query_value("q=E2E+Cable+1+m", "q").as_deref(),
+            Some("E2E Cable 1 m")
+        );
+        assert_eq!(
+            optional_query_value("search=R%C3%A9cepteur+EMI", "search").as_deref(),
+            Some("Récepteur EMI")
         );
     }
 

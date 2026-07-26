@@ -16,13 +16,28 @@ test("serialized RF cable stays blocked until its measured loss is reviewed and 
   await registerMaterial(request, firstAssetId, `84752-${suffix}`, modelId, model);
 
   await page.goto("/lab/");
-  await page.getByRole("button", { name: "Équipements" }).click();
-  await page.getByRole("button", { name: new RegExp(`EMC Locus E2E Cable 1 m`) }).click();
+  await page.getByRole("button", { name: "Catalogue des modèles" }).click();
+  const filteredModels = page.waitForResponse((response) =>
+    response.url().includes("/api/v1/equipment-models?")
+    && response.url().includes("q=E2E+Cable+1+m")
+  );
+  await page.getByLabel("Rechercher un modèle").fill("E2E Cable 1 m");
+  const filteredModelResponse = await filteredModels;
+  expect(filteredModelResponse.ok()).toBeTruthy();
+  const filteredModelBody = await filteredModelResponse.json();
+  expect(
+    filteredModelBody.equipment_models.map(
+      (item: { identity: { equipment_model_id: string } }) => item.identity.equipment_model_id
+    )
+  ).toContain(modelId);
+  const modelRow = page.getByRole("treeitem", { name: /E2E Cable 1 m/ });
+  await expect(modelRow).toBeVisible();
+  await modelRow.click();
   await page.getByRole("button", { name: "Entrées, sorties et corrections" }).click();
   await expect(page.getByRole("textbox", { name: "Que faut-il corriger ?" })).toHaveValue("Pertes du câble");
   await captureAtDesktopSizes(page, "model-correction-requirement");
 
-  await page.getByRole("button", { name: "Matériels réels" }).click();
+  await page.getByRole("button", { name: "Métrologie du parc" }).click();
   await page.getByRole("button", { name: new RegExp(firstAssetId) }).click();
   await expect(page.getByText("Correction manquante")).toBeVisible();
   await expect(page.getByText("Non prêt pour un essai")).toBeVisible();
@@ -63,8 +78,7 @@ test("serialized RF cable stays blocked until its measured loss is reviewed and 
 
   await registerMaterial(request, secondAssetId, `84753-${suffix}`, modelId, model);
   await page.reload();
-  await page.getByRole("button", { name: "Équipements" }).click();
-  await page.getByRole("button", { name: "Matériels réels" }).click();
+  await page.getByRole("button", { name: "Métrologie du parc" }).click();
   await page.getByRole("button", { name: new RegExp(secondAssetId) }).click();
   await expect(page.getByText("Correction manquante")).toBeVisible();
   await expect(page.getByText("Non prêt pour un essai")).toBeVisible();
@@ -89,8 +103,7 @@ test("calibrated IEPE sensitivity takes precedence over the nominal model value"
   });
 
   await page.goto("/lab/");
-  await page.getByRole("button", { name: "Équipements" }).click();
-  await page.getByRole("button", { name: "Matériels réels" }).click();
+  await page.getByRole("button", { name: "Métrologie du parc" }).click();
   await page.getByRole("button", { name: new RegExp(assetId) }).click();
   await expect(page.getByText("Correction manquante")).toBeVisible();
   await page.getByRole("button", { name: "Mesurer cette correction" }).click();

@@ -127,7 +127,7 @@ test("an operator resolves a blocked preparation before starting the planned tes
     requiredCategory: "emi_receiver",
     operationPrefix: `prep-no-material-method-${suffix}`
   });
-  await createReadyStation(request, {
+  const stationLocation = await createReadyStation(request, {
     setupId,
     label: setupLabel,
     plannedDate,
@@ -144,6 +144,7 @@ test("an operator resolves a blocked preparation before starting the planned tes
     title: `Vérification RF du convertisseur ${suffix}`,
     operator: `Alice ${suffix}`,
     operationPrefix: `prep-project-${suffix}`,
+    locationId: stationLocation.location_id,
     locationLabel: `Poste CEM ${suffix} renommé`
   });
 
@@ -222,9 +223,7 @@ test("an operator resolves a blocked preparation before starting the planned tes
 
   await preparationDialog
     .getByRole("combobox", { name: "Matériel pour Wattmètre RF" })
-    .selectOption({
-      label: `Wattmètre RF · Locus Demo Wattmeter ${suffix} · n° série PM-${suffix}`
-    });
+    .selectOption("power_meter");
   const readyResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith(
@@ -445,6 +444,16 @@ test("a matching label cannot replace a different laboratory location identity",
     requiredCategory: "rf_power_meter",
     operationPrefix: `location-method-${suffix}`
   });
+  const stationLocation = await createLaboratoryLocation(
+    request,
+    `Poste technique ${suffix}`,
+    `location-station-registry-${suffix}`
+  );
+  const scheduleLocation = await createLaboratoryLocation(
+    request,
+    locationLabel,
+    `location-schedule-${suffix}`
+  );
   await createReadyStation(request, {
     setupId,
     label: `Chaîne identité lieu ${suffix}`,
@@ -453,7 +462,9 @@ test("a matching label cannot replace a different laboratory location identity",
     meter,
     generatorModel,
     meterModel,
-    operationPrefix: `location-station-${suffix}`
+    operationPrefix: `location-station-${suffix}`,
+    location: stationLocation,
+    locationSnapshotLabel: locationLabel
   });
   await createSchedule(request, {
     projectCode,
@@ -462,7 +473,7 @@ test("a matching label cannot replace a different laboratory location identity",
     title: `Essai identité lieu ${suffix}`,
     operator: `Bob ${suffix}`,
     operationPrefix: `location-project-${suffix}`,
-    locationId: `LAB-LOCATION-DIFFERENT-${suffix}`,
+    locationId: scheduleLocation.location_id,
     locationLabel
   });
 
@@ -698,16 +709,21 @@ async function createReadyStation(
     generatorModel: ApprovedModel;
     meterModel: ApprovedModel;
     operationPrefix: string;
+    location?: { location_id: string; label: string };
+    locationSnapshotLabel?: string;
   }
 ) {
-  const locationId = `LAB-LOCATION-${input.setupId.replace("SETUP-PREP-", "")}`;
   const locationLabel = `Poste CEM ${input.setupId.replace("SETUP-PREP-", "")}`;
+  const location = input.location
+    ?? await createLaboratoryLocation(request, locationLabel, input.operationPrefix);
+  const locationId = location.location_id;
+  const locationSnapshotLabel = input.locationSnapshotLabel ?? location.label;
   const created = await request.post("/api/v1/station-setups", {
     data: {
       setup_id: input.setupId,
       label: input.label,
       laboratory_location_id: locationId,
-      laboratory_location_label: locationLabel,
+      laboratory_location_label: locationSnapshotLabel,
       planned_use_on: input.plannedDate,
       execution_mode: "investigation",
       actor: "E2E technicien",
@@ -723,7 +739,7 @@ async function createReadyStation(
     setup_id: input.setupId,
     label: input.label,
     laboratory_location_id: locationId,
-    laboratory_location_label: locationLabel,
+    laboratory_location_label: locationSnapshotLabel,
     planned_use_on: input.plannedDate,
     execution_mode: "investigation",
     asset_bindings: [
@@ -772,6 +788,7 @@ async function createReadyStation(
     }
   );
   expect(ready.ok(), await ready.text()).toBeTruthy();
+  return location;
 }
 
 function stationBinding(
@@ -805,6 +822,10 @@ async function createSchedule(
     locationLabel?: string;
   }
 ) {
+  const locationLabel = input.locationLabel ?? `Poste CEM ${input.projectCode.replace("CEM-PREP-", "")}`;
+  const location = input.locationId
+    ? { location_id: input.locationId, label: locationLabel }
+    : await createLaboratoryLocation(request, locationLabel, input.operationPrefix);
   const created = await request.post("/api/v1/projects", {
     data: {
       code: input.projectCode,
@@ -854,12 +875,8 @@ async function createSchedule(
         planned_start_at: `${input.plannedDate}T09:00`,
         planned_end_at: `${input.plannedDate}T12:00`,
         assigned_operator: input.operator,
-        laboratory_location_id:
-          input.locationId
-          ?? `LAB-LOCATION-${input.projectCode.replace("CEM-PREP-", "")}`,
-        laboratory_location_label:
-          input.locationLabel
-          ?? `Poste CEM ${input.projectCode.replace("CEM-PREP-", "")}`,
+        laboratory_location_id: location.location_id,
+        laboratory_location_label: location.label,
         equipment_under_test: "Convertisseur Horizon HCU-4",
         actor: "E2E responsable laboratoire",
         reason: "Planifier le scénario de pré-vol",
@@ -883,6 +900,24 @@ async function createSchedule(
   );
   expect(confirmed.ok(), await confirmed.text()).toBeTruthy();
   return (await confirmed.json()).schedule_item;
+}
+
+async function createLaboratoryLocation(
+  request: APIRequestContext,
+  label: string,
+  operationPrefix: string
+) {
+  const response = await request.post("/api/v1/laboratory-locations", {
+    data: {
+      label,
+      description: "Lieu du scénario E2E de préparation",
+      actor: "E2E responsable laboratoire",
+      reason: "Créer un lieu stable pour le scénario",
+      operation_id: `op-${operationPrefix}-location`
+    }
+  });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  return (await response.json()).location as { location_id: string; label: string };
 }
 
 function mondayFor(date: Date): string {

@@ -1,7 +1,8 @@
 param(
     [int]$Port = 8876,
     [string]$CargoCommand = "cargo",
-    [string]$NodeCommand = "node"
+    [string]$NodeCommand = "node",
+    [string[]]$PlaywrightArguments = @("test")
 )
 
 $ErrorActionPreference = "Stop"
@@ -79,7 +80,7 @@ try {
     $env:LAB_CONSOLE_E2E_BASE_URL = "http://127.0.0.1:$Port"
     Push-Location $LabRoot
     try {
-        & $NodeCommand $Playwright test
+        & $NodeCommand $Playwright @PlaywrightArguments
         if ($LASTEXITCODE -ne 0) {
             throw "Playwright E2E failed."
         }

@@ -30,8 +30,7 @@ test("metrologist records and reloads a serial-specific RF cable response", asyn
   expect(registration.ok(), await registration.text()).toBeTruthy();
 
   await page.goto("/lab/");
-  await page.getByRole("button", { name: "Équipements" }).click();
-  await page.getByRole("button", { name: "Matériels réels" }).click();
+  await page.getByRole("button", { name: "Métrologie du parc" }).click();
   await page.getByRole("button", { name: new RegExp(assetId) }).click();
   await expect(page.getByRole("heading", { name: assetId })).toBeVisible();
   await expect(page.locator(".assetRecordHeader").getByText(`N° de série ${serialNumber}`)).toBeVisible();
@@ -87,8 +86,7 @@ test("metrologist records and reloads a serial-specific RF cable response", asyn
   expect(await outbox.text()).toContain(characterizationId);
 
   await page.reload();
-  await page.getByRole("button", { name: "Équipements" }).click();
-  await page.getByRole("button", { name: "Matériels réels" }).click();
+  await page.getByRole("button", { name: "Métrologie du parc" }).click();
   await page.getByRole("button", { name: new RegExp(assetId) }).click();
   await expect(page.getByRole("heading", { name: "Pertes après contrôle annuel" })).toBeVisible();
   await expect(page.getByText("3 points, de 1 MHz à 1 GHz")).toBeVisible();

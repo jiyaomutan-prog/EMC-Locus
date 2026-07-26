@@ -1078,10 +1078,10 @@ function RegisterPhysicalAssetForm(props: PhysicalAssetMetrologyPanelProps & { o
         <section className="editorCard">
           <h2>Modèle et identification</h2>
           <div className="formGrid">
-            <label><FieldCaption label="Modèle d’équipement" required /><select value={modelId} onChange={(event) => setModelId(event.target.value)}><option value="">Choisir un modèle approuvé</option>{props.approvedModels.map((model) => <option key={model.identity.equipment_model_id} value={model.identity.equipment_model_id}>{model.identity.manufacturer} {model.identity.model_name} · {categoryLabel(props.categories, model.identity.category_code)}</option>)}</select></label>
-            <label><FieldCaption label="Numéro d’inventaire" required /><input value={assetId} onChange={(event) => setAssetId(event.target.value)} placeholder="ex. SA-001" /></label>
-            <label><FieldCaption label="Numéro de série" required /><input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} /></label>
-            <label>Part number<input value={partNumber} onChange={(event) => setPartNumber(event.target.value)} /></label>
+            <label><FieldCaption label="Modèle constructeur" required /><select value={modelId} onChange={(event) => setModelId(event.target.value)}><option value="">Choisir un modèle approuvé</option>{props.approvedModels.map((model) => <option key={model.identity.equipment_model_id} value={model.identity.equipment_model_id}>{model.identity.manufacturer} {model.identity.model_name} · {categoryLabel(props.categories, model.identity.category_code)}</option>)}</select></label>
+            <label><FieldCaption label="Code inventaire" required /><input value={assetId} onChange={(event) => setAssetId(event.target.value)} placeholder="ex. SA-001" /></label>
+            <label>Numéro de série <span className="fieldHint">Facultatif</span><input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} /></label>
+            <label>Référence fabricant <span className="fieldHint">Facultatif</span><input value={partNumber} onChange={(event) => setPartNumber(event.target.value)} /></label>
           </div>
         </section>
         <section className="editorCard">

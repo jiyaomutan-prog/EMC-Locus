@@ -8,7 +8,7 @@ test("template studio workflow persists through API", async ({ page, request }) 
 
   await page.getByRole("button", { name: "Créer une méthode" }).click();
   await page.getByLabel("Nom de la méthode").fill("E2E LAB template");
-  await page.getByRole("combobox", { name: "Catégorie" }).selectOption("emission_transient_time_domain");
+  await page.getByRole("combobox", { name: "Catégorie", exact: true }).selectOption("emission_transient_time_domain");
   const createResponsePromise = page.waitForResponse((response) =>
     response.url().endsWith("/api/v1/test-templates") && response.request().method() === "POST"
   );

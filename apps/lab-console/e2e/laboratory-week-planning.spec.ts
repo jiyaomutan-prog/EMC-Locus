@@ -210,6 +210,7 @@ async function createScheduleItem(
     equipment: string;
   }
 ) {
+  const location = await createLaboratoryLocation(request, input.location, input.itemCode);
   const response = await request.post(`/api/v1/projects/${input.projectCode}/schedule-items`, {
     data: {
       item_code: input.itemCode,
@@ -217,8 +218,8 @@ async function createScheduleItem(
       planned_start_at: `${input.date}T09:00`,
       planned_end_at: `${input.date}T12:00`,
       assigned_operator: input.operator,
-      laboratory_location_id: `LAB-LOCATION-${input.itemCode}`,
-      laboratory_location_label: input.location,
+      laboratory_location_id: location.location_id,
+      laboratory_location_label: location.label,
       equipment_under_test: input.equipment,
       actor: "Responsable laboratoire",
       reason: "Créneau convenu",
@@ -226,6 +227,24 @@ async function createScheduleItem(
     }
   });
   expect(response.ok(), await response.text()).toBeTruthy();
+}
+
+async function createLaboratoryLocation(
+  request: APIRequestContext,
+  label: string,
+  operationSuffix: string
+) {
+  const response = await request.post("/api/v1/laboratory-locations", {
+    data: {
+      label,
+      description: "Lieu du planning hebdomadaire E2E",
+      actor: "Responsable laboratoire",
+      reason: "Créer un lieu stable pour le planning",
+      operation_id: `op-week-location-${operationSuffix}`
+    }
+  });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  return (await response.json()).location as { location_id: string; label: string };
 }
 
 function mondayFor(date: Date): string {

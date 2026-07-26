@@ -10,23 +10,7 @@ const viewports = [
 test("an investigation dossier reaches a confirmed laboratory slot", async ({ page, request }) => {
   const suffix = Date.now().toString(36).toUpperCase();
   const projectCode = `CEM-E2E-${suffix}`;
-  await page.route("**/api/v1/station-setups", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        station_setups: [
-          {
-            current_ready_revision: {
-              definition: {
-                laboratory_location_id: "LAB-LOCATION-CEM-1",
-                laboratory_location_label: "Labo CEM 1"
-              }
-            }
-          }
-        ]
-      })
-    });
-  });
+  await createLaboratoryLocation(request, "Labo CEM 1", suffix);
 
   await page.setViewportSize(viewports[0]);
   await page.goto("/lab/");
@@ -157,6 +141,23 @@ async function completeReviewItem(page: import("@playwright/test").Page, label: 
   await checkbox.click();
   expect((await response).ok()).toBeTruthy();
   await expect(page.getByRole("checkbox", { name: label })).toBeChecked();
+}
+
+async function createLaboratoryLocation(
+  request: import("@playwright/test").APIRequestContext,
+  label: string,
+  suffix: string
+) {
+  const response = await request.post("/api/v1/laboratory-locations", {
+    data: {
+      label,
+      description: "Lieu du scénario de planification",
+      actor: "Responsable laboratoire",
+      reason: "Créer le lieu stable du scénario",
+      operation_id: `op-planning-location-${suffix}`
+    }
+  });
+  expect(response.ok(), await response.text()).toBeTruthy();
 }
 
 async function assertNoHorizontalOverflow(page: import("@playwright/test").Page) {

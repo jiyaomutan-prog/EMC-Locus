@@ -102,7 +102,6 @@ test("main operator paths stay clear at supported desktop sizes", async ({ page,
     await assertNoHorizontalOverflow(page);
     await capture(page, testInfo, `methodes-${size}.png`);
 
-    await page.getByRole("button", { name: "Équipements" }).click();
     await page.getByRole("button", { name: "Signaux et corrections" }).click();
     await expect(page.getByRole("heading", { name: "Comment le signal est-il exploité ?" })).toBeVisible();
     await expect(page.getByRole("button", { name: /échantillons temporels/ })).toBeVisible();
@@ -122,7 +121,7 @@ test("main operator paths stay clear at supported desktop sizes", async ({ page,
     await assertNoHorizontalOverflow(page);
     await capture(page, testInfo, `correction-frequentielle-${size}.png`);
 
-    await page.getByRole("button", { name: "Matériels réels" }).click();
+    await page.getByRole("button", { name: "Métrologie du parc" }).click();
     await page.getByRole("button", { name: new RegExp(assetId) }).click();
     await expect(page.getByRole("heading", { name: assetId })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Pertes mesurées du câble" })).toBeVisible();
