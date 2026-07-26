@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -108,6 +110,9 @@ jobs:
         env:
           PYTHONPATH: python
         run: py -m unittest python.tests.test_release_consistency
+
+      - name: Check historical release screenshots
+        run: .\scripts\validate-historical-release-screenshots.ps1
 
       - name: Run launcher smoke
         env:

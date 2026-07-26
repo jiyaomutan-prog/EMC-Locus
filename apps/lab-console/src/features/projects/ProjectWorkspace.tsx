@@ -10,17 +10,17 @@ import {
   FolderKanban,
   History,
   MapPin,
-  Play,
   RefreshCw,
   Search,
   UserRound,
   X,
   XCircle
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, projectApi } from "../../api";
 import type {
   ContractReviewStatus,
+  LaboratoryLocationOption,
   ProjectAuditEvent,
   ProjectExecutionMode,
   ProjectRecord,
@@ -87,7 +87,7 @@ interface ScheduleForm {
   start_time: string;
   end_time: string;
   assigned_operator: string;
-  location: string;
+  laboratory_location_id: string;
   equipment_under_test: string;
   notes: string;
 }
@@ -98,6 +98,11 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
   const [selectedProject, setSelectedProject] = useState<ProjectRecord | null>(null);
   const [review, setReview] = useState<ContractReviewStatus | null>(null);
   const [schedule, setSchedule] = useState<ServiceScheduleItem[]>([]);
+  const [locations, setLocations] = useState<LaboratoryLocationOption[]>([]);
+  const [locationLoadState, setLocationLoadState] = useState<"loading" | "ready" | "error">(
+    "loading"
+  );
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [audit, setAudit] = useState<ProjectAuditEvent[]>([]);
   const [query, setQuery] = useState("");
   const [actor, setActor] = useState("Responsable laboratoire");
@@ -124,6 +129,20 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
     );
   }, [projects, query]);
 
+  const loadLocations = useCallback(async () => {
+    setLocationLoadState("loading");
+    setLocationError(null);
+    try {
+      const availableLocations = await projectApi.listLaboratoryLocations();
+      setLocations(availableLocations);
+      setLocationLoadState("ready");
+    } catch (caught) {
+      setLocations([]);
+      setLocationLoadState("error");
+      setLocationError(projectErrorMessage(caught));
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
     async function loadInitialProjects() {
@@ -147,10 +166,11 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
       }
     }
     void loadInitialProjects();
+    void loadLocations();
     return () => {
       active = false;
     };
-  }, [props.initialProjectCode]);
+  }, [loadLocations, props.initialProjectCode]);
 
   useEffect(() => {
     if (!selectedCode) {
@@ -266,6 +286,13 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
 
   async function createScheduleItem() {
     if (!selectedProject) return;
+    const location = locations.find(
+      (candidate) => candidate.laboratory_location_id === scheduleForm.laboratory_location_id
+    );
+    if (!location) {
+      setError("Choisissez un poste de laboratoire prêt à câbler.");
+      return;
+    }
     setBusyAction("create-schedule");
     setError(null);
     try {
@@ -276,14 +303,15 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
         planned_start_at: `${scheduleForm.date}T${scheduleForm.start_time}`,
         planned_end_at: `${scheduleForm.date}T${scheduleForm.end_time}`,
         assigned_operator: scheduleForm.assigned_operator,
-        location: scheduleForm.location,
+        laboratory_location_id: location.laboratory_location_id,
+        laboratory_location_label: location.laboratory_location_label,
         equipment_under_test: scheduleForm.equipment_under_test,
         notes: scheduleForm.notes || undefined,
         actor,
         reason: "Réservation du créneau d'essai"
       });
       setShowSchedule(false);
-      setScheduleForm(defaultScheduleForm(actor));
+      setScheduleForm(defaultScheduleForm(actor, locations[0]?.laboratory_location_id));
       await loadProject(selectedProject.code);
     } catch (caught) {
       setError(projectErrorMessage(caught));
@@ -322,7 +350,8 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
   }
 
   function openScheduleForm() {
-    setScheduleForm(defaultScheduleForm(actor));
+    if (locationLoadState !== "ready") return;
+    setScheduleForm(defaultScheduleForm(actor, locations[0]?.laboratory_location_id));
     setShowSchedule(true);
   }
 
@@ -338,7 +367,15 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
             placeholder="Référence ou client"
           />
         </label>
-        <button className="secondary iconButton" onClick={() => void refreshProjects()} title="Actualiser les dossiers" aria-label="Actualiser les dossiers">
+        <button
+          className="secondary iconButton"
+          onClick={() => {
+            void refreshProjects();
+            void loadLocations();
+          }}
+          title="Actualiser les dossiers"
+          aria-label="Actualiser les dossiers"
+        >
           <RefreshCw size={16} />
         </button>
         <button onClick={() => setShowCreate(true)}>
@@ -413,6 +450,8 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
               schedule={schedule}
               audit={audit}
               actor={actor}
+              locationLoadState={locationLoadState}
+              locationError={locationError}
               reviewComment={reviewComment}
               busyAction={busyAction}
               onActorChange={setActor}
@@ -420,6 +459,7 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
               onCompleteReviewItem={(item) => void completeReviewItem(item)}
               onAdvanceToPlanning={() => void advanceToPlanning()}
               onOpenSchedule={openScheduleForm}
+              onRetryLocations={() => void loadLocations()}
               onTransitionSchedule={(item, action) => void transitionScheduleItem(item, action)}
             />
           )}
@@ -439,10 +479,13 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
         <ScheduleDialog
           project={selectedProject}
           form={scheduleForm}
+          locations={locations}
+          locationError={locationError}
           error={error}
           busy={busyAction === "create-schedule"}
           onChange={setScheduleForm}
           onDismissError={() => setError(null)}
+          onRetryLocations={() => void loadLocations()}
           onClose={() => setShowSchedule(false)}
           onSubmit={() => void createScheduleItem()}
         />
@@ -457,6 +500,8 @@ function ProjectDetail(props: {
   schedule: ServiceScheduleItem[];
   audit: ProjectAuditEvent[];
   actor: string;
+  locationLoadState: "loading" | "ready" | "error";
+  locationError: string | null;
   reviewComment: string;
   busyAction: string | null;
   onActorChange: (value: string) => void;
@@ -464,6 +509,7 @@ function ProjectDetail(props: {
   onCompleteReviewItem: (item: string) => void;
   onAdvanceToPlanning: () => void;
   onOpenSchedule: () => void;
+  onRetryLocations: () => void;
   onTransitionSchedule: (
     item: ServiceScheduleItem,
     action: "confirm" | "start" | "complete" | "cancel"
@@ -508,6 +554,7 @@ function ProjectDetail(props: {
         review={props.review}
         firstOpenSchedule={firstOpenSchedule}
         busyAction={props.busyAction}
+        locationLoadState={props.locationLoadState}
         onAdvanceToPlanning={props.onAdvanceToPlanning}
         onOpenSchedule={props.onOpenSchedule}
         onTransitionSchedule={props.onTransitionSchedule}
@@ -582,11 +629,40 @@ function ProjectDetail(props: {
             <h3 id="planning-title">Créneaux d'essai</h3>
           </div>
           {props.project.stage === "test_planning" && (
-            <button onClick={props.onOpenSchedule}>
+            <button
+              disabled={props.locationLoadState !== "ready"}
+              onClick={props.onOpenSchedule}
+              title={
+                props.locationLoadState === "ready"
+                  ? "Planifier un essai"
+                  : "Les lieux du laboratoire doivent être disponibles"
+              }
+            >
               <CirclePlus size={16} /> Planifier un essai
             </button>
           )}
         </div>
+        {props.project.stage === "test_planning" && props.locationLoadState !== "ready" && (
+          <div className="locationSourceNotice" role={props.locationError ? "alert" : "status"}>
+            <MapPin size={18} />
+            <div>
+              <strong>
+                {props.locationError
+                  ? "Les lieux du laboratoire sont temporairement indisponibles."
+                  : "Chargement des lieux du laboratoire…"}
+              </strong>
+              <p>
+                Les créneaux existants restent consultables. Une nouvelle réservation sera
+                possible dès que les lieux seront de nouveau disponibles.
+              </p>
+            </div>
+            {props.locationError && (
+              <button className="secondary" onClick={props.onRetryLocations}>
+                <RefreshCw size={15} /> Réessayer
+              </button>
+            )}
+          </div>
+        )}
         {props.project.stage === "contract_review" && (
           <div className="planningEmpty blocked">
             <ClipboardCheck size={26} />
@@ -603,7 +679,12 @@ function ProjectDetail(props: {
               <strong>Aucun essai n'est encore planifié pour ce dossier.</strong>
               <p>Réservez l'opérateur et le lieu du premier essai.</p>
             </div>
-            <button onClick={props.onOpenSchedule}>Planifier le premier essai</button>
+            <button
+              disabled={props.locationLoadState !== "ready"}
+              onClick={props.onOpenSchedule}
+            >
+              Planifier le premier essai
+            </button>
           </div>
         )}
         {props.schedule.length > 0 && (
@@ -650,6 +731,7 @@ function NextAction(props: {
   review: ContractReviewStatus;
   firstOpenSchedule?: ServiceScheduleItem;
   busyAction: string | null;
+  locationLoadState: "loading" | "ready" | "error";
   onAdvanceToPlanning: () => void;
   onOpenSchedule: () => void;
   onTransitionSchedule: (
@@ -698,9 +780,17 @@ function NextAction(props: {
         <div>
           <span>Prochaine action</span>
           <strong>Réserver le premier créneau d'essai.</strong>
-          <p>Choisissez un opérateur, un lieu et l'équipement à tester.</p>
+          <p>Choisissez un opérateur, un lieu et l'objet soumis à l'essai.</p>
         </div>
-        <button onClick={props.onOpenSchedule}>
+        <button
+          disabled={props.locationLoadState !== "ready"}
+          onClick={props.onOpenSchedule}
+          title={
+            props.locationLoadState === "ready"
+              ? "Planifier un essai"
+              : "Les lieux du laboratoire doivent être disponibles"
+          }
+        >
           <CirclePlus size={17} /> Planifier un essai
         </button>
       </div>
@@ -713,7 +803,7 @@ function NextAction(props: {
         <div>
           <span>Prochaine action</span>
           <strong>Confirmer le créneau du {formatScheduleDate(props.firstOpenSchedule)}.</strong>
-          <p>{props.firstOpenSchedule.assigned_operator} · {props.firstOpenSchedule.location}</p>
+          <p>{props.firstOpenSchedule.assigned_operator} · {props.firstOpenSchedule.laboratory_location_label}</p>
         </div>
         <button
           disabled={props.busyAction !== null}
@@ -759,7 +849,7 @@ function ScheduleRow(props: {
         <p>{props.item.equipment_under_test}</p>
         <div className="scheduleResources">
           <span><UserRound size={14} /> {props.item.assigned_operator}</span>
-          <span><MapPin size={14} /> {props.item.location}</span>
+          <span><MapPin size={14} /> {props.item.laboratory_location_label}</span>
         </div>
       </div>
       <div className="scheduleActions">
@@ -768,9 +858,12 @@ function ScheduleRow(props: {
             disabled={props.busyAction !== null}
             onClick={() => props.onTransition(positiveAction.action)}
           >
-            {positiveAction.action === "start" ? <Play size={15} /> : <Check size={15} />}
+            <Check size={15} />
             {positiveAction.label}
           </button>
+        )}
+        {props.item.status === "confirmed" && (
+          <small>Préparez l'essai depuis le planning du laboratoire.</small>
         )}
         {props.item.available_transitions.includes("cancelled") && (
           <button
@@ -877,21 +970,56 @@ function CreateProjectDialog(props: {
 function ScheduleDialog(props: {
   project: ProjectRecord;
   form: ScheduleForm;
+  locations: LaboratoryLocationOption[];
+  locationError: string | null;
   error: string | null;
   busy: boolean;
   onChange: (value: ScheduleForm) => void;
   onDismissError: () => void;
+  onRetryLocations: () => void;
   onClose: () => void;
   onSubmit: () => void;
 }) {
-  const valid =
-    props.form.title.trim() &&
-    props.form.date &&
-    props.form.start_time &&
-    props.form.end_time &&
-    props.form.assigned_operator.trim() &&
-    props.form.location.trim() &&
-    props.form.equipment_under_test.trim();
+  const titleRef = useRef<HTMLInputElement>(null);
+  const dateRef = useRef<HTMLInputElement>(null);
+  const startRef = useRef<HTMLInputElement>(null);
+  const endRef = useRef<HTMLInputElement>(null);
+  const operatorRef = useRef<HTMLInputElement>(null);
+  const locationRef = useRef<HTMLSelectElement>(null);
+  const testObjectRef = useRef<HTMLInputElement>(null);
+  const missingFields: Array<{ label: string; focus: () => void }> = [];
+  if (!props.form.title.trim()) {
+    missingFields.push({ label: "Essai prévu", focus: () => titleRef.current?.focus() });
+  }
+  if (!props.form.date) {
+    missingFields.push({ label: "Date", focus: () => dateRef.current?.focus() });
+  }
+  if (!props.form.start_time) {
+    missingFields.push({ label: "Début", focus: () => startRef.current?.focus() });
+  }
+  if (!props.form.end_time) {
+    missingFields.push({ label: "Fin", focus: () => endRef.current?.focus() });
+  }
+  if (!props.form.assigned_operator.trim()) {
+    missingFields.push({ label: "Opérateur", focus: () => operatorRef.current?.focus() });
+  }
+  if (!props.form.laboratory_location_id) {
+    missingFields.push({ label: "Lieu", focus: () => locationRef.current?.focus() });
+  }
+  if (!props.form.equipment_under_test.trim()) {
+    missingFields.push({
+      label: "Objet soumis à l’essai",
+      focus: () => testObjectRef.current?.focus()
+    });
+  }
+  const valid = missingFields.length === 0;
+
+  const requiredLabel = (label: string) => (
+    <span className="requiredFieldLabel">
+      {label} <span aria-hidden="true">*</span>
+    </span>
+  );
+
   return (
     <div className="modalBackdrop" role="presentation">
       <section className="wizardPanel projectDialog" role="dialog" aria-modal="true" aria-labelledby="schedule-title">
@@ -922,66 +1050,111 @@ function ScheduleDialog(props: {
             Ce créneau réservera l'opérateur et le lieu jusqu'à sa fin ou son annulation.
           </p>
           <label>
-            Essai prévu
+            {requiredLabel("Essai prévu")}
             <input
+              ref={titleRef}
+              aria-label="Essai prévu"
               autoFocus
               value={props.form.title}
               onChange={(event) => props.onChange({ ...props.form, title: event.target.value })}
               placeholder="Ex. Émission conduite"
+              required
             />
           </label>
           <div className="scheduleDateGrid">
             <label>
-              Date
+              {requiredLabel("Date")}
               <input
+                ref={dateRef}
+                aria-label="Date"
                 type="date"
                 value={props.form.date}
                 onChange={(event) => props.onChange({ ...props.form, date: event.target.value })}
+                required
               />
             </label>
             <label>
-              Début
+              {requiredLabel("Début")}
               <input
+                ref={startRef}
+                aria-label="Début"
                 type="time"
                 value={props.form.start_time}
                 onChange={(event) => props.onChange({ ...props.form, start_time: event.target.value })}
+                required
               />
             </label>
             <label>
-              Fin
+              {requiredLabel("Fin")}
               <input
+                ref={endRef}
+                aria-label="Fin"
                 type="time"
                 value={props.form.end_time}
                 onChange={(event) => props.onChange({ ...props.form, end_time: event.target.value })}
+                required
               />
             </label>
           </div>
           <label>
-            Opérateur
+            {requiredLabel("Opérateur")}
             <input
+              ref={operatorRef}
+              aria-label="Opérateur"
               value={props.form.assigned_operator}
               onChange={(event) => props.onChange({ ...props.form, assigned_operator: event.target.value })}
               placeholder="Nom de l'opérateur"
+              required
             />
           </label>
           <label>
-            Lieu
-            <input
-              value={props.form.location}
-              onChange={(event) => props.onChange({ ...props.form, location: event.target.value })}
-              placeholder="Ex. Labo CEM 1"
-            />
+            {requiredLabel("Lieu")}
+            <select
+              ref={locationRef}
+              aria-label="Lieu"
+              value={props.form.laboratory_location_id}
+              disabled={Boolean(props.locationError)}
+              onChange={(event) =>
+                props.onChange({ ...props.form, laboratory_location_id: event.target.value })
+              }
+              required
+            >
+              <option value="">Sélectionner un poste prêt à câbler</option>
+              {props.locations.map((location) => (
+                <option
+                  key={location.laboratory_location_id}
+                  value={location.laboratory_location_id}
+                >
+                  {location.laboratory_location_label}
+                </option>
+              ))}
+            </select>
+            {props.locationError ? (
+              <span className="locationFieldError" role="alert">
+                <span>Les lieux ne peuvent pas être chargés pour le moment.</span>
+                <button type="button" className="secondary" onClick={props.onRetryLocations}>
+                  <RefreshCw size={14} /> Réessayer
+                </button>
+              </span>
+            ) : props.locations.length === 0 ? (
+              <small>Créez et validez d'abord un montage dans Test Station.</small>
+            ) : null}
           </label>
           <label>
-            Équipement à tester
+            {requiredLabel("Objet soumis à l’essai")}
             <input
+              ref={testObjectRef}
+              aria-label="Objet soumis à l’essai"
               value={props.form.equipment_under_test}
               onChange={(event) => props.onChange({ ...props.form, equipment_under_test: event.target.value })}
-              placeholder="Produit, prototype ou sous-ensemble"
+              aria-describedby="test-object-help"
+              placeholder="Ex. convertisseur de traction"
+              required
             />
+            <small id="test-object-help">Produit, prototype ou sous-ensemble du client</small>
           </label>
           <label>
-            Note
+            <span className="optionalFieldLabel">Note <small>Facultatif</small></span>
             <textarea
               value={props.form.notes}
               onChange={(event) => props.onChange({ ...props.form, notes: event.target.value })}
@@ -990,8 +1163,27 @@ function ScheduleDialog(props: {
           </label>
         </div>
         <footer className="wizardFooter">
+          {!valid && (
+            <div className="scheduleValidationSummary" role="status">
+              <AlertCircle size={16} />
+              <span>
+                À renseigner avant de réserver : {missingFields.map(({ label }) => label).join(", ")}.
+              </span>
+              <button
+                type="button"
+                className="secondary scheduleValidationFocus"
+                onClick={() => missingFields[0]?.focus()}
+              >
+                Compléter les champs
+              </button>
+            </div>
+          )}
           <button className="secondary" onClick={props.onClose}>Annuler</button>
-          <button disabled={props.busy || !valid} onClick={props.onSubmit}>
+          <button
+            className={!valid ? "reservationUnavailable" : undefined}
+            disabled={props.busy || !valid}
+            onClick={props.onSubmit}
+          >
             <CalendarClock size={17} /> Réserver le créneau
           </button>
         </footer>
@@ -1002,23 +1194,22 @@ function ScheduleDialog(props: {
 
 function schedulePositiveAction(status: ServiceScheduleStatus): {
   target: ServiceScheduleStatus;
-  action: "confirm" | "start" | "complete";
+  action: "confirm" | "complete";
   label: string;
 } | null {
   if (status === "planned") return { target: "confirmed", action: "confirm", label: "Confirmer" };
-  if (status === "confirmed") return { target: "in_progress", action: "start", label: "Démarrer" };
   if (status === "in_progress") return { target: "completed", action: "complete", label: "Terminer" };
   return null;
 }
 
-function defaultScheduleForm(actor: string): ScheduleForm {
+function defaultScheduleForm(actor: string, locationId = ""): ScheduleForm {
   return {
     title: "",
     date: nextBusinessDate(),
     start_time: "09:00",
     end_time: "12:00",
     assigned_operator: actor,
-    location: "",
+    laboratory_location_id: locationId,
     equipment_under_test: "",
     notes: ""
   };
@@ -1050,10 +1241,13 @@ function projectErrorMessage(caught: unknown): string {
   }
   const conflict = caught.details?.conflicting_item as Record<string, unknown> | undefined;
   if (caught.code === "service_schedule_operator_conflict" && conflict) {
-    return `${String(conflict.assigned_operator)} est déjà affecté au créneau « ${String(conflict.title)} » de ${String(conflict.planned_start_at)} à ${String(conflict.planned_end_at)}.`;
+    return `${String(conflict.assigned_operator)} est déjà affecté au créneau « ${String(conflict.title)} » le ${formatConflictSchedule(conflict)}.`;
   }
   if (caught.code === "service_schedule_location_conflict" && conflict) {
-    return `${String(conflict.location)} est déjà réservé pour « ${String(conflict.title)} » de ${String(conflict.planned_start_at)} à ${String(conflict.planned_end_at)}.`;
+    return `${String(conflict.laboratory_location_label)} est déjà réservé pour « ${String(conflict.title)} » le ${formatConflictSchedule(conflict)}.`;
+  }
+  if (caught.code === "service_schedule_legacy_location_identity_required" && conflict) {
+    return `Un créneau existant utilise encore un lieu non identifié. Identifiez son lieu avant de réserver un autre créneau sur cette période. Créneau concerné : « ${String(conflict.title)} » du dossier ${String(conflict.project_code)}, le ${formatConflictSchedule(conflict)}, libellé historique « ${String(conflict.laboratory_location_label)} », état ${scheduleStatusLabel(String(conflict.status))}.`;
   }
   const messages: Record<string, string> = {
     contract_review_incomplete: "La revue du besoin n'est pas encore terminée.",
@@ -1064,6 +1258,22 @@ function projectErrorMessage(caught: unknown): string {
     local_agent_unavailable: "L'agent local ne répond pas. Vérifiez qu'il est démarré."
   };
   return messages[caught.code] ?? caught.message;
+}
+
+function scheduleStatusLabel(status: string): string {
+  return {
+    planned: "Prévu",
+    confirmed: "Confirmé",
+    in_progress: "En cours",
+    completed: "Terminé",
+    cancelled: "Annulé"
+  }[status] ?? status;
+}
+
+function formatConflictSchedule(conflict: Record<string, unknown>): string {
+  const start = String(conflict.planned_start_at);
+  const end = String(conflict.planned_end_at);
+  return `${formatDay(start)}, ${start.slice(11, 16)}–${end.slice(11, 16)}`;
 }
 
 function humanize(value: string | undefined): string {

@@ -97,6 +97,46 @@ pub(crate) fn open_project_connection(storage_root: &Path) -> Result<Connection,
     Ok(connection)
 }
 
+pub(crate) fn open_start_consistency_connection(
+    storage_root: &Path,
+) -> Result<Connection, AgentError> {
+    let connection = open_project_connection(storage_root)?;
+    for (file_name, schema, database) in [
+        (
+            "test_definitions.sqlite",
+            "test_definitions_db",
+            AttachedDatabase::TestDefinitionsDb,
+        ),
+        ("station.sqlite", "station_db", AttachedDatabase::StationDb),
+        (
+            "metrology.sqlite",
+            "metrology_db",
+            AttachedDatabase::MetrologyDb,
+        ),
+        (
+            "equipment.sqlite",
+            "equipment_db",
+            AttachedDatabase::EquipmentDb,
+        ),
+    ] {
+        let database_path = storage_root.join(file_name);
+        if !database_path.exists() {
+            return Err(AgentError::new(
+                "storage_not_initialized",
+                format!("planned test start requires initialized {file_name}"),
+            ));
+        }
+        connection
+            .execute(
+                &format!("ATTACH DATABASE ?1 AS {schema}"),
+                params![database_path.to_string_lossy().to_string()],
+            )
+            .map_err(|error| AgentError::new("database_attach_error", error.to_string()))?;
+        enforce_project_slice_journal_mode(&connection, database, file_name)?;
+    }
+    Ok(connection)
+}
+
 fn ensure_project_tables(connection: &Connection) -> Result<(), AgentError> {
     for (schema, table) in [
         ("main", "projects"),

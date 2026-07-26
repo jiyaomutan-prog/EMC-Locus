@@ -1623,7 +1623,8 @@ class LocalAgentClient:
         planned_start_at: str,
         planned_end_at: str,
         assigned_operator: str,
-        location: str,
+        laboratory_location_id: str,
+        laboratory_location_label: str,
         equipment_under_test: str,
         actor: str,
         reason: str,
@@ -1645,7 +1646,8 @@ class LocalAgentClient:
             "planned_start_at": planned_start_at,
             "planned_end_at": planned_end_at,
             "assigned_operator": assigned_operator,
-            "location": location,
+            "laboratory_location_id": laboratory_location_id,
+            "laboratory_location_label": laboratory_location_label,
             "equipment_under_test": equipment_under_test,
             "actor": actor,
             "reason": reason,
@@ -1674,6 +1676,8 @@ class LocalAgentClient:
         operation_id: str | None = None,
         correlation_id: str | None = None,
         device_id: str | None = None,
+        expected_preparation_revision_id: str | None = None,
+        expected_preparation_checksum: str | None = None,
     ) -> dict[str, Any]:
         if action not in {"confirm", "start", "complete", "cancel"}:
             raise ValueError(f"unknown service schedule action: {action}")
@@ -1688,6 +1692,16 @@ class LocalAgentClient:
             "reason": reason,
             "operation_id": operation_id,
         }
+        _put_optional(
+            payload,
+            "expected_preparation_revision_id",
+            expected_preparation_revision_id,
+        )
+        _put_optional(
+            payload,
+            "expected_preparation_checksum",
+            expected_preparation_checksum,
+        )
         _put_optional(payload, "correlation_id", correlation_id)
         _put_optional(payload, "device_id", device_id)
         return self.request_json(
@@ -1748,7 +1762,8 @@ class LocalAgentClient:
         planned_start_at: str,
         planned_end_at: str,
         assigned_operator: str,
-        location: str,
+        laboratory_location_id: str,
+        laboratory_location_label: str,
         expected_revision: int,
         actor: str,
         reason: str,
@@ -1765,7 +1780,8 @@ class LocalAgentClient:
             "planned_start_at": planned_start_at,
             "planned_end_at": planned_end_at,
             "assigned_operator": assigned_operator,
-            "location": location,
+            "laboratory_location_id": laboratory_location_id,
+            "laboratory_location_label": laboratory_location_label,
             "expected_revision": expected_revision,
             "actor": actor,
             "reason": reason,
@@ -1776,6 +1792,41 @@ class LocalAgentClient:
         return self.request_json(
             "POST",
             f"/api/v1/projects/{quote(project_code)}/schedule-items/{quote(item_code)}/reschedule",
+            payload,
+        )
+
+    def identify_service_schedule_location(
+        self,
+        *,
+        project_code: str,
+        item_code: str,
+        laboratory_location_id: str,
+        laboratory_location_label: str,
+        expected_revision: int,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id(
+            "service-schedule-identify-location",
+            project_code,
+            item_code,
+        )
+        payload: dict[str, Any] = {
+            "laboratory_location_id": laboratory_location_id,
+            "laboratory_location_label": laboratory_location_label,
+            "expected_revision": expected_revision,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/projects/{quote(project_code)}/schedule-items/{quote(item_code)}/location-identification",
             payload,
         )
 
@@ -2227,7 +2278,8 @@ class LocalAgentClient:
         *,
         setup_id: str,
         label: str,
-        station_label: str,
+        laboratory_location_id: str,
+        laboratory_location_label: str,
         planned_use_on: str,
         execution_mode: str,
         actor: str,
@@ -2240,7 +2292,8 @@ class LocalAgentClient:
         payload: dict[str, Any] = {
             "setup_id": setup_id,
             "label": label,
-            "station_label": station_label,
+            "laboratory_location_id": laboratory_location_id,
+            "laboratory_location_label": laboratory_location_label,
             "planned_use_on": planned_use_on,
             "execution_mode": execution_mode,
             "actor": actor,

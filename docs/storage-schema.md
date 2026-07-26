@@ -299,6 +299,8 @@ CREATE TABLE service_schedule_items (
     planned_end_at TEXT NOT NULL,
     assigned_operator TEXT NOT NULL,
     location TEXT NOT NULL,
+    laboratory_location_id TEXT,
+    laboratory_location_label TEXT,
     equipment_under_test TEXT NOT NULL,
     status TEXT NOT NULL,
     notes TEXT NOT NULL DEFAULT '',
@@ -318,12 +320,25 @@ table.
 
 Release `0.20.0` deliberately adds no projects migration. Its laboratory-week
 view is a time-bounded projection of `service_schedule_items` joined to the
-owning `projects` row. The existing status/time, operator/time and location/time
-indexes cover that read. Moving a slot updates only `planned_start_at`,
-`planned_end_at`, `assigned_operator`, `location`, `updated_by`, `updated_at`
-and the optimistic `revision`; audit and outbox writes remain in the same
-attached-SQLite transaction. No second calendar table or copied planning row is
+owning `projects` row. No second calendar table or copied planning row is
 created.
+
+Project migration `8` adds the stable location contract. New Local Agent
+writes require `laboratory_location_id` and store
+`laboratory_location_label` as a readable snapshot. Resource conflicts and
+planned-test compatibility compare only the ID. The retained `location`
+column is populated with the same label for the pre-agent Python migration
+adapter; it is not an identity in the Local Agent runtime.
+
+Existing `0.21.0` rows keep their exact label in
+`laboratory_location_label`, while `laboratory_location_id` remains `NULL`.
+The migration deliberately does not derive identity by trimming, case folding
+or matching labels. Such rows stay readable. While non-terminal, an overlapping
+row with this unresolved identity blocks a new or moved reservation until an
+operator explicitly identifies its real stable location. This correction
+requires no migration after `0008`: the identification mutation updates the
+existing ID/label columns under row-revision compare-and-set and records audit
+plus outbox evidence in the existing tables.
 
 ### planned_test_preparation_identities
 
@@ -493,6 +508,13 @@ equipment-model revision/checksum, each physical connection between typed
 ports, and each selected serial-specific characterization/checksum. A draft is
 replaced with SQL compare-and-swap. A `ready` revision is immutable; a later
 change creates a new draft with an explicit parent.
+
+Station migration `2` promotes new definitions to schema
+`emc-locus.station-measurement-setup-definition.v2`. The definition stores a
+stable `laboratory_location_id` and a readable
+`laboratory_location_label`. Historical v1 definitions remain readable and
+retain their original canonical JSON and checksum; they do not acquire a
+fabricated location identity.
 
 Station writes attach `sync.sqlite` and add pending outbox rows in the same
 rollback-journal transaction. Sync migration

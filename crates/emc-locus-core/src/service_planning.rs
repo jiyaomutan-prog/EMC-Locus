@@ -59,6 +59,7 @@ impl ServiceScheduleStatus {
 #[serde(rename_all = "snake_case")]
 pub enum ScheduleResourceConflictKind {
     Operator,
+    UnresolvedLocationIdentity,
     Location,
 }
 
@@ -257,7 +258,8 @@ pub struct ServiceScheduleItemInput {
     pub planned_start_at: String,
     pub planned_end_at: String,
     pub assigned_operator: String,
-    pub location: String,
+    pub laboratory_location_id: Option<String>,
+    pub laboratory_location_label: String,
     pub equipment_under_test: String,
     pub test_category_code: Option<String>,
     pub test_method_code: Option<String>,
@@ -270,7 +272,14 @@ pub struct ServiceScheduleRescheduleInput {
     pub planned_start_at: String,
     pub planned_end_at: String,
     pub assigned_operator: String,
-    pub location: String,
+    pub laboratory_location_id: String,
+    pub laboratory_location_label: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServiceScheduleLocationIdentificationInput {
+    pub laboratory_location_id: String,
+    pub laboratory_location_label: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -281,7 +290,8 @@ pub struct ServiceScheduleItem {
     planned_start_at: ScheduleLocalDateTime,
     planned_end_at: ScheduleLocalDateTime,
     assigned_operator: String,
-    location: String,
+    laboratory_location_id: Option<String>,
+    laboratory_location_label: String,
     equipment_under_test: String,
     test_category_code: Option<String>,
     test_method_code: Option<String>,
@@ -298,6 +308,13 @@ impl ServiceScheduleItem {
                 "a new service schedule item must start as planned",
             ));
         }
+        if input.laboratory_location_id.is_none() {
+            return Err(PlanningValidationIssue::new(
+                "schedule_location_identity_required",
+                "laboratory_location_id",
+                "a new schedule item requires a stable laboratory location identifier",
+            ));
+        }
         Self::restore(input)
     }
 
@@ -305,7 +322,12 @@ impl ServiceScheduleItem {
         let item_code = require_identifier(input.item_code, "item_code")?;
         let title = require_text(input.title, "title")?;
         let assigned_operator = require_text(input.assigned_operator, "assigned_operator")?;
-        let location = require_text(input.location, "location")?;
+        let laboratory_location_id = input
+            .laboratory_location_id
+            .map(|value| require_identifier(value, "laboratory_location_id"))
+            .transpose()?;
+        let laboratory_location_label =
+            require_text(input.laboratory_location_label, "laboratory_location_label")?;
         let equipment_under_test =
             require_text(input.equipment_under_test, "equipment_under_test")?;
         let planned_start_at =
@@ -339,7 +361,8 @@ impl ServiceScheduleItem {
             planned_start_at,
             planned_end_at,
             assigned_operator,
-            location,
+            laboratory_location_id,
+            laboratory_location_label,
             equipment_under_test,
             test_category_code: optional_text(input.test_category_code),
             test_method_code: optional_text(input.test_method_code),
@@ -383,7 +406,43 @@ impl ServiceScheduleItem {
             planned_start_at: input.planned_start_at,
             planned_end_at: input.planned_end_at,
             assigned_operator: input.assigned_operator,
-            location: input.location,
+            laboratory_location_id: Some(input.laboratory_location_id),
+            laboratory_location_label: input.laboratory_location_label,
+            equipment_under_test: self.equipment_under_test.clone(),
+            test_category_code: self.test_category_code.clone(),
+            test_method_code: self.test_method_code.clone(),
+            status: self.status,
+            notes: Some(self.notes.clone()),
+        })
+    }
+
+    pub fn identified_location(
+        &self,
+        input: ServiceScheduleLocationIdentificationInput,
+    ) -> Result<Self, PlanningValidationIssue> {
+        if self.status.is_terminal() {
+            return Err(PlanningValidationIssue::new(
+                "schedule_location_identification_not_allowed",
+                "status",
+                "a terminal service schedule item cannot have its location identified",
+            ));
+        }
+        if self.laboratory_location_id.is_some() {
+            return Err(PlanningValidationIssue::new(
+                "schedule_location_already_identified",
+                "laboratory_location_id",
+                "the service schedule item already has a stable location identity",
+            ));
+        }
+        Self::restore(ServiceScheduleItemInput {
+            item_code: self.item_code.clone(),
+            project_code: self.project_code.clone(),
+            title: self.title.clone(),
+            planned_start_at: self.planned_start_at.as_str().to_owned(),
+            planned_end_at: self.planned_end_at.as_str().to_owned(),
+            assigned_operator: self.assigned_operator.clone(),
+            laboratory_location_id: Some(input.laboratory_location_id),
+            laboratory_location_label: input.laboratory_location_label,
             equipment_under_test: self.equipment_under_test.clone(),
             test_category_code: self.test_category_code.clone(),
             test_method_code: self.test_method_code.clone(),
@@ -403,7 +462,12 @@ impl ServiceScheduleItem {
         if self.assigned_operator == other.assigned_operator {
             return Some(ScheduleResourceConflictKind::Operator);
         }
-        if self.location == other.location {
+        if self.laboratory_location_id.is_none() || other.laboratory_location_id.is_none() {
+            return Some(ScheduleResourceConflictKind::UnresolvedLocationIdentity);
+        }
+        if self.laboratory_location_id.is_some()
+            && self.laboratory_location_id == other.laboratory_location_id
+        {
             return Some(ScheduleResourceConflictKind::Location);
         }
         None
@@ -433,8 +497,12 @@ impl ServiceScheduleItem {
         &self.assigned_operator
     }
 
-    pub fn location(&self) -> &str {
-        &self.location
+    pub fn laboratory_location_id(&self) -> Option<&str> {
+        self.laboratory_location_id.as_deref()
+    }
+
+    pub fn laboratory_location_label(&self) -> &str {
+        &self.laboratory_location_label
     }
 
     pub fn equipment_under_test(&self) -> &str {
@@ -451,6 +519,10 @@ impl ServiceScheduleItem {
 
     pub fn status(&self) -> ServiceScheduleStatus {
         self.status
+    }
+
+    pub fn can_identify_location(&self) -> bool {
+        !self.status.is_terminal() && self.laboratory_location_id.is_none()
     }
 
     pub fn notes(&self) -> &str {
@@ -561,7 +633,11 @@ mod tests {
             planned_start_at: start.to_owned(),
             planned_end_at: end.to_owned(),
             assigned_operator: operator.to_owned(),
-            location: location.to_owned(),
+            laboratory_location_id: Some(format!(
+                "LOCATION-{}",
+                location.trim().replace(' ', "-").to_ascii_uppercase()
+            )),
+            laboratory_location_label: location.to_owned(),
             equipment_under_test: "Convertisseur ferroviaire".to_owned(),
             test_category_code: None,
             test_method_code: None,
@@ -583,7 +659,8 @@ mod tests {
 
         assert_eq!(item.item_code(), "PLAN-001");
         assert_eq!(item.assigned_operator(), "Alice Martin");
-        assert_eq!(item.location(), "Labo CEM 1");
+        assert_eq!(item.laboratory_location_id(), Some("LOCATION-LABO-CEM-1"));
+        assert_eq!(item.laboratory_location_label(), "Labo CEM 1");
         assert_eq!(item.status(), ServiceScheduleStatus::Planned);
     }
 
@@ -599,7 +676,8 @@ mod tests {
             planned_start_at: "2026-07-18T09:00".to_owned(),
             planned_end_at: "2026-07-18T10:00".to_owned(),
             assigned_operator: "Alice".to_owned(),
-            location: "Labo 1".to_owned(),
+            laboratory_location_id: Some("LOCATION-LABO-1".to_owned()),
+            laboratory_location_label: "Labo 1".to_owned(),
             equipment_under_test: "EUT".to_owned(),
             test_category_code: None,
             test_method_code: None,
@@ -619,7 +697,8 @@ mod tests {
             planned_start_at: "2026-07-15T09:00".to_owned(),
             planned_end_at: "2026-07-16T10:00".to_owned(),
             assigned_operator: "Alice".to_owned(),
-            location: "Labo 1".to_owned(),
+            laboratory_location_id: Some("LOCATION-LABO-1".to_owned()),
+            laboratory_location_label: "Labo 1".to_owned(),
             equipment_under_test: "EUT".to_owned(),
             test_category_code: None,
             test_method_code: None,
@@ -689,6 +768,102 @@ mod tests {
         assert_eq!(
             first.resource_conflict(&same_location),
             Some(ScheduleResourceConflictKind::Location)
+        );
+    }
+
+    #[test]
+    fn location_conflicts_use_stable_identity_instead_of_label() {
+        let first = item(
+            "PLAN-LOCATION-1",
+            "2026-07-15T09:00",
+            "2026-07-15T12:00",
+            "Alice",
+            "Ancien nom",
+        );
+        let mut renamed_same_location = item(
+            "PLAN-LOCATION-2",
+            "2026-07-15T10:00",
+            "2026-07-15T11:00",
+            "Bob",
+            "Nouveau nom",
+        );
+        renamed_same_location.laboratory_location_id = first.laboratory_location_id.clone();
+        let mut same_label_other_location = renamed_same_location.clone();
+        same_label_other_location.item_code = "PLAN-LOCATION-3".to_owned();
+        same_label_other_location.laboratory_location_label =
+            first.laboratory_location_label.clone();
+        same_label_other_location.laboratory_location_id =
+            Some("LAB-LOCATION-DIFFERENT".to_owned());
+
+        assert_eq!(
+            first.resource_conflict(&renamed_same_location),
+            Some(ScheduleResourceConflictKind::Location)
+        );
+        assert_eq!(first.resource_conflict(&same_label_other_location), None);
+    }
+
+    #[test]
+    fn unresolved_location_identity_blocks_without_guessing_from_the_label() {
+        let candidate = item(
+            "PLAN-CANDIDATE",
+            "2026-07-15T09:00",
+            "2026-07-15T12:00",
+            "Bob",
+            "Poste CEM 1",
+        );
+        let historical = ServiceScheduleItem::restore(ServiceScheduleItemInput {
+            item_code: "PLAN-HISTORICAL".to_owned(),
+            project_code: ProjectCode::parse("CEM-2026-001").unwrap(),
+            title: "Essai historique".to_owned(),
+            planned_start_at: "2026-07-15T10:00".to_owned(),
+            planned_end_at: "2026-07-15T11:00".to_owned(),
+            assigned_operator: "Alice".to_owned(),
+            laboratory_location_id: None,
+            laboratory_location_label: "Poste CEM 1".to_owned(),
+            equipment_under_test: "EUT".to_owned(),
+            test_category_code: None,
+            test_method_code: None,
+            status: ServiceScheduleStatus::Confirmed,
+            notes: None,
+        })
+        .unwrap();
+
+        assert_eq!(historical.laboratory_location_id(), None);
+        assert_eq!(
+            candidate.resource_conflict(&historical),
+            Some(ScheduleResourceConflictKind::UnresolvedLocationIdentity)
+        );
+    }
+
+    #[test]
+    fn operator_conflict_has_priority_over_unresolved_location_identity() {
+        let candidate = item(
+            "PLAN-CANDIDATE",
+            "2026-07-15T09:00",
+            "2026-07-15T12:00",
+            "Alice",
+            "Poste CEM 2",
+        );
+        let historical = ServiceScheduleItem::restore(ServiceScheduleItemInput {
+            item_code: "PLAN-HISTORICAL".to_owned(),
+            project_code: ProjectCode::parse("CEM-2026-001").unwrap(),
+            title: "Essai historique".to_owned(),
+            planned_start_at: "2026-07-15T10:00".to_owned(),
+            planned_end_at: "2026-07-15T11:00".to_owned(),
+            assigned_operator: "Alice".to_owned(),
+            laboratory_location_id: None,
+            laboratory_location_label: "Ancien libellé".to_owned(),
+            equipment_under_test: "EUT".to_owned(),
+            test_category_code: None,
+            test_method_code: None,
+            status: ServiceScheduleStatus::Planned,
+            notes: None,
+        })
+        .unwrap();
+
+        assert_eq!(
+            candidate.resource_conflict(&historical),
+            Some(ScheduleResourceConflictKind::Operator)
         );
     }
 
@@ -815,7 +990,8 @@ mod tests {
                     planned_start_at: "2026-07-16T13:00".to_owned(),
                     planned_end_at: "2026-07-16T16:00".to_owned(),
                     assigned_operator: "Bob".to_owned(),
-                    location: "Labo 2".to_owned(),
+                    laboratory_location_id: "LOCATION-LABO-2".to_owned(),
+                    laboratory_location_label: "Labo 2".to_owned(),
                 })
                 .unwrap();
 
@@ -847,10 +1023,92 @@ mod tests {
                 planned_start_at: "2026-07-16T13:00".to_owned(),
                 planned_end_at: "2026-07-16T16:00".to_owned(),
                 assigned_operator: "Alice".to_owned(),
-                location: "Labo 1".to_owned(),
+                laboratory_location_id: "LOCATION-LABO-1".to_owned(),
+                laboratory_location_label: "Labo 1".to_owned(),
             })
             .unwrap_err();
 
         assert_eq!(error.code, "schedule_status_not_reschedulable");
+    }
+
+    #[test]
+    fn identifies_only_unresolved_non_terminal_locations() {
+        for status in [
+            ServiceScheduleStatus::Planned,
+            ServiceScheduleStatus::Confirmed,
+            ServiceScheduleStatus::InProgress,
+        ] {
+            let mut historical = ServiceScheduleItem::restore(ServiceScheduleItemInput {
+                item_code: "PLAN-HISTORICAL".to_owned(),
+                project_code: ProjectCode::parse("CEM-2026-001").unwrap(),
+                title: "Essai historique".to_owned(),
+                planned_start_at: "2026-07-15T10:00".to_owned(),
+                planned_end_at: "2026-07-15T11:00".to_owned(),
+                assigned_operator: "Alice".to_owned(),
+                laboratory_location_id: None,
+                laboratory_location_label: "Ancien poste CEM".to_owned(),
+                equipment_under_test: "EUT".to_owned(),
+                test_category_code: None,
+                test_method_code: None,
+                status,
+                notes: None,
+            })
+            .unwrap();
+            assert!(historical.can_identify_location());
+
+            historical = historical
+                .identified_location(ServiceScheduleLocationIdentificationInput {
+                    laboratory_location_id: "LAB-STABLE-001".to_owned(),
+                    laboratory_location_label: "Poste CEM 1".to_owned(),
+                })
+                .unwrap();
+
+            assert_eq!(historical.status(), status);
+            assert_eq!(historical.laboratory_location_id(), Some("LAB-STABLE-001"));
+            assert_eq!(historical.laboratory_location_label(), "Poste CEM 1");
+            assert!(!historical.can_identify_location());
+            assert_eq!(
+                historical
+                    .identified_location(ServiceScheduleLocationIdentificationInput {
+                        laboratory_location_id: "LAB-STABLE-002".to_owned(),
+                        laboratory_location_label: "Poste CEM 2".to_owned(),
+                    })
+                    .unwrap_err()
+                    .code,
+                "schedule_location_already_identified"
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_historical_location_cannot_be_identified() {
+        let historical = ServiceScheduleItem::restore(ServiceScheduleItemInput {
+            item_code: "PLAN-HISTORICAL".to_owned(),
+            project_code: ProjectCode::parse("CEM-2026-001").unwrap(),
+            title: "Essai historique".to_owned(),
+            planned_start_at: "2026-07-15T10:00".to_owned(),
+            planned_end_at: "2026-07-15T11:00".to_owned(),
+            assigned_operator: "Alice".to_owned(),
+            laboratory_location_id: None,
+            laboratory_location_label: "Ancien poste CEM".to_owned(),
+            equipment_under_test: "EUT".to_owned(),
+            test_category_code: None,
+            test_method_code: None,
+            status: ServiceScheduleStatus::Completed,
+            notes: None,
+        })
+        .unwrap();
+
+        assert!(!historical.can_identify_location());
+        assert_eq!(
+            historical
+                .identified_location(ServiceScheduleLocationIdentificationInput {
+                    laboratory_location_id: "LAB-STABLE-001".to_owned(),
+                    laboratory_location_label: "Poste CEM 1".to_owned(),
+                })
+                .unwrap_err()
+                .code,
+            "schedule_location_identification_not_allowed"
+        );
     }
 }

@@ -3,8 +3,10 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const STATION_SETUP_DEFINITION_SCHEMA_VERSION: &str =
+const LEGACY_STATION_SETUP_DEFINITION_SCHEMA_VERSION: &str =
     "emc-locus.station-measurement-setup-definition.v1";
+pub const STATION_SETUP_DEFINITION_SCHEMA_VERSION: &str =
+    "emc-locus.station-measurement-setup-definition.v2";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -132,7 +134,10 @@ pub struct StationMeasurementSetupDefinition {
     pub definition_schema_version: String,
     pub setup_id: String,
     pub label: String,
-    pub station_label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub laboratory_location_id: Option<String>,
+    #[serde(alias = "station_label")]
+    pub laboratory_location_label: String,
     pub planned_use_on: String,
     pub execution_mode: String,
     #[serde(default)]
@@ -188,7 +193,8 @@ impl StationMeasurementSetupDefinition {
 
         let mut normalized = self.clone();
         normalized.label = normalized.label.trim().to_owned();
-        normalized.station_label = normalized.station_label.trim().to_owned();
+        normalized.laboratory_location_label =
+            normalized.laboratory_location_label.trim().to_owned();
         for binding in &mut normalized.asset_bindings {
             binding.role_label = binding.role_label.trim().to_owned();
         }
@@ -215,6 +221,15 @@ impl StationMeasurementSetupDefinition {
                 message: error.to_string(),
             }]
         })?;
+        if normalized.definition_schema_version == LEGACY_STATION_SETUP_DEFINITION_SCHEMA_VERSION {
+            let object = value
+                .as_object_mut()
+                .expect("station definition is an object");
+            object.remove("laboratory_location_id");
+            if let Some(label) = object.remove("laboratory_location_label") {
+                object.insert("station_label".to_owned(), label);
+            }
+        }
         canonicalize_json_value(&mut value);
         let canonical_json = serde_json::to_string(&value).map_err(|error| {
             vec![StationSetupValidationIssue {
@@ -238,7 +253,10 @@ pub fn validate_station_setup_integrity(
     definition: &StationMeasurementSetupDefinition,
 ) -> Vec<StationSetupValidationIssue> {
     let mut issues = Vec::new();
-    if definition.definition_schema_version != STATION_SETUP_DEFINITION_SCHEMA_VERSION {
+    if !matches!(
+        definition.definition_schema_version.as_str(),
+        STATION_SETUP_DEFINITION_SCHEMA_VERSION | LEGACY_STATION_SETUP_DEFINITION_SCHEMA_VERSION
+    ) {
         push_validation(
             &mut issues,
             "unsupported_station_setup_schema",
@@ -253,11 +271,29 @@ pub fn validate_station_setup_integrity(
         "label",
         "a setup name is required",
     );
+    if definition.definition_schema_version == STATION_SETUP_DEFINITION_SCHEMA_VERSION {
+        match definition.laboratory_location_id.as_deref() {
+            Some(location_id) => require_id(&mut issues, location_id, "laboratory_location_id"),
+            None => push_validation(
+                &mut issues,
+                "station_setup_location_identity_required",
+                "laboratory_location_id",
+                "a stable laboratory location identifier is required",
+            ),
+        }
+    } else if definition.laboratory_location_id.is_some() {
+        push_validation(
+            &mut issues,
+            "legacy_station_setup_location_identity_forbidden",
+            "laboratory_location_id",
+            "legacy station definitions cannot carry the v2 location identity",
+        );
+    }
     require_text(
         &mut issues,
-        &definition.station_label,
-        "station_label",
-        "a station name is required",
+        &definition.laboratory_location_label,
+        "laboratory_location_label",
+        "a laboratory location label is required",
     );
     if !valid_date(&definition.planned_use_on) {
         push_validation(
@@ -715,7 +751,8 @@ mod tests {
             definition_schema_version: STATION_SETUP_DEFINITION_SCHEMA_VERSION.to_owned(),
             setup_id: "setup-rf-001".to_owned(),
             label: "Chaîne RF réception".to_owned(),
-            station_label: "Salle CEM 1".to_owned(),
+            laboratory_location_id: Some("LAB-LOCATION-CEM-1".to_owned()),
+            laboratory_location_label: "Salle CEM 1".to_owned(),
             planned_use_on: "2026-07-15".to_owned(),
             execution_mode: "accredited".to_owned(),
             asset_bindings: vec![
@@ -763,6 +800,23 @@ mod tests {
         let second = second.canonicalize().unwrap();
         assert_eq!(first.canonical_json, second.canonical_json);
         assert_eq!(first.definition_checksum, second.definition_checksum);
+    }
+
+    #[test]
+    fn legacy_definition_keeps_its_original_canonical_shape() {
+        let legacy_json = concat!(
+            "{\"asset_bindings\":[],\"connections\":[],\"correction_selections\":[],",
+            "\"definition_schema_version\":\"emc-locus.station-measurement-setup-definition.v1\",",
+            "\"execution_mode\":\"investigation\",\"label\":\"Montage historique\",",
+            "\"planned_use_on\":\"2026-07-16\",\"setup_id\":\"SETUP-LEGACY-001\",",
+            "\"station_label\":\"Ancien poste\"}"
+        );
+        let definition = StationMeasurementSetupDefinition::from_json_str(legacy_json).unwrap();
+        let canonical = definition.canonicalize().unwrap();
+
+        assert_eq!(canonical.canonical_json, legacy_json);
+        assert!(definition.laboratory_location_id.is_none());
+        assert_eq!(definition.laboratory_location_label, "Ancien poste");
     }
 
     #[test]

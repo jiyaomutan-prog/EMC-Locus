@@ -90,23 +90,21 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.21.0` was validated on 2026-07-15 with the CI-equivalent command
+Version `0.21.1` was validated on 2026-07-16 with the CI-equivalent command
 set. Its checks cover the same path as GitHub Actions: Rust format, Clippy,
 Rust tests, Python compile/tests, SQLite migration validation, LAB CONSOLE
 typecheck/lint/unit/build, versioned `dist` verification, Playwright E2E,
 release consistency, launcher smoke and whitespace checks. The commands were
 run directly with the bundled Node.js runtime available in the workspace.
-For `0.21.0`, Playwright adds the planned-test preparation workflow to the
+For `0.21.1`, Playwright closes the planned-test preparation workflow across the
 existing dossier, planning, method, equipment, station and metrology paths. It
-creates the required approved and ready evidence through public APIs, records
-a blocked assessment for a missing role, corrects the real-material assignment,
-records a ready revision, starts the slot and checks audit/outbox evidence.
-Blocked, ready and started states are captured and reviewed at exactly
-1440 x 900 and 1280 x 720. Rust tests cover the typed aggregate, immutable
-history, optimistic concurrency, deterministic replay, stale scheduling,
-dynamic start revalidation, atomic audit/outbox writes and real HTTP persistence
-after restart. Python tests cover the agent-backed client and retained
-repository compatibility paths.
+proves confirmation-first preparation, backend-filtered materials, blocked and
+ready immutable evidence, rescheduling and recheck, changed-proof start refusal,
+stable location identity and exact start audit evidence. The reviewed states
+are captured at exactly 1440 x 900 and 1280 x 720 under the 0.21.1 evidence
+directory. Rust tests cover the attached-database consistency boundary and
+typed compatibility decision; Python tests cover the agent-backed client and
+retained repository compatibility paths.
 
 The explicit command sequence is:
 
@@ -132,6 +130,7 @@ npm run test:e2e
 cd ..\..
 $env:PYTHONPATH='python'; py -m unittest python.tests.test_release_consistency
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-launchers.ps1 -SkipQtOffscreen
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\validate-historical-release-screenshots.ps1
 git diff --check
 git diff --cached --check
 ```

@@ -2,9 +2,10 @@ use crate::equipment_repository::{load_equipment_model_revision, open_equipment_
 use crate::metrology_repository::{load_instrument, open_metrology_connection};
 use crate::planned_test_preparation_dto::{
     PlannedTestPreparationAggregateDto, PlannedTestPreparationEnvelopeDto,
-    PlannedTestPreparationOperationResultDto, PlannedTestPreparationOptionsDto,
-    PlannedTestPreparationRevisionDto, PlannedTestPreparationRevisionEnvelopeDto,
-    PlannedTestPreparationRevisionListDto, PlannedTestPreparationStationOptionDto,
+    PlannedTestPreparationMaterialCompatibilityDto, PlannedTestPreparationOperationResultDto,
+    PlannedTestPreparationOptionsDto, PlannedTestPreparationRevisionDto,
+    PlannedTestPreparationRevisionEnvelopeDto, PlannedTestPreparationRevisionListDto,
+    PlannedTestPreparationStationOptionDto,
 };
 use crate::planned_test_preparation_repository::{
     ensure_planned_test_preparation_tables, insert_planned_test_preparation_identity_if_missing,
@@ -35,8 +36,9 @@ use crate::test_template_repository::{
 use crate::{render_json, AgentError};
 use emc_locus_core::test_definitions::{TemplateRevisionStatus, TestTemplateDefinition};
 use emc_locus_core::{
-    assess_planned_test_preparation, AuditActor, AuditReason, EquipmentModelDefinition,
-    PlannedTestInstrumentAssignment, PlannedTestPreparationAssessmentInput,
+    assess_planned_test_material_compatibility, assess_planned_test_preparation, AuditActor,
+    AuditReason, EquipmentModelDefinition, PlannedTestInstrumentAssignment,
+    PlannedTestMaterialCompatibility, PlannedTestPreparationAssessmentInput,
     PlannedTestPreparationDefinition, PlannedTestPreparationState, PlannedTestScheduleSnapshot,
     PreparedEquipmentCapabilitySnapshot, PreparedStationAssetSnapshot,
     PreparedStationCorrectionSnapshot, PreparedStationSetupSnapshot, PreparedTestMethodSnapshot,
@@ -233,12 +235,29 @@ pub fn list_planned_test_preparation_options(
                     .cmp(&right.station_setup.setup_id)
             })
     });
+    let material_compatibility = methods
+        .iter()
+        .flat_map(|method| {
+            station_setups.iter().map(move |station| {
+                PlannedTestPreparationMaterialCompatibilityDto {
+                    method_revision_id: method.revision_id.clone(),
+                    station_setup_revision_id: station.station_setup.revision_id.clone(),
+                    materials: assess_planned_test_material_compatibility(
+                        method,
+                        &station.station_setup,
+                        &station.readiness,
+                    ),
+                }
+            })
+        })
+        .collect();
 
     Ok(render_json(&PlannedTestPreparationOptionsDto {
         project_code: project_code.to_owned(),
         schedule_item_code: schedule_item_code.to_owned(),
         methods,
         station_setups,
+        material_compatibility,
     }))
 }
 
@@ -288,6 +307,10 @@ pub fn assess_planned_test_preparation_for_schedule(
     let mut projects = open_project_connection(storage_root)?;
     ensure_service_schedule_table(&projects)?;
     ensure_planned_test_preparation_tables(&projects)?;
+    let project = load_project(&projects, &input.project_code)?
+        .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
+    let schedule = load_owned_schedule(&projects, &input.project_code, &input.schedule_item_code)?;
+    ensure_schedule_is_preparable(&schedule)?;
     if let Some(revision) =
         load_planned_test_preparation_operation(&projects, &input.context.operation_id)?
     {
@@ -304,10 +327,6 @@ pub fn assess_planned_test_preparation_for_schedule(
         ));
     }
 
-    let project = load_project(&projects, &input.project_code)?
-        .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
-    let schedule = load_owned_schedule(&projects, &input.project_code, &input.schedule_item_code)?;
-    ensure_schedule_is_preparable(&schedule)?;
     if schedule.revision != input.expected_schedule_revision {
         return Err(AgentError::with_details(
             "planned_test_schedule_concurrent_update",
@@ -356,6 +375,9 @@ pub fn assess_planned_test_preparation_for_schedule(
         &schedule.planned_start_at,
         &project.execution_mode,
     )?;
+    let material_compatibility =
+        assess_planned_test_material_compatibility(&method, &station.snapshot, &station.readiness);
+    ensure_assignments_are_compatible(&input.assignments, &material_compatibility)?;
     let schedule_snapshot = schedule_snapshot(&schedule, &project.execution_mode)?;
     let definition = assess_planned_test_preparation(PlannedTestPreparationAssessmentInput {
         schedule: schedule_snapshot,
@@ -489,35 +511,75 @@ pub fn assess_planned_test_preparation_for_schedule(
     operation_result(&projects, &schedule, &input.context.operation_id, false)
 }
 
+fn ensure_assignments_are_compatible(
+    assignments: &[PlannedTestInstrumentAssignment],
+    compatibility: &[PlannedTestMaterialCompatibility],
+) -> Result<(), AgentError> {
+    let incompatible = assignments
+        .iter()
+        .filter_map(|assignment| {
+            compatibility.iter().find(|candidate| {
+                candidate.slot_id == assignment.slot_id
+                    && candidate.binding_id == assignment.binding_id
+                    && !candidate.compatible
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if incompatible.is_empty() {
+        Ok(())
+    } else {
+        Err(AgentError::with_details(
+            "planned_test_material_incompatible",
+            "one or more assigned materials are incompatible with the selected method role",
+            json!({ "incompatible_assignments": incompatible }),
+        ))
+    }
+}
+
 pub(crate) fn require_planned_test_preparation_for_start(
     storage_root: &Path,
+    projects: &rusqlite::Connection,
     project_code: &str,
     schedule_item_code: &str,
     schedule_revision: u64,
+    expected_preparation_revision_id: &str,
+    expected_preparation_checksum: &str,
 ) -> Result<PlannedTestPreparationStartEvidence, AgentError> {
-    let projects = open_project_connection(storage_root)?;
-    ensure_planned_test_preparation_tables(&projects)?;
-    let project = load_project(&projects, project_code)?
+    ensure_planned_test_preparation_tables(projects)?;
+    let project = load_project(projects, project_code)?
         .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
-    let schedule = load_owned_schedule(&projects, project_code, schedule_item_code)?;
+    let schedule = load_owned_schedule(projects, project_code, schedule_item_code)?;
     if schedule.revision != schedule_revision {
         return Err(AgentError::new(
             "planned_test_preparation_stale",
             "the scheduled test changed after the start request was prepared",
         ));
     }
-    let stored = load_current_planned_test_preparation_revision(
-        &projects,
-        project_code,
-        schedule_item_code,
-    )?
-    .ok_or_else(|| {
-        AgentError::with_details(
-            "planned_test_preparation_required",
-            "prepare this scheduled test before starting it",
-            json!({ "schedule_item_code": schedule_item_code }),
-        )
-    })?;
+    let stored =
+        load_current_planned_test_preparation_revision(projects, project_code, schedule_item_code)?
+            .ok_or_else(|| {
+                AgentError::with_details(
+                    "planned_test_preparation_required",
+                    "prepare this scheduled test before starting it",
+                    json!({ "schedule_item_code": schedule_item_code }),
+                )
+            })?;
+    if stored.revision_id != expected_preparation_revision_id
+        || stored.definition_checksum != expected_preparation_checksum
+    {
+        return Err(AgentError::with_details(
+            "planned_test_preparation_changed_before_start",
+            "La préparation de l'essai a changé pendant le démarrage. Vérifiez-la de nouveau.",
+            json!({
+                "schedule_item_code": schedule_item_code,
+                "expected_preparation_revision_id": expected_preparation_revision_id,
+                "actual_preparation_revision_id": &stored.revision_id,
+                "expected_preparation_checksum": expected_preparation_checksum,
+                "actual_preparation_checksum": &stored.definition_checksum,
+            }),
+        ));
+    }
     let definition = validated_stored_definition(&stored)?;
     if definition.schedule.revision != schedule_revision {
         return Err(AgentError::with_details(
@@ -816,7 +878,8 @@ fn station_snapshot(
         revision_status: status,
         definition_checksum: revision.definition_checksum.clone(),
         label: definition.label.clone(),
-        station_label: definition.station_label.clone(),
+        laboratory_location_id: definition.laboratory_location_id.clone(),
+        laboratory_location_label: definition.laboratory_location_label.clone(),
         planned_use_on: definition.planned_use_on.clone(),
         execution_mode: definition.execution_mode.clone(),
         assets,
@@ -844,7 +907,8 @@ fn schedule_snapshot(
         planned_start_at: schedule.planned_start_at.clone(),
         planned_end_at: schedule.planned_end_at.clone(),
         assigned_operator: schedule.assigned_operator.clone(),
-        location: schedule.location.clone(),
+        laboratory_location_id: schedule.laboratory_location_id.clone(),
+        laboratory_location_label: schedule.laboratory_location_label.clone(),
         equipment_under_test: schedule.equipment_under_test.clone(),
         execution_mode: execution_mode.to_owned(),
         status: schedule.to_domain()?.status(),
@@ -915,7 +979,9 @@ fn stored_revision_dto(
 ) -> Result<PlannedTestPreparationRevisionDto, AgentError> {
     let definition = validated_stored_definition(stored)?;
     let is_current = current_revision_id == Some(stored.revision_id.as_str());
-    let effective_state = if is_current {
+    let effective_state = if is_current && current_status == ServiceScheduleStatus::Planned {
+        "inapplicable".to_owned()
+    } else if is_current {
         preparation_state_text(definition.effective_state(current_schedule_revision)).to_owned()
     } else {
         "historical".to_owned()
@@ -1009,17 +1075,18 @@ fn load_owned_schedule(
 
 fn ensure_schedule_is_preparable(schedule: &StoredServiceScheduleItem) -> Result<(), AgentError> {
     let status = schedule.to_domain()?.status();
-    if matches!(
-        status,
-        ServiceScheduleStatus::Planned | ServiceScheduleStatus::Confirmed
-    ) {
-        Ok(())
-    } else {
-        Err(AgentError::with_details(
-            "planned_test_schedule_not_preparable",
-            "only a planned or confirmed scheduled test can be prepared",
+    match status {
+        ServiceScheduleStatus::Confirmed => Ok(()),
+        ServiceScheduleStatus::Planned => Err(AgentError::with_details(
+            "planned_test_schedule_not_confirmed",
+            "Confirmez le créneau avant de préparer l'essai.",
             json!({ "status": status.as_str() }),
-        ))
+        )),
+        _ => Err(AgentError::with_details(
+            "planned_test_schedule_not_preparable",
+            "only a confirmed scheduled test can be prepared",
+            json!({ "status": status.as_str() }),
+        )),
     }
 }
 
@@ -1171,7 +1238,9 @@ mod tests {
         register_metrology_instrument, MetrologyOperationContext, RegisterInstrumentInput,
     };
     use crate::service_schedule_service::{
-        transition_service_schedule_item, TransitionServiceScheduleItemInput,
+        identify_service_schedule_location, set_start_consistency_test_action,
+        transition_service_schedule_item, IdentifyServiceScheduleLocationInput,
+        StartConsistencyTestAction, TransitionServiceScheduleItemInput,
     };
     use crate::{run_storage_action, StorageAction};
     use emc_locus_core::equipment::{
@@ -1229,9 +1298,20 @@ mod tests {
             Value::String("planned_test_required_role_unassigned".to_owned())
         );
 
-        let start_error =
-            transition_service_schedule_item(&storage_root, start_input("op-start-blocked", 1))
-                .unwrap_err();
+        let start_error = transition_service_schedule_item(
+            &storage_root,
+            start_input(
+                "op-start-blocked",
+                1,
+                blocked["preparation"]["current_revision"]["revision_id"]
+                    .as_str()
+                    .unwrap(),
+                blocked["preparation"]["current_revision"]["definition_checksum"]
+                    .as_str()
+                    .unwrap(),
+            ),
+        )
+        .unwrap_err();
         assert_eq!(start_error.code, "planned_test_preparation_not_ready");
 
         let ready_input = assessment_input(
@@ -1267,11 +1347,104 @@ mod tests {
         assert_eq!(revisions["revisions"][1]["recorded_state"], "blocked");
         assert_eq!(revisions["revisions"][1]["effective_state"], "historical");
 
-        let started =
-            transition_service_schedule_item(&storage_root, start_input("op-start-ready", 1))
-                .unwrap();
+        let ready_revision_id = ready["preparation"]["current_revision"]["revision_id"]
+            .as_str()
+            .unwrap();
+        let ready_checksum = ready["preparation"]["current_revision"]["definition_checksum"]
+            .as_str()
+            .unwrap();
+
+        set_start_consistency_test_action(StartConsistencyTestAction::InstallBlockedPreparation {
+            source_revision_id: "PLAN-PREP-001-prep-rev-0001".to_owned(),
+            new_revision_id: "PLAN-PREP-001-prep-rev-race".to_owned(),
+        });
+        let preparation_race = transition_service_schedule_item(
+            &storage_root,
+            start_input(
+                "op-start-preparation-race",
+                1,
+                ready_revision_id,
+                ready_checksum,
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(
+            preparation_race.code,
+            "planned_test_preparation_changed_before_start"
+        );
+
+        set_start_consistency_test_action(StartConsistencyTestAction::PointToPreparation {
+            revision_id: "PLAN-PREP-001-prep-rev-0001".to_owned(),
+        });
+        let pointer_race = transition_service_schedule_item(
+            &storage_root,
+            start_input(
+                "op-start-pointer-race",
+                1,
+                ready_revision_id,
+                ready_checksum,
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(
+            pointer_race.code,
+            "planned_test_preparation_changed_before_start"
+        );
+
+        set_start_consistency_test_action(StartConsistencyTestAction::AdvanceScheduleRevision);
+        let schedule_race = transition_service_schedule_item(
+            &storage_root,
+            start_input(
+                "op-start-schedule-race",
+                1,
+                ready_revision_id,
+                ready_checksum,
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(schedule_race.code, "service_schedule_concurrent_update");
+
+        let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        let unchanged: (String, u64, String) = projects
+            .query_row(
+                concat!(
+                    "SELECT s.status, s.revision, i.current_revision_id ",
+                    "FROM service_schedule_items s ",
+                    "JOIN planned_test_preparation_identities i ON i.schedule_item_code = s.item_code ",
+                    "WHERE s.item_code = ?1"
+                ),
+                params![ITEM_CODE],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            unchanged,
+            ("confirmed".to_owned(), 1, ready_revision_id.to_owned())
+        );
+        let race_revision_count: u64 = projects
+            .query_row(
+                "SELECT COUNT(*) FROM planned_test_preparation_revisions WHERE revision_id = 'PLAN-PREP-001-prep-rev-race'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(race_revision_count, 0);
+        drop(projects);
+
+        let start_input = start_input("op-start-ready", 1, ready_revision_id, ready_checksum);
+        set_start_consistency_test_action(StartConsistencyTestAction::AssertReadinessWritersLocked);
+        let started = transition_service_schedule_item(&storage_root, start_input.clone()).unwrap();
         let started: Value = serde_json::from_str(&started).unwrap();
         assert_eq!(started["schedule_item"]["status"], "in_progress");
+
+        let replayed =
+            transition_service_schedule_item(&storage_root, start_input.clone()).unwrap();
+        let replayed: Value = serde_json::from_str(&replayed).unwrap();
+        assert_eq!(replayed["replayed"], true);
+        let mut mismatched = start_input;
+        mismatched.expected_preparation_checksum = Some(format!("sha256:{}", "f".repeat(64)));
+        let mismatch = transition_service_schedule_item(&storage_root, mismatched).unwrap_err();
+        assert_eq!(mismatch.code, "operation_replay_mismatch");
 
         let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
         let preparation_audit: u64 = projects
@@ -1294,6 +1467,10 @@ mod tests {
             start_payload["planned_test_preparation"]["revision_id"],
             "PLAN-PREP-001-prep-rev-0002"
         );
+        assert_eq!(
+            start_payload["planned_test_preparation"]["definition_checksum"],
+            ready_checksum
+        );
         drop(projects);
 
         let sync = Connection::open(storage_root.join("sync.sqlite")).unwrap();
@@ -1305,6 +1482,22 @@ mod tests {
             )
             .unwrap();
         assert_eq!(preparation_outbox, 2);
+        let start_outbox_payload: String = sync
+            .query_row(
+                "SELECT payload_json FROM sync_operations WHERE operation_id = 'op-start-ready'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let start_outbox_payload: Value = serde_json::from_str(&start_outbox_payload).unwrap();
+        assert_eq!(
+            start_outbox_payload["expected_preparation_revision_id"],
+            ready_revision_id
+        );
+        assert_eq!(
+            start_outbox_payload["expected_preparation_checksum"],
+            ready_checksum
+        );
         drop(sync);
 
         let historical = get_planned_test_preparation_revision_json(
@@ -1366,6 +1559,238 @@ mod tests {
         remove_temporary_storage_root(&storage_root);
     }
 
+    #[test]
+    fn identifying_a_historical_location_makes_prior_preparation_stale() {
+        let storage_root = prepared_storage("planned-test-location-identification-stale");
+        assess_planned_test_preparation_for_schedule(
+            &storage_root,
+            assessment_input("op-prep-before-location-identification", None, Vec::new()),
+        )
+        .unwrap();
+        let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        projects
+            .execute(
+                concat!(
+                    "UPDATE service_schedule_items SET laboratory_location_id = NULL, ",
+                    "laboratory_location_label = 'Ancien poste CEM', location = 'Ancien poste CEM' ",
+                    "WHERE item_code = ?1"
+                ),
+                [ITEM_CODE],
+            )
+            .unwrap();
+        drop(projects);
+
+        identify_service_schedule_location(
+            &storage_root,
+            IdentifyServiceScheduleLocationInput {
+                project_code: PROJECT_CODE.to_owned(),
+                item_code: ITEM_CODE.to_owned(),
+                laboratory_location_id: "LAB-PREP-STABLE".to_owned(),
+                laboratory_location_label: "Poste CEM préparation".to_owned(),
+                expected_revision: 1,
+                actor: "responsable.laboratoire".to_owned(),
+                reason: "Identification du lieu historique".to_owned(),
+                operation_id: "op-prep-identify-location".to_owned(),
+                correlation_id: "corr-prep-identify-location".to_owned(),
+                device_id: "lab-console".to_owned(),
+            },
+        )
+        .unwrap();
+
+        let aggregate =
+            get_planned_test_preparation(&storage_root, PROJECT_CODE, ITEM_CODE).unwrap();
+        let aggregate: Value = serde_json::from_str(&aggregate).unwrap();
+        assert_eq!(aggregate["preparation"]["current_state"], "stale");
+        let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        let schedule_revision: u64 = projects
+            .query_row(
+                "SELECT revision FROM service_schedule_items WHERE item_code = ?1",
+                [ITEM_CODE],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(schedule_revision, 2);
+        drop(projects);
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn planned_schedule_requires_confirmation_and_keeps_prior_evidence_inapplicable() {
+        let storage_root = prepared_storage("planned-test-confirmation-gate");
+        assess_planned_test_preparation_for_schedule(
+            &storage_root,
+            assessment_input("op-prep-before-planned", None, Vec::new()),
+        )
+        .unwrap();
+
+        let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        projects
+            .execute(
+                "UPDATE service_schedule_items SET status = 'planned' WHERE item_code = ?1",
+                [ITEM_CODE],
+            )
+            .unwrap();
+        let audit_count_before: u64 = projects
+            .query_row(
+                "SELECT COUNT(*) FROM project_audit_events WHERE project_code = ?1",
+                [PROJECT_CODE],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(projects);
+
+        let aggregate =
+            get_planned_test_preparation(&storage_root, PROJECT_CODE, ITEM_CODE).unwrap();
+        let aggregate: Value = serde_json::from_str(&aggregate).unwrap();
+        assert_eq!(aggregate["preparation"]["current_state"], "inapplicable");
+        assert_eq!(aggregate["preparation"]["can_start"], false);
+        assert_eq!(aggregate["preparation"]["revision_count"], 1);
+        assert_eq!(
+            aggregate["preparation"]["current_revision"]["effective_state"],
+            "inapplicable"
+        );
+
+        let options_error =
+            list_planned_test_preparation_options(&storage_root, PROJECT_CODE, ITEM_CODE)
+                .unwrap_err();
+        assert_eq!(options_error.code, "planned_test_schedule_not_confirmed");
+        assert_eq!(
+            options_error.message,
+            "Confirmez le créneau avant de préparer l'essai."
+        );
+
+        let assessment_error = assess_planned_test_preparation_for_schedule(
+            &storage_root,
+            assessment_input(
+                "op-prep-on-planned",
+                Some("PLAN-PREP-001-prep-rev-0001"),
+                Vec::new(),
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(assessment_error.code, "planned_test_schedule_not_confirmed");
+        let replay_error = assess_planned_test_preparation_for_schedule(
+            &storage_root,
+            assessment_input("op-prep-before-planned", None, Vec::new()),
+        )
+        .unwrap_err();
+        assert_eq!(replay_error.code, "planned_test_schedule_not_confirmed");
+
+        let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        let persisted: (String, u64, u64) = projects
+            .query_row(
+                concat!(
+                    "SELECT s.status, ",
+                    "(SELECT COUNT(*) FROM planned_test_preparation_revisions), ",
+                    "(SELECT COUNT(*) FROM project_audit_events WHERE project_code = ?1) ",
+                    "FROM service_schedule_items s WHERE s.item_code = ?2"
+                ),
+                params![PROJECT_CODE, ITEM_CODE],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(persisted, ("planned".to_owned(), 1, audit_count_before));
+        drop(projects);
+        let sync = Connection::open(storage_root.join("sync.sqlite")).unwrap();
+        let outbox_count: u64 = sync
+            .query_row(
+                "SELECT COUNT(*) FROM sync_operations WHERE entity_type = 'planned_test_preparation'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(outbox_count, 1);
+        drop(sync);
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn compatibility_options_and_submission_reject_incompatible_or_external_materials() {
+        let storage_root = prepared_storage("planned-test-material-compatibility");
+        replace_method_required_category(&storage_root, "rf_signal_generator");
+
+        let options =
+            list_planned_test_preparation_options(&storage_root, PROJECT_CODE, ITEM_CODE).unwrap();
+        let options: Value = serde_json::from_str(&options).unwrap();
+        let matrix = options["material_compatibility"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| {
+                entry["method_revision_id"] == METHOD_REVISION_ID
+                    && entry["station_setup_revision_id"] == SETUP_REVISION_ID
+            })
+            .unwrap();
+        let materials = matrix["materials"].as_array().unwrap();
+        assert_eq!(materials.len(), 2);
+        assert!(materials
+            .iter()
+            .all(|material| material["compatible"] == false));
+        assert!(materials
+            .iter()
+            .all(|material| material["reason"].as_str().unwrap().contains("catégorie")));
+
+        let incompatible = assess_planned_test_preparation_for_schedule(
+            &storage_root,
+            assessment_input(
+                "op-prep-incompatible",
+                None,
+                vec![PlannedTestInstrumentAssignment {
+                    slot_id: SLOT_ID.to_owned(),
+                    binding_id: BINDING_ID.to_owned(),
+                }],
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(incompatible.code, "planned_test_material_incompatible");
+        assert_eq!(
+            incompatible.details.as_ref().unwrap()["incompatible_assignments"][0]["binding_id"],
+            BINDING_ID
+        );
+
+        let outside_setup = assess_planned_test_preparation_for_schedule(
+            &storage_root,
+            assessment_input(
+                "op-prep-outside-setup",
+                None,
+                vec![PlannedTestInstrumentAssignment {
+                    slot_id: SLOT_ID.to_owned(),
+                    binding_id: "external-binding".to_owned(),
+                }],
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(outside_setup.code, "invalid_planned_test_preparation");
+
+        let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        let persisted: (u64, u64) = projects
+            .query_row(
+                concat!(
+                    "SELECT (SELECT COUNT(*) FROM planned_test_preparation_revisions), ",
+                    "(SELECT COUNT(*) FROM project_audit_events WHERE action = ?1)"
+                ),
+                [PREPARATION_OPERATION],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(persisted, (0, 0));
+        drop(projects);
+        let sync = Connection::open(storage_root.join("sync.sqlite")).unwrap();
+        let outbox_count: u64 = sync
+            .query_row(
+                "SELECT COUNT(*) FROM sync_operations WHERE entity_type = 'planned_test_preparation'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(outbox_count, 0);
+        drop(sync);
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
     fn assessment_input(
         operation_id: &str,
         expected_current_revision_id: Option<&str>,
@@ -1394,12 +1819,16 @@ mod tests {
     fn start_input(
         operation_id: &str,
         expected_revision: u64,
+        expected_preparation_revision_id: &str,
+        expected_preparation_checksum: &str,
     ) -> TransitionServiceScheduleItemInput {
         TransitionServiceScheduleItemInput {
             project_code: PROJECT_CODE.to_owned(),
             item_code: ITEM_CODE.to_owned(),
             target_status: "in_progress".to_owned(),
             expected_revision,
+            expected_preparation_revision_id: Some(expected_preparation_revision_id.to_owned()),
+            expected_preparation_checksum: Some(expected_preparation_checksum.to_owned()),
             actor: "operateur.cem".to_owned(),
             reason: "Démarrage de l'essai préparé".to_owned(),
             operation_id: operation_id.to_owned(),
@@ -1464,9 +1893,11 @@ mod tests {
                 concat!(
                     "INSERT INTO service_schedule_items (item_code, project_code, title, ",
                     "planned_start_at, planned_end_at, assigned_operator, location, ",
+                    "laboratory_location_id, laboratory_location_label, ",
                     "equipment_under_test, status, created_at, updated_at, revision, created_by, updated_by) ",
                     "VALUES (?1, ?2, 'Émission conduite', '2026-07-16T09:00', ",
-                    "'2026-07-16T12:00', 'Alice Martin', 'Poste CEM 1', 'Calculateur Atlas', ",
+                    "'2026-07-16T12:00', 'Alice Martin', 'Poste CEM 1', ",
+                    "'LAB-LOCATION-CEM-1', 'Poste CEM 1', 'Calculateur Atlas', ",
                     "'confirmed', ?3, ?3, 1, 'planificateur', 'planificateur')"
                 ),
                 params![ITEM_CODE, PROJECT_CODE, "2026-07-15T08:00:00Z"],
@@ -1549,6 +1980,33 @@ mod tests {
                     canonical.canonical_json,
                     canonical.definition_checksum,
                     "2026-07-15T08:00:00Z"
+                ],
+            )
+            .unwrap();
+    }
+
+    fn replace_method_required_category(storage_root: &Path, category_code: &str) {
+        let connection = Connection::open(storage_root.join("test_definitions.sqlite")).unwrap();
+        let definition_json: String = connection
+            .query_row(
+                "SELECT definition_json FROM test_template_revisions WHERE revision_id = ?1",
+                [METHOD_REVISION_ID],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut definition = TestTemplateDefinition::from_json_str(&definition_json).unwrap();
+        definition.instrumentation_chain[0].required_category = Some(category_code.to_owned());
+        let canonical = definition.canonicalize().unwrap();
+        connection
+            .execute(
+                concat!(
+                    "UPDATE test_template_revisions SET definition_json = ?1, ",
+                    "definition_checksum = ?2 WHERE revision_id = ?3"
+                ),
+                params![
+                    canonical.canonical_json,
+                    canonical.definition_checksum,
+                    METHOD_REVISION_ID
                 ],
             )
             .unwrap();
@@ -1698,7 +2156,8 @@ mod tests {
             definition_schema_version: STATION_SETUP_DEFINITION_SCHEMA_VERSION.to_owned(),
             setup_id: SETUP_ID.to_owned(),
             label: "Chaîne émission conduite".to_owned(),
-            station_label: "Poste CEM 1".to_owned(),
+            laboratory_location_id: Some("LAB-LOCATION-CEM-1".to_owned()),
+            laboratory_location_label: "Poste CEM 1".to_owned(),
             planned_use_on: "2026-07-16".to_owned(),
             execution_mode: "investigation".to_owned(),
             asset_bindings: vec![

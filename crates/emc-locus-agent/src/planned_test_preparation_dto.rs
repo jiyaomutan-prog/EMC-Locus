@@ -1,6 +1,6 @@
 use emc_locus_core::{
-    PlannedTestPreparationDefinition, PreparedStationSetupSnapshot, PreparedTestMethodSnapshot,
-    StationSetupReadiness,
+    PlannedTestMaterialCompatibility, PlannedTestPreparationDefinition,
+    PreparedStationSetupSnapshot, PreparedTestMethodSnapshot, StationSetupReadiness,
 };
 use serde::Serialize;
 
@@ -64,9 +64,17 @@ pub(crate) struct PlannedTestPreparationStationOptionDto {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub(crate) struct PlannedTestPreparationMaterialCompatibilityDto {
+    pub(crate) method_revision_id: String,
+    pub(crate) station_setup_revision_id: String,
+    pub(crate) materials: Vec<PlannedTestMaterialCompatibility>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct PlannedTestPreparationOptionsDto {
     pub(crate) project_code: String,
     pub(crate) schedule_item_code: String,
     pub(crate) methods: Vec<PreparedTestMethodSnapshot>,
     pub(crate) station_setups: Vec<PlannedTestPreparationStationOptionDto>,
+    pub(crate) material_compatibility: Vec<PlannedTestPreparationMaterialCompatibilityDto>,
 }

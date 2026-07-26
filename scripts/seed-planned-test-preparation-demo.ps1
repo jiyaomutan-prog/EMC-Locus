@@ -207,7 +207,8 @@ function Ensure-ReadyStation {
         $created = Invoke-EmcApi -Method POST -Path "/api/v1/station-setups" -Body ([ordered]@{
             setup_id = $setupId
             label = "Chaine RF de verification"
-            station_label = "Poste CEM 1"
+            laboratory_location_id = "LAB-LOCATION-DEMO-CEM-1"
+            laboratory_location_label = "Poste CEM 1"
             planned_use_on = "2026-07-16"
             execution_mode = "investigation"
             actor = "demo.technician"
@@ -225,10 +226,11 @@ function Ensure-ReadyStation {
 
     $draft = $setup.active_draft_revision
     $definition = [ordered]@{
-        definition_schema_version = "emc-locus.station-measurement-setup-definition.v1"
+        definition_schema_version = "emc-locus.station-measurement-setup-definition.v2"
         setup_id = $setupId
         label = "Chaine RF de verification"
-        station_label = "Poste CEM 1"
+        laboratory_location_id = "LAB-LOCATION-DEMO-CEM-1"
+        laboratory_location_label = "Poste CEM 1"
         planned_use_on = "2026-07-16"
         execution_mode = "investigation"
         asset_bindings = @(
@@ -310,7 +312,8 @@ function Ensure-ProjectAndSchedule {
             planned_start_at = "2026-07-16T09:00"
             planned_end_at = "2026-07-16T12:00"
             assigned_operator = "Alice Martin"
-            location = "Poste CEM 1"
+            laboratory_location_id = "LAB-LOCATION-DEMO-CEM-1"
+            laboratory_location_label = "Poste CEM 1"
             equipment_under_test = "Convertisseur Horizon HCU-4"
             notes = "Preparation metrologique requise avant demarrage."
             actor = "demo.project.lead"

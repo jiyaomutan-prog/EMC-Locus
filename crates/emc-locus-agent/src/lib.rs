@@ -111,9 +111,10 @@ use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
 pub use service_schedule_service::{
-    create_service_schedule_item, list_laboratory_week_schedule,
-    list_project_service_schedule_items, reschedule_service_schedule_item,
-    transition_service_schedule_item, CreateServiceScheduleItemInput,
+    create_service_schedule_item, identify_service_schedule_location,
+    list_laboratory_week_schedule, list_project_service_schedule_items,
+    reschedule_service_schedule_item, transition_service_schedule_item,
+    CreateServiceScheduleItemInput, IdentifyServiceScheduleLocationInput,
     RescheduleServiceScheduleItemInput, TransitionServiceScheduleItemInput,
 };
 use sqlite_policy::{initialize_project_slice_journal_mode, journal_mode, AttachedDatabase};
@@ -936,7 +937,7 @@ mod tests {
                 .find(|domain| domain.domain == "projects")
                 .unwrap()
                 .schema_version,
-            Some(7)
+            Some(8)
         );
         assert_eq!(
             second_report
@@ -981,7 +982,7 @@ mod tests {
                 .find(|domain| domain.domain == "station_configurations")
                 .unwrap()
                 .schema_version,
-            Some(1)
+            Some(2)
         );
 
         remove_temporary_storage_root(&storage_root);
@@ -1034,14 +1035,23 @@ mod tests {
         let report =
             run_storage_action(StorageAction::Init, storage_root.clone(), migrations_root).unwrap();
         let connection = Connection::open(projects_database).unwrap();
-        let migrated: (u64, String, String) = connection
+        let migrated: (u64, String, String, Option<String>, String) = connection
             .query_row(
                 concat!(
-                    "SELECT revision, created_by, updated_by FROM service_schedule_items ",
+                    "SELECT revision, created_by, updated_by, laboratory_location_id, ",
+                    "laboratory_location_label FROM service_schedule_items ",
                     "WHERE item_code = 'PLAN-LEGACY-001'"
                 ),
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
             )
             .unwrap();
 
@@ -1052,11 +1062,17 @@ mod tests {
                 .find(|domain| domain.domain == "projects")
                 .unwrap()
                 .schema_version,
-            Some(7)
+            Some(8)
         );
         assert_eq!(
             migrated,
-            (1, "legacy-import".to_owned(), "legacy-import".to_owned())
+            (
+                1,
+                "legacy-import".to_owned(),
+                "legacy-import".to_owned(),
+                None,
+                "Lab 1".to_owned(),
+            )
         );
         drop(connection);
         remove_temporary_storage_root(&storage_root);

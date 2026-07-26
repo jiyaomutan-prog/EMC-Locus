@@ -101,6 +101,9 @@ try {
 
     $env:PYTHONPATH = "python"
     Invoke-External -Label "Check release consistency" -FilePath "py" -Arguments @("-m", "unittest", "python.tests.test_release_consistency")
+    Invoke-PowerShellScript `
+        -Label "Check historical release screenshots" `
+        -ScriptPath (Join-Path $RepoRoot "scripts\validate-historical-release-screenshots.ps1")
 
     if (-not $SkipSmoke) {
         Invoke-PowerShellScript -Label "Run launcher smoke" -ScriptPath (Join-Path $RepoRoot "scripts\smoke-launchers.ps1") -Arguments @("-SkipQtOffscreen")

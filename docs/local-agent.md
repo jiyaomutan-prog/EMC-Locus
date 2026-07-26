@@ -82,7 +82,9 @@ Release `0.19.0` moves the first service-planning write path behind the Local
 Agent. Release `0.20.0` adds a laboratory-wide weekly projection and a
 controlled move while keeping every write under its owning dossier. Release
 `0.21.0` adds the revisioned technical preparation required before a confirmed
-slot may start. LAB CONSOLE and Python clients use:
+slot may start. Release `0.21.1` closes the workflow so a slot must first be
+confirmed before its preparation options can be read or a new assessment can
+be recorded. LAB CONSOLE and Python clients use:
 
 ```text
 GET  /api/v1/projects/{project_code}/schedule-items
@@ -114,13 +116,23 @@ or outbox evidence.
 
 Preparation options are assembled by the agent from approved test-method
 revisions, ready physical station-setup revisions, their real materials and the
-current metrology evidence. An assessment request sends only the selected
-method, setup, role assignments and command metadata. The agent freezes the
+current metrology evidence. For each method/setup pair, the response includes a
+typed `material_compatibility` decision for every role/material pair, with a
+French reason and next action when incompatible. Category, capability,
+substitution, serviceability and applicable metrology requirements are decided
+by the core; clients must not duplicate these rules. An assessment request
+sends only the selected method, setup, role assignments and command metadata.
+The agent rejects incompatible or external assignments independently before it
+freezes the
 resolved evidence in an immutable preparation revision and writes the project
 audit plus sync outbox operation atomically. A blocked assessment is valid
-persisted evidence. The `start` transition dynamically rechecks the current
-ready revision; a missing, blocked, stale or no-longer-applicable preparation
-returns a structured conflict and leaves the slot unchanged.
+persisted evidence. Both the options and assessment routes require the schedule
+status `confirmed`; a `planned` slot returns
+`planned_test_schedule_not_confirmed` without a new revision, audit or outbox
+operation. Preparation revisions created by `0.21.0` for a `planned` slot remain
+readable as inapplicable history. The `start` transition dynamically rechecks
+the current ready revision; a missing, blocked, stale or no-longer-applicable
+preparation returns a structured conflict and leaves the slot unchanged.
 
 ## Metrology Registry Commands
 
@@ -235,6 +247,7 @@ GET  /api/v1/service-schedule?week_start=YYYY-MM-DD
 GET  /api/v1/projects/{code}/schedule-items
 POST /api/v1/projects/{code}/schedule-items
 POST /api/v1/projects/{code}/schedule-items/{item_code}/reschedule
+POST /api/v1/projects/{code}/schedule-items/{item_code}/location-identification
 POST /api/v1/projects/{code}/schedule-items/{item_code}/transitions/{action}
 GET  /api/v1/projects/{code}/audit-events
 GET  /api/v1/projects/{code}/test-executions
@@ -407,6 +420,13 @@ and transition schedule items, inspect preparation options and revisions, and
 request a new assessment without opening `projects.sqlite`. Planning and
 preparation writes commit their domain record, project audit event and pending
 sync outbox operation atomically.
+
+The 0.21.1 external-review correction also routes historical location
+identification through the agent. Overlapping active rows with no stable
+location identity block conservatively; labels are never promoted to IDs. The
+dedicated optimistic mutation preserves the schedule context, increments its
+revision and writes `service_schedule_item_location_identified` audit/outbox
+evidence with the previous readable label.
 
 The Qt console accepts:
 

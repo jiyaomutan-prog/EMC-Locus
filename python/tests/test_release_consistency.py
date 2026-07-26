@@ -28,6 +28,9 @@ class ReleaseConsistencyTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
+        lab_app_version = (ROOT / "apps" / "lab-console" / "src" / "version.ts").read_text(
+            encoding="utf-8"
+        )
         lock_text = (ROOT / "Cargo.lock").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         revision_control = (ROOT / "docs" / "revision-control.md").read_text(
@@ -44,7 +47,12 @@ class ReleaseConsistencyTests(unittest.TestCase):
         self.assertEqual(lab_package["version"], version)
         self.assertEqual(lab_package_lock["version"], version)
         self.assertEqual(lab_package_lock["packages"][""]["version"], version)
+        self.assertIn(f'APP_VERSION = "{version}"', lab_app_version)
         self.assertIn(f"Current software version: `{version}`.", readme)
+        self.assertTrue(
+            (ROOT / "docs" / "releases" / f"{version}.md").is_file(),
+            "the current release must have a dedicated release note",
+        )
         self.assertIn(f"Version `{version}` was validated", revision_control)
         self.assertNotIn("pnpm", readme.lower())
         self.assertNotIn("pnpm", lab_readme.lower())

@@ -346,12 +346,15 @@ function rfThroughPort(portId: string, label: string) {
 
 async function captureAtDesktopSizes(page: Page, name: string) {
   const directory = path.resolve(process.cwd(), "../../docs/ux/0.18.0/screenshots");
-  await mkdir(directory, { recursive: true });
+  const refreshHistorical = process.env.EMC_LOCUS_REFRESH_HISTORICAL_SCREENSHOTS === "1";
+  if (refreshHistorical) await mkdir(directory, { recursive: true });
   for (const viewport of screenshotViewports) {
     await page.setViewportSize(viewport);
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.waitForTimeout(80);
     const image = await page.screenshot({ animations: "disabled", fullPage: false });
-    await writeFile(path.join(directory, `${name}-${viewport.width}x${viewport.height}.png`), image);
+    if (refreshHistorical) {
+      await writeFile(path.join(directory, `${name}-${viewport.width}x${viewport.height}.png`), image);
+    }
   }
 }

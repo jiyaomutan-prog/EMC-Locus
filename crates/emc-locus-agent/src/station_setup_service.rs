@@ -48,7 +48,8 @@ pub struct StationOperationContext {
 pub struct CreateStationSetupInput {
     pub setup_id: String,
     pub label: String,
-    pub station_label: String,
+    pub laboratory_location_id: String,
+    pub laboratory_location_label: String,
     pub planned_use_on: String,
     pub execution_mode: String,
     pub context: StationOperationContext,
@@ -84,12 +85,14 @@ pub fn create_station_setup(
 ) -> Result<String, AgentError> {
     validate_context(&input.context)?;
     safe_id(&input.setup_id, "setup_id")?;
+    safe_id(&input.laboratory_location_id, "laboratory_location_id")?;
 
     let definition = StationMeasurementSetupDefinition {
         definition_schema_version: STATION_SETUP_DEFINITION_SCHEMA_VERSION.to_owned(),
         setup_id: input.setup_id.trim().to_owned(),
         label: input.label.trim().to_owned(),
-        station_label: input.station_label.trim().to_owned(),
+        laboratory_location_id: Some(input.laboratory_location_id.trim().to_owned()),
+        laboratory_location_label: input.laboratory_location_label.trim().to_owned(),
         planned_use_on: input.planned_use_on.trim().to_owned(),
         execution_mode: input.execution_mode.trim().to_owned(),
         asset_bindings: Vec::new(),
