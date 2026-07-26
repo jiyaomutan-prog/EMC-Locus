@@ -45,6 +45,16 @@ use crate::equipment_service::{
     TransitionEquipmentModelRevisionInput, UpdateEquipmentCategoryInput,
     UpsertEquipmentFieldDefinitionInput,
 };
+use crate::fleet_service::{
+    archive_laboratory_location_json, create_laboratory_location, create_physical_asset,
+    get_physical_asset_json, list_laboratory_location_audit_json, list_laboratory_locations_json,
+    list_physical_asset_audit_json, list_physical_assets_json,
+    transition_physical_asset_availability, transition_physical_asset_service_state,
+    update_laboratory_location_json, update_physical_asset, ArchiveLaboratoryLocationInput,
+    CreateLaboratoryLocationInput, CreatePhysicalAssetInput, FleetOperationContext,
+    TransitionPhysicalAssetAvailabilityInput, TransitionPhysicalAssetServiceStateInput,
+    UpdateLaboratoryLocationInput, UpdatePhysicalAssetInput,
+};
 use crate::measurement_engineering_service::{
     clone_measurement_engineering_definition, create_measurement_engineering_definition,
     create_measurement_engineering_revision, evaluate_engineering_curve_revision,
@@ -488,6 +498,103 @@ fn route_api_request(
                 )?,
             },
         );
+    }
+    if parts.as_slice() == ["api", "v1", "fleet", "assets"] && method == "GET" {
+        return list_physical_assets_json(&config.storage_root);
+    }
+    if parts.as_slice() == ["api", "v1", "fleet", "assets"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return create_physical_asset(&config.storage_root, create_physical_asset_input(&payload)?);
+    }
+    if parts.len() == 5
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "fleet"
+        && parts[3] == "assets"
+    {
+        if method == "GET" {
+            return get_physical_asset_json(&config.storage_root, parts[4]);
+        }
+        if method == "PUT" {
+            let payload = parse_json_body(body)?;
+            return update_physical_asset(
+                &config.storage_root,
+                update_physical_asset_input(parts[4], &payload)?,
+            );
+        }
+    }
+    if parts.len() == 6
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "fleet"
+        && parts[3] == "assets"
+        && parts[5] == "audit-events"
+        && method == "GET"
+    {
+        return list_physical_asset_audit_json(&config.storage_root, parts[4]);
+    }
+    if parts.len() == 7
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "fleet"
+        && parts[3] == "assets"
+        && parts[5] == "transitions"
+        && method == "POST"
+    {
+        let payload = parse_json_body(body)?;
+        if parts[6] == "service-state" {
+            return transition_physical_asset_service_state(
+                &config.storage_root,
+                transition_physical_asset_service_state_input(parts[4], &payload)?,
+            );
+        }
+        if parts[6] == "availability" {
+            return transition_physical_asset_availability(
+                &config.storage_root,
+                transition_physical_asset_availability_input(parts[4], &payload)?,
+            );
+        }
+    }
+    if parts.as_slice() == ["api", "v1", "laboratory-locations"] && method == "GET" {
+        return list_laboratory_locations_json(
+            &config.storage_root,
+            query_flag(query, "include_archived"),
+        );
+    }
+    if parts.as_slice() == ["api", "v1", "laboratory-locations"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return create_laboratory_location(
+            &config.storage_root,
+            create_laboratory_location_input(&payload)?,
+        );
+    }
+    if parts.len() == 4
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "laboratory-locations"
+        && method == "PUT"
+    {
+        let payload = parse_json_body(body)?;
+        return update_laboratory_location_json(
+            &config.storage_root,
+            update_laboratory_location_input(parts[3], &payload)?,
+        );
+    }
+    if parts.len() == 5
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "laboratory-locations"
+    {
+        if parts[4] == "archive" && method == "POST" {
+            let payload = parse_json_body(body)?;
+            return archive_laboratory_location_json(
+                &config.storage_root,
+                archive_laboratory_location_input(parts[3], &payload)?,
+            );
+        }
+        if parts[4] == "audit-events" && method == "GET" {
+            return list_laboratory_location_audit_json(&config.storage_root, parts[3]);
+        }
     }
     if parts.as_slice() == ["api", "v1", "sync", "outbox"] && method == "GET" {
         return run_sync_command(AgentCommand::Sync {
@@ -2050,6 +2157,111 @@ fn list_documents_input(query: &str) -> ListAttachedDocumentsInput {
     }
 }
 
+fn fleet_operation_context(payload: &Value) -> Result<FleetOperationContext, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(FleetOperationContext {
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "lab-console-local".to_owned()),
+        operation_id,
+    })
+}
+
+fn create_physical_asset_input(payload: &Value) -> Result<CreatePhysicalAssetInput, AgentError> {
+    Ok(CreatePhysicalAssetInput {
+        inventory_code: required_string(payload, "inventory_code")?,
+        serial_number: optional_string(payload, "serial_number"),
+        part_number: optional_string(payload, "part_number"),
+        equipment_model_id: required_string(payload, "equipment_model_id")?,
+        laboratory_location_id: optional_string(payload, "laboratory_location_id"),
+        ownership_source: required_string(payload, "ownership_source")?,
+        service_state: required_string(payload, "service_state")?,
+        availability_state: required_string(payload, "availability_state")?,
+        service_state_reason: optional_string(payload, "service_state_reason").unwrap_or_default(),
+        notes: optional_string(payload, "notes").unwrap_or_default(),
+        context: fleet_operation_context(payload)?,
+    })
+}
+
+fn update_physical_asset_input(
+    asset_id: &str,
+    payload: &Value,
+) -> Result<UpdatePhysicalAssetInput, AgentError> {
+    Ok(UpdatePhysicalAssetInput {
+        asset_id: asset_id.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        inventory_code: required_string(payload, "inventory_code")?,
+        serial_number: optional_string(payload, "serial_number"),
+        part_number: optional_string(payload, "part_number"),
+        laboratory_location_id: optional_string(payload, "laboratory_location_id"),
+        ownership_source: required_string(payload, "ownership_source")?,
+        notes: optional_string(payload, "notes").unwrap_or_default(),
+        context: fleet_operation_context(payload)?,
+    })
+}
+
+fn transition_physical_asset_service_state_input(
+    asset_id: &str,
+    payload: &Value,
+) -> Result<TransitionPhysicalAssetServiceStateInput, AgentError> {
+    Ok(TransitionPhysicalAssetServiceStateInput {
+        asset_id: asset_id.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        service_state: required_string(payload, "service_state")?,
+        service_state_reason: optional_string(payload, "service_state_reason").unwrap_or_default(),
+        context: fleet_operation_context(payload)?,
+    })
+}
+
+fn transition_physical_asset_availability_input(
+    asset_id: &str,
+    payload: &Value,
+) -> Result<TransitionPhysicalAssetAvailabilityInput, AgentError> {
+    Ok(TransitionPhysicalAssetAvailabilityInput {
+        asset_id: asset_id.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        availability_state: required_string(payload, "availability_state")?,
+        context: fleet_operation_context(payload)?,
+    })
+}
+
+fn create_laboratory_location_input(
+    payload: &Value,
+) -> Result<CreateLaboratoryLocationInput, AgentError> {
+    Ok(CreateLaboratoryLocationInput {
+        label: required_string(payload, "label")?,
+        description: optional_string(payload, "description").unwrap_or_default(),
+        context: fleet_operation_context(payload)?,
+    })
+}
+
+fn update_laboratory_location_input(
+    location_id: &str,
+    payload: &Value,
+) -> Result<UpdateLaboratoryLocationInput, AgentError> {
+    Ok(UpdateLaboratoryLocationInput {
+        location_id: location_id.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        label: required_string(payload, "label")?,
+        description: optional_string(payload, "description").unwrap_or_default(),
+        context: fleet_operation_context(payload)?,
+    })
+}
+
+fn archive_laboratory_location_input(
+    location_id: &str,
+    payload: &Value,
+) -> Result<ArchiveLaboratoryLocationInput, AgentError> {
+    Ok(ArchiveLaboratoryLocationInput {
+        location_id: location_id.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        context: fleet_operation_context(payload)?,
+    })
+}
+
 fn create_equipment_model_input(payload: &Value) -> Result<CreateEquipmentModelInput, AgentError> {
     let operation_id = required_string(payload, "operation_id")?;
     Ok(CreateEquipmentModelInput {
@@ -2779,6 +2991,13 @@ fn optional_query_value(query: &str, key: &'static str) -> Option<String> {
     None
 }
 
+fn query_flag(query: &str, key: &'static str) -> bool {
+    optional_query_value(query, key)
+        .as_deref()
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
 fn optional_string(payload: &Value, key: &str) -> Option<String> {
     payload
         .get(key)
@@ -2906,6 +3125,8 @@ fn status_for_error(code: &str) -> u16 {
         | "test_template_method_revision_not_found"
         | "equipment_model_not_found"
         | "equipment_model_revision_not_found"
+        | "physical_asset_not_found"
+        | "laboratory_location_not_found"
         | "equipment_model_class_not_found"
         | "equipment_category_not_found"
         | "equipment_field_not_found"
@@ -2949,6 +3170,18 @@ fn status_for_error(code: &str) -> u16 {
         | "test_template_revision_transition_conflict"
         | "test_template_revision_transition_not_allowed"
         | "equipment_model_already_exists"
+        | "equipment_model_not_approved"
+        | "physical_asset_inventory_code_conflict"
+        | "physical_asset_revision_conflict"
+        | "fleet_revision_conflict"
+        | "laboratory_location_label_conflict"
+        | "laboratory_location_revision_conflict"
+        | "laboratory_location_archived"
+        | "laboratory_location_already_archived"
+        | "service_state_unchanged"
+        | "availability_state_unchanged"
+        | "retired_asset_service_state_is_terminal"
+        | "unserviceable_asset_cannot_be_available"
         | "equipment_category_already_exists"
         | "equipment_field_already_exists"
         | "equipment_structural_field_immutable"

@@ -7,6 +7,9 @@ mod equipment_dto;
 mod equipment_repository;
 mod equipment_service;
 mod file_store;
+mod fleet_dto;
+mod fleet_repository;
+mod fleet_service;
 mod local_api;
 mod measurement_engineering_dto;
 mod measurement_engineering_repository;
@@ -78,6 +81,16 @@ pub use equipment_service::{
     SimulateDriverProfileInput, StoreEquipmentFileInput, TransitionDriverProfileRevisionInput,
     TransitionEquipmentModelRevisionInput, UpdateEquipmentCategoryInput,
     UpsertEquipmentFieldDefinitionInput,
+};
+pub use fleet_service::{
+    archive_laboratory_location_json, create_laboratory_location, create_physical_asset,
+    get_physical_asset_json, list_laboratory_location_audit_json, list_laboratory_locations_json,
+    list_physical_asset_audit_json, list_physical_assets_json,
+    transition_physical_asset_availability, transition_physical_asset_service_state,
+    update_laboratory_location_json, update_physical_asset, ArchiveLaboratoryLocationInput,
+    CreateLaboratoryLocationInput, CreatePhysicalAssetInput, FleetOperationContext,
+    TransitionPhysicalAssetAvailabilityInput, TransitionPhysicalAssetServiceStateInput,
+    UpdateLaboratoryLocationInput, UpdatePhysicalAssetInput,
 };
 pub use local_api::{run_local_api_server, ApiServerConfig};
 pub use measurement_engineering_service::{
