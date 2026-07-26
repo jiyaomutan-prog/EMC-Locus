@@ -24,8 +24,18 @@ pub(crate) struct PhysicalAssetDto {
     pub(crate) revision: u64,
     pub(crate) model_link_state: String,
     pub(crate) migrated_from_metrology: bool,
+    pub(crate) metrology: Option<PhysicalAssetMetrologySummaryDto>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct PhysicalAssetMetrologySummaryDto {
+    pub(crate) calibration_requirement: String,
+    pub(crate) calibration_period_months: Option<u32>,
+    pub(crate) calibration_due_warning_days: u32,
+    pub(crate) latest_due_at: Option<String>,
+    pub(crate) latest_decision: Option<String>,
 }
 
 #[derive(Serialize)]

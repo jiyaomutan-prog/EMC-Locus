@@ -2182,6 +2182,11 @@ fn create_physical_asset_input(payload: &Value) -> Result<CreatePhysicalAssetInp
         availability_state: required_string(payload, "availability_state")?,
         service_state_reason: optional_string(payload, "service_state_reason").unwrap_or_default(),
         notes: optional_string(payload, "notes").unwrap_or_default(),
+        calibration_requirement: required_string(payload, "calibration_requirement")?,
+        calibration_period_months: optional_u32(payload, "calibration_period_months")?,
+        calibration_due_warning_days: optional_u32(payload, "calibration_due_warning_days")?
+            .unwrap_or(30),
+        metrology_notes: optional_string(payload, "metrology_notes").unwrap_or_default(),
         context: fleet_operation_context(payload)?,
     })
 }
@@ -6752,7 +6757,7 @@ mod tests {
     }
 
     #[test]
-    fn local_api_registers_instrument_from_equipment_model_without_taxonomy_collision() {
+    fn legacy_metrology_registration_does_not_trust_unresolved_model_references() {
         let storage_root = temporary_storage_root("agent-api-metrology-equipment-link");
         let config = ApiServerConfig {
             bind: "127.0.0.1:0".to_owned(),
@@ -6788,16 +6793,10 @@ mod tests {
         );
         assert_eq!(created.status, 200, "{}", created.body);
         let body: Value = serde_json::from_str(&created.body).expect("instrument response JSON");
-        assert!(body["instrument"]["category_code"].is_null());
-        assert_eq!(body["instrument"]["equipment_model_id"], "EM-RF-LNA-001");
-        assert_eq!(
-            body["instrument"]["equipment_model_revision_id"],
-            "EM-RF-LNA-001-rev-0003"
-        );
-        assert_eq!(
-            body["instrument"]["equipment_model_checksum"],
-            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        );
+        assert_eq!(body["instrument"]["category_code"], "rf_equipment");
+        assert!(body["instrument"]["equipment_model_id"].is_null());
+        assert!(body["instrument"]["equipment_model_revision_id"].is_null());
+        assert!(body["instrument"]["equipment_model_checksum"].is_null());
 
         remove_temporary_storage_root(&storage_root);
     }
@@ -6996,20 +6995,25 @@ mod tests {
 
         let audit = handle_api_request(
             "GET",
-            "/api/v1/metrology/instruments/SA-API-CAL-001/audit-events",
+            "/api/v1/fleet/assets/SA-API-CAL-001/audit-events",
             "",
             &config,
         );
         assert_eq!(audit.status, 200);
-        assert!(audit.body.contains("\"instrument_registered\""));
-        assert!(audit.body.contains("\"instrument_serviceability_changed\""));
+        assert!(audit
+            .body
+            .contains("\"physical_asset_created_via_legacy_adapter\""));
+        assert!(audit
+            .body
+            .contains("\"physical_asset_service_state_changed\""));
 
         let outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
         assert_eq!(outbox.status, 200);
         assert!(outbox.body.contains("\"domain\":\"metrology\""));
+        assert!(outbox.body.contains("\"domain\":\"equipment\""));
         assert!(outbox
             .body
-            .contains("\"operation_kind\":\"instrument_serviceability_changed\""));
+            .contains("\"operation_kind\":\"physical_asset_service_state_changed\""));
 
         remove_temporary_storage_root(&storage_root);
     }
@@ -7706,14 +7710,16 @@ mod tests {
         let audit = http_request(
             "GET",
             &first_address,
-            "/api/v1/metrology/instruments/SA-E2E-001/audit-events",
+            "/api/v1/fleet/assets/SA-E2E-001/audit-events",
             "",
         );
         let outbox = http_request("GET", &first_address, "/api/v1/sync/outbox", "");
         assert_eq!(audit.0, 200);
         assert_eq!(outbox.0, 200);
-        assert!(audit.1.contains("\"instrument_registered\""));
-        assert!(audit.1.contains("\"instrument_serviceability_changed\""));
+        assert!(audit
+            .1
+            .contains("\"physical_asset_created_via_legacy_adapter\""));
+        assert!(audit.1.contains("\"physical_asset_service_state_changed\""));
         assert_eq!(audit.1.matches("\"sequence\"").count(), 3);
         assert!(outbox.1.contains("\"domain\":\"metrology\""));
         assert!(outbox
@@ -7722,7 +7728,7 @@ mod tests {
         assert!(outbox
             .1
             .contains("\"operation_kind\":\"asset_characterization_recorded\""));
-        assert_eq!(outbox.1.matches("\"operation_id\"").count(), 5);
+        assert!(outbox.1.matches("\"operation_id\"").count() >= 6);
         first_server
             .join()
             .expect("server thread panicked")

@@ -8,6 +8,7 @@ mod equipment_repository;
 mod equipment_service;
 mod file_store;
 mod fleet_dto;
+mod fleet_migration;
 mod fleet_repository;
 mod fleet_service;
 mod local_api;
@@ -575,6 +576,9 @@ pub fn run_storage_action(
             &migrations_root,
         )?);
     }
+    if matches!(action, StorageAction::Init) {
+        fleet_migration::migrate_legacy_metrology_instruments(&storage_root)?;
+    }
 
     Ok(StorageReport {
         action,
@@ -968,7 +972,7 @@ mod tests {
                 .find(|domain| domain.domain == "metrology")
                 .unwrap()
                 .schema_version,
-            Some(10)
+            Some(11)
         );
         assert_eq!(
             second_report
@@ -977,7 +981,7 @@ mod tests {
                 .find(|domain| domain.domain == "equipment")
                 .unwrap()
                 .schema_version,
-            Some(6)
+            Some(8)
         );
         assert_eq!(
             second_report

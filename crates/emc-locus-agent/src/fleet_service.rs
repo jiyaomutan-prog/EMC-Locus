@@ -4,7 +4,7 @@ use crate::equipment_repository::{
 use crate::fleet_dto::{
     FleetAuditEventDto, FleetAuditEventListDto, LaboratoryLocationDto,
     LaboratoryLocationEnvelopeDto, LaboratoryLocationListDto, PhysicalAssetDto,
-    PhysicalAssetEnvelopeDto, PhysicalAssetListDto,
+    PhysicalAssetEnvelopeDto, PhysicalAssetListDto, PhysicalAssetMetrologySummaryDto,
 };
 use crate::fleet_repository::{
     archive_laboratory_location, existing_fleet_operation, insert_laboratory_location,
@@ -24,7 +24,7 @@ use emc_locus_core::{
     OwnershipSource, PhysicalAssetDefinition, PinnedEquipmentModel, ServiceState,
     LABORATORY_LOCATION_DEFINITION_SCHEMA_VERSION, PHYSICAL_ASSET_DEFINITION_SCHEMA_VERSION,
 };
-use rusqlite::TransactionBehavior;
+use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -51,6 +51,10 @@ pub struct CreatePhysicalAssetInput {
     pub availability_state: String,
     pub service_state_reason: String,
     pub notes: String,
+    pub calibration_requirement: String,
+    pub calibration_period_months: Option<u32>,
+    pub calibration_due_warning_days: u32,
+    pub metrology_notes: String,
     pub context: FleetOperationContext,
 }
 
@@ -134,6 +138,11 @@ pub fn create_physical_asset(
     let ownership_source = parse_ownership_source(&input.ownership_source)?;
     let service_state = parse_service_state(&input.service_state)?;
     let availability_state = parse_availability_state(&input.availability_state)?;
+    validate_metrology_dossier_input(
+        &input.calibration_requirement,
+        input.calibration_period_months,
+        input.calibration_due_warning_days,
+    )?;
     let asset_id = generated_id(
         "ASSET",
         &input.context.operation_id,
@@ -154,7 +163,13 @@ pub fn create_physical_asset(
         "service_state": service_state_code(service_state),
         "availability_state": availability_state_code(availability_state),
         "service_state_reason": input.service_state_reason.trim(),
-        "notes": input.notes.trim()
+        "notes": input.notes.trim(),
+        "metrology": {
+            "calibration_requirement": input.calibration_requirement.trim(),
+            "calibration_period_months": input.calibration_period_months,
+            "calibration_due_warning_days": input.calibration_due_warning_days,
+            "notes": input.metrology_notes.trim()
+        }
     }));
     let checksum = request_checksum(&request_json);
     if let Some(operation) =
@@ -229,16 +244,31 @@ pub fn create_physical_asset(
             timestamp: &now,
         },
     )?;
+    transaction
+        .execute(
+            "INSERT INTO metrology_db.metrology_asset_dossiers (
+                asset_id, calibration_requirement, calibration_period_months,
+                calibration_due_warning_days, metrology_notes, legacy_capabilities_json,
+                revision, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, '[]', 1, ?6, ?6)",
+            params![
+                asset_id,
+                input.calibration_requirement.trim(),
+                input.calibration_period_months,
+                input.calibration_due_warning_days,
+                input.metrology_notes.trim(),
+                now,
+            ],
+        )
+        .map_err(|error| AgentError::new("metrology_dossier_write_failed", error.to_string()))?;
     write_fleet_evidence(
         &transaction,
         evidence(
             "physical_asset",
             &asset_id,
             "physical_asset_created",
-            None,
-            1,
-            &checksum,
-            &payload_json,
+            EvidenceRevision::created(),
+            EvidencePayload::new(&checksum, &payload_json),
             &input.context,
             &now,
         ),
@@ -317,10 +347,8 @@ pub fn update_physical_asset(
             "physical_asset",
             &input.asset_id,
             "physical_asset_updated",
-            Some(input.expected_revision),
-            new_revision,
-            &checksum,
-            &payload_json,
+            EvidenceRevision::changed(input.expected_revision, new_revision),
+            EvidencePayload::new(&checksum, &payload_json),
             &input.context,
             &now,
         ),
@@ -393,10 +421,8 @@ pub fn transition_physical_asset_service_state(
             "physical_asset",
             &input.asset_id,
             "physical_asset_service_state_changed",
-            Some(input.expected_revision),
-            new_revision,
-            &checksum,
-            &payload_json,
+            EvidenceRevision::changed(input.expected_revision, new_revision),
+            EvidencePayload::new(&checksum, &payload_json),
             &input.context,
             &now,
         ),
@@ -452,10 +478,8 @@ pub fn transition_physical_asset_availability(
             "physical_asset",
             &input.asset_id,
             "physical_asset_availability_changed",
-            Some(input.expected_revision),
-            new_revision,
-            &checksum,
-            &payload_json,
+            EvidenceRevision::changed(input.expected_revision, new_revision),
+            EvidencePayload::new(&checksum, &payload_json),
             &input.context,
             &now,
         ),
@@ -533,10 +557,8 @@ pub fn create_laboratory_location(
             "laboratory_location",
             &location_id,
             "laboratory_location_created",
-            None,
-            1,
-            &checksum,
-            &payload_json,
+            EvidenceRevision::created(),
+            EvidencePayload::new(&checksum, &payload_json),
             &input.context,
             &now,
         ),
@@ -610,10 +632,8 @@ pub fn update_laboratory_location_json(
             "laboratory_location",
             &input.location_id,
             "laboratory_location_updated",
-            Some(input.expected_revision),
-            new_revision,
-            &checksum,
-            &payload_json,
+            EvidenceRevision::changed(input.expected_revision, new_revision),
+            EvidencePayload::new(&checksum, &payload_json),
             &input.context,
             &now,
         ),
@@ -673,10 +693,8 @@ pub fn archive_laboratory_location_json(
             "laboratory_location",
             &input.location_id,
             "laboratory_location_archived",
-            Some(input.expected_revision),
-            new_revision,
-            &checksum,
-            &payload_json,
+            EvidenceRevision::changed(input.expected_revision, new_revision),
+            EvidencePayload::new(&checksum, &payload_json),
             &input.context,
             &now,
         ),
@@ -928,9 +946,41 @@ fn physical_asset_dto(
         revision: asset.revision,
         model_link_state: asset.model_link_state.clone(),
         migrated_from_metrology: asset.migrated_from_metrology,
+        metrology: load_metrology_summary(connection, &asset.asset_id)?,
         created_at: asset.created_at.clone(),
         updated_at: asset.updated_at.clone(),
     })
+}
+
+fn load_metrology_summary(
+    connection: &rusqlite::Connection,
+    asset_id: &str,
+) -> Result<Option<PhysicalAssetMetrologySummaryDto>, AgentError> {
+    connection
+        .query_row(
+            "SELECT dossier.calibration_requirement, dossier.calibration_period_months,
+                dossier.calibration_due_warning_days, latest.due_at, latest.decision
+             FROM metrology_db.metrology_asset_dossiers dossier
+             LEFT JOIN metrology_db.calibration_events latest
+               ON latest.event_id = (
+                    SELECT event_id FROM metrology_db.calibration_events
+                    WHERE asset_id = dossier.asset_id
+                    ORDER BY due_at DESC, calibrated_at DESC, event_id DESC LIMIT 1
+               )
+             WHERE dossier.asset_id = ?1",
+            params![asset_id],
+            |row| {
+                Ok(PhysicalAssetMetrologySummaryDto {
+                    calibration_requirement: row.get(0)?,
+                    calibration_period_months: row.get(1)?,
+                    calibration_due_warning_days: row.get(2)?,
+                    latest_due_at: row.get(3)?,
+                    latest_decision: row.get(4)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| AgentError::new("metrology_dossier_query_failed", error.to_string()))
 }
 
 fn category_path(asset: &StoredPhysicalAsset) -> Vec<String> {
@@ -1069,14 +1119,41 @@ fn ensure_replay(
     ))
 }
 
+struct EvidenceRevision {
+    old: Option<u64>,
+    new: u64,
+}
+
+impl EvidenceRevision {
+    fn created() -> Self {
+        Self { old: None, new: 1 }
+    }
+
+    fn changed(old: u64, new: u64) -> Self {
+        Self {
+            old: Some(old),
+            new,
+        }
+    }
+}
+
+struct EvidencePayload<'a> {
+    checksum: &'a str,
+    json: &'a str,
+}
+
+impl<'a> EvidencePayload<'a> {
+    fn new(checksum: &'a str, json: &'a str) -> Self {
+        Self { checksum, json }
+    }
+}
+
 fn evidence<'a>(
     entity_kind: &'a str,
     entity_id: &'a str,
     action: &'a str,
-    old_revision: Option<u64>,
-    new_revision: u64,
-    checksum: &'a str,
-    payload_json: &'a str,
+    revision: EvidenceRevision,
+    payload: EvidencePayload<'a>,
     context: &'a FleetOperationContext,
     timestamp: &'a str,
 ) -> FleetEvidenceInput<'a> {
@@ -1089,10 +1166,10 @@ fn evidence<'a>(
         operation_id: &context.operation_id,
         device_id: &context.device_id,
         correlation_id: &context.correlation_id,
-        old_revision,
-        new_revision,
-        request_checksum: checksum,
-        payload_json,
+        old_revision: revision.old,
+        new_revision: revision.new,
+        request_checksum: payload.checksum,
+        payload_json: payload.json,
         timestamp,
     }
 }
@@ -1126,6 +1203,29 @@ fn validate_asset_definition(definition: &PhysicalAssetDefinition) -> Result<(),
             json!({ "issues": issues }),
         ))
     }
+}
+
+fn validate_metrology_dossier_input(
+    calibration_requirement: &str,
+    calibration_period_months: Option<u32>,
+    calibration_due_warning_days: u32,
+) -> Result<(), AgentError> {
+    if !matches!(
+        calibration_requirement.trim(),
+        "required" | "conditional" | "not_required"
+    ) {
+        return Err(AgentError::new(
+            "invalid_calibration_requirement",
+            "Choisissez si l'etalonnage est obligatoire, conditionnel ou non requis.",
+        ));
+    }
+    if calibration_period_months == Some(0) || calibration_due_warning_days == 0 {
+        return Err(AgentError::new(
+            "invalid_metrology_dossier",
+            "La periodicite et le delai d'alerte doivent etre strictement positifs.",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_location_definition(
@@ -1586,6 +1686,10 @@ mod tests {
             availability_state: "available".to_owned(),
             service_state_reason: String::new(),
             notes: String::new(),
+            calibration_requirement: "not_required".to_owned(),
+            calibration_period_months: None,
+            calibration_due_warning_days: 30,
+            metrology_notes: String::new(),
             context: context(operation_id),
         }
     }

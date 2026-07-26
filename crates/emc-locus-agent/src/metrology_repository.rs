@@ -144,6 +144,11 @@ pub struct NewInstrumentRecord<'a> {
     pub metrology_notes: &'a str,
     pub serviceability_status: &'a str,
     pub serviceability_reason: &'a str,
+    pub actor: &'a str,
+    pub reason: &'a str,
+    pub operation_id: &'a str,
+    pub correlation_id: &'a str,
+    pub device_id: &'a str,
     pub timestamp: &'a str,
 }
 
@@ -237,10 +242,11 @@ pub struct MetrologySyncOperationInput<'a> {
 
 pub fn open_metrology_connection(storage_root: &Path) -> Result<Connection, AgentError> {
     let database = storage_root.join("metrology.sqlite");
-    if !database.exists() {
+    let equipment_database = storage_root.join("equipment.sqlite");
+    if !database.exists() || !equipment_database.exists() {
         return Err(AgentError::new(
             "storage_not_initialized",
-            "metrology commands require initialized metrology.sqlite",
+            "metrology commands require initialized metrology.sqlite and equipment.sqlite",
         ));
     }
     let connection = Connection::open(&database).map_err(|error| {
@@ -252,6 +258,12 @@ pub fn open_metrology_connection(storage_root: &Path) -> Result<Connection, Agen
     connection
         .execute_batch("PRAGMA foreign_keys = ON;")
         .map_err(|error| AgentError::new("database_pragma_error", error.to_string()))?;
+    connection
+        .execute(
+            "ATTACH DATABASE ?1 AS equipment_db",
+            params![equipment_database.to_string_lossy().to_string()],
+        )
+        .map_err(|error| AgentError::new("database_attach_error", error.to_string()))?;
     ensure_metrology_tables(&connection)?;
     Ok(connection)
 }
@@ -259,10 +271,11 @@ pub fn open_metrology_connection(storage_root: &Path) -> Result<Connection, Agen
 pub fn open_metrology_connection_with_sync(storage_root: &Path) -> Result<Connection, AgentError> {
     let metrology_database = storage_root.join("metrology.sqlite");
     let sync_database = storage_root.join("sync.sqlite");
-    if !metrology_database.exists() || !sync_database.exists() {
+    let equipment_database = storage_root.join("equipment.sqlite");
+    if !metrology_database.exists() || !sync_database.exists() || !equipment_database.exists() {
         return Err(AgentError::new(
             "storage_not_initialized",
-            "metrology writes require initialized metrology.sqlite and sync.sqlite",
+            "metrology writes require initialized metrology.sqlite, equipment.sqlite and sync.sqlite",
         ));
     }
     let connection = Connection::open(&metrology_database).map_err(|error| {
@@ -278,8 +291,19 @@ pub fn open_metrology_connection_with_sync(storage_root: &Path) -> Result<Connec
     connection
         .execute("ATTACH DATABASE ?1 AS sync_db", params![sync_path])
         .map_err(|error| AgentError::new("database_attach_error", error.to_string()))?;
+    connection
+        .execute(
+            "ATTACH DATABASE ?1 AS equipment_db",
+            params![equipment_database.to_string_lossy().to_string()],
+        )
+        .map_err(|error| AgentError::new("database_attach_error", error.to_string()))?;
     enforce_project_slice_journal_mode(&connection, AttachedDatabase::Main, "metrology.sqlite")?;
     enforce_project_slice_journal_mode(&connection, AttachedDatabase::SyncDb, "sync.sqlite")?;
+    enforce_project_slice_journal_mode(
+        &connection,
+        AttachedDatabase::EquipmentDb,
+        "equipment.sqlite",
+    )?;
     ensure_metrology_tables(&connection)?;
     ensure_sync_tables(&connection)?;
     Ok(connection)
@@ -290,7 +314,8 @@ fn ensure_metrology_tables(connection: &Connection) -> Result<(), AgentError> {
         "schema_migrations",
         "repository_metadata",
         "instrument_categories",
-        "instruments",
+        "metrology_asset_dossiers",
+        "legacy_instruments_0_21_1",
         "calibration_records",
         "calibration_events",
         "asset_characterization_events",
@@ -307,18 +332,25 @@ fn ensure_metrology_tables(connection: &Connection) -> Result<(), AgentError> {
     }
 
     for column in [
-        "serviceability_status",
-        "serviceability_reason",
-        "serviceability_updated_at",
-        "legacy_availability",
+        "calibration_requirement",
+        "calibration_period_months",
         "calibration_due_warning_days",
+        "metrology_notes",
+        "legacy_capabilities_json",
+        "revision",
     ] {
-        if !column_exists(connection, "instruments", column)? {
+        if !column_exists(connection, "metrology_asset_dossiers", column)? {
             return Err(AgentError::new(
                 "metrology_schema_outdated",
-                format!("missing metrology instruments column {column}"),
+                format!("missing metrology asset dossier column {column}"),
             ));
         }
+    }
+    if !table_exists_in_schema(connection, "equipment_db", "physical_assets")? {
+        return Err(AgentError::new(
+            "storage_not_initialized",
+            "missing required table equipment_db.physical_assets",
+        ));
     }
     for column in [
         "source_kind",
@@ -386,7 +418,7 @@ pub fn load_instrument(
 ) -> Result<Option<StoredInstrument>, AgentError> {
     connection
         .query_row(
-            instrument_select_sql("WHERE asset_id = ?1").as_str(),
+            instrument_select_sql("WHERE asset.asset_id = ?1").as_str(),
             params![asset_id],
             stored_instrument_from_row,
         )
@@ -395,7 +427,7 @@ pub fn load_instrument(
 }
 
 pub fn load_instruments(connection: &Connection) -> Result<Vec<StoredInstrument>, AgentError> {
-    let sql = instrument_select_sql("ORDER BY asset_id");
+    let sql = instrument_select_sql("ORDER BY asset.asset_id");
     let mut statement = connection
         .prepare(&sql)
         .map_err(|error| AgentError::new("metrology_instrument_query_failed", error.to_string()))?;
@@ -413,13 +445,17 @@ pub fn load_instruments(connection: &Connection) -> Result<Vec<StoredInstrument>
 
 fn instrument_select_sql(suffix: &str) -> String {
     let base = concat!(
-        "SELECT asset_id, family, manufacturer, model, serial_number, availability, ",
-        "calibration_requirement, capabilities_json, category_code, part_number, ",
-        "calibration_period_months, metrology_notes, serviceability_status, ",
-        "serviceability_reason, serviceability_updated_at, legacy_availability, ",
-        "calibration_due_warning_days, equipment_model_id, equipment_model_revision_id, ",
-        "equipment_model_checksum, ",
-        "created_at, updated_at FROM instruments "
+        "SELECT asset.asset_id, asset.category_code_snapshot, asset.manufacturer_snapshot, ",
+        "asset.model_name_snapshot, COALESCE(asset.serial_number, ''), asset.availability_state, ",
+        "dossier.calibration_requirement, dossier.legacy_capabilities_json, ",
+        "asset.category_code_snapshot, asset.part_number, dossier.calibration_period_months, ",
+        "dossier.metrology_notes, asset.service_state, asset.service_state_reason, ",
+        "asset.updated_at, NULL, dossier.calibration_due_warning_days, ",
+        "asset.equipment_model_id, asset.equipment_model_revision_id, asset.equipment_model_checksum, ",
+        "dossier.created_at, CASE WHEN asset.updated_at > dossier.updated_at ",
+        "THEN asset.updated_at ELSE dossier.updated_at END ",
+        "FROM metrology_asset_dossiers dossier ",
+        "JOIN equipment_db.physical_assets asset ON asset.asset_id = dossier.asset_id "
     );
     format!("{base}{suffix}")
 }
@@ -715,39 +751,201 @@ pub fn insert_instrument(
     connection: &Connection,
     input: NewInstrumentRecord<'_>,
 ) -> Result<(), AgentError> {
+    let model_is_resolved = compatible_model_reference_is_resolved(connection, &input)?;
+    let (model_id, model_revision_id, model_checksum) = if model_is_resolved {
+        (
+            input.equipment_model_id,
+            input.equipment_model_revision_id,
+            input.equipment_model_checksum,
+        )
+    } else {
+        (None, None, None)
+    };
+    let category_code = input.category_code.unwrap_or(input.family);
+    let category_path_json = render_json(&vec![input.family]);
+    let service_state = match input.serviceability_status {
+        "restricted" => "restricted",
+        "out_of_service" => "out_of_service",
+        "retired" => "retired",
+        _ => "usable",
+    };
+    let availability_state = if matches!(service_state, "out_of_service" | "retired") {
+        "unavailable"
+    } else {
+        "available"
+    };
+    let migration_evidence_json = render_json(&json!({
+        "source": "legacy_metrology_registration_adapter",
+        "requested_equipment_model_id": input.equipment_model_id,
+        "requested_equipment_model_revision_id": input.equipment_model_revision_id,
+        "requested_equipment_model_checksum": input.equipment_model_checksum,
+        "model_reference_resolved": model_is_resolved
+    }));
     connection
         .execute(
-            concat!(
-                "INSERT INTO instruments (asset_id, family, manufacturer, model, serial_number, ",
-                "availability, calibration_requirement, capabilities_json, category_code, ",
-                "part_number, calibration_period_months, calibration_due_warning_days, ",
-                "metrology_notes, serviceability_status, equipment_model_id, ",
-                "equipment_model_revision_id, equipment_model_checksum, ",
-                "serviceability_reason, serviceability_updated_at, legacy_availability, created_at, updated_at) ",
-                "VALUES (?1, ?2, ?3, ?4, ?5, 'available', ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, 'available', ?18, ?18)"
-            ),
+            "INSERT INTO equipment_db.physical_assets (
+                asset_id, inventory_code, serial_number, part_number,
+                equipment_model_id, equipment_model_revision_id, equipment_model_checksum,
+                manufacturer_snapshot, model_name_snapshot, variant_snapshot,
+                category_code_snapshot, category_path_json, laboratory_location_id,
+                laboratory_location_label_snapshot, ownership_source, service_state,
+                availability_state, service_state_reason, notes, revision, model_link_state,
+                migrated_from_metrology, created_at, updated_at, migration_evidence_json
+             ) VALUES (
+                ?1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, ?9, ?10, NULL, NULL,
+                'laboratory_owned', ?11, ?12, ?13, '', 1, ?14, 0, ?15, ?15, ?16
+             )",
             params![
                 input.asset_id,
-                input.family,
+                input.serial_number,
+                input.part_number,
+                model_id,
+                model_revision_id,
+                model_checksum,
                 input.manufacturer,
                 input.model,
-                input.serial_number,
-                input.calibration_requirement,
-                input.capabilities_json,
-                input.category_code,
-                input.part_number,
-                input.calibration_period_months,
-                input.calibration_due_warning_days,
-                input.metrology_notes,
-                input.serviceability_status,
-                input.equipment_model_id,
-                input.equipment_model_revision_id,
-                input.equipment_model_checksum,
+                category_code,
+                category_path_json,
+                service_state,
+                availability_state,
                 input.serviceability_reason,
+                if model_is_resolved {
+                    "resolved"
+                } else {
+                    "migration_review_required"
+                },
                 input.timestamp,
+                migration_evidence_json,
             ],
         )
         .map_err(|error| AgentError::new("metrology_instrument_write_failed", error.to_string()))?;
+    connection
+        .execute(
+            "INSERT INTO metrology_asset_dossiers (
+                asset_id, calibration_requirement, calibration_period_months,
+                calibration_due_warning_days, metrology_notes, legacy_capabilities_json,
+                revision, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?7)",
+            params![
+                input.asset_id,
+                input.calibration_requirement,
+                input.calibration_period_months,
+                input.calibration_due_warning_days,
+                input.metrology_notes,
+                input.capabilities_json,
+                input.timestamp,
+            ],
+        )
+        .map_err(|error| AgentError::new("metrology_dossier_write_failed", error.to_string()))?;
+    insert_compatibility_fleet_evidence(connection, &input, model_is_resolved)?;
+    Ok(())
+}
+
+fn compatible_model_reference_is_resolved(
+    connection: &Connection,
+    input: &NewInstrumentRecord<'_>,
+) -> Result<bool, AgentError> {
+    let (Some(model_id), Some(revision_id), Some(checksum)) = (
+        input.equipment_model_id,
+        input.equipment_model_revision_id,
+        input.equipment_model_checksum,
+    ) else {
+        return Ok(false);
+    };
+    connection
+        .query_row(
+            "SELECT COUNT(*) FROM equipment_db.equipment_model_revisions
+             WHERE equipment_model_id = ?1 AND revision_id = ?2
+               AND definition_checksum = ?3
+               AND status IN ('approved', 'superseded', 'suspended', 'retired')",
+            params![model_id, revision_id, checksum],
+            |row| row.get::<_, u64>(0),
+        )
+        .map(|count| count == 1)
+        .map_err(|error| AgentError::new("equipment_model_query_failed", error.to_string()))
+}
+
+fn insert_compatibility_fleet_evidence(
+    connection: &Connection,
+    input: &NewInstrumentRecord<'_>,
+    model_is_resolved: bool,
+) -> Result<(), AgentError> {
+    let operation_id = format!("{}-fleet", input.operation_id);
+    let action = "physical_asset_created_via_legacy_adapter";
+    let payload_json = render_json(&json!({
+        "asset_id": input.asset_id,
+        "inventory_code": input.asset_id,
+        "source": "legacy_metrology_registration_adapter",
+        "model_link_state": if model_is_resolved {
+            "resolved"
+        } else {
+            "migration_review_required"
+        }
+    }));
+    let checksum = payload_checksum(&payload_json);
+    connection
+        .execute(
+            "INSERT INTO equipment_db.physical_asset_operations (
+                operation_id, asset_id, action, request_checksum, resulting_revision, occurred_at
+             ) VALUES (?1, ?2, ?3, ?4, 1, ?5)",
+            params![
+                operation_id,
+                input.asset_id,
+                action,
+                checksum,
+                input.timestamp
+            ],
+        )
+        .map_err(|error| AgentError::new("fleet_audit_write_failed", error.to_string()))?;
+    connection
+        .execute(
+            "INSERT INTO equipment_db.physical_asset_audit_events (
+                asset_id, sequence, action, actor, reason, old_revision, new_revision,
+                operation_id, device_id, correlation_id, payload_json, payload_checksum, occurred_at
+             ) VALUES (?1, 1, ?2, ?3, ?4, NULL, 1, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                input.asset_id,
+                action,
+                input.actor,
+                input.reason,
+                operation_id,
+                input.device_id,
+                input.correlation_id,
+                payload_json,
+                checksum,
+                input.timestamp,
+            ],
+        )
+        .map_err(|error| AgentError::new("fleet_audit_write_failed", error.to_string()))?;
+    let outbox_payload = render_json(&json!({
+        "entity_type": "physical_asset",
+        "entity_id": input.asset_id,
+        "operation_kind": action,
+        "payload": serde_json::from_str::<serde_json::Value>(&payload_json)
+            .expect("compatibility payload must be valid JSON")
+    }));
+    let outbox_checksum = payload_checksum(&outbox_payload);
+    connection
+        .execute(
+            "INSERT INTO sync_db.sync_operations (
+                operation_id, domain, entity_type, entity_id, operation_kind,
+                base_revision, resulting_revision, actor_id, device_id, correlation_id,
+                payload_json, payload_checksum, status, occurred_at, recorded_at
+             ) VALUES (?1, 'equipment', 'physical_asset', ?2, ?3, 0, 1, ?4, ?5, ?6,
+                ?7, ?8, 'pending', ?9, ?9)",
+            params![
+                operation_id,
+                input.asset_id,
+                action,
+                input.actor,
+                input.device_id,
+                input.correlation_id,
+                outbox_payload,
+                outbox_checksum,
+                input.timestamp,
+            ],
+        )
+        .map_err(|error| AgentError::new("sync_outbox_write_failed", error.to_string()))?;
     Ok(())
 }
 
@@ -836,30 +1034,6 @@ pub fn insert_asset_characterization(
                 error.to_string(),
             )
         })?;
-    Ok(())
-}
-
-pub fn update_instrument_serviceability(
-    transaction: &Transaction<'_>,
-    asset_id: &str,
-    serviceability_status: &str,
-    serviceability_reason: &str,
-    timestamp: &str,
-) -> Result<(), AgentError> {
-    transaction
-        .execute(
-            concat!(
-                "UPDATE instruments SET serviceability_status = ?2, serviceability_reason = ?3, ",
-                "serviceability_updated_at = ?4, updated_at = ?4 WHERE asset_id = ?1"
-            ),
-            params![
-                asset_id,
-                serviceability_status,
-                serviceability_reason,
-                timestamp,
-            ],
-        )
-        .map_err(|error| AgentError::new("metrology_instrument_write_failed", error.to_string()))?;
     Ok(())
 }
 

@@ -1,6 +1,8 @@
 use crate::{
     equipment_repository::{open_equipment_connection, open_equipment_connection_with_sync},
-    render_json, AgentError,
+    render_json,
+    sqlite_policy::{enforce_project_slice_journal_mode, AttachedDatabase},
+    AgentError,
 };
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::json;
@@ -123,13 +125,53 @@ pub(crate) struct FleetEvidenceInput<'a> {
 }
 
 pub(crate) fn open_fleet_connection(storage_root: &Path) -> Result<Connection, AgentError> {
-    open_equipment_connection(storage_root)
+    let connection = open_equipment_connection(storage_root)?;
+    attach_metrology(&connection, storage_root)?;
+    Ok(connection)
 }
 
 pub(crate) fn open_fleet_connection_with_sync(
     storage_root: &Path,
 ) -> Result<Connection, AgentError> {
-    open_equipment_connection_with_sync(storage_root)
+    let connection = open_equipment_connection_with_sync(storage_root)?;
+    attach_metrology(&connection, storage_root)?;
+    enforce_project_slice_journal_mode(
+        &connection,
+        AttachedDatabase::MetrologyDb,
+        "metrology.sqlite",
+    )?;
+    Ok(connection)
+}
+
+fn attach_metrology(connection: &Connection, storage_root: &Path) -> Result<(), AgentError> {
+    let database = storage_root.join("metrology.sqlite");
+    if !database.exists() {
+        return Err(AgentError::new(
+            "storage_not_initialized",
+            "fleet commands require initialized metrology.sqlite",
+        ));
+    }
+    connection
+        .execute(
+            "ATTACH DATABASE ?1 AS metrology_db",
+            params![database.to_string_lossy().to_string()],
+        )
+        .map_err(|error| AgentError::new("database_attach_error", error.to_string()))?;
+    let dossier_exists: u64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM metrology_db.sqlite_master
+             WHERE type = 'table' AND name = 'metrology_asset_dossiers'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| AgentError::new("database_invalid", error.to_string()))?;
+    if dossier_exists != 1 {
+        return Err(AgentError::new(
+            "storage_not_initialized",
+            "missing required table metrology_db.metrology_asset_dossiers",
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn load_physical_asset(
