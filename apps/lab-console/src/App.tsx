@@ -1,6 +1,8 @@
 import {
   AlertTriangle,
+  Activity,
   BookOpenText,
+  Boxes,
   CalendarDays,
   CheckCircle2,
   ClipboardCheck,
@@ -10,19 +12,22 @@ import {
   FolderKanban,
   GitBranch,
   History,
+  MapPin,
+  PackagePlus,
   PanelLeftClose,
   PanelLeftOpen,
   RefreshCw,
   Save,
   Search,
   Send,
-  ShieldCheck
+  ShieldCheck,
+  Wrench
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, api, type OperationContext } from "./api";
 import { defaultTemplateDefinition } from "./defaultDefinition";
-import { EquipmentWorkspace } from "./features/equipment/EquipmentWorkspace";
+import { EquipmentWorkspace, type EquipmentSpace } from "./features/equipment/EquipmentWorkspace";
 import { LaboratoryPlanningWorkspace } from "./features/planning/LaboratoryPlanningWorkspace";
 import { ProjectWorkspace } from "./features/projects/ProjectWorkspace";
 import { APP_VERSION } from "./version";
@@ -55,6 +60,17 @@ type StudioSection =
   | "revisions"
   | "audit"
   | "advanced";
+
+function equipmentSpaceTitle(space: EquipmentSpace): string {
+  if (space === "assets") return "Parc matériel";
+  if (space === "metrology") return "Métrologie du parc";
+  if (space === "setups") return "Montages de mesure";
+  if (space === "drivers") return "Drivers et pilotage";
+  if (space === "locations") return "Lieux du laboratoire";
+  if (["signals", "sensors", "scaling", "curves", "daq", "recipes"].includes(space)) return "Signaux et corrections";
+  if (space === "admin") return "Administration du référentiel";
+  return "Catalogue des modèles";
+}
 
 const statusLabels: Record<RevisionStatus, string> = {
   draft: "Brouillon",
@@ -116,6 +132,7 @@ function generatedTemplateId() {
 
 export function App() {
   const [activeView, setActiveView] = useState<ActiveView>("library");
+  const [equipmentSpace, setEquipmentSpace] = useState<EquipmentSpace>("catalog");
   const [projectFocusCode, setProjectFocusCode] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [templates, setTemplates] = useState<TestTemplateAggregate[]>([]);
@@ -479,8 +496,8 @@ export function App() {
             <span>Planning du laboratoire</span>
           </button>
         </nav>
-        <nav className="primaryNav technicalNav" aria-label="Préparation technique">
-          <p className="navLabel">Préparation technique</p>
+        <nav className="primaryNav technicalNav" aria-label="Ressources techniques">
+          <p className="navLabel">Ressources techniques</p>
           <button
             className={activeView === "library" || activeView === "studio" ? "active" : ""}
             onClick={() => setActiveView("library")}
@@ -490,13 +507,19 @@ export function App() {
             <span>Méthodes d'essai</span>
           </button>
           <button
-            className={activeView === "equipment" ? "active" : ""}
-            onClick={() => setActiveView("equipment")}
-            title="Équipements"
+            className={activeView === "equipment" && equipmentSpace === "catalog" ? "active" : ""}
+            onClick={() => { setEquipmentSpace("catalog"); setActiveView("equipment"); }}
+            title="Catalogue des modèles"
           >
-            <Cpu size={18} />
-            <span>Équipements</span>
+            <Boxes size={18} />
+            <span>Catalogue des modèles</span>
           </button>
+          <button className={activeView === "equipment" && equipmentSpace === "assets" ? "active" : ""} onClick={() => { setEquipmentSpace("assets"); setActiveView("equipment"); }} title="Parc matériel"><PackagePlus size={18} /><span>Parc matériel</span></button>
+          <button className={activeView === "equipment" && equipmentSpace === "metrology" ? "active" : ""} onClick={() => { setEquipmentSpace("metrology"); setActiveView("equipment"); }} title="Métrologie du parc"><Activity size={18} /><span>Métrologie du parc</span></button>
+          <button className={activeView === "equipment" && equipmentSpace === "setups" ? "active" : ""} onClick={() => { setEquipmentSpace("setups"); setActiveView("equipment"); }} title="Montages de mesure"><Wrench size={18} /><span>Montages de mesure</span></button>
+          <button className={activeView === "equipment" && equipmentSpace === "drivers" ? "active" : ""} onClick={() => { setEquipmentSpace("drivers"); setActiveView("equipment"); }} title="Drivers et pilotage"><GitBranch size={18} /><span>Drivers et pilotage</span></button>
+          <button className={activeView === "equipment" && equipmentSpace === "signals" ? "active" : ""} onClick={() => { setEquipmentSpace("signals"); setActiveView("equipment"); }} title="Signaux et corrections"><Cpu size={18} /><span>Signaux et corrections</span></button>
+          <button className={activeView === "equipment" && equipmentSpace === "locations" ? "active" : ""} onClick={() => { setEquipmentSpace("locations"); setActiveView("equipment"); }} title="Lieux du laboratoire"><MapPin size={18} /><span>Lieux du laboratoire</span></button>
         </nav>
 
         <nav className="systemNav" aria-label="État de l'application">
@@ -516,7 +539,7 @@ export function App() {
           <div>
             <p className="eyebrow">
               {activeView === "equipment"
-                ? "Référentiel, signaux et corrections"
+                ? "Ressources techniques du laboratoire"
                 : activeView === "planning"
                   ? "Coordination des essais et des ressources"
                 : activeView === "projects"
@@ -529,7 +552,7 @@ export function App() {
               {activeView === "studio"
                 ? "Éditeur de méthode"
                 : activeView === "equipment"
-                  ? "Équipements"
+                  ? equipmentSpaceTitle(equipmentSpace)
                   : activeView === "planning"
                     ? "Planning du laboratoire"
                   : activeView === "projects"
@@ -566,7 +589,7 @@ export function App() {
             }}
           />
         )}
-        {activeView === "equipment" && <EquipmentWorkspace />}
+        {activeView === "equipment" && <EquipmentWorkspace initialSpace={equipmentSpace} />}
         {activeView === "library" && (
           <LibraryView
             templates={filteredTemplates}

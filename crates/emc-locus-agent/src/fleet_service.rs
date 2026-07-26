@@ -952,7 +952,7 @@ fn physical_asset_dto(
     })
 }
 
-fn load_metrology_summary(
+pub(crate) fn load_metrology_summary(
     connection: &rusqlite::Connection,
     asset_id: &str,
 ) -> Result<Option<PhysicalAssetMetrologySummaryDto>, AgentError> {
@@ -983,7 +983,7 @@ fn load_metrology_summary(
         .map_err(|error| AgentError::new("metrology_dossier_query_failed", error.to_string()))
 }
 
-fn category_path(asset: &StoredPhysicalAsset) -> Vec<String> {
+pub(crate) fn category_path(asset: &StoredPhysicalAsset) -> Vec<String> {
     serde_json::from_str::<Vec<String>>(&asset.category_path_json)
         .unwrap_or_else(|_| vec![asset.category_code_snapshot.clone()])
 }

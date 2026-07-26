@@ -1,0 +1,91 @@
+export type OwnershipSource =
+  | "laboratory_owned"
+  | "customer_supplied"
+  | "rented"
+  | "borrowed"
+  | "external"
+  | "software_license"
+  | "installed_facility";
+
+export type ServiceState =
+  | "usable"
+  | "restricted"
+  | "in_maintenance"
+  | "out_of_service"
+  | "retired";
+
+export type AvailabilityState =
+  | "available"
+  | "reserved"
+  | "assigned_to_setup"
+  | "in_test"
+  | "unavailable";
+
+export interface PhysicalAssetMetrologySummary {
+  calibration_requirement: string;
+  calibration_period_months: number | null;
+  calibration_due_warning_days: number;
+  latest_due_at: string | null;
+  latest_decision: string | null;
+}
+
+export interface PhysicalAsset {
+  asset_id: string;
+  inventory_code: string;
+  serial_number: string | null;
+  part_number: string | null;
+  equipment_model_id: string | null;
+  equipment_model_revision_id: string | null;
+  equipment_model_checksum: string | null;
+  manufacturer: string;
+  model_name: string;
+  variant: string | null;
+  category_code: string;
+  category_path: string[];
+  laboratory_location_id: string | null;
+  laboratory_location_label: string | null;
+  ownership_source: OwnershipSource;
+  service_state: ServiceState;
+  availability_state: AvailabilityState;
+  service_state_reason: string;
+  notes: string;
+  revision: number;
+  model_link_state: string;
+  migrated_from_metrology: boolean;
+  metrology: PhysicalAssetMetrologySummary | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LaboratoryLocation {
+  location_id: string;
+  label: string;
+  description: string;
+  status: "active" | "archived";
+  revision: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreatePhysicalAssetInput {
+  inventory_code: string;
+  serial_number?: string;
+  part_number?: string;
+  equipment_model_id: string;
+  laboratory_location_id?: string;
+  ownership_source: OwnershipSource;
+  service_state: ServiceState;
+  availability_state: AvailabilityState;
+  service_state_reason?: string;
+  notes?: string;
+  calibration_requirement: string;
+  calibration_period_months?: number;
+  calibration_due_warning_days?: number;
+  metrology_notes?: string;
+}
+
+export interface FleetOperationResult<T> {
+  replayed: boolean;
+  asset?: T;
+  location?: T;
+}

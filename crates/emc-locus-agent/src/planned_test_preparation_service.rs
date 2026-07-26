@@ -1,5 +1,6 @@
 use crate::equipment_repository::{load_equipment_model_revision, open_equipment_connection};
-use crate::metrology_repository::{load_instrument, open_metrology_connection};
+use crate::fleet_repository::{load_physical_asset, open_fleet_connection};
+use crate::fleet_service::{category_path, load_metrology_summary};
 use crate::planned_test_preparation_dto::{
     PlannedTestPreparationAggregateDto, PlannedTestPreparationEnvelopeDto,
     PlannedTestPreparationMaterialCompatibilityDto, PlannedTestPreparationOperationResultDto,
@@ -793,11 +794,11 @@ fn station_snapshot(
         ));
     }
 
-    let metrology = open_metrology_connection(storage_root)?;
+    let fleet = open_fleet_connection(storage_root)?;
     let equipment = open_equipment_connection(storage_root)?;
     let mut assets = Vec::new();
     for binding in &definition.asset_bindings {
-        let instrument = load_instrument(&metrology, &binding.asset_id)?;
+        let asset = load_physical_asset(&fleet, &binding.asset_id)?;
         let model_revision = load_equipment_model_revision(
             &equipment,
             &binding.equipment_model_id,
@@ -831,23 +832,30 @@ fn station_snapshot(
                     .collect()
             })
             .unwrap_or_default();
+        let metrology = match asset.as_ref() {
+            Some(asset) => load_metrology_summary(&fleet, &asset.asset_id)?,
+            None => None,
+        };
         assets.push(PreparedStationAssetSnapshot {
             binding_id: binding.binding_id.clone(),
             role_label: binding.role_label.clone(),
             asset_id: binding.asset_id.clone(),
             asset_revision: binding.asset_revision.clone(),
-            inventory_code: binding.asset_id.clone(),
-            serial_number: instrument
+            inventory_code: asset
                 .as_ref()
-                .map(|instrument| instrument.serial_number.clone())
+                .map(|asset| asset.inventory_code.clone())
                 .unwrap_or_else(|| "Non disponible".to_owned()),
-            manufacturer: instrument
+            serial_number: asset
                 .as_ref()
-                .map(|instrument| instrument.manufacturer.clone())
+                .and_then(|asset| asset.serial_number.clone())
+                .unwrap_or_else(|| "Sans numéro de série".to_owned()),
+            manufacturer: asset
+                .as_ref()
+                .map(|asset| asset.manufacturer_snapshot.clone())
                 .unwrap_or_else(|| "Non disponible".to_owned()),
-            model_name: instrument
+            model_name: asset
                 .as_ref()
-                .map(|instrument| instrument.model.clone())
+                .map(|asset| asset.model_name_snapshot.clone())
                 .unwrap_or_else(|| "Non disponible".to_owned()),
             equipment_model_id: binding.equipment_model_id.clone(),
             equipment_model_revision_id: binding.equipment_model_revision_id.clone(),
@@ -856,6 +864,24 @@ fn station_snapshot(
                 .as_ref()
                 .map(|model| model.category_code.clone())
                 .unwrap_or_else(|| "indisponible".to_owned()),
+            category_path: asset.as_ref().map(category_path).unwrap_or_default(),
+            laboratory_location_label: asset
+                .as_ref()
+                .and_then(|asset| asset.laboratory_location_label_snapshot.clone())
+                .unwrap_or_else(|| "Emplacement non défini".to_owned()),
+            service_state: asset
+                .as_ref()
+                .map(|asset| asset.service_state.clone())
+                .unwrap_or_else(|| "unavailable".to_owned()),
+            availability_state: asset
+                .as_ref()
+                .map(|asset| asset.availability_state.clone())
+                .unwrap_or_else(|| "unavailable".to_owned()),
+            metrology_status: preparation_metrology_status(
+                metrology.as_ref(),
+                &definition.planned_use_on,
+            ),
+            calibration_due_at: metrology.and_then(|summary| summary.latest_due_at),
             capabilities,
         });
     }
@@ -893,6 +919,29 @@ fn station_snapshot(
         snapshot,
         readiness,
     })
+}
+
+fn preparation_metrology_status(
+    summary: Option<&crate::fleet_dto::PhysicalAssetMetrologySummaryDto>,
+    planned_use_on: &str,
+) -> String {
+    let Some(summary) = summary else {
+        return "unavailable".to_owned();
+    };
+    if summary.calibration_requirement == "not_required" {
+        return "not_required".to_owned();
+    }
+    if matches!(summary.latest_decision.as_deref(), Some("nonconforming")) {
+        return "nonconforming".to_owned();
+    }
+    let Some(due_at) = summary.latest_due_at.as_deref() else {
+        return "missing".to_owned();
+    };
+    if due_at < planned_use_on {
+        "expired".to_owned()
+    } else {
+        "valid".to_owned()
+    }
 }
 
 fn schedule_snapshot(
@@ -1579,6 +1628,18 @@ mod tests {
             )
             .unwrap();
         drop(projects);
+        let equipment = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        equipment
+            .execute(
+                "INSERT INTO laboratory_locations (location_id, label, description, status, revision, created_at, updated_at) VALUES (?1, ?2, '', 'active', 1, ?3, ?3)",
+                params![
+                    "LAB-PREP-STABLE",
+                    "Poste CEM préparation",
+                    "2026-07-15T08:00:00Z"
+                ],
+            )
+            .unwrap();
+        drop(equipment);
 
         identify_service_schedule_location(
             &storage_root,
@@ -1862,15 +1923,17 @@ mod tests {
             "SN-SOURCE-001",
             "op-register-prep-source",
         );
-        let metrology = open_metrology_connection(&storage_root).unwrap();
-        let asset_revision = load_instrument(&metrology, ASSET_ID)
+        let fleet = open_fleet_connection(&storage_root).unwrap();
+        let asset_revision = load_physical_asset(&fleet, ASSET_ID)
             .unwrap()
             .unwrap()
-            .revision;
-        let source_revision = load_instrument(&metrology, SOURCE_ASSET_ID)
+            .revision
+            .to_string();
+        let source_revision = load_physical_asset(&fleet, SOURCE_ASSET_ID)
             .unwrap()
             .unwrap()
-            .revision;
+            .revision
+            .to_string();
         seed_station(
             &storage_root,
             &model_checksum,

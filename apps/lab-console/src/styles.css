@@ -796,6 +796,524 @@ button.planningSlot-cancelled {
   }
 }
 
+/* 0.22.0 - explicit model, fleet and laboratory-location workspaces. */
+.resourcePageHeader {
+  align-items: flex-start;
+  background: #fff;
+  border-bottom: 1px solid #d7dfda;
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  padding: 14px 18px;
+}
+
+.resourcePageHeader h2,
+.resourcePageHeader p {
+  margin: 0;
+}
+
+.resourcePageHeader h2 {
+  font-size: 20px;
+  margin: 4px 0;
+}
+
+.contextBanner {
+  color: #0a675b;
+  font-size: 12px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.fleetWorkspace,
+.locationsWorkspace,
+.stationWorkspace {
+  background: #eef2f0;
+  min-height: 0;
+}
+
+.fleetToolbar {
+  align-items: center;
+  background: #fff;
+  border-bottom: 1px solid #d7dfda;
+  display: flex;
+  gap: 12px;
+  padding: 9px 18px;
+}
+
+.fleetToolbar .searchBox {
+  min-width: min(360px, 38vw);
+}
+
+.segmentedControl {
+  align-items: stretch;
+  border: 1px solid #bdc9c3;
+  border-radius: 4px;
+  display: flex;
+  overflow: hidden;
+}
+
+.segmentedControl button {
+  background: #fff;
+  border: 0;
+  border-right: 1px solid #d2dad6;
+  border-radius: 0;
+  color: #43534a;
+  min-height: 34px;
+  padding: 0 11px;
+}
+
+.segmentedControl button:last-child { border-right: 0; }
+.segmentedControl button.active { background: #dcece7; color: #075f54; }
+
+.fleetLayout,
+.locationsLayout,
+.stationLayout {
+  display: grid;
+  grid-template-columns: minmax(290px, 34%) minmax(0, 1fr);
+  min-height: 560px;
+}
+
+.fleetTreePanel,
+.locationList,
+.stationList {
+  background: #f7f9f8;
+  border-right: 1px solid #d5ddd9;
+  min-width: 0;
+  overflow: auto;
+  padding: 10px;
+}
+
+.fleetTree,
+.modelHierarchy {
+  display: grid;
+  gap: 2px;
+}
+
+.fleetGroup,
+.catalogHierarchyNode {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #26352d;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  justify-content: start;
+  padding: 7px 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.catalogHierarchyNode.category { grid-template-columns: 16px 16px minmax(0, 1fr) auto; font-weight: 700; }
+.catalogHierarchyNode.manufacturer { padding-left: 30px; }
+.fleetGroup small,
+.catalogHierarchyNode small { color: #66766d; }
+
+.fleetCategoryBranch > [role="group"] {
+  border-left: 1px solid #cbd6d0;
+  margin-left: 15px;
+  padding-left: 10px;
+}
+
+.fleetModelGroup {
+  border-left: 1px solid #cbd6d0;
+  display: grid;
+  gap: 2px;
+  margin-left: 15px;
+  padding: 3px 0 7px 14px;
+}
+
+.fleetModelNode {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #4d5d54;
+  display: grid;
+  font-size: 11px;
+  gap: 7px;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  padding: 6px 7px;
+  text-align: left;
+  width: 100%;
+}
+
+.fleetAssetNodes {
+  display: grid;
+  gap: 2px;
+}
+
+.fleetAssetNodes > button,
+.catalogModelNode {
+  background: #fff;
+  border: 1px solid transparent;
+  color: #26352d;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.fleetAssetNodes > button.active,
+.catalogModelNode.active {
+  background: #e2f0ec;
+  border-color: #80aa9e;
+}
+
+.catalogModelNode { margin-left: 42px; width: calc(100% - 42px); }
+.catalogModelNode > small { color: #67776e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.assetRowStates {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+  justify-content: space-between;
+}
+
+.assetRowStates > span:not(.status) {
+  color: #5d6c64;
+  font-size: 10px;
+}
+
+.activeFilterBanner {
+  align-items: center;
+  background: #eaf4f0;
+  border-bottom: 1px solid #bfd4cd;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 8px 18px;
+}
+
+.activeFilterBanner .textButton {
+  background: transparent;
+  border: 0;
+  color: #09685d;
+  min-height: 0;
+  padding: 3px;
+}
+
+.assetDetail,
+.locationDetail,
+.stationDetail {
+  background: #fff;
+  min-width: 0;
+  overflow: auto;
+  padding: 18px;
+}
+
+.stationList > button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #26352d;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) auto 15px;
+  padding: 9px;
+  text-align: left;
+  width: 100%;
+}
+
+.stationList > button > span:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stationList > button small {
+  color: #68776f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stationList > button.active {
+  background: #e2f0ec;
+  border-color: #80aa9e;
+}
+
+.stationIdentityHeader {
+  align-items: start;
+  border-bottom: 1px solid #d8dfdb;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  padding-bottom: 15px;
+}
+
+.stationIdentityHeader h2,
+.stationIdentityHeader p {
+  margin: 3px 0;
+}
+
+.stationSection {
+  border-bottom: 1px solid #d8dfdb;
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+}
+
+.stationSection .formGrid,
+.stationAssetPicker {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stationAssetPicker {
+  align-items: end;
+  grid-template-columns: minmax(160px, .7fr) minmax(260px, 1.5fr) auto;
+}
+
+.stationBindingList {
+  display: grid;
+  gap: 6px;
+}
+
+.stationBindingList > div {
+  align-items: center;
+  background: #f7f9f8;
+  border-left: 3px solid #83a99e;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 9px 11px;
+}
+
+.stationBindingList > div > div {
+  display: grid;
+  gap: 3px;
+}
+
+.stationBindingList span {
+  color: #5d6c64;
+  font-size: 12px;
+}
+
+.stationReadinessPanel {
+  border-left: 4px solid #b35b3d;
+  margin-top: 16px;
+  padding: 12px 14px;
+}
+
+.stationReadinessPanel.ready {
+  background: #eef7f2;
+  border-color: #43856c;
+}
+
+.stationReadinessPanel.blocked {
+  background: #fff4ef;
+}
+
+.stationReadinessPanel > div {
+  align-items: start;
+  display: flex;
+  gap: 9px;
+}
+
+.stationReadinessPanel h3,
+.stationReadinessPanel p {
+  margin: 0 0 3px;
+}
+
+.stationReadinessPanel ul {
+  margin: 10px 0 0 28px;
+  padding: 0;
+}
+
+.stationActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 14px;
+}
+
+.stationCreationDialog {
+  width: min(720px, calc(100vw - 48px));
+}
+
+.stationCreationDialog > header,
+.stationCreationDialog > footer {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.stationCreationDialog .formGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+  padding: 14px 0;
+}
+
+.stationCreationDialog > footer {
+  border-top: 1px solid #d8dfdb;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 12px;
+}
+
+.assetIdentityHeader {
+  border-bottom: 1px solid #d8dfdb;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(220px, .8fr) minmax(0, 2fr);
+  padding-bottom: 16px;
+}
+
+.assetIdentityHeader h2 { font-size: 26px; margin: 3px 0; }
+.assetIdentityHeader p { margin: 0; }
+
+.identityFacts {
+  display: grid;
+  gap: 8px 14px;
+  grid-template-columns: repeat(3, minmax(125px, 1fr));
+}
+
+.identityFacts > div { border-left: 2px solid #c6d8d1; display: grid; gap: 2px; padding-left: 8px; }
+.identityFacts span { color: #68776f; font-size: 11px; }
+.identityFacts strong { font-size: 13px; overflow-wrap: anywhere; }
+
+.detailTabs {
+  border-bottom: 1px solid #d8dfdb;
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  padding-top: 12px;
+}
+
+.detailTabs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: #56665d;
+  padding: 9px 10px;
+  white-space: nowrap;
+}
+
+.detailTabs button.active { border-bottom-color: #087669; color: #075f54; }
+.detailSection { max-width: 760px; padding: 18px 2px; }
+.technicalValue { overflow-wrap: anywhere; }
+
+.assetEditSection,
+.assetOperationalSection {
+  display: grid;
+  gap: 14px;
+  max-width: 900px;
+}
+
+.assetEditSection .formGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.assetEditSection .wideField {
+  grid-column: 1 / -1;
+}
+
+.operationalEditBlock {
+  background: #f7f9f8;
+  border: 1px solid #d7dfda;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.operationalEditBlock h3,
+.operationalEditBlock p {
+  margin: 0;
+}
+
+.linkedFleetAssets {
+  margin-top: 14px;
+}
+
+.linkedAssetRows {
+  border-top: 1px solid #d8dfdb;
+  display: grid;
+  margin-top: 10px;
+}
+
+.linkedAssetRows > div {
+  align-items: center;
+  border-bottom: 1px solid #e2e7e4;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(100px, .7fr) minmax(150px, 1fr) minmax(150px, 1fr);
+  padding: 9px 2px;
+}
+
+.targetedError {
+  align-items: start;
+  background: #fff4ef;
+  border-left: 3px solid #bd563d;
+  color: #6d2d20;
+  display: flex;
+  gap: 9px;
+  margin: 8px 18px;
+  padding: 9px 11px;
+}
+
+.targetedError p { margin: 2px 0 0; }
+.actionExplanation { color: #725318; margin: 7px 18px; }
+
+.requiredBadge,
+.fieldHint {
+  color: #8a3828;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 5px;
+}
+
+.fieldHint { color: #68776f; font-weight: 500; }
+.assetCreationDialog { width: min(850px, calc(100vw - 48px)); }
+.assetCreationDialog > header,
+.assetCreationDialog > footer,
+.locationDetail > header { align-items: center; display: flex; justify-content: space-between; }
+.assetCreationDialog .formGrid { display: grid; gap: 11px; grid-template-columns: 1fr 1fr; padding: 14px 0; }
+.assetCreationDialog .wideField { grid-column: 1 / -1; }
+.assetCreationDialog footer { border-top: 1px solid #d8dfdb; justify-content: flex-end; padding-top: 12px; }
+.selectedModelSummary { background: #eef6f3; padding: 9px; }
+
+.locationList { display: block; }
+.locationList > button { align-items: center; background: transparent; border: 1px solid transparent; display: flex; gap: 9px; padding: 9px; text-align: left; width: 100%; }
+.locationList > button.active { background: #e2f0ec; border-color: #80aa9e; }
+.locationList > button span { display: grid; gap: 2px; }
+.locationList > button small { color: #68776f; }
+.locationDetail { display: grid; gap: 14px; align-content: start; }
+
+.demoTag { color: #73510c; font-size: 10px; font-weight: 700; }
+
+@media (max-width: 1050px) {
+  .segmentedControl { display: grid; grid-template-columns: 1fr 1fr; }
+  .fleetToolbar { align-items: stretch; flex-direction: column; }
+  .fleetToolbar .searchBox { min-width: 0; }
+  .identityFacts { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 760px) {
+  .fleetLayout,
+  .locationsLayout,
+  .stationLayout,
+  .assetIdentityHeader { grid-template-columns: 1fr; }
+  .fleetTreePanel,
+  .locationList,
+  .stationList { border-bottom: 1px solid #d5ddd9; border-right: 0; max-height: 330px; }
+  .assetCreationDialog { width: 100vw; }
+  .assetCreationDialog .formGrid,
+  .stationCreationDialog .formGrid,
+  .stationSection .formGrid,
+  .stationAssetPicker,
+  .assetEditSection .formGrid,
+  .identityFacts { grid-template-columns: 1fr; }
+  .linkedAssetRows > div { grid-template-columns: 1fr; }
+  .resourcePageHeader { flex-direction: column; }
+}
+
 * {
   box-sizing: border-box;
 }

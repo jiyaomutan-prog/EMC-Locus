@@ -1132,12 +1132,13 @@ function PreparationWorkspace(props: {
                       }
                     >
                       <option value="">Non affecté</option>
-                      {compatibleAssets.map((asset) => (
-                        <option key={asset.binding_id} value={asset.binding_id}>
-                          {assetOptionLabel(asset)}
-                        </option>
-                      ))}
+                      {plannedAssetOptionGroups(compatibleAssets)}
                     </select>
+                    {compatibleAssets.length > 0 && (
+                      <small className="compatibilityExplanation">
+                        Exemplaires du parc compatibles avec {slot.required_category || slot.required_capability || "le rôle demandé"}.
+                      </small>
+                    )}
                     {compatibleAssets.length === 0 && (
                       <div className="materialCompatibilityEmpty" role="status">
                         <strong>Aucun matériel compatible dans ce montage.</strong>
@@ -1250,7 +1251,39 @@ function methodOptionLabel(method: PlannedTestMethodSnapshot) {
 }
 
 function assetOptionLabel(asset: PlannedStationSetupSnapshot["assets"][number]) {
-  return `${asset.role_label} · ${asset.manufacturer} ${asset.model_name} · n° série ${asset.serial_number}`;
+  const serial = asset.serial_number || "Sans numéro de série";
+  return `${asset.inventory_code} · ${serial} · ${asset.laboratory_location_label || "Sans emplacement"} · ${plannedServiceLabel(asset.service_state)} · ${plannedAvailabilityLabel(asset.availability_state)} · ${plannedMetrologyLabel(asset)}`;
+}
+
+function plannedAssetOptionGroups(assets: PlannedStationSetupSnapshot["assets"]) {
+  const groups = new Map<string, PlannedStationSetupSnapshot["assets"]>();
+  for (const asset of assets) {
+    const category = asset.category_path?.length ? asset.category_path.join(" > ") : asset.category_code;
+    const label = `${category} · ${asset.manufacturer} ${asset.model_name}`;
+    groups.set(label, [...(groups.get(label) ?? []), asset]);
+  }
+  return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, "fr")).map(([label, rows]) => (
+    <optgroup key={label} label={label}>
+      {rows.map((asset) => <option key={asset.binding_id} value={asset.binding_id}>{assetOptionLabel(asset)}</option>)}
+    </optgroup>
+  ));
+}
+
+function plannedServiceLabel(value?: string) {
+  return ({ usable: "Utilisable", restricted: "Utilisation restreinte", in_maintenance: "En maintenance", out_of_service: "Hors service", retired: "Retiré du parc", unavailable: "Indisponible" } as Record<string, string>)[value ?? ""] ?? "État de service inconnu";
+}
+
+function plannedAvailabilityLabel(value?: string) {
+  return ({ available: "Disponible", reserved: "Réservé", assigned_to_setup: "Affecté à un montage", in_test: "Utilisé en essai", unavailable: "Indisponible" } as Record<string, string>)[value ?? ""] ?? "Disponibilité inconnue";
+}
+
+function plannedMetrologyLabel(asset: PlannedStationSetupSnapshot["assets"][number]) {
+  if (asset.metrology_status === "valid") return asset.calibration_due_at ? `Étalonnage valide jusqu'au ${formatShortDate(asset.calibration_due_at)}` : "Étalonnage valide";
+  if (asset.metrology_status === "not_required") return "Étalonnage non requis";
+  if (asset.metrology_status === "expired") return "Étalonnage expiré";
+  if (asset.metrology_status === "nonconforming") return "Étalonnage non conforme";
+  if (asset.metrology_status === "missing") return "Étalonnage à planifier";
+  return "Situation métrologique inconnue";
 }
 
 function measurementAxisLabel(axis: string) {

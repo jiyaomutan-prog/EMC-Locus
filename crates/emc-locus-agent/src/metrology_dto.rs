@@ -7,6 +7,7 @@ use serde_json::Value;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct InstrumentDto {
     pub asset_id: String,
+    pub inventory_code: String,
     pub family: String,
     pub category_code: Option<String>,
     pub equipment_model_id: Option<String>,
@@ -210,6 +211,7 @@ pub(crate) fn instrument_dto(
 ) -> InstrumentDto {
     InstrumentDto {
         asset_id: instrument.asset_id.clone(),
+        inventory_code: instrument.inventory_code.clone(),
         family: instrument.family.clone(),
         category_code: instrument.category_code.clone(),
         equipment_model_id: instrument.equipment_model_id.clone(),

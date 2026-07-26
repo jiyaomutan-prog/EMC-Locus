@@ -24,10 +24,11 @@ import {
   ShieldCheck,
   Trash2
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   ApiError,
   equipmentApi,
+  fleetApi,
   measurementEngineeringApi,
   metrologyApi,
   type MeasurementEngineeringConfig,
@@ -63,13 +64,20 @@ import type {
   TechnologyTag
 } from "../../models/equipment";
 import type { MetrologyInstrument, RegisterMetrologyInstrumentInput } from "../../models/metrology";
+import type { PhysicalAsset } from "../../models/fleet";
 import { MeasurementEngineeringPanel } from "./MeasurementEngineeringPanel";
 import { PhysicalAssetMetrologyPanel } from "./PhysicalAssetMetrologyPanel";
+import { FleetWorkspace } from "./FleetWorkspace";
+import { LaboratoryLocationsPanel } from "./LaboratoryLocationsPanel";
+import { StationSetupWorkspace } from "./StationSetupWorkspace";
 
-type EquipmentSpace =
+export type EquipmentSpace =
   | "admin"
   | "catalog"
   | "assets"
+  | "metrology"
+  | "setups"
+  | "locations"
   | "drivers"
   | "signals"
   | "sensors"
@@ -108,16 +116,16 @@ const measurementSpaces: Array<[EquipmentSpace, string]> = [
 ];
 
 const modelSections: Array<[ModelSection, string]> = [
-  ["summary", "Synthese"],
+  ["summary", "Synthèse"],
   ["identification", "Identification"],
-  ["category_template", "Categorie et formulaire"],
-  ["characteristics", "Caracteristiques"],
+  ["category_template", "Catégorie et champs"],
+  ["characteristics", "Caractéristiques"],
   ["ports_connections", "Entrées et sorties"],
   ["measurement_corrections", "Entrées, sorties et corrections"],
   ["control_drivers", "Pilotage / drivers"],
   ["documents", "Documents"],
-  ["revisions_audit", "Revisions et audit"],
-  ["advanced_diagnostics", "Diagnostic avance"]
+  ["revisions_audit", "Révisions et historique"],
+  ["advanced_diagnostics", "Détails techniques"]
 ];
 
 const driverSections: Array<[DriverSection, string]> = [
@@ -185,8 +193,8 @@ interface SignalTransformationOption {
   label: string;
 }
 
-export function EquipmentWorkspace() {
-  const [space, setSpace] = useState<EquipmentSpace>("catalog");
+export function EquipmentWorkspace(props: { initialSpace?: EquipmentSpace }) {
+  const [space, setSpace] = useState<EquipmentSpace>(props.initialSpace ?? "catalog");
   const [models, setModels] = useState<EquipmentModelAggregate[]>([]);
   const [drivers, setDrivers] = useState<DriverProfileAggregate[]>([]);
   const [providers, setProviders] = useState<CommunicationProviderStatus[]>([]);
@@ -208,6 +216,9 @@ export function EquipmentWorkspace() {
   const [manufacturerFilter, setManufacturerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+  const [modelLoadError, setModelLoadError] = useState<string | null>(null);
+  const [driverLoadError, setDriverLoadError] = useState<string | null>(null);
+  const [metrologyLoadError, setMetrologyLoadError] = useState<string | null>(null);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [creationOpen, setCreationOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<EquipmentModelAggregate | null>(null);
@@ -219,6 +230,9 @@ export function EquipmentWorkspace() {
   const [modelRevisions, setModelRevisions] = useState<EquipmentModelRevision[]>([]);
   const [modelAudit, setModelAudit] = useState<EquipmentAuditEvent[]>([]);
   const [modelJsonDraft, setModelJsonDraft] = useState("");
+  const [assetCreationModelId, setAssetCreationModelId] = useState<string | null>(null);
+  const [fleetViewModelId, setFleetViewModelId] = useState<string | null>(null);
+  const [metrologyAssetId, setMetrologyAssetId] = useState<string | null>(null);
 
   const [selectedDriver, setSelectedDriver] = useState<DriverProfileAggregate | null>(null);
   const [selectedDriverRevision, setSelectedDriverRevision] = useState<DriverProfileRevision | null>(null);
@@ -234,54 +248,46 @@ export function EquipmentWorkspace() {
   const refresh = useCallback(async () => {
     setLoadState((current) => current === "ready" ? "ready" : "loading");
     setOperationError(null);
+
+    equipmentApi.listDrivers()
+      .then((response) => { setDrivers(response.driver_profiles); setDriverLoadError(null); })
+      .catch((error) => setDriverLoadError(errorMessage(error)));
+    equipmentApi.providers()
+      .then((response) => setProviders(response.providers))
+      .catch((error) => setDriverLoadError(errorMessage(error)));
+    metrologyApi.listInstruments()
+      .then((response) => { setInstruments(response.instruments); setMetrologyLoadError(null); })
+      .catch((error) => setMetrologyLoadError(errorMessage(error)));
+    measurementEngineeringApi.list(sampleConversionConfig)
+      .then((response) => setSampleConversions(response.items))
+      .catch(() => undefined);
+    measurementEngineeringApi.list(frequencyResponseConfig)
+      .then((response) => setFrequencyResponses(response.items))
+      .catch(() => undefined);
+    equipmentApi.registries().then(setRegistries).catch(() => undefined);
+    equipmentApi.listCategories(true).then((response) => setCategories(response.categories)).catch(() => undefined);
+    equipmentApi.categoryTree(true).then((response) => setCategoryTree(response.categories)).catch(() => undefined);
+    equipmentApi.listFieldDefinitions("equipment_model", true).then((response) => setFieldDefinitions(response.field_definitions)).catch(() => undefined);
+
     try {
-      const [
-        modelList,
-        driverList,
-        providerList,
-        categoryList,
-        treeList,
-        fieldsList,
-        instrumentList,
-        sampleConversionList,
-        frequencyResponseList
-      ] = await Promise.all([
-        equipmentApi.listModels({
-          q: query.trim(),
-          manufacturer: manufacturerFilter.trim(),
-          root_category_id: rootFilter,
-          category_code: categoryFilter,
-          demo_mode: demoMode,
-          equipment_class: classFilter,
-          functional_role: roleFilter,
-          signal_domain: domainFilter,
-          technology_tag: tagFilter,
-          status: statusFilter
-        }),
-        equipmentApi.listDrivers(),
-        equipmentApi.providers(),
-        equipmentApi.listCategories(true),
-        equipmentApi.categoryTree(true),
-        equipmentApi.listFieldDefinitions("equipment_model", true),
-        metrologyApi.listInstruments(),
-        measurementEngineeringApi.list(sampleConversionConfig),
-        measurementEngineeringApi.list(frequencyResponseConfig)
-      ]);
-      const registryList = await equipmentApi.registries();
+      const modelList = await equipmentApi.listModels({
+        q: query.trim(),
+        manufacturer: manufacturerFilter.trim(),
+        root_category_id: rootFilter,
+        category_code: categoryFilter,
+        demo_mode: demoMode,
+        equipment_class: classFilter,
+        functional_role: roleFilter,
+        signal_domain: domainFilter,
+        technology_tag: tagFilter,
+        status: statusFilter
+      });
       setModels(modelList.equipment_models);
-      setDrivers(driverList.driver_profiles);
-      setProviders(providerList.providers);
-      setCategories(categoryList.categories);
-      setCategoryTree(treeList.categories);
-      setFieldDefinitions(fieldsList.field_definitions);
-      setInstruments(instrumentList.instruments);
-      setSampleConversions(sampleConversionList.items);
-      setFrequencyResponses(frequencyResponseList.items);
-      setRegistries(registryList);
+      setModelLoadError(null);
       setLoadState("ready");
     } catch (error) {
       setLoadState("error");
-      setOperationError(errorMessage(error));
+      setModelLoadError(errorMessage(error));
     }
   }, [
     query,
@@ -299,6 +305,10 @@ export function EquipmentWorkspace() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (props.initialSpace) setSpace(props.initialSpace);
+  }, [props.initialSpace]);
 
   const approvedModels = models.filter((model) => model.current_approved_revision);
   const signalTransformationOptions = [
@@ -655,20 +665,34 @@ export function EquipmentWorkspace() {
   return (
     <section className="equipmentWorkspace">
       <div className="equipmentNavigation">
-        <nav className="equipmentTabs" aria-label="Navigation equipements">
+        <nav className="equipmentTabs" aria-label="Ressources techniques">
           <button
             className={space === "catalog" ? "active" : ""}
             aria-current={space === "catalog" ? "page" : undefined}
             onClick={() => setSpace("catalog")}
           >
-            <Boxes size={17} /> Catalogue équipements
+            <Boxes size={17} /> Catalogue des modèles
           </button>
           <button
             className={space === "assets" ? "active" : ""}
             aria-current={space === "assets" ? "page" : undefined}
             onClick={() => setSpace("assets")}
           >
-            <PackagePlus size={17} /> Matériels réels
+            <PackagePlus size={17} /> Parc matériel
+          </button>
+          <button
+            className={space === "metrology" ? "active" : ""}
+            aria-current={space === "metrology" ? "page" : undefined}
+            onClick={() => setSpace("metrology")}
+          >
+            <Activity size={17} /> Métrologie du parc
+          </button>
+          <button
+            className={space === "setups" ? "active" : ""}
+            aria-current={space === "setups" ? "page" : undefined}
+            onClick={() => setSpace("setups")}
+          >
+            <GitBranch size={17} /> Montages de mesure
           </button>
           <button
             className={measurementSpaceActive ? "active" : ""}
@@ -683,6 +707,13 @@ export function EquipmentWorkspace() {
             onClick={() => setSpace("drivers")}
           >
             <GitBranch size={17} /> Drivers et actions
+          </button>
+          <button
+            className={space === "locations" ? "active" : ""}
+            aria-current={space === "locations" ? "page" : undefined}
+            onClick={() => setSpace("locations")}
+          >
+            <Folder size={17} /> Lieux du laboratoire
           </button>
           <button
             className={"equipmentAdminTab" + (space === "admin" ? " active" : "")}
@@ -707,6 +738,13 @@ export function EquipmentWorkspace() {
       </div>
 
       {space === "catalog" && (
+        <>
+        <header className="resourcePageHeader">
+          <div>
+            <h2>Catalogue des modèles</h2>
+            <p>Définitions génériques des fabricants. Aucun numéro de série ni emplacement n'est géré ici.</p>
+          </div>
+        </header>
         <div className="catalogCommandBar">
           <label className="searchBox catalogSearch">
             <Search size={16} />
@@ -809,6 +847,7 @@ export function EquipmentWorkspace() {
             <Plus size={16} /> Nouveau modèle
           </button>
         </div>
+        </>
       )}
 
       {space === "drivers" && (
@@ -845,8 +884,9 @@ export function EquipmentWorkspace() {
         </div>
       )}
 
-      {loadState === "loading" && <StateBlock title="Chargement" detail="Lecture du catalogue equipement." />}
-      {loadState === "error" && <StateBlock title="Erreur" detail={operationError ?? "Catalogue indisponible."} />}
+      {space === "catalog" && loadState === "loading" && <StateBlock title="Chargement" detail="Lecture du catalogue des modèles." />}
+      {space === "catalog" && loadState === "error" && <StateBlock title="Catalogue indisponible" detail={modelLoadError ?? "Le catalogue ne peut pas être chargé."} />}
+      {space === "drivers" && driverLoadError && <StateBlock title="Pilotage temporairement indisponible" detail={driverLoadError} />}
 
       {space === "admin" && loadState === "ready" && (
         <EquipmentRepositoryAdmin
@@ -899,6 +939,14 @@ export function EquipmentWorkspace() {
             onApprove={() => void approveModel()}
             onDerive={() => void deriveModel()}
             onClone={() => void cloneSelectedModel()}
+            onCreateAsset={() => {
+              setAssetCreationModelId(selectedModel?.identity.equipment_model_id ?? null);
+              setSpace("assets");
+            }}
+            onViewAssets={() => {
+              setFleetViewModelId(selectedModel?.identity.equipment_model_id ?? null);
+              setSpace("assets");
+            }}
             onOpenRevision={(revision) => void openModel(selectedModel!, revision)}
           />
         </div>
@@ -939,7 +987,38 @@ export function EquipmentWorkspace() {
         </div>
       )}
 
-      {space === "assets" && loadState === "ready" && (
+      {space === "assets" && (
+        <FleetWorkspace
+          models={models}
+          categories={categories}
+          modelLoadError={modelLoadError}
+          initialModelId={assetCreationModelId}
+          initialViewModelId={fleetViewModelId}
+          onInitialModelHandled={() => setAssetCreationModelId(null)}
+          onInitialViewModelHandled={() => setFleetViewModelId(null)}
+          onOpenPinnedModel={(modelId, revisionId) => {
+            void (async () => {
+              setOperationError(null);
+              try {
+                const [detail, exactRevision] = await Promise.all([
+                  equipmentApi.getModel(modelId),
+                  equipmentApi.getModelRevision(modelId, revisionId)
+                ]);
+                setSpace("catalog");
+                await openModel(detail.equipment_model, exactRevision.revision);
+              } catch (error) {
+                setOperationError(errorMessage(error));
+              }
+            })();
+          }}
+          onOpenMetrology={(assetId) => {
+            setMetrologyAssetId(assetId);
+            setSpace("metrology");
+          }}
+        />
+      )}
+
+      {space === "metrology" && (
         <PhysicalAssetMetrologyPanel
           instruments={instruments}
           approvedModels={approvedModels}
@@ -947,8 +1026,14 @@ export function EquipmentWorkspace() {
           categories={categories}
           onRegister={registerPhysicalAsset}
           onOpenCatalog={() => setSpace("catalog")}
+          initialSelectedAssetId={metrologyAssetId}
+          allowRegistration={false}
         />
       )}
+
+      {space === "metrology" && metrologyLoadError && <StateBlock title="Métrologie temporairement indisponible" detail={metrologyLoadError} />}
+      {space === "setups" && <StationSetupWorkspace />}
+      {space === "locations" && <LaboratoryLocationsPanel />}
 
       {space === "signals" && loadState === "ready" && (
         <SignalCorrectionOverview onSelect={setSpace} />
@@ -1866,47 +1951,136 @@ function ModelCatalog(props: {
   onCategory: (categoryId: string) => void;
   onOpen: (model: EquipmentModelAggregate) => void;
 }) {
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem("emc-locus.catalog-expanded") ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
   const demoCount = props.models.filter((model) => model.identity.is_demo || model.latest_revision?.definition.is_demo).length;
+  const hierarchy = buildModelHierarchy(props.models, props.categories);
+
+  function toggle(key: string) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      localStorage.setItem("emc-locus.catalog-expanded", JSON.stringify(Array.from(next)));
+      return next;
+    });
+  }
+
   return (
     <aside className="equipmentList">
       <div className="listHeader">
-        <h2>Modèles</h2>
+        <h2>Familles et modèles</h2>
         <span>{props.models.length}</span>
       </div>
-      <details className="catalogTreeFilter">
-        <summary>Par catégorie</summary>
-        <CategoryTree categories={props.categoryTree} selectedId="" onSelect={props.onCategory} />
-      </details>
       {demoCount > 0 && <div className="demoBanner">Donnees de demonstration visibles ({props.demoMode})</div>}
       {props.models.length === 0 && (
         <div className="compactEmpty">
-          <strong>Aucun modele trouve</strong>
-          <span>Modifiez les filtres ou creez un nouveau modele.</span>
+          <strong>Aucun modèle trouvé</strong>
+          <span>Modifiez les filtres ou créez un nouveau modèle.</span>
         </div>
       )}
-      {props.models.map((model) => {
-        const revision = model.latest_revision ?? model.current_approved_revision;
-        const definition = revision?.definition;
-        const categoryLabel = categoryPathLabel(props.categories, model.identity.category_code);
-        const isDemo = model.identity.is_demo || definition?.is_demo;
-        return (
-          <button
-            key={model.identity.equipment_model_id}
-            className={props.selected?.identity.equipment_model_id === model.identity.equipment_model_id ? "active" : ""}
-            onClick={() => props.onOpen(model)}
-          >
-            <strong>{model.identity.manufacturer} {model.identity.model_name}</strong>
-            <span>{isDemo ? "[DEMO] " : ""}{categoryLabel}</span>
-            <small>{categoryLabel || humanLabel(model.identity.root_category_id ?? model.identity.category_code)}</small>
-            <span className="listItemMeta">
-              <span className={"status " + (revision?.status ?? "")}>{humanStatus(revision?.status)}</span>
-              <small>Révision {revision?.revision_number ?? "-"}</small>
-            </span>
-          </button>
-        );
-      })}
+      <div className="modelHierarchy" role="tree" aria-label="Catalogue hiérarchique des modèles">
+        {hierarchy.map((branch) => renderModelCategoryBranch(branch, hierarchy.length === 1, expanded, toggle, props.selected, props.onOpen))}
+      </div>
     </aside>
   );
+}
+
+interface ModelCategoryBranch {
+  key: string;
+  label: string;
+  path: string[];
+  models: EquipmentModelAggregate[];
+  children: ModelCategoryBranch[];
+}
+
+function buildModelHierarchy(models: EquipmentModelAggregate[], categories: EquipmentCategory[]): ModelCategoryBranch[] {
+  interface MutableBranch {
+    key: string;
+    label: string;
+    path: string[];
+    models: EquipmentModelAggregate[];
+    children: Map<string, MutableBranch>;
+  }
+  const roots = new Map<string, MutableBranch>();
+  for (const model of models) {
+    const snapshotPath = model.latest_revision?.definition.template_snapshot?.category_path
+      ?? model.current_approved_revision?.definition.template_snapshot?.category_path
+      ?? [];
+    const fallbackPath = (categoryPathLabel(categories, model.identity.category_code) || humanLabel(model.identity.category_code)).split(" > ");
+    const segments = (snapshotPath.length > 0 ? snapshotPath : fallbackPath).filter((segment) => segment && segment !== "Général");
+    let siblings = roots;
+    let branch: MutableBranch | null = null;
+    const path: string[] = [];
+    for (const segment of segments.length > 0 ? segments : ["Sans catégorie"]) {
+      path.push(segment);
+      branch = siblings.get(segment) ?? { key: `category:${path.join("/")}`, label: segment, path: [...path], models: [], children: new Map() };
+      siblings.set(segment, branch);
+      siblings = branch.children;
+    }
+    if (branch) branch.models.push(model);
+  }
+
+  function materialize(map: Map<string, MutableBranch>): ModelCategoryBranch[] {
+    return Array.from(map.values()).sort((left, right) => left.label.localeCompare(right.label, "fr")).map((branch) => {
+      return { key: branch.key, label: branch.label, path: branch.path, models: branch.models, children: materialize(branch.children) };
+    });
+  }
+  return materialize(roots);
+}
+
+function renderModelCategoryBranch(
+  branch: ModelCategoryBranch,
+  onlySibling: boolean,
+  expanded: Set<string>,
+  toggle: (key: string) => void,
+  selected: EquipmentModelAggregate | null,
+  onOpen: (model: EquipmentModelAggregate) => void
+): ReactNode {
+  const open = expanded.has(branch.key) || onlySibling;
+  const count = branch.models.length + branch.children.reduce((total, child) => total + modelBranchCount(child), 0);
+  const manufacturers = groupModelsByManufacturer(branch.models);
+  return <div key={branch.key}>
+    <button type="button" className="catalogHierarchyNode category" role="treeitem" aria-expanded={open} onClick={() => toggle(branch.key)}>
+      {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}<Folder size={15} /><span>{branch.label}</span><small>{count}</small>
+    </button>
+    {open && <div role="group">
+      {branch.children.map((child) => renderModelCategoryBranch(child, branch.children.length === 1 && branch.models.length === 0, expanded, toggle, selected, onOpen))}
+      {Array.from(manufacturers.entries()).sort(([left], [right]) => left.localeCompare(right, "fr")).map(([manufacturer, manufacturerModels]) => {
+        const manufacturerKey = `${branch.key}:manufacturer:${manufacturer}`;
+        const manufacturerOpen = expanded.has(manufacturerKey) || manufacturers.size === 1;
+        return <div key={manufacturerKey}>
+          <button type="button" className="catalogHierarchyNode manufacturer" role="treeitem" aria-expanded={manufacturerOpen} onClick={() => toggle(manufacturerKey)}>
+            {manufacturerOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}<span>{manufacturer}</span><small>{manufacturerModels.length}</small>
+          </button>
+          {manufacturerOpen && <div role="group">{manufacturerModels.map((model) => {
+            const revision = model.latest_revision ?? model.current_approved_revision;
+            const isDemo = model.identity.is_demo || revision?.definition.is_demo;
+            const archived = revision?.status === "superseded";
+            return <button key={model.identity.equipment_model_id} type="button" role="treeitem" className={`catalogModelNode ${selected?.identity.equipment_model_id === model.identity.equipment_model_id ? "active" : ""} ${archived ? "archived" : ""}`} onClick={() => onOpen(model)}>
+              <span><strong>{model.identity.model_name}</strong>{model.identity.variant ? ` · ${model.identity.variant}` : ""}</span>
+              <small>{branch.path.join(" > ")}</small>
+              <span className="listItemMeta"><span className={`status ${revision?.status ?? ""}`}>{humanStatus(revision?.status)}</span>{isDemo && <span className="demoTag">Démonstration</span>}</span>
+            </button>;
+          })}</div>}
+        </div>;
+      })}
+    </div>}
+  </div>;
+}
+
+function modelBranchCount(branch: ModelCategoryBranch): number {
+  return branch.models.length + branch.children.reduce((total, child) => total + modelBranchCount(child), 0);
+}
+
+function groupModelsByManufacturer(models: EquipmentModelAggregate[]) {
+  const manufacturers = new Map<string, EquipmentModelAggregate[]>();
+  for (const model of models) manufacturers.set(model.identity.manufacturer, [...(manufacturers.get(model.identity.manufacturer) ?? []), model]);
+  return manufacturers;
 }
 
 function ModelStudio(props: {
@@ -1931,17 +2105,20 @@ function ModelStudio(props: {
   onApprove: () => void;
   onDerive: () => void;
   onClone: () => void;
+  onCreateAsset: () => void;
+  onViewAssets: () => void;
   onOpenRevision: (revision: EquipmentModelRevision) => void;
 }) {
   if (!props.model || !props.revision || !props.definition) {
-    return <StateBlock title="Aucun modele ouvert" detail="Selectionnez ou creez un modele equipement." />;
+    return <StateBlock title="Aucun modèle ouvert" detail="Sélectionnez ou créez un modèle constructeur." />;
   }
   const definition = props.definition;
   return (
     <section className="equipmentStudio">
       <div className="studioHeader">
         <div>
-          <p className="eyebrow">Fiche modèle équipement</p>
+          <p className="contextBanner">Vous consultez un modèle générique.</p>
+          <p className="eyebrow">Modèle constructeur</p>
           <h2>{props.model.identity.manufacturer} {props.model.identity.model_name}</h2>
           <div className="studioTitleMeta">
             <span className={"status " + props.revision.status}>{humanStatus(props.revision.status)}</span>
@@ -1949,19 +2126,21 @@ function ModelStudio(props: {
           </div>
         </div>
         <div className="headerActions">
-          <button className="secondary" onClick={props.onValidate}><CheckCircle2 size={16} /> Valider</button>
+          <button className="secondary" onClick={props.onValidate}><CheckCircle2 size={16} /> Vérifier la fiche</button>
           {props.revision.status === "draft" && (
             <>
               <button onClick={props.onSave}><Save size={16} /> Sauvegarder</button>
-              <button className="secondary" onClick={props.onSubmit}><Send size={16} /> Soumettre</button>
+              <button className="secondary" onClick={props.onSubmit}><Send size={16} /> Soumettre pour approbation</button>
             </>
           )}
           {props.revision.status === "under_review" && (
-            <button onClick={props.onApprove}><ShieldCheck size={16} /> Approuver</button>
+            <button onClick={props.onApprove}><ShieldCheck size={16} /> Approuver la version</button>
           )}
           {props.revision.status === "approved" && props.model.current_approved_revision && (
-            <button onClick={props.onDerive}><GitBranch size={16} /> Nouvelle revision</button>
+            <button onClick={props.onDerive}><GitBranch size={16} /> Créer une nouvelle version</button>
           )}
+          {props.model.current_approved_revision && <button onClick={props.onCreateAsset}><PackagePlus size={16} /> Créer un exemplaire dans le parc</button>}
+          <button className="secondary" onClick={props.onViewAssets}><Boxes size={16} /> Voir les exemplaires du parc</button>
           <button className="secondary" onClick={props.onClone}><Copy size={16} /> Cloner</button>
         </div>
       </div>
@@ -1976,17 +2155,20 @@ function ModelStudio(props: {
         </nav>
         <div className="editorPane">
           {props.section === "summary" && (
-            <EditorCard title="Synthese">
-              <Field label="Fabricant" value={definition.manufacturer} disabled={props.readOnly} onChange={(manufacturer) => props.onDefinition({ ...definition, manufacturer })} />
-              <Field label="Modele" value={definition.model_name} disabled={props.readOnly} onChange={(model_name) => props.onDefinition({ ...definition, model_name })} />
-              <dl>
-                <dt>Categorie</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || humanLabel(definition.category_code)}</dd>
-                <dt>Statut</dt><dd>{humanStatus(props.revision.status)}</dd>
-                <dt>Champs renseignes</dt><dd>{Object.keys(definition.custom_field_values ?? {}).length}</dd>
-                <dt>Ports</dt><dd>{props.revision.signal_port_count}</dd>
-                <dt>Interfaces</dt><dd>{props.revision.interface_count}</dd>
-              </dl>
-            </EditorCard>
+            <>
+              <EditorCard title="Synthèse">
+                <Field label="Fabricant" value={definition.manufacturer} disabled={props.readOnly} onChange={(manufacturer) => props.onDefinition({ ...definition, manufacturer })} />
+                <Field label="Modèle" value={definition.model_name} disabled={props.readOnly} onChange={(model_name) => props.onDefinition({ ...definition, model_name })} />
+                <dl>
+                  <dt>Catégorie</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || humanLabel(definition.category_code)}</dd>
+                  <dt>Statut</dt><dd>{humanStatus(props.revision.status)}</dd>
+                  <dt>Champs renseignés</dt><dd>{Object.keys(definition.custom_field_values ?? {}).length}</dd>
+                  <dt>Ports</dt><dd>{props.revision.signal_port_count}</dd>
+                  <dt>Interfaces</dt><dd>{props.revision.interface_count}</dd>
+                </dl>
+              </EditorCard>
+              <LinkedFleetAssets modelId={props.model.identity.equipment_model_id} onViewAll={props.onViewAssets} />
+            </>
           )}
           {props.section === "identification" && (
             <EditorCard title="Identification">
@@ -2007,7 +2189,7 @@ function ModelStudio(props: {
               <dl>
                 <dt>Famille</dt><dd>{humanLabel(definition.template_snapshot?.root_category_id ?? props.model.identity.root_category_id ?? "")}</dd>
                 <dt>Categorie</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || humanLabel(definition.category_code)}</dd>
-                <dt>Formulaire utilise</dt><dd>{(definition.template_snapshot?.fields ?? []).filter((field) => field.visible).length} champs visibles</dd>
+                <dt>Formulaire utilisé</dt><dd>{(definition.template_snapshot?.fields ?? []).filter((field) => field.visible).length} champs visibles</dd>
               </dl>
             </EditorCard>
           )}
@@ -2156,6 +2338,43 @@ function ModelStudio(props: {
         </div>
         <ValidationPanel validation={props.validation} />
       </div>
+    </section>
+  );
+}
+
+function LinkedFleetAssets(props: { modelId: string; onViewAll: () => void }) {
+  const [assets, setAssets] = useState<PhysicalAsset[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fleetApi.listAssets()
+      .then((response) => {
+        if (cancelled) return;
+        setAssets(response.assets.filter((asset) => asset.equipment_model_id === props.modelId));
+        setError(null);
+      })
+      .catch((reason) => {
+        if (!cancelled) setError(errorMessage(reason));
+      });
+    return () => { cancelled = true; };
+  }, [props.modelId]);
+
+  return (
+    <section className="editorCard linkedFleetAssets">
+      <div className="sectionTitleRow">
+        <div><h2>Exemplaires du parc</h2><p>Matériels réellement enregistrés à partir de ce modèle constructeur.</p></div>
+        <button className="secondary" type="button" onClick={props.onViewAll}>Voir dans le parc</button>
+      </div>
+      {error && <div className="targetedError"><AlertTriangle size={17} /><div><strong>Parc temporairement indisponible</strong><p>La fiche du modèle reste consultable. {error}</p></div></div>}
+      {!error && assets.length === 0 && <p className="muted">Aucun exemplaire n'est encore lié à ce modèle.</p>}
+      {assets.length > 0 && <div className="linkedAssetRows">{assets.map((asset) => (
+        <div key={asset.asset_id}>
+          <strong>{asset.inventory_code}</strong>
+          <span>{asset.serial_number ? `N° de série ${asset.serial_number}` : "Sans numéro de série"}</span>
+          <span>{asset.laboratory_location_label || "Emplacement non défini"}</span>
+        </div>
+      ))}</div>}
     </section>
   );
 }

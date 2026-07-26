@@ -193,6 +193,12 @@ export interface PlannedStationAssetSnapshot {
   equipment_model_revision_id: string;
   equipment_model_checksum: string;
   category_code: string;
+  category_path?: string[];
+  laboratory_location_label?: string;
+  service_state?: string;
+  availability_state?: string;
+  metrology_status?: string;
+  calibration_due_at?: string | null;
   capabilities?: Array<{
     capability_id: string;
     label: string;

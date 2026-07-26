@@ -1,9 +1,8 @@
-use crate::equipment_repository::{
-    load_equipment_model_revision, open_equipment_connection, StoredEquipmentModelRevision,
+use crate::equipment_repository::{load_equipment_model_revision, StoredEquipmentModelRevision};
+use crate::fleet_repository::{
+    load_laboratory_location, load_physical_asset, open_fleet_connection,
 };
-use crate::metrology_repository::{
-    load_asset_characterization, load_instrument, open_metrology_connection,
-};
+use crate::metrology_repository::{load_asset_characterization, open_metrology_connection};
 use crate::metrology_service::{assess_metrology_readiness_report, AssessReadinessInput};
 use crate::station_setup_dto::{
     revision_dto_unchecked, StationSetupAggregateDto, StationSetupAuditEventDto,
@@ -87,12 +86,36 @@ pub fn create_station_setup(
     safe_id(&input.setup_id, "setup_id")?;
     safe_id(&input.laboratory_location_id, "laboratory_location_id")?;
 
+    let fleet = open_fleet_connection(storage_root)?;
+    let location = load_laboratory_location(&fleet, input.laboratory_location_id.trim())?
+        .ok_or_else(|| {
+            AgentError::with_details(
+                "station_setup_location_not_found",
+                "Le lieu sélectionné n'existe pas dans le registre du laboratoire.",
+                json!({
+                    "laboratory_location_id": input.laboratory_location_id.trim(),
+                    "next_action": "Créez ou sélectionnez un lieu actif du laboratoire."
+                }),
+            )
+        })?;
+    if location.status != "active" {
+        return Err(AgentError::with_details(
+            "station_setup_location_archived",
+            "Le lieu sélectionné est archivé et ne peut pas recevoir un nouveau montage.",
+            json!({
+                "laboratory_location_id": location.location_id,
+                "laboratory_location_label": location.label,
+                "next_action": "Sélectionnez un lieu actif du laboratoire."
+            }),
+        ));
+    }
+
     let definition = StationMeasurementSetupDefinition {
         definition_schema_version: STATION_SETUP_DEFINITION_SCHEMA_VERSION.to_owned(),
         setup_id: input.setup_id.trim().to_owned(),
         label: input.label.trim().to_owned(),
         laboratory_location_id: Some(input.laboratory_location_id.trim().to_owned()),
-        laboratory_location_label: input.laboratory_location_label.trim().to_owned(),
+        laboratory_location_label: location.label,
         planned_use_on: input.planned_use_on.trim().to_owned(),
         execution_mode: input.execution_mode.trim().to_owned(),
         asset_bindings: Vec::new(),
@@ -633,17 +656,28 @@ pub(crate) fn assess_station_setup_readiness(
     }
 
     let metrology = open_metrology_connection(storage_root)?;
-    let equipment = open_equipment_connection(storage_root)?;
+    let equipment = open_fleet_connection(storage_root)?;
     let mut models = BTreeMap::new();
     for binding in &definition.asset_bindings {
-        let Some(instrument) = load_instrument(&metrology, &binding.asset_id)? else {
+        let Some(asset) = load_physical_asset(&equipment, &binding.asset_id)? else {
+            issues.push(blocking_issue(
+                "station_physical_asset_missing",
+                StationReadinessDimension::AssetIdentity,
+                "L'exemplaire du parc sélectionné n'existe plus. Choisissez un matériel du parc disponible.",
+                Some(&binding.binding_id),
+                None,
+            ));
             continue;
         };
-        if instrument.revision != binding.asset_revision
-            || instrument.equipment_model_id.as_deref() != Some(binding.equipment_model_id.as_str())
-            || instrument.equipment_model_revision_id.as_deref()
+        if !asset_revision_matches(
+            &binding.asset_revision,
+            asset.revision,
+            &asset.asset_id,
+            &asset.updated_at,
+        ) || asset.equipment_model_id.as_deref() != Some(binding.equipment_model_id.as_str())
+            || asset.equipment_model_revision_id.as_deref()
                 != Some(binding.equipment_model_revision_id.as_str())
-            || instrument.equipment_model_checksum.as_deref()
+            || asset.equipment_model_checksum.as_deref()
                 != Some(binding.equipment_model_checksum.as_str())
         {
             issues.push(blocking_issue(
@@ -786,6 +820,24 @@ pub(crate) fn assess_station_setup_readiness(
         definition.planned_use_on.clone(),
         issues,
     ))
+}
+
+fn asset_revision_matches(stored: &str, revision: u64, asset_id: &str, updated_at: &str) -> bool {
+    if stored == revision.to_string() {
+        return true;
+    }
+
+    // Station revisions created before 0.22.0 used the metrology adapter's
+    // deterministic token. Keep those historical snapshots readable while all
+    // new selectors use the authoritative fleet revision number.
+    let mut hasher = sha2::Sha256::new();
+    use sha2::Digest;
+    hasher.update(b"emc-locus-agent:instrument:");
+    hasher.update(asset_id.as_bytes());
+    hasher.update(b":");
+    hasher.update(updated_at.as_bytes());
+    let legacy_prefix = format!("rev-{}", &format!("{:x}", hasher.finalize())[..12]);
+    stored == legacy_prefix
 }
 
 fn validated_equipment_model(

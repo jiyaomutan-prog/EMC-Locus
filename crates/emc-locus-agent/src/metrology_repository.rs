@@ -11,6 +11,7 @@ use std::path::Path;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredInstrument {
     pub asset_id: String,
+    pub inventory_code: String,
     pub family: String,
     pub manufacturer: String,
     pub model: String,
@@ -454,6 +455,7 @@ fn instrument_select_sql(suffix: &str) -> String {
         "asset.equipment_model_id, asset.equipment_model_revision_id, asset.equipment_model_checksum, ",
         "dossier.created_at, CASE WHEN asset.updated_at > dossier.updated_at ",
         "THEN asset.updated_at ELSE dossier.updated_at END ",
+        ", asset.inventory_code ",
         "FROM metrology_asset_dossiers dossier ",
         "JOIN equipment_db.physical_assets asset ON asset.asset_id = dossier.asset_id "
     );
@@ -466,6 +468,7 @@ fn stored_instrument_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Store
     Ok(StoredInstrument {
         revision: revision_for("instrument", &asset_id, &updated_at),
         asset_id,
+        inventory_code: row.get(22)?,
         family: row.get(1)?,
         manufacturer: row.get(2)?,
         model: row.get(3)?,

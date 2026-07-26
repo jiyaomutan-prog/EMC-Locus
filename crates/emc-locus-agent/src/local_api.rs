@@ -3687,7 +3687,6 @@ mod tests {
             handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
             200
         );
-
         let initial_scaling_definition = scaling_definition("demo-current-probe-10mv-a", 100.0);
         let scaling_validation = handle_api_request(
             "POST",
@@ -5131,6 +5130,11 @@ mod tests {
             handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
             200
         );
+        let laboratory_location_id = create_test_laboratory_location(
+            &config,
+            "Poste CEM mobile",
+            "op-station-location-create",
+        );
 
         let (cable_model_revision, cable_model_checksum) = create_and_approve_equipment_model(
             &config,
@@ -5216,7 +5220,7 @@ mod tests {
             &json!({
                 "setup_id": "SETUP-RF-STATION-001",
                 "label": "Mesure RF câble vers récepteur",
-                "laboratory_location_id": "LAB-LOCATION-MOBILE",
+                "laboratory_location_id": laboratory_location_id,
                 "laboratory_location_label": "Poste CEM mobile",
                 "planned_use_on": "2026-07-15",
                 "execution_mode": "accredited",
@@ -5268,7 +5272,7 @@ mod tests {
             "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-RF-STATION-001",
             "label": "Mesure RF câble vers récepteur",
-            "laboratory_location_id": "LAB-LOCATION-MOBILE",
+            "laboratory_location_id": laboratory_location_id,
             "laboratory_location_label": "Poste CEM mobile",
             "planned_use_on": "2026-07-15",
             "execution_mode": "accredited",
@@ -5471,6 +5475,8 @@ mod tests {
         };
         let initialized = handle_api_request("POST", "/api/v1/storage/initialize", "", &config);
         assert_eq!(initialized.status, 200);
+        insert_test_laboratory_location(&storage_root, "LAB-LOCATION-CEM-1", "Labo CEM 1");
+        insert_test_laboratory_location(&storage_root, "LAB-LOCATION-CEM-2", "Labo CEM 2");
         let storage_status = handle_api_request("GET", "/api/v1/storage/status", "", &config);
         assert_eq!(storage_status.status, 200);
         assert!(storage_status.body.contains("\"action\":\"status\""));
@@ -7190,6 +7196,8 @@ mod tests {
             http_request("POST", &first_address, "/api/v1/storage/initialize", "").0,
             200
         );
+        insert_test_laboratory_location(&storage_root, "LAB-LOCATION-CEM-1", "Labo CEM 1");
+        insert_test_laboratory_location(&storage_root, "LAB-LOCATION-CEM-2", "Labo CEM 2");
         assert_eq!(
             http_request(
                 "POST",
@@ -8083,7 +8091,7 @@ mod tests {
             &json!({
                 "setup_id": "SETUP-RF-HTTP-001",
                 "label": "Mesure RF câble vers récepteur",
-                "laboratory_location_id": "LAB-LOCATION-MOBILE",
+                "laboratory_location_id": fixture.laboratory_location_id,
                 "laboratory_location_label": "Poste CEM mobile",
                 "planned_use_on": "2026-07-15",
                 "execution_mode": "accredited",
@@ -8102,7 +8110,7 @@ mod tests {
             "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-RF-HTTP-001",
             "label": "Mesure RF câble vers récepteur",
-            "laboratory_location_id": "LAB-LOCATION-MOBILE",
+            "laboratory_location_id": fixture.laboratory_location_id,
             "laboratory_location_label": "Poste CEM mobile",
             "planned_use_on": "2026-07-15",
             "execution_mode": "accredited",
@@ -8833,6 +8841,7 @@ mod tests {
     }
 
     struct StationSetupFixture {
+        laboratory_location_id: String,
         cable_model_revision: String,
         cable_model_checksum: String,
         receiver_model_revision: String,
@@ -8935,8 +8944,8 @@ mod tests {
             &json!({
                 "setup_id": "SETUP-PREP-HTTP",
                 "label": "HTTP RF preparation chain",
-                "laboratory_location_id": "LAB-LOCATION-HTTP-EMC",
-                "laboratory_location_label": "HTTP EMC station",
+                "laboratory_location_id": fixture.laboratory_location_id,
+                "laboratory_location_label": "Poste CEM mobile",
                 "planned_use_on": "2026-07-15",
                 "execution_mode": "investigation",
                 "actor": "station.technician",
@@ -8961,8 +8970,8 @@ mod tests {
             "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-PREP-HTTP",
             "label": "HTTP RF preparation chain",
-            "laboratory_location_id": "LAB-LOCATION-HTTP-EMC",
-            "laboratory_location_label": "HTTP EMC station",
+            "laboratory_location_id": fixture.laboratory_location_id,
+            "laboratory_location_label": "Poste CEM mobile",
             "planned_use_on": "2026-07-15",
             "execution_mode": "investigation",
             "asset_bindings": [
@@ -9085,8 +9094,8 @@ mod tests {
                 "planned_start_at": "2026-07-15T09:00",
                 "planned_end_at": "2026-07-15T12:00",
                 "assigned_operator": "HTTP Operator",
-                "laboratory_location_id": "LAB-LOCATION-HTTP-EMC",
-                "laboratory_location_label": "HTTP EMC station",
+                "laboratory_location_id": fixture.laboratory_location_id,
+                "laboratory_location_label": "Poste CEM mobile",
                 "equipment_under_test": "HTTP EUT",
                 "actor": "project.lead",
                 "reason": "schedule HTTP preparation test",
@@ -9112,6 +9121,11 @@ mod tests {
     }
 
     fn seed_station_setup_fixture(config: &ApiServerConfig) -> StationSetupFixture {
+        let laboratory_location_id = create_test_laboratory_location(
+            config,
+            "Poste CEM mobile",
+            "op-fixture-station-location-create",
+        );
         let (cable_model_revision, cable_model_checksum) = create_and_approve_equipment_model(
             config,
             "EQM-RF-CABLE-STATION",
@@ -9182,6 +9196,7 @@ mod tests {
         let characterization_json: Value = serde_json::from_str(&characterization.body).unwrap();
 
         StationSetupFixture {
+            laboratory_location_id,
             cable_model_revision,
             cable_model_checksum,
             receiver_model_revision,
@@ -9194,6 +9209,44 @@ mod tests {
             cable_asset: station_instrument(config, "SA-CABLE-STATION-001"),
             receiver_asset: station_instrument(config, "SA-RECEIVER-STATION-001"),
         }
+    }
+
+    fn create_test_laboratory_location(
+        config: &ApiServerConfig,
+        label: &str,
+        operation_id: &str,
+    ) -> String {
+        let created = handle_api_request(
+            "POST",
+            "/api/v1/laboratory-locations",
+            &json!({
+                "label": label,
+                "description": "Lieu créé pour une fixture de test",
+                "actor": "laboratory.admin",
+                "reason": "prepare test fixture location",
+                "operation_id": operation_id
+            })
+            .to_string(),
+            config,
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        serde_json::from_str::<Value>(&created.body).unwrap()["location"]["location_id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    }
+
+    fn insert_test_laboratory_location(storage_root: &Path, location_id: &str, label: &str) {
+        let connection = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        connection
+            .execute(
+                "INSERT INTO laboratory_locations
+                 (location_id, label, description, status, revision, created_at, updated_at)
+                 VALUES (?1, ?2, 'Lieu de test', 'active', 1,
+                         '2026-07-14T08:00:00Z', '2026-07-14T08:00:00Z')",
+                rusqlite::params![location_id, label],
+            )
+            .unwrap();
     }
 
     fn create_and_approve_equipment_model(
