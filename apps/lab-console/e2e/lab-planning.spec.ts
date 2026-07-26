@@ -62,7 +62,7 @@ test("an investigation dossier reaches a confirmed laboratory slot", async ({ pa
   await page.getByRole("button", { name: "Planifier un essai" }).first().click();
   await page.getByLabel("Essai prévu").fill("Émission conduite");
   await page.getByLabel("Lieu").selectOption({ label: "Labo CEM 1" });
-  await page.getByLabel("Équipement à tester").fill("Convertisseur prototype");
+  await page.getByLabel("Objet soumis à l’essai").fill("Convertisseur prototype");
   const scheduleResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith(`/api/v1/projects/${projectCode}/schedule-items`) &&
@@ -77,7 +77,7 @@ test("an investigation dossier reaches a confirmed laboratory slot", async ({ pa
   await page.getByRole("button", { name: "Planifier un essai" }).click();
   await page.getByLabel("Essai prévu").fill("Essai en conflit");
   await page.getByLabel("Lieu").selectOption({ label: "Labo CEM 1" });
-  await page.getByLabel("Équipement à tester").fill("Second prototype");
+  await page.getByLabel("Objet soumis à l’essai").fill("Second prototype");
   const conflictResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith(`/api/v1/projects/${projectCode}/schedule-items`) &&

@@ -35,8 +35,10 @@ test("a historical location is identified before the physical resource can be bo
   const baseURL = `http://127.0.0.1:${port}`;
   const legacyProject = `CEM-LEGACY-${suffix}`;
   const candidateProject = `CEM-CANDIDATE-${suffix}`;
+  const reservedProject = `CEM-RESERVED-${suffix}`;
   const legacyItem = `PLAN-LEGACY-${suffix}`;
   const candidateItem = `PLAN-CANDIDATE-${suffix}`;
+  const reservedItem = `PLAN-RESERVED-${suffix}`;
   const legacyTitle = "Immunité rayonnée historique";
   const historicalLabel = "Ancien libellé Poste CEM 1";
   const bookingDate = addDays(mondayFor(new Date()), 4);
@@ -55,6 +57,21 @@ test("a historical location is identified before the physical resource can be bo
     await createAlternativeLocation(api, bookingDate);
     await preparePlanningProject(api, legacyProject, "Laboratoire historique", `${suffix}-legacy`);
     await preparePlanningProject(api, candidateProject, "Industries candidate", `${suffix}-candidate`);
+    await preparePlanningProject(api, reservedProject, "Laboratoire réservation", `${suffix}-reserved`);
+    await expectApiOk(
+      await api.post(`/api/v1/projects/${reservedProject}/schedule-items`, {
+        data: scheduleCommand({
+          itemCode: reservedItem,
+          title: "Réservation active du poste A",
+          plannedStart,
+          plannedEnd,
+          operator: "Claire Robert",
+          locationId: "LAB-LOCATION-DEMO-CEM-1",
+          locationLabel: "Poste CEM 1",
+          operationId: `op-e2e-reserved-location-${suffix}`
+        })
+      })
+    );
     insertHistoricalScheduleItem(projectsDatabase, {
       itemCode: legacyItem,
       projectCode: legacyProject,
@@ -76,19 +93,28 @@ test("a historical location is identified before the physical resource can be bo
     await expect(page.getByRole("heading", { name: candidateProject })).toBeVisible();
     await page.getByRole("button", { name: "Planifier un essai" }).first().click();
     const bookingDialog = page.getByRole("dialog");
+    const reserveButton = bookingDialog.getByRole("button", { name: "Réserver le créneau" });
+    await expect(bookingDialog.getByText("Produit, prototype ou sous-ensemble du client")).toBeVisible();
+    await expect(bookingDialog.getByRole("status")).toContainText(
+      "Essai prévu, Objet soumis à l’essai"
+    );
+    await expect(reserveButton).toBeDisabled();
+    await bookingDialog.getByRole("button", { name: "Compléter les champs" }).click();
+    await expect(bookingDialog.getByLabel("Essai prévu")).toBeFocused();
+    await captureReleaseScreenshot(page, "planification-champs-requis-1280x720.png");
     await bookingDialog.getByLabel("Essai prévu").fill("Essai candidat en conflit");
     await bookingDialog.getByLabel("Date", { exact: true }).fill(bookingDate);
     await bookingDialog.getByLabel("Début", { exact: true }).fill("13:30");
     await bookingDialog.getByLabel("Fin", { exact: true }).fill("14:30");
     await bookingDialog.getByLabel("Opérateur", { exact: true }).fill("Bob Durand");
     await bookingDialog.getByLabel("Lieu").selectOption({ label: "Poste CEM 1" });
-    await bookingDialog.getByLabel("Équipement à tester").fill("Prototype candidat");
+    await bookingDialog.getByLabel("Objet soumis à l’essai").fill("Prototype candidat");
     const legacyConflictResponse = page.waitForResponse(
       (response) =>
         response.url().endsWith(`/api/v1/projects/${candidateProject}/schedule-items`)
         && response.request().method() === "POST"
     );
-    await bookingDialog.getByRole("button", { name: "Réserver le créneau" }).click();
+    await reserveButton.click();
     expect((await legacyConflictResponse).status()).toBe(409);
     await expect(bookingDialog.getByRole("alert")).toContainText(
       "Un créneau existant utilise encore un lieu non identifié"
@@ -119,29 +145,56 @@ test("a historical location is identified before the physical resource can be bo
     await planningDialog
       .getByLabel("Motif de l’identification")
       .fill("Vérification du dossier papier et du plan d’implantation");
-    const identificationResponse = page.waitForResponse(
+    const legacyScheduleBeforeRefusal = await projectSchedule(api, legacyProject);
+    const legacyAuditBeforeRefusal = await projectAudit(api, legacyProject);
+    const outboxBeforeRefusal = await outboxOperations(api);
+    const preparationBeforeRefusal = await projectPreparation(api, legacyProject, legacyItem);
+    const occupiedIdentificationResponse = page.waitForResponse(
       (response) =>
         response.url().endsWith(
           `/api/v1/projects/${legacyProject}/schedule-items/${legacyItem}/location-identification`
         ) && response.request().method() === "POST"
     );
     await planningDialog.getByRole("button", { name: "Enregistrer le lieu" }).click();
-    expect((await identificationResponse).ok()).toBeTruthy();
-    await expect(planningDialog.getByText("Poste CEM 1", { exact: true })).toBeVisible();
+    const occupiedResponse = await occupiedIdentificationResponse;
+    expect(occupiedResponse.status()).toBe(409);
+    expect((await occupiedResponse.json()).error.code).toBe("service_schedule_location_conflict");
+    await expect(planningDialog.getByRole("alert")).toContainText(
+      "Poste CEM 1 est déjà réservé"
+    );
+    await expect(planningDialog.getByRole("alert")).toContainText(reservedProject);
+    await captureReleaseScreenshot(page, "identification-lieu-occupe-refusee-1440x900.png");
+    expect(await projectSchedule(api, legacyProject)).toEqual(legacyScheduleBeforeRefusal);
+    expect(await projectAudit(api, legacyProject)).toEqual(legacyAuditBeforeRefusal);
+    expect(await outboxOperations(api)).toEqual(outboxBeforeRefusal);
+    expect(await projectPreparation(api, legacyProject, legacyItem)).toEqual(
+      preparationBeforeRefusal
+    );
+
+    await planningDialog.getByLabel("Lieu réel").selectOption({ label: "Poste CEM 2" });
+    const freeIdentificationResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(
+          `/api/v1/projects/${legacyProject}/schedule-items/${legacyItem}/location-identification`
+        ) && response.request().method() === "POST"
+    );
+    await planningDialog.getByRole("button", { name: "Enregistrer le lieu" }).click();
+    expect((await freeIdentificationResponse).ok()).toBeTruthy();
+    await expect(planningDialog.getByText("Poste CEM 2", { exact: true })).toBeVisible();
     await expect(planningDialog.getByText("Lieu à identifier", { exact: true })).toHaveCount(0);
 
     const identified = (await projectSchedule(api, legacyProject))[0];
     expect(identified).toMatchObject({
       item_code: legacyItem,
       revision: 2,
-      laboratory_location_id: "LAB-LOCATION-DEMO-CEM-1",
-      laboratory_location_label: "Poste CEM 1",
+      laboratory_location_id: "LAB-LOCATION-E2E-ALT",
+      laboratory_location_label: "Poste CEM 2",
       status: "planned"
     });
     const legacyAudit = await projectAudit(api, legacyProject);
     expect(JSON.stringify(legacyAudit)).toContain("service_schedule_item_location_identified");
     expect(JSON.stringify(legacyAudit)).toContain(historicalLabel);
-    expect(JSON.stringify(legacyAudit)).toContain("LAB-LOCATION-DEMO-CEM-1");
+    expect(JSON.stringify(legacyAudit)).toContain("LAB-LOCATION-E2E-ALT");
     expect(JSON.stringify(await outboxOperations(api))).toContain(
       "service_schedule_item_location_identified"
     );
@@ -155,7 +208,7 @@ test("a historical location is identified before the physical resource can be bo
           plannedStart: `${bookingDate}T13:30`,
           plannedEnd: `${bookingDate}T14:30`,
           operator: "Bob Durand",
-          locationId: "LAB-LOCATION-DEMO-CEM-1",
+          locationId: "LAB-LOCATION-E2E-ALT",
           locationLabel: "Libellé actuel différent",
           operationId: `op-e2e-same-location-${suffix}`
         })
@@ -167,6 +220,20 @@ test("a historical location is identified before the physical resource can be bo
     );
     expect(await projectSchedule(api, candidateProject)).toHaveLength(0);
 
+    await expectApiOk(
+      await api.post(
+        `/api/v1/projects/${reservedProject}/schedule-items/${reservedItem}/transitions/cancel`,
+        {
+          data: {
+            expected_revision: 1,
+            actor: "Responsable laboratoire",
+            reason: "Libérer le poste après vérification du conflit",
+            operation_id: `op-e2e-release-location-${suffix}`
+          }
+        }
+      )
+    );
+
     const differentLocation = await api.post(
       `/api/v1/projects/${candidateProject}/schedule-items`,
       {
@@ -176,8 +243,8 @@ test("a historical location is identified before the physical resource can be bo
           plannedStart: `${bookingDate}T13:30`,
           plannedEnd: `${bookingDate}T14:30`,
           operator: "Bob Durand",
-          locationId: "LAB-LOCATION-E2E-ALT",
-          locationLabel: "Poste CEM 2",
+          locationId: "LAB-LOCATION-DEMO-CEM-1",
+          locationLabel: "Poste CEM 1",
           operationId: `op-e2e-different-location-${suffix}`
         })
       }
@@ -194,13 +261,13 @@ test("a historical location is identified before the physical resource can be bo
     expect((await projectSchedule(api, legacyProject))[0]).toMatchObject({
       item_code: legacyItem,
       revision: 2,
-      laboratory_location_id: "LAB-LOCATION-DEMO-CEM-1",
-      laboratory_location_label: "Poste CEM 1"
+      laboratory_location_id: "LAB-LOCATION-E2E-ALT",
+      laboratory_location_label: "Poste CEM 2"
     });
     expect((await projectSchedule(api, candidateProject))[0]).toMatchObject({
       item_code: candidateItem,
-      laboratory_location_id: "LAB-LOCATION-E2E-ALT",
-      laboratory_location_label: "Poste CEM 2"
+      laboratory_location_id: "LAB-LOCATION-DEMO-CEM-1",
+      laboratory_location_label: "Poste CEM 1"
     });
     expect(JSON.stringify(await projectAudit(api, legacyProject))).toContain(
       "service_schedule_item_location_identified"
@@ -427,6 +494,18 @@ async function projectAudit(api: APIRequestContext, projectCode: string) {
       await api.get(`/api/v1/projects/${projectCode}/audit-events`)
     )
   ).audit_events;
+}
+
+async function projectPreparation(
+  api: APIRequestContext,
+  projectCode: string,
+  scheduleItemCode: string
+) {
+  return responseJson<Record<string, unknown>>(
+    await api.get(
+      `/api/v1/projects/${projectCode}/schedule-items/${scheduleItemCode}/preparation`
+    )
+  );
 }
 
 async function outboxOperations(api: APIRequestContext) {

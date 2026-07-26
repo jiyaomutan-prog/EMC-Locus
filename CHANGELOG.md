@@ -52,6 +52,20 @@ change should remain traceable through Git history, session logs, and this file.
 - Moved new visual evidence to `docs/ux/0.21.1/screenshots` and added an
   automated check that historical release screenshots remain unchanged.
 
+### Final review - 2026-07-26
+
+- Made historical location identification and conflict detection share one
+  immediate SQLite write boundary, with no revision, audit, outbox or
+  preparation side effect when the selected location is already reserved.
+- Marked every required planning field, renamed the customer test item to
+  **Objet soumis à l'essai**, explained every unavailable reservation and
+  focused the first missing field through an explicit completion action.
+- Isolated location-source failures so existing project schedules and the
+  laboratory week remain readable while location-dependent actions are
+  temporarily unavailable.
+- Extended the real-agent Playwright proof with occupied location A, accepted
+  location B, persistence after restart and two reviewed 0.21.1 screenshots.
+
 ## [0.21.0] - 2026-07-15
 
 ### Added

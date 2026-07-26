@@ -502,9 +502,12 @@ pub fn identify_service_schedule_location(
         );
     }
 
-    load_project(&connection, project_code.as_str())?
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    load_project(&transaction, project_code.as_str())?
         .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
-    let stored = load_service_schedule_item(&connection, &input.item_code)?.ok_or_else(|| {
+    let stored = load_service_schedule_item(&transaction, &input.item_code)?.ok_or_else(|| {
         AgentError::new("service_schedule_item_not_found", "schedule item not found")
     })?;
     if stored.project_code != project_code.as_str() {
@@ -531,9 +534,14 @@ pub fn identify_service_schedule_location(
             laboratory_location_label: input.laboratory_location_label.clone(),
         })
         .map_err(location_identification_error)?;
+    if let Some(conflict) =
+        find_service_schedule_conflict(&transaction, &identified, Some(stored.id))?
+    {
+        return Err(schedule_conflict_error(conflict));
+    }
 
     let timestamp = utc_timestamp()?;
-    let audit_sequence = next_audit_sequence(&connection, project_code.as_str())?;
+    let audit_sequence = next_audit_sequence(&transaction, project_code.as_str())?;
     let audit_payload = render_json(&json!({
         "item_code": identified.item_code(),
         "previous": {
@@ -548,9 +556,6 @@ pub fn identify_service_schedule_location(
     }));
     let base_revision = revision_text(stored.revision);
     let resulting_revision = revision_text(stored.revision + 1);
-    let transaction = connection
-        .transaction()
-        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
     update_service_schedule_location_identification(
         &transaction,
         stored.id,
@@ -1650,6 +1655,91 @@ mod tests {
     }
 
     #[test]
+    fn refuses_occupied_historical_location_without_partial_evidence_then_accepts_free_location() {
+        let storage_root = temporary_storage_root("service-schedule-identification-conflict");
+        initialize_storage_with_legacy_schedule(&storage_root, "planned", "Alice");
+        insert_stable_schedule_item(
+            &storage_root,
+            "PLAN-OCCUPIED-001",
+            "Bob",
+            "LAB-STABLE-001",
+            "Poste CEM 1",
+        );
+        insert_current_preparation_for_schedule(&storage_root, "PLAN-LEGACY-001");
+        let audit_before = audit_count(&storage_root);
+        let outbox_before = total_operation_count(&storage_root);
+        let current_preparation_before =
+            current_preparation_state(&storage_root, "PLAN-LEGACY-001");
+        let preparation_identities_before =
+            table_count(&storage_root, "planned_test_preparation_identities");
+        let preparation_revisions_before =
+            table_count(&storage_root, "planned_test_preparation_revisions");
+
+        let error = identify_service_schedule_location(
+            &storage_root,
+            location_identification_input(
+                "CEM-LEGACY-001",
+                "PLAN-LEGACY-001",
+                "LAB-STABLE-001",
+                "Poste CEM 1",
+                1,
+                "occupied",
+            ),
+        )
+        .unwrap_err();
+        let listed_after_refusal =
+            list_project_service_schedule_items(&storage_root, "CEM-LEGACY-001").unwrap();
+
+        assert_eq!(error.code, "service_schedule_location_conflict");
+        assert!(error.to_json().contains("PLAN-OCCUPIED-001"));
+        assert!(error.to_json().contains("LAB-STABLE-001"));
+        assert!(listed_after_refusal.contains("\"item_code\":\"PLAN-LEGACY-001\""));
+        assert!(listed_after_refusal.contains("\"laboratory_location_id\":null"));
+        assert!(listed_after_refusal.contains("\"revision\":1"));
+        assert_eq!(audit_count(&storage_root), audit_before);
+        assert_eq!(total_operation_count(&storage_root), outbox_before);
+        assert_eq!(
+            operation_count(&storage_root, "op-identify-location-occupied"),
+            0
+        );
+        assert_eq!(
+            table_count(&storage_root, "planned_test_preparation_identities"),
+            preparation_identities_before
+        );
+        assert_eq!(
+            table_count(&storage_root, "planned_test_preparation_revisions"),
+            preparation_revisions_before
+        );
+        assert_eq!(
+            current_preparation_state(&storage_root, "PLAN-LEGACY-001"),
+            current_preparation_before
+        );
+
+        let identified = identify_service_schedule_location(
+            &storage_root,
+            location_identification_input(
+                "CEM-LEGACY-001",
+                "PLAN-LEGACY-001",
+                "LAB-STABLE-002",
+                "Poste CEM 2",
+                1,
+                "free",
+            ),
+        )
+        .unwrap();
+
+        assert!(identified.contains("\"laboratory_location_id\":\"LAB-STABLE-002\""));
+        assert!(identified.contains("\"revision\":2"));
+        assert_eq!(audit_count(&storage_root), audit_before + 1);
+        assert_eq!(total_operation_count(&storage_root), outbox_before + 1);
+        assert_eq!(
+            operation_count(&storage_root, "op-identify-location-free"),
+            1
+        );
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
     fn confirms_then_requires_preparation_and_rejects_stale_revision() {
         let storage_root = temporary_storage_root("service-schedule-transitions");
         initialize_storage(&storage_root);
@@ -2138,6 +2228,102 @@ mod tests {
             )
             .unwrap();
         assert_eq!(migrated, (8, None, "Ancien poste CEM".to_owned()));
+    }
+
+    fn insert_stable_schedule_item(
+        storage_root: &Path,
+        item_code: &str,
+        assigned_operator: &str,
+        laboratory_location_id: &str,
+        laboratory_location_label: &str,
+    ) {
+        let connection = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        connection
+            .execute(
+                concat!(
+                    "INSERT INTO service_schedule_items (",
+                    "item_code, project_code, title, planned_start_at, planned_end_at, ",
+                    "assigned_operator, location, laboratory_location_id, ",
+                    "laboratory_location_label, equipment_under_test, status, notes, ",
+                    "created_at, updated_at, revision, created_by, updated_by) VALUES (",
+                    "?1, 'CEM-LEGACY-001', 'CrÃ©neau rÃ©servÃ©', ",
+                    "'2026-07-15T09:30', '2026-07-15T11:30', ?2, ?4, ?3, ?4, ",
+                    "'EUT rÃ©servÃ©', 'planned', '', '2026-07-14T08:30:00Z', ",
+                    "'2026-07-14T08:30:00Z', 1, 'test', 'test')"
+                ),
+                params![
+                    item_code,
+                    assigned_operator,
+                    laboratory_location_id,
+                    laboratory_location_label
+                ],
+            )
+            .unwrap();
+    }
+
+    fn insert_current_preparation_for_schedule(storage_root: &Path, schedule_item_code: &str) {
+        let connection = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        let checksum = format!("sha256:{}", "0".repeat(64));
+        connection
+            .execute(
+                concat!(
+                    "INSERT INTO planned_test_preparation_identities (",
+                    "project_code, schedule_item_code, current_revision_id, created_by, ",
+                    "created_at, updated_at) VALUES (",
+                    "'CEM-LEGACY-001', ?1, NULL, 'test', ",
+                    "'2026-07-14T08:45:00Z', '2026-07-14T08:45:00Z')"
+                ),
+                [schedule_item_code],
+            )
+            .unwrap();
+        connection
+            .execute(
+                concat!(
+                    "INSERT INTO planned_test_preparation_revisions (",
+                    "revision_id, project_code, schedule_item_code, revision_number, ",
+                    "parent_revision_id, schedule_revision, method_template_id, ",
+                    "method_revision_id, method_definition_checksum, station_setup_id, ",
+                    "station_setup_revision_id, station_setup_definition_checksum, ",
+                    "verdict_state, definition_schema_version, definition_json, ",
+                    "definition_checksum, operation_id, request_checksum, actor, reason, ",
+                    "device_id, correlation_id, created_at) VALUES (",
+                    "'PREP-LEGACY-rev-0001', 'CEM-LEGACY-001', ?1, 1, NULL, 1, ",
+                    "'METHOD-TEST', 'METHOD-TEST-rev-0001', ?2, 'SETUP-TEST', ",
+                    "'SETUP-TEST-rev-0001', ?2, 'ready', ",
+                    "'emc-locus.planned-test-preparation.v1', '{}', ?2, ",
+                    "'op-prep-legacy-test', ?2, 'test', 'fixture', 'test', ",
+                    "'corr-prep-legacy-test', '2026-07-14T08:45:00Z')"
+                ),
+                params![schedule_item_code, checksum],
+            )
+            .unwrap();
+        connection
+            .execute(
+                concat!(
+                    "UPDATE planned_test_preparation_identities ",
+                    "SET current_revision_id = 'PREP-LEGACY-rev-0001' ",
+                    "WHERE schedule_item_code = ?1"
+                ),
+                [schedule_item_code],
+            )
+            .unwrap();
+    }
+
+    fn current_preparation_state(storage_root: &Path, schedule_item_code: &str) -> (String, u64) {
+        let connection = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        connection
+            .query_row(
+                concat!(
+                    "SELECT i.current_revision_id, r.schedule_revision ",
+                    "FROM planned_test_preparation_identities i ",
+                    "JOIN planned_test_preparation_revisions r ",
+                    "ON r.revision_id = i.current_revision_id ",
+                    "WHERE i.schedule_item_code = ?1"
+                ),
+                [schedule_item_code],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap()
     }
 
     fn table_count(storage_root: &Path, table: &str) -> u64 {

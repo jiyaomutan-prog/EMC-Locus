@@ -16,7 +16,7 @@ import {
   X,
   XCircle
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, projectApi } from "../../api";
 import type {
   ContractReviewStatus,
@@ -99,6 +99,10 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
   const [review, setReview] = useState<ContractReviewStatus | null>(null);
   const [schedule, setSchedule] = useState<ServiceScheduleItem[]>([]);
   const [locations, setLocations] = useState<LaboratoryLocationOption[]>([]);
+  const [locationLoadState, setLocationLoadState] = useState<"loading" | "ready" | "error">(
+    "loading"
+  );
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [audit, setAudit] = useState<ProjectAuditEvent[]>([]);
   const [query, setQuery] = useState("");
   const [actor, setActor] = useState("Responsable laboratoire");
@@ -125,19 +129,29 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
     );
   }, [projects, query]);
 
+  const loadLocations = useCallback(async () => {
+    setLocationLoadState("loading");
+    setLocationError(null);
+    try {
+      const availableLocations = await projectApi.listLaboratoryLocations();
+      setLocations(availableLocations);
+      setLocationLoadState("ready");
+    } catch (caught) {
+      setLocations([]);
+      setLocationLoadState("error");
+      setLocationError(projectErrorMessage(caught));
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
     async function loadInitialProjects() {
       setLoadState("loading");
       setError(null);
       try {
-        const [response, availableLocations] = await Promise.all([
-          projectApi.listProjects(),
-          projectApi.listLaboratoryLocations()
-        ]);
+        const response = await projectApi.listProjects();
         if (!active) return;
         setProjects(response.projects);
-        setLocations(availableLocations);
         const preferredCode = response.projects.some(
           (project) => project.code === props.initialProjectCode
         )
@@ -152,10 +166,11 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
       }
     }
     void loadInitialProjects();
+    void loadLocations();
     return () => {
       active = false;
     };
-  }, [props.initialProjectCode]);
+  }, [loadLocations, props.initialProjectCode]);
 
   useEffect(() => {
     if (!selectedCode) {
@@ -172,12 +187,8 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
     setLoadState("loading");
     setError(null);
     try {
-      const [response, availableLocations] = await Promise.all([
-        projectApi.listProjects(),
-        projectApi.listLaboratoryLocations()
-      ]);
+      const response = await projectApi.listProjects();
       setProjects(response.projects);
-      setLocations(availableLocations);
       const nextCode = preferredCode ?? selectedCode ?? response.projects[0]?.code ?? null;
       setSelectedCode(nextCode);
       setLoadState("ready");
@@ -339,6 +350,7 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
   }
 
   function openScheduleForm() {
+    if (locationLoadState !== "ready") return;
     setScheduleForm(defaultScheduleForm(actor, locations[0]?.laboratory_location_id));
     setShowSchedule(true);
   }
@@ -355,7 +367,15 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
             placeholder="Référence ou client"
           />
         </label>
-        <button className="secondary iconButton" onClick={() => void refreshProjects()} title="Actualiser les dossiers" aria-label="Actualiser les dossiers">
+        <button
+          className="secondary iconButton"
+          onClick={() => {
+            void refreshProjects();
+            void loadLocations();
+          }}
+          title="Actualiser les dossiers"
+          aria-label="Actualiser les dossiers"
+        >
           <RefreshCw size={16} />
         </button>
         <button onClick={() => setShowCreate(true)}>
@@ -430,6 +450,8 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
               schedule={schedule}
               audit={audit}
               actor={actor}
+              locationLoadState={locationLoadState}
+              locationError={locationError}
               reviewComment={reviewComment}
               busyAction={busyAction}
               onActorChange={setActor}
@@ -437,6 +459,7 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
               onCompleteReviewItem={(item) => void completeReviewItem(item)}
               onAdvanceToPlanning={() => void advanceToPlanning()}
               onOpenSchedule={openScheduleForm}
+              onRetryLocations={() => void loadLocations()}
               onTransitionSchedule={(item, action) => void transitionScheduleItem(item, action)}
             />
           )}
@@ -457,10 +480,12 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
           project={selectedProject}
           form={scheduleForm}
           locations={locations}
+          locationError={locationError}
           error={error}
           busy={busyAction === "create-schedule"}
           onChange={setScheduleForm}
           onDismissError={() => setError(null)}
+          onRetryLocations={() => void loadLocations()}
           onClose={() => setShowSchedule(false)}
           onSubmit={() => void createScheduleItem()}
         />
@@ -475,6 +500,8 @@ function ProjectDetail(props: {
   schedule: ServiceScheduleItem[];
   audit: ProjectAuditEvent[];
   actor: string;
+  locationLoadState: "loading" | "ready" | "error";
+  locationError: string | null;
   reviewComment: string;
   busyAction: string | null;
   onActorChange: (value: string) => void;
@@ -482,6 +509,7 @@ function ProjectDetail(props: {
   onCompleteReviewItem: (item: string) => void;
   onAdvanceToPlanning: () => void;
   onOpenSchedule: () => void;
+  onRetryLocations: () => void;
   onTransitionSchedule: (
     item: ServiceScheduleItem,
     action: "confirm" | "start" | "complete" | "cancel"
@@ -526,6 +554,7 @@ function ProjectDetail(props: {
         review={props.review}
         firstOpenSchedule={firstOpenSchedule}
         busyAction={props.busyAction}
+        locationLoadState={props.locationLoadState}
         onAdvanceToPlanning={props.onAdvanceToPlanning}
         onOpenSchedule={props.onOpenSchedule}
         onTransitionSchedule={props.onTransitionSchedule}
@@ -600,11 +629,40 @@ function ProjectDetail(props: {
             <h3 id="planning-title">Créneaux d'essai</h3>
           </div>
           {props.project.stage === "test_planning" && (
-            <button onClick={props.onOpenSchedule}>
+            <button
+              disabled={props.locationLoadState !== "ready"}
+              onClick={props.onOpenSchedule}
+              title={
+                props.locationLoadState === "ready"
+                  ? "Planifier un essai"
+                  : "Les lieux du laboratoire doivent être disponibles"
+              }
+            >
               <CirclePlus size={16} /> Planifier un essai
             </button>
           )}
         </div>
+        {props.project.stage === "test_planning" && props.locationLoadState !== "ready" && (
+          <div className="locationSourceNotice" role={props.locationError ? "alert" : "status"}>
+            <MapPin size={18} />
+            <div>
+              <strong>
+                {props.locationError
+                  ? "Les lieux du laboratoire sont temporairement indisponibles."
+                  : "Chargement des lieux du laboratoire…"}
+              </strong>
+              <p>
+                Les créneaux existants restent consultables. Une nouvelle réservation sera
+                possible dès que les lieux seront de nouveau disponibles.
+              </p>
+            </div>
+            {props.locationError && (
+              <button className="secondary" onClick={props.onRetryLocations}>
+                <RefreshCw size={15} /> Réessayer
+              </button>
+            )}
+          </div>
+        )}
         {props.project.stage === "contract_review" && (
           <div className="planningEmpty blocked">
             <ClipboardCheck size={26} />
@@ -621,7 +679,12 @@ function ProjectDetail(props: {
               <strong>Aucun essai n'est encore planifié pour ce dossier.</strong>
               <p>Réservez l'opérateur et le lieu du premier essai.</p>
             </div>
-            <button onClick={props.onOpenSchedule}>Planifier le premier essai</button>
+            <button
+              disabled={props.locationLoadState !== "ready"}
+              onClick={props.onOpenSchedule}
+            >
+              Planifier le premier essai
+            </button>
           </div>
         )}
         {props.schedule.length > 0 && (
@@ -668,6 +731,7 @@ function NextAction(props: {
   review: ContractReviewStatus;
   firstOpenSchedule?: ServiceScheduleItem;
   busyAction: string | null;
+  locationLoadState: "loading" | "ready" | "error";
   onAdvanceToPlanning: () => void;
   onOpenSchedule: () => void;
   onTransitionSchedule: (
@@ -716,9 +780,17 @@ function NextAction(props: {
         <div>
           <span>Prochaine action</span>
           <strong>Réserver le premier créneau d'essai.</strong>
-          <p>Choisissez un opérateur, un lieu et l'équipement à tester.</p>
+          <p>Choisissez un opérateur, un lieu et l'objet soumis à l'essai.</p>
         </div>
-        <button onClick={props.onOpenSchedule}>
+        <button
+          disabled={props.locationLoadState !== "ready"}
+          onClick={props.onOpenSchedule}
+          title={
+            props.locationLoadState === "ready"
+              ? "Planifier un essai"
+              : "Les lieux du laboratoire doivent être disponibles"
+          }
+        >
           <CirclePlus size={17} /> Planifier un essai
         </button>
       </div>
@@ -899,21 +971,55 @@ function ScheduleDialog(props: {
   project: ProjectRecord;
   form: ScheduleForm;
   locations: LaboratoryLocationOption[];
+  locationError: string | null;
   error: string | null;
   busy: boolean;
   onChange: (value: ScheduleForm) => void;
   onDismissError: () => void;
+  onRetryLocations: () => void;
   onClose: () => void;
   onSubmit: () => void;
 }) {
-  const valid =
-    props.form.title.trim() &&
-    props.form.date &&
-    props.form.start_time &&
-    props.form.end_time &&
-    props.form.assigned_operator.trim() &&
-    props.form.laboratory_location_id &&
-    props.form.equipment_under_test.trim();
+  const titleRef = useRef<HTMLInputElement>(null);
+  const dateRef = useRef<HTMLInputElement>(null);
+  const startRef = useRef<HTMLInputElement>(null);
+  const endRef = useRef<HTMLInputElement>(null);
+  const operatorRef = useRef<HTMLInputElement>(null);
+  const locationRef = useRef<HTMLSelectElement>(null);
+  const testObjectRef = useRef<HTMLInputElement>(null);
+  const missingFields: Array<{ label: string; focus: () => void }> = [];
+  if (!props.form.title.trim()) {
+    missingFields.push({ label: "Essai prévu", focus: () => titleRef.current?.focus() });
+  }
+  if (!props.form.date) {
+    missingFields.push({ label: "Date", focus: () => dateRef.current?.focus() });
+  }
+  if (!props.form.start_time) {
+    missingFields.push({ label: "Début", focus: () => startRef.current?.focus() });
+  }
+  if (!props.form.end_time) {
+    missingFields.push({ label: "Fin", focus: () => endRef.current?.focus() });
+  }
+  if (!props.form.assigned_operator.trim()) {
+    missingFields.push({ label: "Opérateur", focus: () => operatorRef.current?.focus() });
+  }
+  if (!props.form.laboratory_location_id) {
+    missingFields.push({ label: "Lieu", focus: () => locationRef.current?.focus() });
+  }
+  if (!props.form.equipment_under_test.trim()) {
+    missingFields.push({
+      label: "Objet soumis à l’essai",
+      focus: () => testObjectRef.current?.focus()
+    });
+  }
+  const valid = missingFields.length === 0;
+
+  const requiredLabel = (label: string) => (
+    <span className="requiredFieldLabel">
+      {label} <span aria-hidden="true">*</span>
+    </span>
+  );
+
   return (
     <div className="modalBackdrop" role="presentation">
       <section className="wizardPanel projectDialog" role="dialog" aria-modal="true" aria-labelledby="schedule-title">
@@ -944,55 +1050,74 @@ function ScheduleDialog(props: {
             Ce créneau réservera l'opérateur et le lieu jusqu'à sa fin ou son annulation.
           </p>
           <label>
-            Essai prévu
+            {requiredLabel("Essai prévu")}
             <input
+              ref={titleRef}
+              aria-label="Essai prévu"
               autoFocus
               value={props.form.title}
               onChange={(event) => props.onChange({ ...props.form, title: event.target.value })}
               placeholder="Ex. Émission conduite"
+              required
             />
           </label>
           <div className="scheduleDateGrid">
             <label>
-              Date
+              {requiredLabel("Date")}
               <input
+                ref={dateRef}
+                aria-label="Date"
                 type="date"
                 value={props.form.date}
                 onChange={(event) => props.onChange({ ...props.form, date: event.target.value })}
+                required
               />
             </label>
             <label>
-              Début
+              {requiredLabel("Début")}
               <input
+                ref={startRef}
+                aria-label="Début"
                 type="time"
                 value={props.form.start_time}
                 onChange={(event) => props.onChange({ ...props.form, start_time: event.target.value })}
+                required
               />
             </label>
             <label>
-              Fin
+              {requiredLabel("Fin")}
               <input
+                ref={endRef}
+                aria-label="Fin"
                 type="time"
                 value={props.form.end_time}
                 onChange={(event) => props.onChange({ ...props.form, end_time: event.target.value })}
+                required
               />
             </label>
           </div>
           <label>
-            Opérateur
+            {requiredLabel("Opérateur")}
             <input
+              ref={operatorRef}
+              aria-label="Opérateur"
               value={props.form.assigned_operator}
               onChange={(event) => props.onChange({ ...props.form, assigned_operator: event.target.value })}
               placeholder="Nom de l'opérateur"
+              required
             />
           </label>
           <label>
-            Lieu
+            {requiredLabel("Lieu")}
             <select
+              ref={locationRef}
+              aria-label="Lieu"
               value={props.form.laboratory_location_id}
+              disabled={Boolean(props.locationError)}
               onChange={(event) =>
                 props.onChange({ ...props.form, laboratory_location_id: event.target.value })
               }
+              required
             >
               <option value="">Sélectionner un poste prêt à câbler</option>
               {props.locations.map((location) => (
@@ -1004,20 +1129,32 @@ function ScheduleDialog(props: {
                 </option>
               ))}
             </select>
-            {props.locations.length === 0 && (
+            {props.locationError ? (
+              <span className="locationFieldError" role="alert">
+                <span>Les lieux ne peuvent pas être chargés pour le moment.</span>
+                <button type="button" className="secondary" onClick={props.onRetryLocations}>
+                  <RefreshCw size={14} /> Réessayer
+                </button>
+              </span>
+            ) : props.locations.length === 0 ? (
               <small>Créez et validez d'abord un montage dans Test Station.</small>
-            )}
+            ) : null}
           </label>
           <label>
-            Équipement à tester
+            {requiredLabel("Objet soumis à l’essai")}
             <input
+              ref={testObjectRef}
+              aria-label="Objet soumis à l’essai"
               value={props.form.equipment_under_test}
               onChange={(event) => props.onChange({ ...props.form, equipment_under_test: event.target.value })}
-              placeholder="Produit, prototype ou sous-ensemble"
+              aria-describedby="test-object-help"
+              placeholder="Ex. convertisseur de traction"
+              required
             />
+            <small id="test-object-help">Produit, prototype ou sous-ensemble du client</small>
           </label>
           <label>
-            Note
+            <span className="optionalFieldLabel">Note <small>Facultatif</small></span>
             <textarea
               value={props.form.notes}
               onChange={(event) => props.onChange({ ...props.form, notes: event.target.value })}
@@ -1026,8 +1163,27 @@ function ScheduleDialog(props: {
           </label>
         </div>
         <footer className="wizardFooter">
+          {!valid && (
+            <div className="scheduleValidationSummary" role="status">
+              <AlertCircle size={16} />
+              <span>
+                À renseigner avant de réserver : {missingFields.map(({ label }) => label).join(", ")}.
+              </span>
+              <button
+                type="button"
+                className="secondary scheduleValidationFocus"
+                onClick={() => missingFields[0]?.focus()}
+              >
+                Compléter les champs
+              </button>
+            </div>
+          )}
           <button className="secondary" onClick={props.onClose}>Annuler</button>
-          <button disabled={props.busy || !valid} onClick={props.onSubmit}>
+          <button
+            className={!valid ? "reservationUnavailable" : undefined}
+            disabled={props.busy || !valid}
+            onClick={props.onSubmit}
+          >
             <CalendarClock size={17} /> Réserver le créneau
           </button>
         </footer>

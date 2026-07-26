@@ -52,6 +52,7 @@ test("a planned slot must be confirmed before preparation", async ({ page, reque
   await page.setViewportSize(viewports[0]);
   await page.goto("/lab/");
   await page.getByRole("button", { name: "Planning du laboratoire" }).click();
+  await page.getByLabel("Atteindre une date").fill(plannedDate);
   await page
     .getByRole("button", { name: `Ouvrir Émission conduite ${suffix}, dossier ${projectCode}` })
     .click();
@@ -149,6 +150,7 @@ test("an operator resolves a blocked preparation before starting the planned tes
   await page.setViewportSize(viewports[0]);
   await page.goto("/lab/");
   await page.getByRole("button", { name: "Planning du laboratoire" }).click();
+  await page.getByLabel("Atteindre une date").fill(plannedDate);
   await page
     .getByRole("button", {
       name: `Ouvrir Vérification RF du convertisseur ${suffix}, dossier ${projectCode}`

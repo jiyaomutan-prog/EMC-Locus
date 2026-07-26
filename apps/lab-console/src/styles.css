@@ -79,6 +79,26 @@
   padding: 10px 18px;
 }
 
+.locationSourceNotice {
+  align-items: center;
+  background: #fff8e7;
+  border-bottom: 1px solid #ddca86;
+  color: #59450b;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 10px 18px;
+}
+
+.locationSourceNotice p {
+  margin: 2px 0 0;
+}
+
+.locationSourceNotice.compact {
+  border: 1px solid #ddca86;
+  padding: 11px 13px;
+}
+
 .planningLoading,
 .planningEmptyWeek {
   align-items: center;
@@ -4556,6 +4576,60 @@ button.projectListItem.active {
   display: grid;
   gap: 10px;
   grid-template-columns: minmax(150px, 1.5fr) repeat(2, minmax(105px, 1fr));
+}
+
+.requiredFieldLabel,
+.optionalFieldLabel {
+  align-items: baseline;
+  display: flex;
+  gap: 5px;
+}
+
+.requiredFieldLabel > span {
+  color: #a83b2d;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.optionalFieldLabel small {
+  color: #748078;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.locationFieldError {
+  align-items: center;
+  color: #8a3024;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.locationFieldError button {
+  min-height: 28px;
+  padding: 4px 8px;
+}
+
+.scheduleValidationSummary {
+  align-items: center;
+  color: #8a3024;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 6px;
+  margin-right: auto;
+  max-width: 400px;
+}
+
+.scheduleValidationFocus {
+  min-height: 28px;
+  padding: 4px 8px;
+}
+
+button.reservationUnavailable:disabled {
+  background: #cbd3cf;
+  border-color: #c0c9c4;
+  color: #4f5d55;
 }
 
 .projectDialog .wizardFooter {

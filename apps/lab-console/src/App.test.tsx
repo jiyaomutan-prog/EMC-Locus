@@ -192,10 +192,28 @@ describe("LAB CONSOLE", () => {
     const planningButtons = await screen.findAllByRole("button", { name: "Planifier un essai" });
     await user.click(planningButtons[0]);
 
+    const reservationButton = screen.getByRole("button", { name: "Réserver le créneau" });
+    expect(screen.getByLabelText("Essai prévu")).toBeRequired();
+    expect(screen.getByLabelText("Date")).toBeRequired();
+    expect(screen.getByLabelText("Début")).toBeRequired();
+    expect(screen.getByLabelText("Fin")).toBeRequired();
+    expect(screen.getByLabelText("Opérateur")).toBeRequired();
+    expect(screen.getByLabelText("Lieu")).toBeRequired();
+    expect(screen.getByLabelText("Objet soumis à l’essai")).toBeRequired();
+    expect(screen.getByText("Produit, prototype ou sous-ensemble du client")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "À renseigner avant de réserver : Essai prévu, Objet soumis à l’essai."
+    );
+    expect(reservationButton).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Compléter les champs" }));
+    expect(screen.getByLabelText("Essai prévu")).toHaveFocus();
     await user.type(screen.getByLabelText("Essai prévu"), "Émission conduite");
+    await user.click(screen.getByRole("button", { name: "Compléter les champs" }));
+    expect(screen.getByLabelText("Objet soumis à l’essai")).toHaveFocus();
     await user.selectOptions(screen.getByLabelText("Lieu"), "LAB-LOCATION-CEM-1");
-    await user.type(screen.getByLabelText("Équipement à tester"), "Convertisseur prototype");
-    await user.click(screen.getByRole("button", { name: "Réserver le créneau" }));
+    await user.type(screen.getByLabelText("Objet soumis à l’essai"), "Convertisseur prototype");
+    expect(reservationButton).toBeEnabled();
+    await user.click(reservationButton);
 
     expect(await screen.findByText("Émission conduite")).toBeInTheDocument();
     expect(screen.getByText("Prévu")).toBeInTheDocument();
@@ -207,6 +225,23 @@ describe("LAB CONSOLE", () => {
       expect.stringContaining("/schedule-items/PLAN-CEM-UX-001-"),
       expect.objectContaining({ method: "POST" })
     );
+  });
+
+  test("keeps a project schedule readable when laboratory locations fail to load", async () => {
+    mockProjectWorkflowApi({ existingSchedule: true, locationFailure: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Dossiers d'essai" }));
+    expect(await screen.findByRole("heading", { name: "CEM-UX-001" })).toBeInTheDocument();
+    expect(screen.getByText("Émission conduite déjà planifiée")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Les lieux du laboratoire sont temporairement indisponibles"
+    );
+    for (const button of screen.getAllByRole("button", { name: /Planifier un essai|Planifier le premier essai/ })) {
+      expect(button).toBeDisabled();
+    }
   });
 
   test("filters the laboratory week and keeps reschedule values after a conflict", async () => {
@@ -253,6 +288,25 @@ describe("LAB CONSOLE", () => {
       expect.stringContaining("/schedule-items/PLAN-LAB-001/reschedule"),
       expect.objectContaining({ method: "POST" })
     );
+  });
+
+  test("keeps the laboratory week readable when location choices fail to load", async () => {
+    mockLaboratoryPlanningApi({ locationFailure: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    expect(await screen.findByText("CEM-LAB-001 · Industries Atlas")).toBeInTheDocument();
+    expect(screen.getByText("CEM-LAB-002 · Mobilités Boréal")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Les lieux du laboratoire sont temporairement indisponibles"
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Ouvrir Émission conduite, dossier CEM-LAB-001" })
+    );
+    expect(screen.getByText("Convertisseur prototype")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Déplacer" })).not.toBeInTheDocument();
   });
 
   test("identifies a historical planning location without exposing its stable id", async () => {
@@ -1897,11 +1951,14 @@ function metrologyInstrumentFixture() {
   };
 }
 
-function mockProjectWorkflowApi() {
+function mockProjectWorkflowApi(settings: {
+  existingSchedule?: boolean;
+  locationFailure?: boolean;
+} = {}) {
   let project: ProjectRecord = {
     code: "CEM-UX-001",
     customer_name: "Industries Atlas",
-    stage: "contract_review",
+    stage: settings.existingSchedule ? "test_planning" : "contract_review",
     execution_mode: "investigation",
     created_at: "2026-07-15T08:00:00Z",
     archived_at: null,
@@ -1909,7 +1966,32 @@ function mockProjectWorkflowApi() {
   };
   const requiredItems = ["customer_request_defined", "deviations_recorded"];
   const completedItems: CompletedContractReviewItem[] = [];
-  const schedule: ServiceScheduleItem[] = [];
+  const schedule: ServiceScheduleItem[] = settings.existingSchedule
+    ? [
+        {
+          item_code: "PLAN-CEM-UX-001-EXISTING",
+          project_code: "CEM-UX-001",
+          title: "Émission conduite déjà planifiée",
+          test_category_code: null,
+          test_method_code: null,
+          planned_start_at: "2026-07-16T09:00",
+          planned_end_at: "2026-07-16T12:00",
+          assigned_operator: "Alice Martin",
+          laboratory_location_id: "LAB-LOCATION-CEM-1",
+          laboratory_location_label: "Labo CEM 1",
+          equipment_under_test: "Convertisseur prototype",
+          status: "planned",
+          notes: "",
+          revision: 1,
+          created_by: "Responsable laboratoire",
+          updated_by: "Responsable laboratoire",
+          created_at: "2026-07-15T08:15:00Z",
+          updated_at: "2026-07-15T08:15:00Z",
+          available_transitions: ["confirmed", "cancelled"],
+          can_reschedule: true
+        }
+      ]
+    : [];
   const audit: ProjectAuditEvent[] = [
     {
       sequence: 1,
@@ -2053,6 +2135,12 @@ function mockProjectWorkflowApi() {
     if (path === `/api/v1/projects/${project.code}/audit-events` && method === "GET") {
       return jsonResponse({ project_code: project.code, audit_events: audit });
     }
+    if (path === "/api/v1/station-setups" && settings.locationFailure) {
+      return jsonResponse(
+        { error: { code: "station_setup_unavailable", message: "location source unavailable" } },
+        503
+      );
+    }
     return mockBaseApiResponse(path, init);
   });
 }
@@ -2062,6 +2150,7 @@ function mockLaboratoryPlanningApi(settings: {
   legacyLocation?: boolean;
   identificationConcurrency?: boolean;
   legacyConflict?: boolean;
+  locationFailure?: boolean;
 } = {}) {
   let rescheduleAttempts = 0;
   const first: LaboratoryScheduleItem = {
@@ -2460,6 +2549,12 @@ function mockLaboratoryPlanningApi(settings: {
         replayed: false,
         schedule_item: first
       });
+    }
+    if (path === "/api/v1/station-setups" && settings.locationFailure) {
+      return jsonResponse(
+        { error: { code: "station_setup_unavailable", message: "location source unavailable" } },
+        503
+      );
     }
     return mockBaseApiResponse(path, init);
   });

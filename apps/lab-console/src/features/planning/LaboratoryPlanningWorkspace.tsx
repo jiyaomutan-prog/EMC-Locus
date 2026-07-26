@@ -94,18 +94,18 @@ export function LaboratoryPlanningWorkspace(props: {
   const [statusFilter, setStatusFilter] = useState<"all" | ServiceScheduleStatus>("all");
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
+  const [locationLoadState, setLocationLoadState] = useState<"loading" | "ready" | "error">(
+    "loading"
+  );
+  const [locationError, setLocationError] = useState<string | null>(null);
 
   const loadWeek = useCallback(
     async (preserveSelected = false, silent = false) => {
       if (!silent) setLoadState("loading");
       setError(null);
       try {
-        const [response, locations] = await Promise.all([
-          projectApi.listLaboratoryWeek(weekStart),
-          projectApi.listLaboratoryLocations()
-        ]);
+        const response = await projectApi.listLaboratoryWeek(weekStart);
         setSchedule(response);
-        setAvailableLocations(locations);
         setLoadState("ready");
         if (!preserveSelected) {
           setSelectedItem((current) =>
@@ -122,9 +122,27 @@ export function LaboratoryPlanningWorkspace(props: {
     [weekStart]
   );
 
+  const loadLocations = useCallback(async () => {
+    setLocationLoadState("loading");
+    setLocationError(null);
+    try {
+      const locations = await projectApi.listLaboratoryLocations();
+      setAvailableLocations(locations);
+      setLocationLoadState("ready");
+    } catch (caught) {
+      setAvailableLocations([]);
+      setLocationLoadState("error");
+      setLocationError(planningErrorMessage(caught));
+    }
+  }, []);
+
   useEffect(() => {
     void loadWeek();
   }, [loadWeek]);
+
+  useEffect(() => {
+    void loadLocations();
+  }, [loadLocations]);
 
   const operators = useMemo(
     () => uniqueSorted(schedule?.schedule_items.map((item) => item.assigned_operator) ?? []),
@@ -243,13 +261,38 @@ export function LaboratoryPlanningWorkspace(props: {
         </label>
         <button
           className="secondary iconButton"
-          onClick={() => void loadWeek()}
+          onClick={() => {
+            void loadWeek();
+            void loadLocations();
+          }}
           aria-label="Actualiser le planning"
           title="Actualiser le planning"
         >
           <RefreshCw size={16} />
         </button>
       </div>
+
+      {locationLoadState !== "ready" && (
+        <div className="locationSourceNotice" role={locationError ? "alert" : "status"}>
+          <MapPin size={18} />
+          <div>
+            <strong>
+              {locationError
+                ? "Les lieux du laboratoire sont temporairement indisponibles."
+                : "Chargement des lieux du laboratoire…"}
+            </strong>
+            <p>
+              Le planning reste consultable. L’identification et le déplacement d’un lieu sont
+              suspendus jusqu’au rétablissement de cette source.
+            </p>
+          </div>
+          {locationError && (
+            <button className="secondary" onClick={() => void loadLocations()}>
+              <RefreshCw size={15} /> Réessayer
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="planningFilters" aria-label="Filtres du planning">
         <label>
@@ -361,6 +404,9 @@ export function LaboratoryPlanningWorkspace(props: {
           key={`${selectedItem.item_code}-${selectedItem.revision}`}
           item={selectedItem}
           locations={rescheduleLocations}
+          locationChoicesAvailable={locationLoadState === "ready"}
+          locationError={locationError}
+          onRetryLocations={() => void loadLocations()}
           onClose={() => setSelectedItem(null)}
           onOpenProject={() => props.onOpenProject(selectedItem.project_code)}
           onMoved={updateMovedItem}
@@ -374,6 +420,9 @@ export function LaboratoryPlanningWorkspace(props: {
 function ScheduleDetailDialog(props: {
   item: LaboratoryScheduleItem;
   locations: LaboratoryLocationOption[];
+  locationChoicesAvailable: boolean;
+  locationError: string | null;
+  onRetryLocations: () => void;
   onClose: () => void;
   onOpenProject: () => void;
   onMoved: (item: LaboratoryScheduleItem) => void;
@@ -617,8 +666,22 @@ function ScheduleDetailDialog(props: {
                   ) : props.item.laboratory_location_label}
                 </dd>
               </div>
-              <div><dt>Équipement à tester</dt><dd>{props.item.equipment_under_test}</dd></div>
+              <div><dt>Objet soumis à l’essai</dt><dd>{props.item.equipment_under_test}</dd></div>
             </dl>
+            {!props.locationChoicesAvailable && (
+              <section className="locationSourceNotice compact" role="alert">
+                <MapPin size={18} />
+                <div>
+                  <strong>Les lieux ne sont pas disponibles.</strong>
+                  <p>Ce créneau reste consultable, mais son lieu ne peut pas être modifié.</p>
+                </div>
+                {props.locationError && (
+                  <button className="secondary" onClick={props.onRetryLocations}>
+                    <RefreshCw size={15} /> Réessayer
+                  </button>
+                )}
+              </section>
+            )}
             {locationNeedsIdentification && (
               <section className="historicalLocationNotice" aria-label="Lieu historique à identifier">
                 <MapPin size={19} />
@@ -762,7 +825,9 @@ function ScheduleDetailDialog(props: {
               <button className="secondary" onClick={props.onOpenProject}>
                 <FolderKanban size={16} /> Ouvrir le dossier
               </button>
-              {props.item.can_reschedule && !locationNeedsIdentification && (
+              {props.item.can_reschedule
+                && !locationNeedsIdentification
+                && props.locationChoicesAvailable && (
                 <button className="secondary" onClick={() => setMode("move")}>
                   <PencilLine size={16} /> Déplacer
                 </button>
@@ -790,7 +855,7 @@ function ScheduleDetailDialog(props: {
                   <Play size={16} /> Démarrer l'essai
                 </button>
               )}
-              {locationNeedsIdentification && (
+              {locationNeedsIdentification && props.locationChoicesAvailable && (
                 <button disabled={busy} onClick={() => setMode("identify-location")}>
                   <MapPin size={16} /> Identifier le lieu
                 </button>
