@@ -50,7 +50,7 @@ import type {
   RegisterMetrologyInstrumentInput
 } from "./models/metrology";
 import type {
-  AvailabilityState,
+  AdministrativeAvailability,
   CreatePhysicalAssetInput,
   LaboratoryLocation,
   ModelReconciliationCandidate,
@@ -802,18 +802,20 @@ export const fleetApi = {
         operation_id: operationId("fleet-service-state", asset.asset_id)
       }
     ),
-  transitionAvailability: (
+  transitionAdministrativeAvailability: (
     asset: PhysicalAsset,
-    availabilityState: AvailabilityState,
+    administrativeAvailability: AdministrativeAvailability,
+    administrativeUnavailabilityReason: string,
     context: OperationContext
   ) =>
     post<{ asset: PhysicalAsset; replayed: boolean }>(
-      `/api/v1/fleet/assets/${encodeURIComponent(asset.asset_id)}/transitions/availability`,
+      `/api/v1/fleet/assets/${encodeURIComponent(asset.asset_id)}/transitions/administrative-availability`,
       {
         expected_revision: asset.revision,
-        availability_state: availabilityState,
+        administrative_availability: administrativeAvailability,
+        administrative_unavailability_reason: administrativeUnavailabilityReason,
         ...context,
-        operation_id: operationId("fleet-availability", asset.asset_id)
+        operation_id: operationId("fleet-administrative-availability", asset.asset_id)
       }
     ),
   listLocations: (includeArchived = false) =>

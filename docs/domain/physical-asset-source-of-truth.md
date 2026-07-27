@@ -8,7 +8,9 @@ Depuis la 0.22.0, l'unique source modifiable de l'identité d'un exemplaire est 
 
 Le domaine equipment/fleet possède l'identité, le lien constructeur, les
 instantanés lisibles, le lieu, la provenance, l'état de service et la
-disponibilité. Les écritures passent par des transactions `BEGIN IMMEDIATE`
+disponibilité administrative. L'utilisation opérationnelle est une projection
+datée issue des réservations, montages et essais réels ; elle n'est pas un état
+manuel du parc. Les écritures passent par des transactions `BEGIN IMMEDIATE`
 incluant contrôle de concurrence, mutation, audit et outbox.
 
 Le registre des lieux est également possédé par equipment :

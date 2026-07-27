@@ -49,11 +49,11 @@ use crate::fleet_service::{
     archive_laboratory_location_json, create_laboratory_location, create_physical_asset,
     get_physical_asset_json, list_laboratory_location_audit_json, list_laboratory_locations_json,
     list_model_reconciliation_candidates_json, list_physical_asset_audit_json,
-    list_physical_assets_json, reconcile_physical_asset_model_json,
-    transition_physical_asset_availability, transition_physical_asset_service_state,
+    list_physical_assets_json_at, reconcile_physical_asset_model_json,
+    transition_physical_asset_administrative_availability, transition_physical_asset_service_state,
     update_laboratory_location_json, update_physical_asset, ArchiveLaboratoryLocationInput,
     CreateLaboratoryLocationInput, CreatePhysicalAssetInput, FleetOperationContext,
-    ReconcilePhysicalAssetModelInput, TransitionPhysicalAssetAvailabilityInput,
+    ReconcilePhysicalAssetModelInput, TransitionPhysicalAssetAdministrativeAvailabilityInput,
     TransitionPhysicalAssetServiceStateInput, UpdateLaboratoryLocationInput,
     UpdatePhysicalAssetInput,
 };
@@ -502,7 +502,10 @@ fn route_api_request(
         );
     }
     if parts.as_slice() == ["api", "v1", "fleet", "assets"] && method == "GET" {
-        return list_physical_assets_json(&config.storage_root);
+        return list_physical_assets_json_at(
+            &config.storage_root,
+            optional_query_value(query, "at").as_deref(),
+        );
     }
     if parts.as_slice() == ["api", "v1", "fleet", "assets"] && method == "POST" {
         let payload = parse_json_body(body)?;
@@ -555,10 +558,10 @@ fn route_api_request(
                 transition_physical_asset_service_state_input(parts[4], &payload)?,
             );
         }
-        if parts[6] == "availability" {
-            return transition_physical_asset_availability(
+        if matches!(parts[6], "administrative-availability" | "availability") {
+            return transition_physical_asset_administrative_availability(
                 &config.storage_root,
-                transition_physical_asset_availability_input(parts[4], &payload)?,
+                transition_physical_asset_administrative_availability_input(parts[4], &payload)?,
             );
         }
         if parts[6] == "reconcile-model" {
@@ -2184,6 +2187,18 @@ fn fleet_operation_context(payload: &Value) -> Result<FleetOperationContext, Age
 }
 
 fn create_physical_asset_input(payload: &Value) -> Result<CreatePhysicalAssetInput, AgentError> {
+    let administrative_availability = optional_string(payload, "administrative_availability")
+        .or_else(|| optional_string(payload, "availability_state"))
+        .ok_or_else(|| {
+            AgentError::new(
+                "missing_json_field",
+                "administrative_availability is required",
+            )
+        })?;
+    let administrative_unavailability_reason =
+        optional_string(payload, "administrative_unavailability_reason")
+            .or_else(|| optional_string(payload, "service_state_reason"))
+            .unwrap_or_default();
     Ok(CreatePhysicalAssetInput {
         inventory_code: required_string(payload, "inventory_code")?,
         serial_number: optional_string(payload, "serial_number"),
@@ -2192,7 +2207,8 @@ fn create_physical_asset_input(payload: &Value) -> Result<CreatePhysicalAssetInp
         laboratory_location_id: optional_string(payload, "laboratory_location_id"),
         ownership_source: required_string(payload, "ownership_source")?,
         service_state: required_string(payload, "service_state")?,
-        availability_state: required_string(payload, "availability_state")?,
+        administrative_availability,
+        administrative_unavailability_reason,
         service_state_reason: optional_string(payload, "service_state_reason").unwrap_or_default(),
         notes: optional_string(payload, "notes").unwrap_or_default(),
         calibration_requirement: required_string(payload, "calibration_requirement")?,
@@ -2234,14 +2250,27 @@ fn transition_physical_asset_service_state_input(
     })
 }
 
-fn transition_physical_asset_availability_input(
+fn transition_physical_asset_administrative_availability_input(
     asset_id: &str,
     payload: &Value,
-) -> Result<TransitionPhysicalAssetAvailabilityInput, AgentError> {
-    Ok(TransitionPhysicalAssetAvailabilityInput {
+) -> Result<TransitionPhysicalAssetAdministrativeAvailabilityInput, AgentError> {
+    let administrative_availability = optional_string(payload, "administrative_availability")
+        .or_else(|| optional_string(payload, "availability_state"))
+        .ok_or_else(|| {
+            AgentError::new(
+                "missing_json_field",
+                "administrative_availability is required",
+            )
+        })?;
+    Ok(TransitionPhysicalAssetAdministrativeAvailabilityInput {
         asset_id: asset_id.to_owned(),
         expected_revision: required_u64(payload, "expected_revision")?,
-        availability_state: required_string(payload, "availability_state")?,
+        administrative_availability,
+        administrative_unavailability_reason: optional_string(
+            payload,
+            "administrative_unavailability_reason",
+        )
+        .unwrap_or_default(),
         context: fleet_operation_context(payload)?,
     })
 }
@@ -3207,7 +3236,10 @@ fn status_for_error(code: &str) -> u16 {
         | "laboratory_location_archived"
         | "laboratory_location_already_archived"
         | "service_state_unchanged"
-        | "availability_state_unchanged"
+        | "administrative_availability_unchanged"
+        | "operational_usage_cannot_be_set_manually"
+        | "administrative_unavailability_reason_required"
+        | "unexpected_administrative_unavailability_reason"
         | "retired_asset_service_state_is_terminal"
         | "unserviceable_asset_cannot_be_available"
         | "equipment_category_already_exists"

@@ -447,7 +447,7 @@ pub fn load_instruments(connection: &Connection) -> Result<Vec<StoredInstrument>
 fn instrument_select_sql(suffix: &str) -> String {
     let base = concat!(
         "SELECT asset.asset_id, asset.category_code_snapshot, asset.manufacturer_snapshot, ",
-        "asset.model_name_snapshot, COALESCE(asset.serial_number, ''), asset.availability_state, ",
+        "asset.model_name_snapshot, COALESCE(asset.serial_number, ''), asset.administrative_availability, ",
         "dossier.calibration_requirement, dossier.legacy_capabilities_json, ",
         "asset.category_code_snapshot, asset.part_number, dossier.calibration_period_months, ",
         "dossier.metrology_notes, asset.service_state, asset.service_state_reason, ",
@@ -777,6 +777,15 @@ pub fn insert_instrument(
     } else {
         "available"
     };
+    let administrative_unavailability_reason = if availability_state == "unavailable" {
+        if input.serviceability_reason.trim().is_empty() {
+            "État de service incompatible avec une utilisation"
+        } else {
+            input.serviceability_reason
+        }
+    } else {
+        ""
+    };
     let migration_evidence_json = render_json(&json!({
         "source": "legacy_metrology_registration_adapter",
         "requested_equipment_model_id": input.equipment_model_id,
@@ -793,10 +802,13 @@ pub fn insert_instrument(
                 category_code_snapshot, category_path_json, laboratory_location_id,
                 laboratory_location_label_snapshot, ownership_source, service_state,
                 availability_state, service_state_reason, notes, revision, model_link_state,
-                migrated_from_metrology, created_at, updated_at, migration_evidence_json
+                migrated_from_metrology, created_at, updated_at, migration_evidence_json,
+                administrative_availability, administrative_unavailability_reason,
+                legacy_availability_evidence_json
              ) VALUES (
                 ?1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, ?9, ?10, NULL, NULL,
-                'laboratory_owned', ?11, ?12, ?13, '', 1, ?14, 0, ?15, ?15, ?16
+                'laboratory_owned', ?11, ?12, ?13, '', 1, ?14, 0, ?15, ?15, ?16,
+                ?12, ?17, ?18
              )",
             params![
                 input.asset_id,
@@ -819,6 +831,10 @@ pub fn insert_instrument(
                 },
                 input.timestamp,
                 migration_evidence_json,
+                administrative_unavailability_reason,
+                render_json(&json!({
+                    "legacy_availability_state": availability_state
+                })),
             ],
         )
         .map_err(|error| AgentError::new("metrology_instrument_write_failed", error.to_string()))?;

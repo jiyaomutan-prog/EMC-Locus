@@ -7,6 +7,7 @@ import { StationSetupWorkspace } from "./features/equipment/StationSetupWorkspac
 import { retainCompatibleAssignments } from "./features/planning/LaboratoryPlanningWorkspace";
 import type { EquipmentModelAggregate, EquipmentModelDefinition } from "./models/equipment";
 import type { AssetCorrectionAssignment } from "./models/metrology";
+import type { PhysicalAsset } from "./models/fleet";
 import type {
   CompletedContractReviewItem,
   LaboratoryScheduleItem,
@@ -671,7 +672,14 @@ describe("LAB CONSOLE", () => {
           laboratory_location_label: "Labo CEM 1",
           ownership_source: body.ownership_source,
           service_state: body.service_state,
-          availability_state: body.availability_state,
+          administrative_availability: body.administrative_availability,
+          administrative_unavailability_reason: body.administrative_unavailability_reason ?? "",
+          operational_usage: {
+            state: body.administrative_availability,
+            assessed_at: "2026-07-14T00:00:00Z",
+            evidence: []
+          },
+          availability_state: body.administrative_availability,
           service_state_reason: "",
           notes: "",
           revision: 1,
@@ -785,6 +793,86 @@ describe("LAB CONSOLE", () => {
     expect(openPinnedModel).toHaveBeenCalledWith("EQM-NRP6AN-FWD", "EQM-NRP6AN-FWD-rev-0001");
     await user.click(screen.getByRole("button", { name: "Par emplacement" }));
     expect(screen.getAllByRole("treeitem", { name: /Labo CEM 1/ }).some((item) => item.classList.contains("fleetGroup"))).toBe(true);
+  });
+
+  test("separates administrative availability from computed operational usage", async () => {
+    let asset = physicalAssetFixture({
+      availability_state: "reserved",
+      operational_usage: {
+        state: "reserved",
+        assessed_at: "2026-07-27T10:00:00Z",
+        evidence: [{
+          source_kind: "planned_test_reservation",
+          source_identifier: "PLAN-CEM-042",
+          source_label: "Essai d'immunité conduit",
+          relevant_start_at: "2026-07-27T09:00:00Z",
+          relevant_end_at: "2026-07-27T12:00:00Z",
+          reason: "Réservé pour un essai planifié",
+          blocks_selection: true
+        }]
+      }
+    }) as PhysicalAsset;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/fleet/assets") return jsonResponse({ assets: [asset] });
+      if (path === "/api/v1/laboratory-locations") return mockBaseApiResponse(path);
+      if (path.endsWith("/transitions/administrative-availability") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        asset = {
+          ...asset,
+          administrative_availability: body.administrative_availability,
+          administrative_unavailability_reason: body.administrative_unavailability_reason,
+          availability_state: "unavailable",
+          operational_usage: {
+            state: "unavailable",
+            assessed_at: "2026-07-27T10:00:00Z",
+            evidence: [{
+              source_kind: "administrative_availability",
+              source_identifier: asset.asset_id,
+              source_label: "Disponibilité administrative",
+              relevant_start_at: null,
+              relevant_end_at: null,
+              reason: body.administrative_unavailability_reason,
+              blocks_selection: true
+            }]
+          },
+          revision: Number(asset.revision) + 1
+        };
+        return jsonResponse({ asset, replayed: false });
+      }
+      return jsonResponse({ error: { code: "unexpected", message: path } }, 500);
+    });
+    const user = userEvent.setup();
+
+    render(<FleetWorkspace
+      models={[equipmentModelFixture() as EquipmentModelAggregate]}
+      categories={equipmentCategoriesFixture()}
+      onOpenPinnedModel={vi.fn()}
+      onOpenMetrology={vi.fn()}
+    />);
+
+    expect(await screen.findByText("Essai d'immunité conduit")).toBeInTheDocument();
+    expect(screen.getByText("Réservé pour un essai planifié")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Emplacement et disponibilité" }));
+    const availabilitySelect = screen.getByLabelText(/Disponibilité administrative/);
+    expect(within(availabilitySelect).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Disponible",
+      "Indisponible"
+    ]);
+    expect(within(availabilitySelect).queryByRole("option", { name: "Réservé" })).not.toBeInTheDocument();
+    expect(within(availabilitySelect).queryByRole("option", { name: "Utilisé en essai" })).not.toBeInTheDocument();
+
+    await user.selectOptions(availabilitySelect, "unavailable");
+    const save = screen.getByRole("button", { name: "Enregistrer la disponibilité administrative" });
+    expect(save).toBeDisabled();
+    await user.type(screen.getByLabelText(/Motif d'indisponibilité/), "Prêt externe");
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([path]) =>
+      String(path).endsWith("/transitions/administrative-availability")
+    )).toBe(true));
+    expect(await screen.findByLabelText(/Motif d'indisponibilité/)).toHaveValue("Prêt externe");
   });
 
   test("reconciles a migrated asset through a readable exact model revision", async () => {
@@ -1700,6 +1788,13 @@ function physicalAssetFixture(overrides: Record<string, unknown> = {}) {
     laboratory_location_label: "Labo CEM 1",
     ownership_source: "laboratory_owned",
     service_state: "usable",
+    administrative_availability: "available",
+    administrative_unavailability_reason: "",
+    operational_usage: {
+      state: "available",
+      assessed_at: "2026-07-27T08:00:00Z",
+      evidence: []
+    },
     availability_state: "available",
     service_state_reason: "Contrôle avant utilisation",
     notes: "Capteur de puissance RF",

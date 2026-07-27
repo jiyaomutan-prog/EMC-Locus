@@ -243,6 +243,12 @@ fn insert_migrated_asset(
     let serial_number = nonempty(Some(instrument.serial_number.as_str()));
     let service_state = migrated_service_state(&instrument.serviceability_status);
     let availability_state = migrated_availability(service_state, &instrument.availability);
+    let administrative_unavailability_reason = if availability_state == "unavailable" {
+        nonempty(Some(instrument.serviceability_reason.as_str()))
+            .unwrap_or("Indisponibilité héritée du registre métrologique")
+    } else {
+        ""
+    };
     let migration_evidence_json = render_json(&json!({
         "source": "metrology.sqlite/legacy_instruments_0_21_1",
         "legacy_asset_id": instrument.asset_id,
@@ -272,11 +278,12 @@ fn insert_migrated_asset(
                 laboratory_location_label_snapshot, ownership_source, service_state,
                 availability_state, service_state_reason, notes, revision,
                 model_link_state, migrated_from_metrology, created_at, updated_at,
-                migration_evidence_json
+                migration_evidence_json, administrative_availability,
+                administrative_unavailability_reason, legacy_availability_evidence_json
              ) VALUES (
                 ?1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, ?9, ?10,
                 NULL, NULL, 'laboratory_owned', ?11, ?12, ?13, '', 1,
-                ?14, 1, ?15, ?16, ?17
+                ?14, 1, ?15, ?16, ?17, ?12, ?18, ?19
              )",
             params![
                 instrument.asset_id,
@@ -300,6 +307,10 @@ fn insert_migrated_asset(
                 instrument.created_at,
                 instrument.updated_at,
                 migration_evidence_json,
+                administrative_unavailability_reason,
+                render_json(&json!({
+                    "legacy_availability_state": instrument.availability
+                })),
             ],
         )
         .map_err(|error| AgentError::new("fleet_migration_write_failed", error.to_string()))?;
@@ -357,9 +368,8 @@ fn migrated_service_state(value: &str) -> &'static str {
 fn migrated_availability(service_state: &str, legacy_availability: &str) -> &'static str {
     if matches!(service_state, "out_of_service" | "retired") {
         "unavailable"
-    } else if legacy_availability == "reserved" {
-        "reserved"
     } else {
+        let _ = legacy_availability;
         "available"
     }
 }
@@ -564,6 +574,93 @@ mod tests {
             )
             .unwrap();
         assert!(migration_evidence.contains("legacy_instruments_0_21_1"));
+
+        let _ = fs::remove_dir_all(storage_root);
+    }
+
+    #[test]
+    fn administrative_availability_migration_preserves_every_legacy_state() {
+        let storage_root = temporary_storage_root("legacy-availability-fixture");
+        fs::create_dir_all(&storage_root).unwrap();
+        let equipment_path = storage_root.join("equipment.sqlite");
+        apply_migrations_through(
+            &equipment_path,
+            &repo_root().join("storage/sqlite/equipment"),
+            8,
+        );
+        let equipment = Connection::open(&equipment_path).unwrap();
+        for state in [
+            "available",
+            "reserved",
+            "assigned_to_setup",
+            "in_test",
+            "unavailable",
+        ] {
+            let asset_id = format!("LEGACY-{}", state.to_ascii_uppercase());
+            equipment
+                .execute(
+                    "INSERT INTO physical_assets (
+                        asset_id, inventory_code, manufacturer_snapshot, model_name_snapshot,
+                        category_code_snapshot, category_path_json, ownership_source,
+                        service_state, availability_state, service_state_reason, notes, revision,
+                        model_link_state, migrated_from_metrology, created_at, updated_at,
+                        migration_evidence_json
+                     ) VALUES (?1, ?1, 'Legacy', 'Legacy model', 'legacy', '[\"Legacy\"]',
+                        'laboratory_owned', 'usable', ?2, '', '', 1,
+                        'migration_review_required', 1, '2026-07-01T00:00:00Z',
+                        '2026-07-01T00:00:00Z', '{}')",
+                    params![asset_id, state],
+                )
+                .unwrap();
+        }
+        drop(equipment);
+
+        apply_migrations_from(
+            &equipment_path,
+            &repo_root().join("storage/sqlite/equipment"),
+            9,
+        );
+        let equipment = Connection::open(&equipment_path).unwrap();
+        for legacy_state in [
+            "available",
+            "reserved",
+            "assigned_to_setup",
+            "in_test",
+            "unavailable",
+        ] {
+            let asset_id = format!("LEGACY-{}", legacy_state.to_ascii_uppercase());
+            let migrated: (String, String, String, String) = equipment
+                .query_row(
+                    "SELECT availability_state, administrative_availability,
+                        administrative_unavailability_reason,
+                        legacy_availability_evidence_json
+                     FROM physical_assets WHERE asset_id = ?1",
+                    params![asset_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .unwrap();
+            let expected = if legacy_state == "unavailable" {
+                "unavailable"
+            } else {
+                "available"
+            };
+            assert_eq!(migrated.0, expected);
+            assert_eq!(migrated.1, expected);
+            assert_eq!(
+                migrated.2.is_empty(),
+                legacy_state != "unavailable",
+                "unexpected reason migration for {legacy_state}"
+            );
+            assert!(migrated.3.contains(legacy_state));
+        }
+        let migration_count: u64 = equipment
+            .query_row(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version = 9",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(migration_count, 1);
 
         let _ = fs::remove_dir_all(storage_root);
     }

@@ -133,6 +133,20 @@ demo models, sensors, drivers, or recipes are inserted by this migration.
 Demo records are created only by explicit seed commands and must be marked as
 demo data.
 
+### physical asset administrative availability
+
+Migration `storage/sqlite/equipment/0009_administrative_availability.sql`
+separates the fleet-owned administrative decision from workflow-owned usage.
+`physical_assets.administrative_availability` is constrained to `available` or
+`unavailable`; `administrative_unavailability_reason` is mandatory only for
+the latter. `legacy_availability_evidence_json` preserves the pre-migration
+value, including old `reserved`, `assigned_to_setup`, and `in_test` values.
+
+The old `availability_state` column is maintained as a compatibility mirror of
+the administrative value during the removal window. Derived operational usage
+is not stored in this table. The agent computes it at read time from attached
+project and station repositories and returns structured source evidence.
+
 ### measurement engineering definitions
 
 Release `0.13.0` keeps reusable measurement-chain engineering definitions in

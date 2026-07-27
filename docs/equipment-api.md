@@ -56,16 +56,29 @@ longer owns physical identity.
 ## Physical Asset Fleet
 
 ```text
-GET    /api/v1/fleet/assets
+GET    /api/v1/fleet/assets[?at=<RFC3339>]
 POST   /api/v1/fleet/assets
 GET    /api/v1/fleet/assets/{asset_id}
 PUT    /api/v1/fleet/assets/{asset_id}
 GET    /api/v1/fleet/assets/{asset_id}/audit-events
 POST   /api/v1/fleet/assets/{asset_id}/transitions/service-state
-POST   /api/v1/fleet/assets/{asset_id}/transitions/availability
+POST   /api/v1/fleet/assets/{asset_id}/transitions/administrative-availability
 GET    /api/v1/fleet/model-reconciliation-candidates
 POST   /api/v1/fleet/assets/{asset_id}/transitions/reconcile-model
 ```
+
+An asset exposes manually controlled `administrative_availability` separately
+from the dated `operational_usage` read model. Administrative unavailability
+requires `administrative_unavailability_reason`. Attempts to manually set
+`reserved`, `assigned_to_setup`, or `in_test` are rejected because those facts
+belong to planning, setup, and execution workflows. `operational_usage`
+contains structured source evidence and is recomputed for `at`; it is not a
+persisted source of truth. See
+`docs/domain/physical-asset-availability-and-usage.md`.
+
+The old `transitions/availability` route remains a temporary 0.21.x adapter.
+It accepts only the two administrative values and cannot synthesize an
+operational fact.
 
 `POST .../transitions/reconcile-model` is the only command that can resolve a
 migrated asset whose `model_link_state` is `migration_review_required`. It

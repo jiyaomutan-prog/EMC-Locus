@@ -27,12 +27,14 @@ pub(crate) struct StoredPhysicalAsset {
     pub(crate) laboratory_location_label_snapshot: Option<String>,
     pub(crate) ownership_source: String,
     pub(crate) service_state: String,
-    pub(crate) availability_state: String,
+    pub(crate) administrative_availability: String,
+    pub(crate) administrative_unavailability_reason: String,
     pub(crate) service_state_reason: String,
     pub(crate) notes: String,
     pub(crate) revision: u64,
     pub(crate) model_link_state: String,
     pub(crate) migrated_from_metrology: bool,
+    pub(crate) legacy_availability_evidence_json: String,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
 }
@@ -89,7 +91,8 @@ pub(crate) struct NewPhysicalAssetRecord<'a> {
     pub(crate) laboratory_location_label_snapshot: Option<&'a str>,
     pub(crate) ownership_source: &'a str,
     pub(crate) service_state: &'a str,
-    pub(crate) availability_state: &'a str,
+    pub(crate) administrative_availability: &'a str,
+    pub(crate) administrative_unavailability_reason: &'a str,
     pub(crate) service_state_reason: &'a str,
     pub(crate) notes: &'a str,
     pub(crate) timestamp: &'a str,
@@ -127,6 +130,7 @@ pub(crate) struct FleetEvidenceInput<'a> {
 pub(crate) fn open_fleet_connection(storage_root: &Path) -> Result<Connection, AgentError> {
     let connection = open_equipment_connection(storage_root)?;
     attach_metrology(&connection, storage_root)?;
+    attach_usage_sources(&connection, storage_root);
     Ok(connection)
 }
 
@@ -135,12 +139,26 @@ pub(crate) fn open_fleet_connection_with_sync(
 ) -> Result<Connection, AgentError> {
     let connection = open_equipment_connection_with_sync(storage_root)?;
     attach_metrology(&connection, storage_root)?;
+    attach_usage_sources(&connection, storage_root);
     enforce_project_slice_journal_mode(
         &connection,
         AttachedDatabase::MetrologyDb,
         "metrology.sqlite",
     )?;
     Ok(connection)
+}
+
+fn attach_usage_sources(connection: &Connection, storage_root: &Path) {
+    for (filename, alias) in [
+        ("projects.sqlite", "projects_db"),
+        ("station.sqlite", "station_db"),
+    ] {
+        let database = storage_root.join(filename);
+        if database.exists() {
+            let sql = format!("ATTACH DATABASE ?1 AS {alias}");
+            let _ = connection.execute(&sql, params![database.to_string_lossy().to_string()]);
+        }
+    }
 }
 
 fn attach_metrology(connection: &Connection, storage_root: &Path) -> Result<(), AgentError> {
@@ -235,10 +253,12 @@ pub(crate) fn insert_physical_asset(
                 category_code_snapshot, category_path_json, laboratory_location_id,
                 laboratory_location_label_snapshot, ownership_source, service_state,
                 availability_state, service_state_reason, notes, revision,
-                model_link_state, migrated_from_metrology, created_at, updated_at
+                model_link_state, migrated_from_metrology, created_at, updated_at,
+                administrative_availability, administrative_unavailability_reason
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                ?13, ?14, ?15, ?16, ?17, ?18, ?19, 1, 'resolved', 0, ?20, ?20
+                ?13, ?14, ?15, ?16, ?17, ?18, ?19, 1, 'resolved', 0, ?20, ?20,
+                ?17, ?21
             )",
             params![
                 input.asset_id,
@@ -257,10 +277,11 @@ pub(crate) fn insert_physical_asset(
                 input.laboratory_location_label_snapshot,
                 input.ownership_source,
                 input.service_state,
-                input.availability_state,
+                input.administrative_availability,
                 input.service_state_reason,
                 input.notes,
                 input.timestamp,
+                input.administrative_unavailability_reason,
             ],
         )
         .map_err(map_asset_write_error)?;
@@ -302,47 +323,64 @@ pub(crate) fn update_physical_asset_identity(
     Ok(input.expected_revision + 1)
 }
 
+pub(crate) struct PhysicalAssetServiceStateUpdate<'a> {
+    pub(crate) asset_id: &'a str,
+    pub(crate) expected_revision: u64,
+    pub(crate) service_state: &'a str,
+    pub(crate) administrative_availability: &'a str,
+    pub(crate) administrative_unavailability_reason: &'a str,
+    pub(crate) reason: &'a str,
+    pub(crate) timestamp: &'a str,
+}
+
 pub(crate) fn update_physical_asset_service_state(
     transaction: &Transaction<'_>,
-    asset_id: &str,
-    expected_revision: u64,
-    service_state: &str,
-    availability_state: &str,
-    reason: &str,
-    timestamp: &str,
+    input: PhysicalAssetServiceStateUpdate<'_>,
 ) -> Result<u64, AgentError> {
     let changed = transaction
         .execute(
             "UPDATE physical_assets SET service_state = ?3, availability_state = ?4,
-                service_state_reason = ?5, revision = revision + 1, updated_at = ?6
+                administrative_availability = ?4,
+                administrative_unavailability_reason = ?5,
+                service_state_reason = ?6, revision = revision + 1, updated_at = ?7
              WHERE asset_id = ?1 AND revision = ?2",
             params![
-                asset_id,
-                expected_revision,
-                service_state,
-                availability_state,
-                reason,
-                timestamp
+                input.asset_id,
+                input.expected_revision,
+                input.service_state,
+                input.administrative_availability,
+                input.administrative_unavailability_reason,
+                input.reason,
+                input.timestamp
             ],
         )
         .map_err(map_asset_write_error)?;
-    require_asset_update(changed, asset_id, expected_revision)?;
-    Ok(expected_revision + 1)
+    require_asset_update(changed, input.asset_id, input.expected_revision)?;
+    Ok(input.expected_revision + 1)
 }
 
-pub(crate) fn update_physical_asset_availability(
+pub(crate) fn update_physical_asset_administrative_availability(
     transaction: &Transaction<'_>,
     asset_id: &str,
     expected_revision: u64,
-    availability_state: &str,
+    administrative_availability: &str,
+    administrative_unavailability_reason: &str,
     timestamp: &str,
 ) -> Result<u64, AgentError> {
     let changed = transaction
         .execute(
             "UPDATE physical_assets SET availability_state = ?3,
-                revision = revision + 1, updated_at = ?4
+                administrative_availability = ?3,
+                administrative_unavailability_reason = ?4,
+                revision = revision + 1, updated_at = ?5
              WHERE asset_id = ?1 AND revision = ?2",
-            params![asset_id, expected_revision, availability_state, timestamp],
+            params![
+                asset_id,
+                expected_revision,
+                administrative_availability,
+                administrative_unavailability_reason,
+                timestamp
+            ],
         )
         .map_err(map_asset_write_error)?;
     require_asset_update(changed, asset_id, expected_revision)?;
@@ -672,8 +710,10 @@ fn physical_asset_select() -> &'static str {
         manufacturer_snapshot, model_name_snapshot, variant_snapshot,
         category_code_snapshot, category_path_json, laboratory_location_id,
         laboratory_location_label_snapshot, ownership_source, service_state,
-        availability_state, service_state_reason, notes, revision, model_link_state,
-        migrated_from_metrology, created_at, updated_at FROM physical_assets"
+        administrative_availability, administrative_unavailability_reason,
+        service_state_reason, notes, revision, model_link_state,
+        migrated_from_metrology, legacy_availability_evidence_json,
+        created_at, updated_at FROM physical_assets"
 }
 
 fn physical_asset_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredPhysicalAsset> {
@@ -694,14 +734,16 @@ fn physical_asset_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredPhysica
         laboratory_location_label_snapshot: row.get(13)?,
         ownership_source: row.get(14)?,
         service_state: row.get(15)?,
-        availability_state: row.get(16)?,
-        service_state_reason: row.get(17)?,
-        notes: row.get(18)?,
-        revision: row.get(19)?,
-        model_link_state: row.get(20)?,
-        migrated_from_metrology: row.get::<_, i64>(21)? != 0,
-        created_at: row.get(22)?,
-        updated_at: row.get(23)?,
+        administrative_availability: row.get(16)?,
+        administrative_unavailability_reason: row.get(17)?,
+        service_state_reason: row.get(18)?,
+        notes: row.get(19)?,
+        revision: row.get(20)?,
+        model_link_state: row.get(21)?,
+        migrated_from_metrology: row.get::<_, i64>(22)? != 0,
+        legacy_availability_evidence_json: row.get(23)?,
+        created_at: row.get(24)?,
+        updated_at: row.get(25)?,
     })
 }
 

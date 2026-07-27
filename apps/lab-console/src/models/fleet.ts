@@ -14,7 +14,9 @@ export type ServiceState =
   | "out_of_service"
   | "retired";
 
-export type AvailabilityState =
+export type AdministrativeAvailability = "available" | "unavailable";
+
+export type OperationalUsageState =
   | "available"
   | "reserved"
   | "assigned_to_setup"
@@ -46,7 +48,10 @@ export interface PhysicalAsset {
   laboratory_location_label: string | null;
   ownership_source: OwnershipSource;
   service_state: ServiceState;
-  availability_state: AvailabilityState;
+  administrative_availability: AdministrativeAvailability;
+  administrative_unavailability_reason: string;
+  operational_usage: OperationalUsageSummary;
+  availability_state: OperationalUsageState;
   service_state_reason: string;
   notes: string;
   revision: number;
@@ -55,6 +60,22 @@ export interface PhysicalAsset {
   metrology: PhysicalAssetMetrologySummary | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface OperationalUsageEvidence {
+  source_kind: string;
+  source_identifier: string;
+  source_label: string;
+  relevant_start_at: string | null;
+  relevant_end_at: string | null;
+  reason: string;
+  blocks_selection: boolean;
+}
+
+export interface OperationalUsageSummary {
+  state: OperationalUsageState;
+  assessed_at: string;
+  evidence: OperationalUsageEvidence[];
 }
 
 export interface LaboratoryLocation {
@@ -87,7 +108,8 @@ export interface CreatePhysicalAssetInput {
   laboratory_location_id?: string;
   ownership_source: OwnershipSource;
   service_state: ServiceState;
-  availability_state: AvailabilityState;
+  administrative_availability: AdministrativeAvailability;
+  administrative_unavailability_reason?: string;
   service_state_reason?: string;
   notes?: string;
   calibration_requirement: string;

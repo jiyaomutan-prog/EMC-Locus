@@ -11,6 +11,7 @@ mod fleet_dto;
 mod fleet_migration;
 mod fleet_repository;
 mod fleet_service;
+mod fleet_usage;
 mod local_api;
 mod measurement_engineering_dto;
 mod measurement_engineering_repository;
@@ -87,11 +88,11 @@ pub use fleet_service::{
     archive_laboratory_location_json, create_laboratory_location, create_physical_asset,
     get_physical_asset_json, list_laboratory_location_audit_json, list_laboratory_locations_json,
     list_model_reconciliation_candidates_json, list_physical_asset_audit_json,
-    list_physical_assets_json, reconcile_physical_asset_model_json,
-    transition_physical_asset_availability, transition_physical_asset_service_state,
+    list_physical_assets_json, list_physical_assets_json_at, reconcile_physical_asset_model_json,
+    transition_physical_asset_administrative_availability, transition_physical_asset_service_state,
     update_laboratory_location_json, update_physical_asset, ArchiveLaboratoryLocationInput,
     CreateLaboratoryLocationInput, CreatePhysicalAssetInput, FleetOperationContext,
-    ReconcilePhysicalAssetModelInput, TransitionPhysicalAssetAvailabilityInput,
+    ReconcilePhysicalAssetModelInput, TransitionPhysicalAssetAdministrativeAvailabilityInput,
     TransitionPhysicalAssetServiceStateInput, UpdateLaboratoryLocationInput,
     UpdatePhysicalAssetInput,
 };
@@ -983,7 +984,7 @@ mod tests {
                 .find(|domain| domain.domain == "equipment")
                 .unwrap()
                 .schema_version,
-            Some(8)
+            Some(9)
         );
         assert_eq!(
             second_report

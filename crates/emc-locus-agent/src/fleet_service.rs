@@ -14,18 +14,20 @@ use crate::fleet_repository::{
     load_fleet_audit_events, load_laboratory_location, load_physical_asset,
     load_physical_asset_by_inventory_code, open_fleet_connection, open_fleet_connection_with_sync,
     reconcile_physical_asset_model, request_checksum, update_laboratory_location,
-    update_physical_asset_availability, update_physical_asset_identity,
+    update_physical_asset_administrative_availability, update_physical_asset_identity,
     update_physical_asset_service_state, write_fleet_evidence, FleetEvidenceInput,
-    NewPhysicalAssetRecord, StoredLaboratoryLocation, StoredPhysicalAsset,
-    UpdatePhysicalAssetIdentityInput,
+    NewPhysicalAssetRecord, PhysicalAssetServiceStateUpdate, StoredLaboratoryLocation,
+    StoredPhysicalAsset, UpdatePhysicalAssetIdentityInput,
 };
+use crate::fleet_usage::compute_operational_usage;
 use crate::{render_json, AgentError};
 use emc_locus_core::{
-    availability_state_code, ownership_source_code, service_state_code,
-    validate_availability_transition, validate_service_state_transition, AvailabilityState,
-    EquipmentModelDefinition, LaboratoryLocationDefinition, LaboratoryLocationStatus,
-    OwnershipSource, PhysicalAssetDefinition, PinnedEquipmentModel, ServiceState,
-    LABORATORY_LOCATION_DEFINITION_SCHEMA_VERSION, PHYSICAL_ASSET_DEFINITION_SCHEMA_VERSION,
+    administrative_availability_code, ownership_source_code, service_state_code,
+    validate_administrative_availability_transition, validate_service_state_transition,
+    AdministrativeAvailability, EquipmentModelDefinition, LaboratoryLocationDefinition,
+    LaboratoryLocationStatus, OwnershipSource, PhysicalAssetDefinition, PinnedEquipmentModel,
+    ServiceState, LABORATORY_LOCATION_DEFINITION_SCHEMA_VERSION,
+    PHYSICAL_ASSET_DEFINITION_SCHEMA_VERSION,
 };
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use serde_json::json;
@@ -51,7 +53,8 @@ pub struct CreatePhysicalAssetInput {
     pub laboratory_location_id: Option<String>,
     pub ownership_source: String,
     pub service_state: String,
-    pub availability_state: String,
+    pub administrative_availability: String,
+    pub administrative_unavailability_reason: String,
     pub service_state_reason: String,
     pub notes: String,
     pub calibration_requirement: String,
@@ -84,10 +87,11 @@ pub struct TransitionPhysicalAssetServiceStateInput {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TransitionPhysicalAssetAvailabilityInput {
+pub struct TransitionPhysicalAssetAdministrativeAvailabilityInput {
     pub asset_id: String,
     pub expected_revision: u64,
-    pub availability_state: String,
+    pub administrative_availability: String,
+    pub administrative_unavailability_reason: String,
     pub context: FleetOperationContext,
 }
 
@@ -124,11 +128,19 @@ pub struct ArchiveLaboratoryLocationInput {
 }
 
 pub fn list_physical_assets_json(storage_root: &Path) -> Result<String, AgentError> {
+    list_physical_assets_json_at(storage_root, None)
+}
+
+pub fn list_physical_assets_json_at(
+    storage_root: &Path,
+    assessed_at: Option<&str>,
+) -> Result<String, AgentError> {
     let connection = open_fleet_connection(storage_root)?;
     let assets = list_physical_assets(&connection)?;
+    let assessed_at = parse_assessed_at(assessed_at)?;
     let dtos = assets
         .iter()
-        .map(|asset| physical_asset_dto(&connection, asset))
+        .map(|asset| physical_asset_dto_at(&connection, asset, assessed_at))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(render_json(&PhysicalAssetListDto { assets: dtos }))
 }
@@ -263,7 +275,13 @@ pub fn create_physical_asset(
     validate_context(&input.context)?;
     let ownership_source = parse_ownership_source(&input.ownership_source)?;
     let service_state = parse_service_state(&input.service_state)?;
-    let availability_state = parse_availability_state(&input.availability_state)?;
+    let administrative_availability =
+        parse_administrative_availability(&input.administrative_availability)?;
+    let administrative_unavailability_reason = input.administrative_unavailability_reason.trim();
+    validate_administrative_unavailability_reason(
+        administrative_availability,
+        administrative_unavailability_reason,
+    )?;
     validate_metrology_dossier_input(
         &input.calibration_requirement,
         input.calibration_period_months,
@@ -287,7 +305,8 @@ pub fn create_physical_asset(
         "laboratory_location_id": trimmed_optional(input.laboratory_location_id.as_deref()),
         "ownership_source": ownership_source_code(ownership_source),
         "service_state": service_state_code(service_state),
-        "availability_state": availability_state_code(availability_state),
+        "administrative_availability": administrative_availability_code(administrative_availability),
+        "administrative_unavailability_reason": administrative_unavailability_reason,
         "service_state_reason": input.service_state_reason.trim(),
         "notes": input.notes.trim(),
         "metrology": {
@@ -328,7 +347,8 @@ pub fn create_physical_asset(
         laboratory_location_label: location.as_ref().map(|item| item.label.clone()),
         ownership_source,
         service_state,
-        availability_state,
+        administrative_availability,
+        administrative_unavailability_reason: administrative_unavailability_reason.to_owned(),
         service_state_reason: input.service_state_reason.trim().to_owned(),
         notes: input.notes.trim().to_owned(),
     };
@@ -364,7 +384,10 @@ pub fn create_physical_asset(
             laboratory_location_label_snapshot: definition.laboratory_location_label.as_deref(),
             ownership_source: ownership_source_code(definition.ownership_source),
             service_state: service_state_code(definition.service_state),
-            availability_state: availability_state_code(definition.availability_state),
+            administrative_availability: administrative_availability_code(
+                definition.administrative_availability,
+            ),
+            administrative_unavailability_reason: &definition.administrative_unavailability_reason,
             service_state_reason: &definition.service_state_reason,
             notes: &definition.notes,
             timestamp: &now,
@@ -506,13 +529,13 @@ pub fn transition_physical_asset_service_state(
         .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
     let current = required_asset(&transaction, &input.asset_id)?;
     let current_state = parse_service_state(&current.service_state)?;
-    let next_availability = if matches!(
+    let next_administrative_availability = if matches!(
         requested,
         ServiceState::InMaintenance | ServiceState::OutOfService | ServiceState::Retired
     ) {
-        AvailabilityState::Unavailable
+        AdministrativeAvailability::Unavailable
     } else {
-        parse_availability_state(&current.availability_state)?
+        parse_administrative_availability(&current.administrative_availability)?
     };
     let reason = input.service_state_reason.trim();
     if requested != ServiceState::Usable && reason.is_empty() {
@@ -525,7 +548,12 @@ pub fn transition_physical_asset_service_state(
         "asset_id": input.asset_id,
         "expected_revision": input.expected_revision,
         "to": service_state_code(requested),
-        "availability_state": availability_state_code(next_availability),
+        "administrative_availability": administrative_availability_code(next_administrative_availability),
+        "administrative_unavailability_reason": if next_administrative_availability == AdministrativeAvailability::Unavailable {
+            reason
+        } else {
+            current.administrative_unavailability_reason.as_str()
+        },
         "service_state_reason": reason
     }));
     let checksum = request_checksum(&payload_json);
@@ -540,15 +568,35 @@ pub fn transition_physical_asset_service_state(
     }
     require_expected_revision(&current.asset_id, current.revision, input.expected_revision)?;
     validate_service_state_transition(current_state, requested).map_err(transition_error)?;
+    let administrative_reason =
+        if next_administrative_availability == AdministrativeAvailability::Unavailable {
+            if current.administrative_availability == "unavailable"
+                && !current
+                    .administrative_unavailability_reason
+                    .trim()
+                    .is_empty()
+            {
+                current.administrative_unavailability_reason.as_str()
+            } else {
+                reason
+            }
+        } else {
+            ""
+        };
     let now = utc_timestamp()?;
     let new_revision = update_physical_asset_service_state(
         &transaction,
-        &input.asset_id,
-        input.expected_revision,
-        service_state_code(requested),
-        availability_state_code(next_availability),
-        reason,
-        &now,
+        PhysicalAssetServiceStateUpdate {
+            asset_id: &input.asset_id,
+            expected_revision: input.expected_revision,
+            service_state: service_state_code(requested),
+            administrative_availability: administrative_availability_code(
+                next_administrative_availability,
+            ),
+            administrative_unavailability_reason: administrative_reason,
+            reason,
+            timestamp: &now,
+        },
     )?;
     write_fleet_evidence(
         &transaction,
@@ -568,43 +616,48 @@ pub fn transition_physical_asset_service_state(
     get_physical_asset_json(storage_root, &input.asset_id)
 }
 
-pub fn transition_physical_asset_availability(
+pub fn transition_physical_asset_administrative_availability(
     storage_root: &Path,
-    input: TransitionPhysicalAssetAvailabilityInput,
+    input: TransitionPhysicalAssetAdministrativeAvailabilityInput,
 ) -> Result<String, AgentError> {
     validate_context(&input.context)?;
-    let requested = parse_availability_state(&input.availability_state)?;
+    let requested = parse_administrative_availability(&input.administrative_availability)?;
+    let reason = input.administrative_unavailability_reason.trim();
+    validate_administrative_unavailability_reason(requested, reason)?;
     let mut connection = open_fleet_connection_with_sync(storage_root)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
     let current = required_asset(&transaction, &input.asset_id)?;
     let service_state = parse_service_state(&current.service_state)?;
-    let current_availability = parse_availability_state(&current.availability_state)?;
+    let current_availability =
+        parse_administrative_availability(&current.administrative_availability)?;
     let payload_json = render_json(&json!({
         "asset_id": input.asset_id,
         "expected_revision": input.expected_revision,
-        "to": availability_state_code(requested)
+        "to": administrative_availability_code(requested),
+        "administrative_unavailability_reason": reason
     }));
     let checksum = request_checksum(&payload_json);
     if let Some(replay) = replay_asset_operation(
         &transaction,
         &input.context,
         &input.asset_id,
-        "physical_asset_availability_changed",
+        "physical_asset_administrative_availability_changed",
         &checksum,
     )? {
         return Ok(replay);
     }
     require_expected_revision(&current.asset_id, current.revision, input.expected_revision)?;
-    validate_availability_transition(service_state, current_availability, requested)
+    validate_administrative_availability_transition(service_state, current_availability, requested)
         .map_err(transition_error)?;
     let now = utc_timestamp()?;
-    let new_revision = update_physical_asset_availability(
+    let new_revision = update_physical_asset_administrative_availability(
         &transaction,
         &input.asset_id,
         input.expected_revision,
-        availability_state_code(requested),
+        administrative_availability_code(requested),
+        reason,
         &now,
     )?;
     write_fleet_evidence(
@@ -612,7 +665,7 @@ pub fn transition_physical_asset_availability(
         evidence(
             "physical_asset",
             &input.asset_id,
-            "physical_asset_availability_changed",
+            "physical_asset_administrative_availability_changed",
             EvidenceRevision::changed(input.expected_revision, new_revision),
             EvidencePayload::new(&checksum, &payload_json),
             &input.context,
@@ -1092,7 +1145,10 @@ fn definition_from_stored(
         laboratory_location_label: location.map(|item| item.label.clone()),
         ownership_source,
         service_state: parse_service_state(&current.service_state)?,
-        availability_state: parse_availability_state(&current.availability_state)?,
+        administrative_availability: parse_administrative_availability(
+            &current.administrative_availability,
+        )?,
+        administrative_unavailability_reason: current.administrative_unavailability_reason.clone(),
         service_state_reason: current.service_state_reason.clone(),
         notes: notes.to_owned(),
     })
@@ -1102,12 +1158,22 @@ fn physical_asset_dto(
     connection: &rusqlite::Connection,
     asset: &StoredPhysicalAsset,
 ) -> Result<PhysicalAssetDto, AgentError> {
+    physical_asset_dto_at(connection, asset, OffsetDateTime::now_utc())
+}
+
+fn physical_asset_dto_at(
+    connection: &rusqlite::Connection,
+    asset: &StoredPhysicalAsset,
+    assessed_at: OffsetDateTime,
+) -> Result<PhysicalAssetDto, AgentError> {
     let current_location_label = match asset.laboratory_location_id.as_deref() {
         Some(location_id) => load_laboratory_location(connection, location_id)?
             .map(|location| location.label)
             .or_else(|| asset.laboratory_location_label_snapshot.clone()),
         None => None,
     };
+    let operational_usage = compute_operational_usage(connection, asset, assessed_at);
+    let availability_state = operational_usage.state.clone();
     Ok(PhysicalAssetDto {
         asset_id: asset.asset_id.clone(),
         inventory_code: asset.inventory_code.clone(),
@@ -1125,7 +1191,10 @@ fn physical_asset_dto(
         laboratory_location_label: current_location_label,
         ownership_source: asset.ownership_source.clone(),
         service_state: asset.service_state.clone(),
-        availability_state: asset.availability_state.clone(),
+        administrative_availability: asset.administrative_availability.clone(),
+        administrative_unavailability_reason: asset.administrative_unavailability_reason.clone(),
+        operational_usage,
+        availability_state,
         service_state_reason: asset.service_state_reason.clone(),
         notes: asset.notes.clone(),
         revision: asset.revision,
@@ -1134,6 +1203,19 @@ fn physical_asset_dto(
         metrology: load_metrology_summary(connection, &asset.asset_id)?,
         created_at: asset.created_at.clone(),
         updated_at: asset.updated_at.clone(),
+    })
+}
+
+fn parse_assessed_at(value: Option<&str>) -> Result<OffsetDateTime, AgentError> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(OffsetDateTime::now_utc());
+    };
+    OffsetDateTime::parse(value, &Rfc3339).map_err(|error| {
+        AgentError::with_details(
+            "invalid_operational_usage_assessment_time",
+            "La date d'évaluation de l'usage doit être un instant RFC 3339.",
+            json!({ "assessed_at": value, "error": error.to_string() }),
+        )
     })
 }
 
@@ -1485,17 +1567,40 @@ fn parse_service_state(value: &str) -> Result<ServiceState, AgentError> {
     }
 }
 
-fn parse_availability_state(value: &str) -> Result<AvailabilityState, AgentError> {
+fn parse_administrative_availability(
+    value: &str,
+) -> Result<AdministrativeAvailability, AgentError> {
     match value.trim() {
-        "available" => Ok(AvailabilityState::Available),
-        "reserved" => Ok(AvailabilityState::Reserved),
-        "assigned_to_setup" => Ok(AvailabilityState::AssignedToSetup),
-        "in_test" => Ok(AvailabilityState::InTest),
-        "unavailable" => Ok(AvailabilityState::Unavailable),
-        _ => Err(AgentError::new(
-            "invalid_availability_state",
-            "La disponibilité demandée n'est pas reconnue.",
+        "available" => Ok(AdministrativeAvailability::Available),
+        "unavailable" => Ok(AdministrativeAvailability::Unavailable),
+        "reserved" | "assigned_to_setup" | "in_test" => Err(AgentError::with_details(
+            "operational_usage_cannot_be_set_manually",
+            "Une réservation, une affectation à un montage ou un essai en cours doit provenir du workflow correspondant.",
+            json!({ "requested_operational_usage": value.trim() }),
         )),
+        _ => Err(AgentError::new(
+            "invalid_administrative_availability",
+            "La disponibilité administrative doit être 'available' ou 'unavailable'.",
+        )),
+    }
+}
+
+fn validate_administrative_unavailability_reason(
+    availability: AdministrativeAvailability,
+    reason: &str,
+) -> Result<(), AgentError> {
+    match availability {
+        AdministrativeAvailability::Unavailable if reason.trim().is_empty() => {
+            Err(AgentError::new(
+                "administrative_unavailability_reason_required",
+                "Indiquez pourquoi l'exemplaire est administrativement indisponible.",
+            ))
+        }
+        AdministrativeAvailability::Available if !reason.trim().is_empty() => Err(AgentError::new(
+            "unexpected_administrative_unavailability_reason",
+            "Supprimez le motif d'indisponibilité avant de rendre l'exemplaire disponible.",
+        )),
+        _ => Ok(()),
     }
 }
 
@@ -1503,7 +1608,7 @@ fn transition_error(error: emc_locus_core::FleetTransitionError) -> AgentError {
     let code = match error.code.as_str() {
         "service_state_unchanged" => "service_state_unchanged",
         "retired_asset_service_state_is_terminal" => "retired_asset_service_state_is_terminal",
-        "availability_state_unchanged" => "availability_state_unchanged",
+        "administrative_availability_unchanged" => "administrative_availability_unchanged",
         "unserviceable_asset_cannot_be_available" => "unserviceable_asset_cannot_be_available",
         _ => "invalid_fleet_transition",
     };
@@ -1769,12 +1874,13 @@ mod tests {
         )
         .unwrap();
         let evidence_before_invalid_transition = fleet_evidence_counts(&storage_root);
-        let invalid_transition = transition_physical_asset_availability(
+        let invalid_transition = transition_physical_asset_administrative_availability(
             &storage_root,
-            TransitionPhysicalAssetAvailabilityInput {
+            TransitionPhysicalAssetAdministrativeAvailabilityInput {
                 asset_id: asset_one_id.clone(),
                 expected_revision: 3,
-                availability_state: "available".to_owned(),
+                administrative_availability: "available".to_owned(),
+                administrative_unavailability_reason: String::new(),
                 context: context("op-asset-1-invalid-availability"),
             },
         )
@@ -2001,6 +2107,129 @@ mod tests {
         assert_eq!(reconciled["asset"]["model_link_state"], "resolved");
         assert_eq!(reconciled["asset"]["inventory_code"], "LEGACY-EDIT-RENAMED");
         assert_eq!(reconciled["asset"]["laboratory_location_id"], location_id);
+
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
+    #[test]
+    fn administrative_availability_and_operational_usage_remain_separate() {
+        let storage_root = initialized_storage("fleet-derived-usage");
+        seed_approved_model(&storage_root, 1, "Scope usage", 'a');
+        let asset_id = generated_id("ASSET", "op-usage-asset", "INV-USAGE-001");
+        create_physical_asset(
+            &storage_root,
+            asset_input("INV-USAGE-001", None, None, "op-usage-asset"),
+        )
+        .unwrap();
+
+        let initial = asset_at(&storage_root, &asset_id, "2026-07-27T08:00:00Z");
+        assert_eq!(initial["administrative_availability"], "available");
+        assert_eq!(initial["operational_usage"]["state"], "available");
+        assert!(initial["operational_usage"]["evidence"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+
+        seed_station_setup_reference(&storage_root, &asset_id);
+        let assigned = asset_at(&storage_root, &asset_id, "2026-07-27T08:00:00Z");
+        assert_eq!(assigned["operational_usage"]["state"], "assigned_to_setup");
+        assert_eq!(
+            assigned["operational_usage"]["evidence"][0]["blocks_selection"],
+            false
+        );
+
+        seed_planned_test_reservation(&storage_root, &asset_id);
+        let reserved = asset_at(&storage_root, &asset_id, "2026-07-27T10:00:00Z");
+        assert_eq!(reserved["operational_usage"]["state"], "reserved");
+        assert!(reserved["operational_usage"]["evidence"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["source_kind"] == "planned_test_reservation"
+                && item["source_identifier"] == "SCHED-USAGE-001"));
+
+        seed_active_measurement_run(&storage_root, &asset_id);
+        let in_test = asset_at(&storage_root, &asset_id, "2026-07-27T10:00:00Z");
+        assert_eq!(in_test["operational_usage"]["state"], "in_test");
+        assert!(in_test["operational_usage"]["evidence"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["source_kind"] == "active_test"));
+
+        let evidence_before_rejections = fleet_evidence_counts(&storage_root);
+        for requested in ["reserved", "assigned_to_setup", "in_test"] {
+            let invented = transition_physical_asset_administrative_availability(
+                &storage_root,
+                TransitionPhysicalAssetAdministrativeAvailabilityInput {
+                    asset_id: asset_id.clone(),
+                    expected_revision: 1,
+                    administrative_availability: requested.to_owned(),
+                    administrative_unavailability_reason: String::new(),
+                    context: context(&format!("op-invented-{requested}")),
+                },
+            )
+            .unwrap_err();
+            assert_eq!(invented.code, "operational_usage_cannot_be_set_manually");
+        }
+        let missing_reason = transition_physical_asset_administrative_availability(
+            &storage_root,
+            TransitionPhysicalAssetAdministrativeAvailabilityInput {
+                asset_id: asset_id.clone(),
+                expected_revision: 1,
+                administrative_availability: "unavailable".to_owned(),
+                administrative_unavailability_reason: String::new(),
+                context: context("op-unavailable-without-reason"),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            missing_reason.code,
+            "administrative_unavailability_reason_required"
+        );
+        assert_eq!(
+            fleet_evidence_counts(&storage_root),
+            evidence_before_rejections
+        );
+
+        transition_physical_asset_administrative_availability(
+            &storage_root,
+            TransitionPhysicalAssetAdministrativeAvailabilityInput {
+                asset_id: asset_id.clone(),
+                expected_revision: 1,
+                administrative_availability: "unavailable".to_owned(),
+                administrative_unavailability_reason: "Prêt à un autre laboratoire".to_owned(),
+                context: context("op-administrative-unavailable"),
+            },
+        )
+        .unwrap();
+        let unavailable = asset_at(&storage_root, &asset_id, "2026-07-27T10:00:00Z");
+        assert_eq!(unavailable["administrative_availability"], "unavailable");
+        assert_eq!(unavailable["operational_usage"]["state"], "unavailable");
+        assert_eq!(
+            unavailable["operational_usage"]["evidence"][0]["reason"],
+            "Prêt à un autre laboratoire"
+        );
+
+        transition_physical_asset_administrative_availability(
+            &storage_root,
+            TransitionPhysicalAssetAdministrativeAvailabilityInput {
+                asset_id: asset_id.clone(),
+                expected_revision: 2,
+                administrative_availability: "available".to_owned(),
+                administrative_unavailability_reason: String::new(),
+                context: context("op-administrative-available"),
+            },
+        )
+        .unwrap();
+        complete_measurement_run(&storage_root);
+        let after_interval = asset_at(&storage_root, &asset_id, "2026-07-27T12:00:00Z");
+        assert_eq!(after_interval["administrative_availability"], "available");
+        assert_eq!(
+            after_interval["operational_usage"]["state"],
+            "assigned_to_setup"
+        );
+        assert_eq!(after_interval["revision"], 3);
 
         let _ = std::fs::remove_dir_all(storage_root);
     }
@@ -2237,6 +2466,169 @@ mod tests {
             .unwrap();
     }
 
+    fn asset_at(storage_root: &Path, asset_id: &str, assessed_at: &str) -> Value {
+        let response =
+            json_value(&list_physical_assets_json_at(storage_root, Some(assessed_at)).unwrap());
+        response["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|asset| asset["asset_id"] == asset_id)
+            .unwrap()
+            .clone()
+    }
+
+    fn seed_station_setup_reference(storage_root: &Path, asset_id: &str) {
+        let mut connection = Connection::open(storage_root.join("station.sqlite")).unwrap();
+        let transaction = connection.transaction().unwrap();
+        transaction
+            .execute(
+                "INSERT INTO station_setup_identities (
+                    setup_id, label, current_ready_revision_id, created_by, created_at, updated_at
+                 ) VALUES ('SETUP-USAGE-001', 'Montage émission conduite', NULL, 'fixture',
+                    '2026-07-27T07:00:00Z', '2026-07-27T07:00:00Z')",
+                [],
+            )
+            .unwrap();
+        let definition = render_json(&json!({
+            "asset_bindings": [{ "asset_id": asset_id }]
+        }));
+        transaction
+            .execute(
+                "INSERT INTO station_setup_revisions (
+                    revision_id, setup_id, revision_number, parent_revision_id, status,
+                    definition_schema_version, definition_json, definition_checksum,
+                    readiness_json, created_by, created_at, updated_at, ready_at
+                 ) VALUES ('SETUP-USAGE-001-REV-0001', 'SETUP-USAGE-001', 1, NULL, 'ready',
+                    'fixture.v1', ?1,
+                    'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    '{}', 'fixture', '2026-07-27T07:00:00Z', '2026-07-27T07:00:00Z',
+                    '2026-07-27T07:00:00Z')",
+                params![definition],
+            )
+            .unwrap();
+        transaction
+            .execute(
+                "UPDATE station_setup_identities SET current_ready_revision_id =
+                    'SETUP-USAGE-001-REV-0001' WHERE setup_id = 'SETUP-USAGE-001'",
+                [],
+            )
+            .unwrap();
+        transaction.commit().unwrap();
+    }
+
+    fn seed_planned_test_reservation(storage_root: &Path, asset_id: &str) {
+        let mut connection = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        let transaction = connection.transaction().unwrap();
+        transaction
+            .execute(
+                "INSERT INTO projects (code, customer_name, stage, execution_mode, created_at)
+                 VALUES ('PRJ-USAGE', 'Client usage', 'test_planning', 'non_accredited',
+                    '2026-07-27T07:00:00Z')",
+                [],
+            )
+            .unwrap();
+        transaction
+            .execute(
+                "INSERT INTO service_schedule_items (
+                    item_code, project_code, title, planned_start_at, planned_end_at,
+                    assigned_operator, location, equipment_under_test, status, notes,
+                    created_at, updated_at, revision, created_by, updated_by
+                 ) VALUES ('SCHED-USAGE-001', 'PRJ-USAGE', 'Essai réservé',
+                    '2026-07-27T09:00:00Z', '2026-07-27T11:00:00Z', 'operator',
+                    'Salle CEM', 'Objet client', 'confirmed', '',
+                    '2026-07-27T07:00:00Z', '2026-07-27T07:00:00Z', 1, 'fixture', 'fixture')",
+                [],
+            )
+            .unwrap();
+        transaction
+            .execute(
+                "INSERT INTO planned_test_preparation_identities (
+                    project_code, schedule_item_code, current_revision_id,
+                    created_by, created_at, updated_at
+                 ) VALUES ('PRJ-USAGE', 'SCHED-USAGE-001', NULL, 'fixture',
+                    '2026-07-27T07:00:00Z', '2026-07-27T07:00:00Z')",
+                [],
+            )
+            .unwrap();
+        let definition = render_json(&json!({
+            "station_setup": { "assets": [{ "asset_id": asset_id }] }
+        }));
+        transaction
+            .execute(
+                "INSERT INTO planned_test_preparation_revisions (
+                    revision_id, project_code, schedule_item_code, revision_number,
+                    parent_revision_id, schedule_revision, method_template_id,
+                    method_revision_id, method_definition_checksum, station_setup_id,
+                    station_setup_revision_id, station_setup_definition_checksum,
+                    verdict_state, definition_schema_version, definition_json,
+                    definition_checksum, operation_id, request_checksum, actor, reason,
+                    device_id, correlation_id, created_at
+                 ) VALUES ('PREP-USAGE-001-REV-0001', 'PRJ-USAGE', 'SCHED-USAGE-001', 1,
+                    NULL, 1, 'METHOD-USAGE', 'METHOD-USAGE-REV-1',
+                    'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    'SETUP-USAGE-001', 'SETUP-USAGE-001-REV-0001',
+                    'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                    'ready', 'fixture.v1', ?1,
+                    'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+                    'op-prep-usage',
+                    'sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+                    'fixture', 'fixture', 'fixture', 'fixture', '2026-07-27T07:00:00Z')",
+                params![definition],
+            )
+            .unwrap();
+        transaction
+            .execute(
+                "UPDATE planned_test_preparation_identities SET current_revision_id =
+                    'PREP-USAGE-001-REV-0001' WHERE schedule_item_code = 'SCHED-USAGE-001'",
+                [],
+            )
+            .unwrap();
+        transaction.commit().unwrap();
+    }
+
+    fn seed_active_measurement_run(storage_root: &Path, asset_id: &str) {
+        let connection = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        connection
+            .execute(
+                "INSERT INTO campaigns (
+                    project_code, name, standard_reference, equipment_under_test, started_at
+                 ) VALUES ('PRJ-USAGE', 'Campagne CEM', 'Méthode interne', 'Objet client',
+                    '2026-07-27T09:30:00Z')",
+                [],
+            )
+            .unwrap();
+        let campaign_id = connection.last_insert_rowid();
+        connection
+            .execute(
+                "INSERT INTO measurement_runs (
+                    campaign_id, operator, method_reference, software_version, started_at
+                 ) VALUES (?1, 'operator', 'Méthode interne', '0.22.0-dev',
+                    '2026-07-27T09:30:00Z')",
+                params![campaign_id],
+            )
+            .unwrap();
+        let run_id = connection.last_insert_rowid();
+        connection
+            .execute(
+                "INSERT INTO measurement_run_instruments (
+                    measurement_run_id, asset_id, role, readiness_status
+                 ) VALUES (?1, ?2, 'Mesure', 'ready')",
+                params![run_id, asset_id],
+            )
+            .unwrap();
+    }
+
+    fn complete_measurement_run(storage_root: &Path) {
+        let connection = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        connection
+            .execute(
+                "UPDATE measurement_runs SET completed_at = '2026-07-27T10:30:00Z'",
+                [],
+            )
+            .unwrap();
+    }
+
     fn asset_input(
         inventory_code: &str,
         serial_number: Option<&str>,
@@ -2251,7 +2643,8 @@ mod tests {
             laboratory_location_id: location_id.map(str::to_owned),
             ownership_source: "laboratory_owned".to_owned(),
             service_state: "usable".to_owned(),
-            availability_state: "available".to_owned(),
+            administrative_availability: "available".to_owned(),
+            administrative_unavailability_reason: String::new(),
             service_state_reason: String::new(),
             notes: String::new(),
             calibration_requirement: "not_required".to_owned(),

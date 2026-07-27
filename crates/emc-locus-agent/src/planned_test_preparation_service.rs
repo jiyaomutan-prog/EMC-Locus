@@ -875,7 +875,7 @@ fn station_snapshot(
                 .unwrap_or_else(|| "unavailable".to_owned()),
             availability_state: asset
                 .as_ref()
-                .map(|asset| asset.availability_state.clone())
+                .map(|asset| asset.administrative_availability.clone())
                 .unwrap_or_else(|| "unavailable".to_owned()),
             metrology_status: preparation_metrology_status(
                 metrology.as_ref(),

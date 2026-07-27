@@ -1894,17 +1894,20 @@ mod tests {
     fn insert_instrument_with_calibration(connection: &rusqlite::Connection) {
         connection
             .execute(
-                "INSERT INTO equipment_db.physical_assets (
+                r#"INSERT INTO equipment_db.physical_assets (
                     asset_id, inventory_code, serial_number, part_number,
                     manufacturer_snapshot, model_name_snapshot, category_code_snapshot,
                     category_path_json, ownership_source, service_state, availability_state,
                     service_state_reason, notes, revision, model_link_state,
-                    migrated_from_metrology, created_at, updated_at, migration_evidence_json
+                    migrated_from_metrology, created_at, updated_at, migration_evidence_json,
+                    administrative_availability, administrative_unavailability_reason,
+                    legacy_availability_evidence_json
                  ) VALUES (?1, ?1, '100001', 'FSW44', 'Rohde Schwarz', 'FSW',
                     'spectrum_analyzer', '[\"SpectrumAnalyzer\"]', 'laboratory_owned',
-                    'usable', 'reserved', 'Migrated reservation', '', 1,
+                    'usable', 'available', 'Migrated reservation', '', 1,
                     'migration_review_required', 0, '2026-06-30T00:00:00Z',
-                    '2026-06-30T00:00:00Z', '{}')",
+                    '2026-06-30T00:00:00Z', '{}', 'available', '',
+                    '{"legacy_availability_state":"reserved"}')"#,
                 params!["SA-001"],
             )
             .unwrap();

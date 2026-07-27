@@ -28,7 +28,14 @@ pub enum ServiceState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AvailabilityState {
+pub enum AdministrativeAvailability {
+    Available,
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationalUsageState {
     Available,
     Reserved,
     AssignedToSetup,
@@ -72,7 +79,9 @@ pub struct PhysicalAssetDefinition {
     pub laboratory_location_label: Option<String>,
     pub ownership_source: OwnershipSource,
     pub service_state: ServiceState,
-    pub availability_state: AvailabilityState,
+    pub administrative_availability: AdministrativeAvailability,
+    #[serde(default)]
+    pub administrative_unavailability_reason: String,
     #[serde(default)]
     pub service_state_reason: String,
     #[serde(default)]
@@ -181,13 +190,33 @@ impl PhysicalAssetDefinition {
         if matches!(
             self.service_state,
             ServiceState::InMaintenance | ServiceState::OutOfService | ServiceState::Retired
-        ) && self.availability_state != AvailabilityState::Unavailable
+        ) && self.administrative_availability != AdministrativeAvailability::Unavailable
         {
             push_issue(
                 &mut issues,
                 "service_state_requires_unavailable",
-                "availability_state",
+                "administrative_availability",
                 "Un exemplaire en maintenance, hors service ou retiré doit être indisponible.",
+            );
+        }
+        if self.administrative_availability == AdministrativeAvailability::Unavailable
+            && self.administrative_unavailability_reason.trim().is_empty()
+        {
+            push_issue(
+                &mut issues,
+                "administrative_unavailability_reason_required",
+                "administrative_unavailability_reason",
+                "Une indisponibilité administrative doit être justifiée.",
+            );
+        }
+        if self.administrative_availability == AdministrativeAvailability::Available
+            && !self.administrative_unavailability_reason.trim().is_empty()
+        {
+            push_issue(
+                &mut issues,
+                "unexpected_administrative_unavailability_reason",
+                "administrative_unavailability_reason",
+                "Le motif d'indisponibilité doit être vide lorsque l'exemplaire est disponible.",
             );
         }
         if self.service_state != ServiceState::Usable && self.service_state_reason.trim().is_empty()
@@ -249,29 +278,29 @@ pub fn validate_service_state_transition(
     Ok(())
 }
 
-pub fn validate_availability_transition(
+pub fn validate_administrative_availability_transition(
     service_state: ServiceState,
-    current: AvailabilityState,
-    requested: AvailabilityState,
+    current: AdministrativeAvailability,
+    requested: AdministrativeAvailability,
 ) -> Result<(), FleetTransitionError> {
     if current == requested {
         return Err(transition_error(
-            "availability_state_unchanged",
-            "L'exemplaire possède déjà cette disponibilité.",
-            availability_state_code(current),
-            availability_state_code(requested),
+            "administrative_availability_unchanged",
+            "L'exemplaire possède déjà cette disponibilité administrative.",
+            administrative_availability_code(current),
+            administrative_availability_code(requested),
         ));
     }
     if matches!(
         service_state,
         ServiceState::InMaintenance | ServiceState::OutOfService | ServiceState::Retired
-    ) && requested != AvailabilityState::Unavailable
+    ) && requested != AdministrativeAvailability::Unavailable
     {
         return Err(transition_error(
             "unserviceable_asset_cannot_be_available",
             "Un exemplaire en maintenance, hors service ou retiré ne peut pas être rendu disponible.",
-            availability_state_code(current),
-            availability_state_code(requested),
+            administrative_availability_code(current),
+            administrative_availability_code(requested),
         ));
     }
     Ok(())
@@ -287,13 +316,20 @@ pub fn service_state_code(value: ServiceState) -> &'static str {
     }
 }
 
-pub fn availability_state_code(value: AvailabilityState) -> &'static str {
+pub fn administrative_availability_code(value: AdministrativeAvailability) -> &'static str {
     match value {
-        AvailabilityState::Available => "available",
-        AvailabilityState::Reserved => "reserved",
-        AvailabilityState::AssignedToSetup => "assigned_to_setup",
-        AvailabilityState::InTest => "in_test",
-        AvailabilityState::Unavailable => "unavailable",
+        AdministrativeAvailability::Available => "available",
+        AdministrativeAvailability::Unavailable => "unavailable",
+    }
+}
+
+pub fn operational_usage_state_code(value: OperationalUsageState) -> &'static str {
+    match value {
+        OperationalUsageState::Available => "available",
+        OperationalUsageState::Reserved => "reserved",
+        OperationalUsageState::AssignedToSetup => "assigned_to_setup",
+        OperationalUsageState::InTest => "in_test",
+        OperationalUsageState::Unavailable => "unavailable",
     }
 }
 
@@ -462,7 +498,8 @@ mod tests {
             laboratory_location_label: Some("Poste CEM 1".to_owned()),
             ownership_source: OwnershipSource::LaboratoryOwned,
             service_state: ServiceState::Usable,
-            availability_state: AvailabilityState::Available,
+            administrative_availability: AdministrativeAvailability::Available,
+            administrative_unavailability_reason: String::new(),
             service_state_reason: String::new(),
             notes: String::new(),
         }
@@ -504,10 +541,10 @@ mod tests {
 
     #[test]
     fn out_of_service_asset_cannot_become_available() {
-        let error = validate_availability_transition(
+        let error = validate_administrative_availability_transition(
             ServiceState::OutOfService,
-            AvailabilityState::Unavailable,
-            AvailabilityState::Available,
+            AdministrativeAvailability::Unavailable,
+            AdministrativeAvailability::Available,
         )
         .unwrap_err();
         assert_eq!(error.code, "unserviceable_asset_cannot_be_available");

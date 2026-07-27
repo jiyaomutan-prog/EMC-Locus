@@ -18,6 +18,9 @@ pub(crate) struct PhysicalAssetDto {
     pub(crate) laboratory_location_label: Option<String>,
     pub(crate) ownership_source: String,
     pub(crate) service_state: String,
+    pub(crate) administrative_availability: String,
+    pub(crate) administrative_unavailability_reason: String,
+    pub(crate) operational_usage: OperationalUsageSummaryDto,
     pub(crate) availability_state: String,
     pub(crate) service_state_reason: String,
     pub(crate) notes: String,
@@ -27,6 +30,24 @@ pub(crate) struct PhysicalAssetDto {
     pub(crate) metrology: Option<PhysicalAssetMetrologySummaryDto>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct OperationalUsageEvidenceDto {
+    pub(crate) source_kind: String,
+    pub(crate) source_identifier: String,
+    pub(crate) source_label: String,
+    pub(crate) relevant_start_at: Option<String>,
+    pub(crate) relevant_end_at: Option<String>,
+    pub(crate) reason: String,
+    pub(crate) blocks_selection: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct OperationalUsageSummaryDto {
+    pub(crate) state: String,
+    pub(crate) assessed_at: String,
+    pub(crate) evidence: Vec<OperationalUsageEvidenceDto>,
 }
 
 #[derive(Clone, Debug, Serialize)]
