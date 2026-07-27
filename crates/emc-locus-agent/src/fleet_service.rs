@@ -204,7 +204,17 @@ pub fn list_model_reconciliation_candidates_json(
                 &connection,
                 &identity.equipment_model_id,
                 &revision.revision_id,
-            )?;
+            )
+            .map_err(|error| {
+                AgentError::with_details(
+                    error.code,
+                    error.message,
+                    json!({
+                        "equipment_model_id": identity.equipment_model_id,
+                        "equipment_model_revision_id": revision.revision_id
+                    }),
+                )
+            })?;
             candidates.push(ModelReconciliationCandidateDto {
                 equipment_model_id: model.equipment_model_id,
                 equipment_model_revision_id: model.equipment_model_revision_id,

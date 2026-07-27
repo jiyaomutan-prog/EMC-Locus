@@ -2211,8 +2211,12 @@ fn fleet_operation_context(payload: &Value) -> Result<FleetOperationContext, Age
 }
 
 fn create_physical_asset_input(payload: &Value) -> Result<CreatePhysicalAssetInput, AgentError> {
-    let administrative_availability = optional_string(payload, "administrative_availability")
-        .or_else(|| optional_string(payload, "availability_state"))
+    let explicit_administrative_availability =
+        optional_string(payload, "administrative_availability");
+    let legacy_availability_state = optional_string(payload, "availability_state");
+    let administrative_availability = explicit_administrative_availability
+        .clone()
+        .or_else(|| legacy_availability_state.clone())
         .ok_or_else(|| {
             AgentError::new(
                 "missing_json_field",
@@ -2221,7 +2225,12 @@ fn create_physical_asset_input(payload: &Value) -> Result<CreatePhysicalAssetInp
         })?;
     let administrative_unavailability_reason =
         optional_string(payload, "administrative_unavailability_reason")
-            .or_else(|| optional_string(payload, "service_state_reason"))
+            .or_else(|| {
+                (explicit_administrative_availability.is_none()
+                    && legacy_availability_state.as_deref() == Some("unavailable"))
+                .then(|| optional_string(payload, "service_state_reason"))
+                .flatten()
+            })
             .unwrap_or_default();
     Ok(CreatePhysicalAssetInput {
         inventory_code: required_string(payload, "inventory_code")?,
@@ -3366,6 +3375,7 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_equipment_registry_value"
         | "invalid_manufacturer"
         | "invalid_model_name"
+        | "invalid_physical_asset"
         | "equipment_template_required_field_missing"
         | "equipment_general_category_not_instantiable"
         | "equipment_template_value_invalid"
@@ -3397,6 +3407,7 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_metrology_file"
         | "invalid_metrology_instrument"
         | "invalid_metrology_readiness"
+        | "service_state_reason_required"
         | "invalid_station_setup_request"
         | "invalid_station_setup_definition"
         | "invalid_planned_test_preparation_request"
@@ -3480,6 +3491,49 @@ mod tests {
         assert_eq!(
             optional_query_value("search=R%C3%A9cepteur+EMI", "search").as_deref(),
             Some("Récepteur EMI")
+        );
+    }
+
+    #[test]
+    fn physical_asset_input_keeps_service_and_administrative_reasons_separate() {
+        assert_eq!(status_for_error("invalid_physical_asset"), 400);
+        assert_eq!(status_for_error("service_state_reason_required"), 400);
+        let explicit = create_physical_asset_input(&json!({
+            "inventory_code": "INV-REASON-EXPLICIT",
+            "equipment_model_id": "EQM-REASON",
+            "ownership_source": "laboratory_owned",
+            "service_state": "restricted_use",
+            "service_state_reason": "Utilisation limitée au banc A",
+            "administrative_availability": "available",
+            "calibration_requirement": "not_required",
+            "actor": "api.test",
+            "reason": "vérifier la séparation des motifs",
+            "operation_id": "op-reason-explicit"
+        }))
+        .unwrap();
+        assert_eq!(
+            explicit.service_state_reason,
+            "Utilisation limitée au banc A"
+        );
+        assert!(explicit.administrative_unavailability_reason.is_empty());
+
+        let legacy = create_physical_asset_input(&json!({
+            "inventory_code": "INV-REASON-LEGACY",
+            "equipment_model_id": "EQM-REASON",
+            "ownership_source": "laboratory_owned",
+            "service_state": "out_of_service",
+            "service_state_reason": "Panne confirmée",
+            "availability_state": "unavailable",
+            "calibration_requirement": "not_required",
+            "actor": "api.test",
+            "reason": "vérifier la traduction legacy",
+            "operation_id": "op-reason-legacy"
+        }))
+        .unwrap();
+        assert_eq!(legacy.service_state_reason, "Panne confirmée");
+        assert_eq!(
+            legacy.administrative_unavailability_reason,
+            "Panne confirmée"
         );
     }
 

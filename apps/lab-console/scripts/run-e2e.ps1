@@ -17,6 +17,7 @@ $StorageRoot = Join-Path $RepoRoot $StorageRelative
 $DataRoot = [IO.Path]::GetFullPath((Join-Path $RepoRoot "data"))
 $StdoutLog = Join-Path $env:TEMP "$StorageName.out.log"
 $StderrLog = Join-Path $env:TEMP "$StorageName.err.log"
+$RestartedAgentPidFile = Join-Path $env:TEMP "$StorageName.restarted.pid"
 $Agent = $null
 
 if (-not (Test-Path $Playwright)) {
@@ -78,6 +79,12 @@ try {
     }
 
     $env:LAB_CONSOLE_E2E_BASE_URL = "http://127.0.0.1:$Port"
+    $env:LAB_CONSOLE_E2E_AGENT_PID = [string]$Agent.Id
+    $env:LAB_CONSOLE_E2E_AGENT_EXECUTABLE = $AgentExecutable
+    $env:LAB_CONSOLE_E2E_STORAGE_ROOT = $StorageRoot
+    $env:LAB_CONSOLE_E2E_STORAGE_RELATIVE = $StorageRelative
+    $env:LAB_CONSOLE_E2E_AGENT_BIND = "127.0.0.1:$Port"
+    $env:LAB_CONSOLE_E2E_RESTARTED_AGENT_PID_FILE = $RestartedAgentPidFile
     Push-Location $LabRoot
     try {
         & $NodeCommand $Playwright @PlaywrightArguments
@@ -91,6 +98,15 @@ try {
     if ($Agent -and -not $Agent.HasExited) {
         Stop-Process -Id $Agent.Id -Force
         Wait-Process -Id $Agent.Id -ErrorAction SilentlyContinue
+    }
+
+    if (Test-Path -LiteralPath $RestartedAgentPidFile) {
+        $RestartedAgentPid = Get-Content -LiteralPath $RestartedAgentPidFile -Raw
+        if ($RestartedAgentPid -match '^\d+$') {
+            Stop-Process -Id ([int]$RestartedAgentPid) -Force -ErrorAction SilentlyContinue
+            Wait-Process -Id ([int]$RestartedAgentPid) -ErrorAction SilentlyContinue
+        }
+        Remove-Item -LiteralPath $RestartedAgentPidFile -Force -ErrorAction SilentlyContinue
     }
 
     if (Test-Path -LiteralPath $StorageRoot) {
