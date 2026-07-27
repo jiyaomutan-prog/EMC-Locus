@@ -837,6 +837,12 @@ export function EquipmentWorkspace(props: { initialSpace?: EquipmentSpace; onSpa
 
       {space === "catalog" && loadState === "loading" && <StateBlock title="Chargement" detail="Lecture du catalogue des modèles." />}
       {space === "catalog" && loadState === "error" && <StateBlock title="Catalogue indisponible" detail={modelLoadError ?? "Le catalogue ne peut pas être chargé."} />}
+      {space === "catalog" && loadState === "ready" && driverLoadError && (
+        <StateBlock
+          title="Pilotage temporairement indisponible"
+          detail="Le catalogue reste consultable. Les profils de pilotage pourront être ouverts lorsque le service des drivers sera revenu."
+        />
+      )}
       {space === "drivers" && driverLoadError && <StateBlock title="Pilotage temporairement indisponible" detail={driverLoadError} />}
 
       {space === "admin" && loadState === "ready" && (
@@ -946,34 +952,42 @@ export function EquipmentWorkspace(props: { initialSpace?: EquipmentSpace; onSpa
       )}
 
       {space === "assets" && (
-        <FleetWorkspace
-          models={models}
-          categories={categories}
-          modelLoadError={modelLoadError}
-          initialModelId={assetCreationModelId}
-          initialViewModelId={fleetViewModelId}
-          onInitialModelHandled={() => setAssetCreationModelId(null)}
-          onInitialViewModelHandled={() => setFleetViewModelId(null)}
-          onOpenPinnedModel={(modelId, revisionId) => {
-            void (async () => {
-              setOperationError(null);
-              try {
-                const [detail, exactRevision] = await Promise.all([
-                  equipmentApi.getModel(modelId),
-                  equipmentApi.getModelRevision(modelId, revisionId)
-                ]);
-                setSpace("catalog");
-                await openModel(detail.equipment_model, exactRevision.revision);
-              } catch (error) {
-                setOperationError(errorMessage(error));
-              }
-            })();
-          }}
-          onOpenMetrology={(assetId) => {
-            setMetrologyAssetId(assetId);
-            setSpace("metrology");
-          }}
-        />
+        <>
+          {metrologyLoadError && (
+            <StateBlock
+              title="Métrologie temporairement indisponible"
+              detail="L’identité et la disponibilité des exemplaires restent consultables. Les étalonnages et caractérisations détaillés seront accessibles au retour du service métrologique."
+            />
+          )}
+          <FleetWorkspace
+            models={models}
+            categories={categories}
+            modelLoadError={modelLoadError}
+            initialModelId={assetCreationModelId}
+            initialViewModelId={fleetViewModelId}
+            onInitialModelHandled={() => setAssetCreationModelId(null)}
+            onInitialViewModelHandled={() => setFleetViewModelId(null)}
+            onOpenPinnedModel={(modelId, revisionId) => {
+              void (async () => {
+                setOperationError(null);
+                try {
+                  const [detail, exactRevision] = await Promise.all([
+                    equipmentApi.getModel(modelId),
+                    equipmentApi.getModelRevision(modelId, revisionId)
+                  ]);
+                  setSpace("catalog");
+                  await openModel(detail.equipment_model, exactRevision.revision);
+                } catch (error) {
+                  setOperationError(errorMessage(error));
+                }
+              })();
+            }}
+            onOpenMetrology={(assetId) => {
+              setMetrologyAssetId(assetId);
+              setSpace("metrology");
+            }}
+          />
+        </>
       )}
 
       {space === "metrology" && (

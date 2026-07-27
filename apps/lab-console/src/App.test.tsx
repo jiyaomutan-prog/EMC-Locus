@@ -719,6 +719,39 @@ describe("LAB CONSOLE", () => {
     expect(await screen.findByText("Sans numéro de série")).toBeInTheDocument();
   });
 
+  test("keeps catalogue and fleet identity visible when secondary services fail", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/equipment/registries") return jsonResponse(equipmentRegistriesFixture());
+      if (path === "/api/v1/equipment/classification-presets") return jsonResponse({ presets: [] });
+      if (path === "/api/v1/equipment-models" || path.startsWith("/api/v1/equipment-models?")) {
+        return jsonResponse({ equipment_models: [equipmentModelFixture()] });
+      }
+      if (path === "/api/v1/fleet/assets") return jsonResponse({ assets: [physicalAssetFixture()] });
+      if (path === "/api/v1/driver-profiles") {
+        return jsonResponse({ error: { code: "drivers_unavailable", message: "service de pilotage indisponible" } }, 503);
+      }
+      if (path === "/api/v1/metrology/instruments") {
+        return jsonResponse({ error: { code: "metrology_unavailable", message: "service métrologique indisponible" } }, 503);
+      }
+      if (path === "/api/v1/equipment/communication-providers") return jsonResponse({ providers: [] });
+      return mockBaseApiResponse(path, init);
+    });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Catalogue des modèles" }));
+    expect(await screen.findByText("Pilotage temporairement indisponible")).toBeInTheDocument();
+    expect(screen.getByRole("treeitem", { name: /NRP6AN/ })).toBeInTheDocument();
+    expect(screen.getByText(/Le catalogue reste consultable\./)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Parc matériel" }));
+    expect(await screen.findByText("Métrologie temporairement indisponible")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "INV-0042" })).toBeInTheDocument();
+    expect(screen.getByText(/L’identité et la disponibilité des exemplaires restent consultables\./)).toBeInTheDocument();
+  });
+
   test("renders the fleet hierarchy and opens the exact pinned model revision", async () => {
     const first = physicalAssetFixture();
     const second = physicalAssetFixture({
