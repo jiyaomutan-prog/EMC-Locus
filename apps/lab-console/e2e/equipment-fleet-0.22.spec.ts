@@ -89,6 +89,8 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     })).asset_id;
     noLocationAssetId = (await createFleetAsset(request, {
       inventory_code: noLocationInventoryCode,
+      equipment_model_id: "EQM-PRESET-TEST-SOFTWARE",
+      part_number: "LOCUS-SW-DEMO",
       ownership_source: "software_license",
       notes: "Licence de traitement en attente d'affectation.",
       operation_id: "op-0220-create-no-location",
@@ -241,6 +243,7 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     await dialog.getByRole("button", { name: "Enregistrer l'exemplaire" }).click({ force: true });
     await expect(dialog.getByLabel(/Motif de l'état de service/)).toBeFocused();
     await expect(dialog.getByText(/renseignez le motif de l'état de service/i)).toBeVisible();
+    await capture(page, "conditional-service-state-reason-1280x720.png");
   });
 
   test("renames, moves and archives locations without losing stable identity", async ({ request }) => {
@@ -317,6 +320,12 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     expect(atArchivedLocation.laboratory_location_label).toBe("Zone parc 0.22 A renommée");
     expect(atArchivedLocation.laboratory_location_status).toBe("archived");
 
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/lab/");
+    await page.getByRole("button", { name: "Parc matériel" }).click();
+    await openFleetAsset(page, archivedInventoryCode);
+    await capture(page, "archived-current-location-1440x900.png");
+
     const identified = await request.put(
       `/api/v1/fleet/assets/${archivedLocationAssetId}/identification`,
       {
@@ -383,6 +392,7 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     await expect(page.getByText("Modification du code inventaire et de l’identification")).toBeVisible();
     await expect(page.getByText("Déplacement de l’exemplaire").last()).toBeVisible();
     await expect(page.getByText(/Zone parc 0.22 A renommée.*Zone parc 0.22 B/)).toBeVisible();
+    await capture(page, "real-asset-history-1440x900.png");
   });
 
   test("reconciles a migrated asset to one exact immutable model revision", async ({ page, request }) => {
@@ -398,12 +408,15 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     const candidatesResponse = await request.get("/api/v1/fleet/model-reconciliation-candidates");
     expect(candidatesResponse.ok(), await candidatesResponse.text()).toBeTruthy();
 
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/lab/");
     await page.getByRole("button", { name: "Parc matériel" }).click();
     await page.getByLabel("Rechercher dans le parc").fill(unresolvedAssetId);
     await page.getByRole("treeitem", { name: new RegExp(unresolvedAssetId) }).click();
     await expect(page.getByText("Modèle constructeur à rapprocher")).toBeVisible();
     await expect(page.getByText(/ancien registre métrologique/)).toBeVisible();
+    await page.getByText("Modèle constructeur à rapprocher").scrollIntoViewIfNeeded();
+    await capture(page, "migrated-unresolved-asset-1440x900.png");
     await page.getByRole("button", { name: "Historique" }).click();
     await expect(page.getByText("Import depuis l’ancien registre métrologique")).toBeVisible();
 
@@ -412,12 +425,16 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     const dialog = page.getByRole("dialog", { name: "Rapprocher avec un modèle constructeur" });
     await expect(dialog.getByLabel(/Modèle et version/)).toBeEnabled();
     await dialog.getByLabel(/Modèle et version/).selectOption(modelRevisionId);
+    expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await capture(page, "model-reconciliation-workflow-1440x900.png");
     const reconciliationResponse = page.waitForResponse((response) =>
       response.url().endsWith(`/api/v1/fleet/assets/${unresolvedAssetId}/transitions/reconcile-model`)
       && response.request().method() === "POST"
     );
     await dialog.getByRole("button", { name: "Rapprocher cette version" }).click();
     expect((await reconciliationResponse).ok()).toBeTruthy();
+    await expect(page.getByText("Modèle constructeur à rapprocher")).toHaveCount(0);
+    await capture(page, "reconciled-asset-1440x900.png");
 
     const reconciled = await getAsset(request, unresolvedAssetId);
     expect(reconciled.model_link_state).toBe("resolved");
@@ -495,18 +512,23 @@ test.describe.serial("0.22.0 equipment fleet", () => {
       "nonconforming"
     ]);
 
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/lab/");
     await page.getByRole("button", { name: "Parc matériel" }).click();
     await openFleetAsset(page, requiredCalibrationInventoryCode);
     await expect(page.getByText(/Étalonnage valide jusqu’au/).first()).toBeVisible();
+    await capture(page, "valid-metrology-status-1440x900.png");
     await openFleetAsset(page, expiredCalibrationInventoryCode);
     await expect(page.getByText(/Étalonnage expiré depuis le/).first()).toBeVisible();
     await expect(page.getByText(/Étalonnage valide jusqu’au/)).toHaveCount(0);
+    await capture(page, "expired-metrology-status-1440x900.png");
     await openFleetAsset(page, nonconformingInventoryCode);
     await expect(page.getByText("Dernier étalonnage non conforme").first()).toBeVisible();
+    await capture(page, "nonconforming-metrology-status-1440x900.png");
   });
 
   test("offers physical assets in station setup and planned-test preparation", async ({ page, request }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/lab/");
     await page.getByRole("button", { name: "Montages de mesure" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Montages de mesure" })).toBeVisible();
@@ -521,6 +543,11 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     await expect(assetSelector).toBeVisible();
     await expect(assetSelector.locator("option", { hasText: inventoryCode })).toHaveCount(1);
     await expect(assetSelector.locator("option", { hasText: modelId })).toHaveCount(0);
+    await capture(page, "station-selector-eligible-assets-1440x900.png");
+    const unavailableAssets = page.locator("details.unavailableAssetExplanations");
+    await expect(unavailableAssets).toBeVisible();
+    await unavailableAssets.locator("summary").click();
+    await capture(page, "station-selector-explained-ineligible-assets-1440x900.png");
 
     const schedule = await request.get("/api/v1/projects/CEM-DEMO-PREP-001/schedule-items");
     expect(schedule.ok(), await schedule.text()).toBeTruthy();
@@ -535,6 +562,7 @@ test.describe.serial("0.22.0 equipment fleet", () => {
   });
 
   test("keeps primary identity and work context visible during secondary failures", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.route("**/api/v1/metrology/instruments", async (route) => {
       await route.fulfill({
         status: 503,
@@ -582,6 +610,7 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     await expect(page.getByRole("heading", { name: /NRP6AN/ })).toBeVisible();
     await expect(page.getByText("Historique des versions indisponible")).toBeVisible();
     await expect(page.getByText("Historique des modifications indisponible")).toBeVisible();
+    await capture(page, "model-audit-failure-retains-detail-1440x900.png");
 
     await page.unroute(`**/api/v1/equipment-models/${modelId}/revisions`);
     await page.unroute(`**/api/v1/equipment-models/${modelId}/audit-events`);
@@ -609,6 +638,7 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     await capture(page, "hierarchical-model-catalogue-1440x900.png");
     await page.setViewportSize({ width: 1280, height: 720 });
     await capture(page, "hierarchical-model-catalogue-1280x720.png");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.getByRole("button", { name: "Parc matériel" }).click();
@@ -618,6 +648,8 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     await capture(page, "fleet-grouped-by-location-1440x900.png");
     await page.getByRole("button", { name: "Par état de service" }).click();
     await capture(page, "fleet-grouped-by-service-state-1440x900.png");
+    await page.getByRole("button", { name: "Par échéance métrologique" }).click();
+    await capture(page, "fleet-grouped-by-metrology-status-1440x900.png");
 
     await page.getByLabel("Rechercher dans le parc").fill(inventoryCode);
     await page.getByRole("treeitem", { name: new RegExp(inventoryCode) }).click();
@@ -632,11 +664,17 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     await page.getByRole("button", { name: "Créer un exemplaire dans le parc" }).click();
     await page.setViewportSize({ width: 1280, height: 720 });
     await capture(page, "create-physical-asset-from-model-1280x720.png");
+    await page.getByText(/Pour enregistrer :/).scrollIntoViewIfNeeded();
     await capture(page, "disabled-action-explanation-1280x720.png");
     await page.getByRole("button", { name: "Fermer" }).click();
     await page.getByLabel("Rechercher dans le parc").fill(inventoryCode);
     await page.getByRole("treeitem", { name: new RegExp(inventoryCode) }).click();
     await capture(page, "physical-asset-without-serial-1280x720.png");
+    await page.getByLabel("Rechercher dans le parc").fill(noLocationInventoryCode);
+    await page.getByRole("treeitem", { name: new RegExp(noLocationInventoryCode) }).click();
+    await capture(page, "physical-asset-without-location-1280x720.png");
+    await expect(page.getByRole("button", { name: "Détails techniques" })).toBeVisible();
+    expect(await page.locator(".assetDetail").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.getByRole("button", { name: "Lieux du laboratoire" }).click();
@@ -770,7 +808,7 @@ function fleetAssetPayload(input: FleetAssetOverrides) {
     inventory_code: input.inventory_code,
     serial_number: input.serial_number,
     part_number: input.part_number ?? "NRP6AN",
-    equipment_model_id: modelId,
+    equipment_model_id: input.equipment_model_id ?? modelId,
     laboratory_location_id: input.laboratory_location_id,
     ownership_source: input.ownership_source ?? "laboratory_owned",
     service_state: input.service_state ?? "usable",
@@ -1182,6 +1220,7 @@ interface FleetAssetOverrides {
   reason: string;
   serial_number?: string;
   part_number?: string;
+  equipment_model_id?: string;
   laboratory_location_id?: string;
   ownership_source?: string;
   service_state?: string;

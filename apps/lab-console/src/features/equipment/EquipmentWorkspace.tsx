@@ -35,6 +35,7 @@ import {
   type MeasurementEngineeringConfig,
   type OperationContext
 } from "../../api";
+import { operatorCategoryPath, operatorModelName, operatorModelVariant } from "../../operatorEquipmentLabels";
 import type {
   CommunicationProviderStatus,
   CorrectionRequirementDefinition,
@@ -1982,7 +1983,7 @@ function ModelCatalog(props: {
         <h2>Familles et modèles</h2>
         <span>{props.models.length}</span>
       </div>
-      {demoCount > 0 && <div className="demoBanner">Donnees de demonstration visibles ({props.demoMode})</div>}
+      {demoCount > 0 && <div className="demoBanner">{props.demoMode === "only" ? "Affichage limité aux données de démonstration" : "Données de démonstration incluses"}</div>}
       {props.models.length === 0 && (
         <div className="compactEmpty">
           <strong>Aucun modèle trouvé</strong>
@@ -2018,7 +2019,10 @@ function buildModelHierarchy(models: EquipmentModelAggregate[], categories: Equi
       ?? model.current_approved_revision?.definition.template_snapshot?.category_path
       ?? [];
     const fallbackPath = (categoryPathLabel(categories, model.identity.category_code) || humanLabel(model.identity.category_code)).split(" > ");
-    const segments = (snapshotPath.length > 0 ? snapshotPath : fallbackPath).filter((segment) => segment && segment !== "Général");
+    const segments = operatorCategoryPath(
+      model.identity.category_code,
+      snapshotPath.length > 0 ? snapshotPath : fallbackPath
+    ).filter((segment) => segment && segment !== "Général");
     let siblings = roots;
     let branch: MutableBranch | null = null;
     const path: string[] = [];
@@ -2068,7 +2072,7 @@ function renderModelCategoryBranch(
             const isDemo = model.identity.is_demo || revision?.definition.is_demo;
             const archived = revision?.status === "superseded";
             return <button key={model.identity.equipment_model_id} type="button" role="treeitem" className={`catalogModelNode ${selected?.identity.equipment_model_id === model.identity.equipment_model_id ? "active" : ""} ${archived ? "archived" : ""}`} onClick={() => onOpen(model)}>
-              <span><strong>{model.identity.model_name}</strong>{model.identity.variant ? ` · ${model.identity.variant}` : ""}</span>
+              <span><strong>{operatorModelName(model.identity.category_code, model.identity.model_name, Boolean(isDemo))}</strong>{model.identity.variant ? ` · ${operatorModelVariant(model.identity.variant, Boolean(isDemo))}` : ""}</span>
               <small>{branch.path.join(" > ")}</small>
               <span className="listItemMeta"><span className={`status ${revision?.status ?? ""}`}>{humanStatus(revision?.status)}</span>{isDemo && <span className="demoTag">Démonstration</span>}</span>
             </button>;

@@ -10,6 +10,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fleetApi, stationSetupApi, type OperationContext } from "../../api";
 import { metrologyStatusLabel } from "../../metrologyStatus";
+import { operatorCategoryPath, operatorModelName, operatorModelVariant } from "../../operatorEquipmentLabels";
 import type {
   ExecutablePhysicalAssetOption,
   LaboratoryLocation,
@@ -367,14 +368,16 @@ function assetOptionGroups(options: ExecutablePhysicalAssetOption[]) {
   const groups = new Map<string, PhysicalAsset[]>();
   for (const { asset, eligible } of options) {
     if (!eligible) continue;
-    const key = `${categoryPath(asset)} · ${asset.manufacturer} ${asset.model_name}${asset.variant ? ` ${asset.variant}` : ""}`;
+    const demo = asset.manufacturer === "Demo";
+    const variant = operatorModelVariant(asset.variant, demo);
+    const key = `${categoryPath(asset)} · ${asset.manufacturer} ${operatorModelName(asset.category_code, asset.model_name, demo)}${variant ? ` ${variant}` : ""}`;
     groups.set(key, [...(groups.get(key) ?? []), asset]);
   }
   const eligibleGroups = Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, "fr")).map(([label, rows]) =>
     <optgroup key={label} label={label}>{rows.map((asset) => <option key={asset.asset_id} value={asset.asset_id}>{assetOperatorLabel(asset)}</option>)}</optgroup>
   );
   const unavailable = options.filter((option) => !option.eligible);
-  return <>{eligibleGroups}{unavailable.length > 0 && <optgroup label="Matériels non disponibles">{unavailable.map((option) => <option key={option.asset.asset_id} value={option.asset.asset_id} disabled>{categoryPath(option.asset)} · {option.asset.manufacturer} {option.asset.model_name} · {option.asset.inventory_code} · {option.blocking_reasons[0]?.message ?? "Non disponible"}</option>)}</optgroup>}</>;
+  return <>{eligibleGroups}{unavailable.length > 0 && <optgroup label="Matériels non disponibles">{unavailable.map((option) => <option key={option.asset.asset_id} value={option.asset.asset_id} disabled>{categoryPath(option.asset)} · {option.asset.manufacturer} {operatorModelName(option.asset.category_code, option.asset.model_name, option.asset.manufacturer === "Demo")} · {option.asset.inventory_code} · {option.blocking_reasons[0]?.message ?? "Non disponible"}</option>)}</optgroup>}</>;
 }
 
 function assetOperatorLabel(asset: PhysicalAsset) {
@@ -382,7 +385,7 @@ function assetOperatorLabel(asset: PhysicalAsset) {
 }
 
 function categoryPath(asset: PhysicalAsset) {
-  return asset.category_path.length > 0 ? asset.category_path.join(" > ") : asset.category_code;
+  return operatorCategoryPath(asset.category_code, asset.category_path).join(" > ");
 }
 
 function serviceLabel(value: PhysicalAsset["service_state"]) {
@@ -407,7 +410,7 @@ function SelectionReasons(props: { title: string; reasons: ExecutablePhysicalAss
 
 function UnavailableAssetExplanations(props: { options: ExecutablePhysicalAssetOption[] }) {
   const visible = props.options.slice(0, 20);
-  return <details className="unavailableAssetExplanations"><summary>Matériels non disponibles ({props.options.length})</summary><div>{visible.map((option) => <article key={option.asset.asset_id}><strong>{option.asset.inventory_code} · {option.asset.manufacturer} {option.asset.model_name}</strong>{option.blocking_reasons.map((reason) => <p key={reason.code}>{reason.message} <span>{reason.next_action}</span></p>)}</article>)}</div>{props.options.length > visible.length && <p>{props.options.length - visible.length} autre(s) exemplaire(s) restent visibles dans la liste de sélection.</p>}</details>;
+  return <details className="unavailableAssetExplanations"><summary>Matériels non disponibles ({props.options.length})</summary><div>{visible.map((option) => <article key={option.asset.asset_id}><strong>{option.asset.inventory_code} · {option.asset.manufacturer} {operatorModelName(option.asset.category_code, option.asset.model_name, option.asset.manufacturer === "Demo")}</strong>{option.blocking_reasons.map((reason) => <p key={reason.code}>{reason.message} <span>{reason.next_action}</span></p>)}</article>)}</div>{props.options.length > visible.length && <p>{props.options.length - visible.length} autre(s) exemplaire(s) restent visibles dans la liste de sélection.</p>}</details>;
 }
 
 function Required() { return <span className="requiredBadge">Obligatoire</span>; }

@@ -20,6 +20,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, projectApi } from "../../api";
 import { metrologyStatusLabel } from "../../metrologyStatus";
+import { operatorCategoryPath, operatorModelName, operatorRequirementLabel } from "../../operatorEquipmentLabels";
 import type {
   LaboratoryLocationOption,
   LaboratoryScheduleItem,
@@ -1169,7 +1170,7 @@ function PreparationWorkspace(props: {
                     </select>
                     {compatibleAssets.length > 0 && (
                       <small className="compatibilityExplanation">
-                        Exemplaires du parc compatibles avec {slot.required_category || slot.required_capability || "le rôle demandé"}.
+                        Exemplaires du parc compatibles avec {operatorRequirementLabel(slot.required_category || slot.required_capability || "le rôle demandé")}.
                       </small>
                     )}
                     {compatibleAssets.length === 0 && (
@@ -1322,8 +1323,8 @@ function assetOptionLabel(asset: PlannedStationSetupSnapshot["assets"][number]) 
 function plannedAssetOptionGroups(assets: PlannedStationSetupSnapshot["assets"]) {
   const groups = new Map<string, PlannedStationSetupSnapshot["assets"]>();
   for (const asset of assets) {
-    const category = asset.category_path?.length ? asset.category_path.join(" > ") : asset.category_code;
-    const label = `${category} · ${asset.manufacturer} ${asset.model_name}`;
+    const category = operatorCategoryPath(asset.category_code, asset.category_path ?? []).join(" > ");
+    const label = `${category} · ${asset.manufacturer} ${operatorModelName(asset.category_code, asset.model_name, asset.manufacturer === "Demo")}`;
     groups.set(label, [...(groups.get(label) ?? []), asset]);
   }
   return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, "fr")).map(([label, rows]) => (

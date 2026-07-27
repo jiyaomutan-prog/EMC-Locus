@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { fleetApi, type OperationContext } from "../../api";
 import { metrologyStatusGroup, metrologyStatusLabel } from "../../metrologyStatus";
 import type { EquipmentCategory, EquipmentModelAggregate } from "../../models/equipment";
+import { operatorCategoryPath, operatorModelName, operatorModelVariant } from "../../operatorEquipmentLabels";
 import type {
   AdministrativeAvailability,
   CreatePhysicalAssetInput,
@@ -329,7 +330,8 @@ function buildFleetCategoryHierarchy(assets: PhysicalAsset[]): FleetCategoryBran
   }
   const roots = new Map<string, MutableBranch>();
   for (const asset of assets) {
-    const categorySegments = asset.category_path.filter((segment) => segment && segment !== "Général");
+    const categorySegments = operatorCategoryPath(asset.category_code, asset.category_path)
+      .filter((segment) => segment && segment !== "Général");
     const segments = categorySegments.length > 0
       ? categorySegments
       : [asset.category_code || "Sans catégorie"];
@@ -406,7 +408,11 @@ function renderModelGroups(
   onSelect: (assetId: string) => void,
   parentKey: string
 ) {
-  const models = groupBy(assets, (asset) => `${asset.manufacturer} ${asset.model_name}${asset.variant ? ` ${asset.variant}` : ""}`);
+  const models = groupBy(assets, (asset) => {
+    const demo = asset.manufacturer === "Demo";
+    const variant = operatorModelVariant(asset.variant, demo);
+    return `${asset.manufacturer} ${operatorModelName(asset.category_code, asset.model_name, demo)}${variant ? ` ${variant}` : ""}`;
+  });
   return Array.from(models.entries()).sort(([left], [right]) => left.localeCompare(right, "fr")).map(([model, modelAssets]) => {
     const modelKey = `${parentKey}:model:${model}`;
     const open = expanded.has(modelKey) || models.size === 1;
@@ -489,7 +495,7 @@ function AssetDetail(props: {
   return (
     <article className="assetDetail">
       <header className="assetIdentityHeader">
-        <div><p className="eyebrow">Exemplaire du parc</p><h2>{asset.inventory_code}</h2><p>{asset.manufacturer} {asset.model_name}{asset.variant ? ` ${asset.variant}` : ""}</p></div>
+        <div><p className="eyebrow">Exemplaire du parc</p><h2>{asset.inventory_code}</h2><p>{asset.manufacturer} {operatorModelName(asset.category_code, asset.model_name, asset.manufacturer === "Demo")}{asset.variant ? ` ${operatorModelVariant(asset.variant, asset.manufacturer === "Demo")}` : ""}</p></div>
         <div className="identityFacts">
           <IdentityFact label="Numéro de série" value={asset.serial_number || "Sans numéro de série"} />
           <IdentityFact label="Catégorie" value={categoryPath(asset)} />
@@ -896,7 +902,7 @@ function CreateAssetDialog(props: {
       <header><div><p className="eyebrow">Parc matériel</p><h2 id="create-asset-title">Ajouter un exemplaire</h2></div><button className="iconButton secondary" type="button" onClick={props.onCancel} aria-label="Fermer"><X size={17} /></button></header>
       <p className="contextBanner">Vous ajoutez un exemplaire réellement utilisé par le laboratoire.</p>
       <div className="formGrid">
-        <label>Modèle constructeur <Required /><select id="fleet-model" value={modelId} onChange={(event) => setModelId(event.target.value)}><option value="">Sélectionner...</option>{props.models.map((model) => <option key={model.identity.equipment_model_id} value={model.identity.equipment_model_id}>{model.identity.manufacturer} {model.identity.model_name}{model.identity.variant ? ` ${model.identity.variant}` : ""}</option>)}</select></label>
+        <label>Modèle constructeur <Required /><select id="fleet-model" value={modelId} onChange={(event) => setModelId(event.target.value)}><option value="">Sélectionner...</option>{props.models.map((model) => <option key={model.identity.equipment_model_id} value={model.identity.equipment_model_id}>{model.identity.manufacturer} {operatorModelName(model.identity.category_code, model.identity.model_name, Boolean(model.identity.is_demo))}{model.identity.variant ? ` ${operatorModelVariant(model.identity.variant, Boolean(model.identity.is_demo))}` : ""}</option>)}</select></label>
         <label>Code inventaire <Required /><input id="fleet-inventory" value={inventoryCode} onChange={(event) => setInventoryCode(event.target.value)} placeholder="INV-0042" /></label>
         <label>Numéro de série <span className="fieldHint">Facultatif</span><input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} /></label>
         <label>Référence fabricant <span className="fieldHint">Facultatif</span><input value={partNumber} onChange={(event) => setPartNumber(event.target.value)} /></label>
@@ -911,7 +917,7 @@ function CreateAssetDialog(props: {
         {calibrationRequirement !== "not_required" && <label>Périodicité (mois) <Required /><input id="fleet-calibration-period" type="number" min="1" value={periodMonths} onChange={(event) => setPeriodMonths(event.target.value)} /></label>}
         <label className="wideField">Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
       </div>
-      {selectedModel && <p className="selectedModelSummary">Modèle sélectionné : <strong>{selectedModel.identity.manufacturer} {selectedModel.identity.model_name}</strong>. La version approuvée exacte sera figée par l'agent local.</p>}
+      {selectedModel && <p className="selectedModelSummary">Modèle sélectionné : <strong>{selectedModel.identity.manufacturer} {operatorModelName(selectedModel.identity.category_code, selectedModel.identity.model_name, Boolean(selectedModel.identity.is_demo))}</strong>. La version approuvée exacte sera figée par l'agent local.</p>}
       {props.locationsError && <TargetedError title="Registre des lieux indisponible" detail="Vous pouvez enregistrer l'exemplaire sans emplacement et l'affecter plus tard." />}
       {error && <TargetedError title="Enregistrement refusé" detail={error} />}
       {missing.length > 0 && <p className="actionExplanation">Pour enregistrer : renseignez {formatList(missing)}.</p>}
@@ -939,7 +945,7 @@ function groupBy<T>(items: T[], keyFor: (item: T) => string) {
 function IdentityFact(props: { label: string; value: string }) { return <div><span>{props.label}</span><strong>{props.value}</strong></div>; }
 function Required() { return <span className="requiredBadge">Obligatoire</span>; }
 function TargetedError(props: { title: string; detail: string }) { return <div className="targetedError"><AlertTriangle size={17} /><div><strong>{props.title}</strong><p>{props.detail}</p></div></div>; }
-function categoryPath(asset: PhysicalAsset) { return asset.category_path.length > 0 ? asset.category_path.join(" > ") : asset.category_code; }
+function categoryPath(asset: PhysicalAsset) { return operatorCategoryPath(asset.category_code, asset.category_path).join(" > "); }
 function searchText(asset: PhysicalAsset) { return [categoryPath(asset), asset.manufacturer, asset.model_name, asset.variant, asset.inventory_code, asset.serial_number, asset.laboratory_location_label].filter(Boolean).join(" ").toLocaleLowerCase("fr"); }
 function formatDate(value: string) { return new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(value)); }
 function formatList(items: string[]) { return new Intl.ListFormat("fr-FR", { style: "long", type: "conjunction" }).format(items); }
@@ -1055,6 +1061,7 @@ function auditRecord(value: unknown): Record<string, unknown> {
 
 function actorLabel(actor: string) {
   return ({
+    "fleet.e2e": "Opérateur de démonstration",
     "fleet.operator": "Opérateur du parc",
     "local-agent": "Agent local EMC Locus"
   } as Record<string, string>)[actor] ?? actor;
