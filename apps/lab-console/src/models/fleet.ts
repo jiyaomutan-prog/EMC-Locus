@@ -81,6 +81,20 @@ export interface PhysicalAsset {
   updated_at: string;
 }
 
+export interface FleetAuditEvent {
+  sequence: number;
+  action: string;
+  actor: string;
+  reason: string;
+  old_revision: number | null;
+  new_revision: number | null;
+  operation_id: string;
+  device_id: string;
+  correlation_id: string;
+  payload: Record<string, unknown>;
+  occurred_at: string;
+}
+
 export interface OperationalUsageEvidence {
   source_kind: string;
   source_identifier: string;

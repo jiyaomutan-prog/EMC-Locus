@@ -737,6 +737,10 @@ export const fleetApi = {
   listAssets: () => request<{ assets: PhysicalAsset[] }>("/api/v1/fleet/assets"),
   getAsset: (assetId: string) =>
     request<{ asset: PhysicalAsset }>(`/api/v1/fleet/assets/${encodeURIComponent(assetId)}`),
+  listAssetAudit: (assetId: string) =>
+    request<{ entity_id: string; audit_events: import("./models/fleet").FleetAuditEvent[] }>(
+      `/api/v1/fleet/assets/${encodeURIComponent(assetId)}/audit-events`
+    ),
   createAsset: (input: CreatePhysicalAssetInput, context: OperationContext) =>
     post<{ asset: PhysicalAsset; replayed: boolean }>("/api/v1/fleet/assets", {
       ...input,

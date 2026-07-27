@@ -301,14 +301,14 @@ function StationSetupDetail(props: {
     </section>
 
     <section className={`stationReadinessPanel ${readiness?.ready ? "ready" : "blocked"}`}>
-      <div>{readiness?.ready ? <CheckCircle2 size={19} /> : <AlertCircle size={19} />}<div><h3>{readiness?.ready ? "Montage apte" : "Pré-vol à compléter"}</h3><p>{readiness ? `Contrôle du ${formatDate(readiness.checked_on)}.` : "Enregistrez les modifications avant de contrôler l'aptitude."}</p></div></div>
+      <div>{readiness?.ready ? <CheckCircle2 size={19} /> : <AlertCircle size={19} />}<div><h3>{readiness?.ready ? "Montage apte à être utilisé" : "Points à corriger avant utilisation"}</h3><p>{readiness ? `Contrôle d’aptitude du ${formatDate(readiness.checked_on)}.` : "Enregistrez les modifications avant de contrôler l’aptitude."}</p></div></div>
       {readiness && readiness.issues.length > 0 && <ul>{readiness.issues.map((issue) => <li key={`${issue.code}-${issue.binding_ids?.join("-") ?? "setup"}`}><strong>{readinessDimensionLabel(issue.dimension)}</strong> {issue.message}</li>)}</ul>}
     </section>
 
-    {error && <TargetedError title="Opération refusée" detail={`${error} Corrigez le montage puis relancez le pré-vol.`} />}
+    {error && <TargetedError title="Opération refusée" detail={`${error} Corrigez le montage puis contrôlez de nouveau son aptitude.`} />}
     <div className="stationActions">
       {!readOnly && <button type="button" disabled={busy || !dirty || !definition.label.trim() || !definition.laboratory_location_id} onClick={() => void run(save)}><Save size={16} /> Enregistrer le brouillon</button>}
-      {!readOnly && !dirty && <button className="secondary" type="button" disabled={busy} onClick={() => void run(assess)}><RefreshCw size={16} /> Contrôler l'aptitude</button>}
+      {!readOnly && !dirty && <button className="secondary" type="button" disabled={busy} onClick={() => void run(assess)}><RefreshCw size={16} /> Contrôler l’aptitude du montage</button>}
       {!readOnly && <button type="button" disabled={busy || dirty || !readiness?.ready} onClick={() => void run(markReady)}><CheckCircle2 size={16} /> Déclarer le montage prêt</button>}
     </div>
     {!readOnly && dirty && <p className="actionExplanation">Enregistrez le brouillon avant de relancer le contrôle d'aptitude.</p>}
@@ -398,7 +398,7 @@ function metrologyLabel(asset: PhysicalAsset) {
 }
 
 function readinessDimensionLabel(value: string) {
-  return ({ structure: "Structure :", asset_identity: "Identité :", serviceability: "État de service :", calibration_validity: "Étalonnage :", missing_evidence: "Preuve manquante :", nonconformance: "Non-conformité :", port_compatibility: "Connexions :", correction_validity: "Correction :" })[value] ?? "Pré-vol :";
+  return ({ structure: "Structure :", asset_identity: "Identité :", serviceability: "État de service :", calibration_validity: "Étalonnage :", missing_evidence: "Preuve manquante :", nonconformance: "Non-conformité :", port_compatibility: "Connexions :", correction_validity: "Correction :" })[value] ?? "Contrôle d’aptitude :";
 }
 
 function SelectionReasons(props: { title: string; reasons: ExecutablePhysicalAssetOption["warnings"] }) {

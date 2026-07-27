@@ -25,7 +25,7 @@ import {
   ShieldCheck,
   Trash2
 } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ApiError,
   equipmentApi,
@@ -123,7 +123,7 @@ const modelSections: Array<[ModelSection, string]> = [
   ["characteristics", "Caractéristiques"],
   ["ports_connections", "Entrées et sorties"],
   ["measurement_corrections", "Entrées, sorties et corrections"],
-  ["control_drivers", "Pilotage / drivers"],
+  ["control_drivers", "Pilotage et profils"],
   ["documents", "Documents"],
   ["revisions_audit", "Révisions et historique"],
   ["advanced_diagnostics", "Détails techniques"]
@@ -135,8 +135,8 @@ const driverSections: Array<[DriverSection, string]> = [
   ["script", "Script"],
   ["simulation", "Simulation"],
   ["revisions", "Révisions"],
-  ["audit", "Audit"],
-  ["json", "Diagnostic avancé"]
+  ["audit", "Historique"],
+  ["json", "Détails techniques"]
 ];
 
 const equipmentClasses: EquipmentClass[] = [
@@ -231,10 +231,13 @@ export function EquipmentWorkspace(props: { initialSpace?: EquipmentSpace; onSpa
   const [modelValidation, setModelValidation] = useState<EquipmentValidationResult | null>(null);
   const [modelRevisions, setModelRevisions] = useState<EquipmentModelRevision[]>([]);
   const [modelAudit, setModelAudit] = useState<EquipmentAuditEvent[]>([]);
+  const [modelRevisionsError, setModelRevisionsError] = useState<string | null>(null);
+  const [modelAuditError, setModelAuditError] = useState<string | null>(null);
   const [modelJsonDraft, setModelJsonDraft] = useState("");
   const [assetCreationModelId, setAssetCreationModelId] = useState<string | null>(null);
   const [fleetViewModelId, setFleetViewModelId] = useState<string | null>(null);
   const [metrologyAssetId, setMetrologyAssetId] = useState<string | null>(null);
+  const modelOpenSequence = useRef(0);
 
   const [selectedDriver, setSelectedDriver] = useState<DriverProfileAggregate | null>(null);
   const [selectedDriverRevision, setSelectedDriverRevision] = useState<DriverProfileRevision | null>(null);
@@ -356,25 +359,54 @@ export function EquipmentWorkspace(props: { initialSpace?: EquipmentSpace; onSpa
     setOperationError(null);
     const target = revision ?? model.active_draft_revision ?? model.current_approved_revision ?? model.latest_revision;
     if (!target) return;
+    const modelId = model.identity.equipment_model_id;
+    const sameModel = selectedModel?.identity.equipment_model_id === modelId;
+    const requestSequence = ++modelOpenSequence.current;
     try {
-      const [detail, revisions, audit] = await Promise.all([
-        equipmentApi.getModel(model.identity.equipment_model_id),
-        equipmentApi.listModelRevisions(model.identity.equipment_model_id),
-        equipmentApi.listModelAudit(model.identity.equipment_model_id)
-      ]);
-      const freshRevision =
-        revisions.revisions.find((item) => item.revision_id === target.revision_id) ?? target;
+      const detail = await equipmentApi.getModel(modelId);
+      if (requestSequence !== modelOpenSequence.current) return;
       setSelectedModel(detail.equipment_model);
-      setSelectedModelRevision(freshRevision);
-      setModelDefinition(freshRevision.definition);
-      setModelChecksum(freshRevision.definition_checksum);
-      setModelJsonDraft(JSON.stringify(freshRevision.definition, null, 2));
-      setModelRevisions(revisions.revisions);
-      setModelAudit(audit.audit_events);
+      setSelectedModelRevision(target);
+      setModelDefinition(target.definition);
+      setModelChecksum(target.definition_checksum);
+      setModelJsonDraft(JSON.stringify(target.definition, null, 2));
+      if (!sameModel) {
+        setModelRevisions([]);
+        setModelAudit([]);
+      }
+      setModelRevisionsError(null);
+      setModelAuditError(null);
       setModelValidation(null);
       setModelSection("summary");
+
+      const revisionsLoad = equipmentApi.listModelRevisions(modelId)
+        .then((response) => {
+          if (requestSequence !== modelOpenSequence.current) return;
+          setModelRevisions(response.revisions);
+          setModelRevisionsError(null);
+          const freshRevision = response.revisions.find((item) => item.revision_id === target.revision_id);
+          if (freshRevision) {
+            setSelectedModelRevision(freshRevision);
+            setModelDefinition(freshRevision.definition);
+            setModelChecksum(freshRevision.definition_checksum);
+            setModelJsonDraft(JSON.stringify(freshRevision.definition, null, 2));
+          }
+        })
+        .catch((error: unknown) => {
+          if (requestSequence === modelOpenSequence.current) setModelRevisionsError(errorMessage(error));
+        });
+      const auditLoad = equipmentApi.listModelAudit(modelId)
+        .then((response) => {
+          if (requestSequence !== modelOpenSequence.current) return;
+          setModelAudit(response.audit_events);
+          setModelAuditError(null);
+        })
+        .catch((error: unknown) => {
+          if (requestSequence === modelOpenSequence.current) setModelAuditError(errorMessage(error));
+        });
+      await Promise.allSettled([revisionsLoad, auditLoad]);
     } catch (error) {
-      setOperationError(errorMessage(error));
+      if (requestSequence === modelOpenSequence.current) setOperationError(errorMessage(error));
     }
   }
 
@@ -664,7 +696,7 @@ export function EquipmentWorkspace(props: { initialSpace?: EquipmentSpace; onSpa
     try {
       updateDriver(JSON.parse(driverJsonDraft) as DriverProfileDefinition);
     } catch {
-      setOperationError("JSON driver invalide.");
+      setOperationError("Le JSON du profil de pilotage est invalide.");
     }
   }
 
@@ -689,6 +721,7 @@ export function EquipmentWorkspace(props: { initialSpace?: EquipmentSpace; onSpa
         <>
         <header className="resourcePageHeader">
           <div>
+            <p className="contextBanner">Vous consultez un modèle générique.</p>
             <h2>Catalogue des modèles</h2>
             <p>Définitions génériques des fabricants. Aucun numéro de série ni emplacement n'est géré ici.</p>
           </div>
@@ -805,11 +838,11 @@ export function EquipmentWorkspace(props: { initialSpace?: EquipmentSpace; onSpa
         <div className="contextCommandBar">
           <strong>Profils de pilotage</strong>
           <span className="commandBarSpacer" />
-          <button className="iconButton secondary" onClick={() => void refresh()} title="Rafraîchir les drivers" aria-label="Rafraîchir les drivers">
+          <button className="iconButton secondary" onClick={() => void refresh()} title="Rafraîchir les profils de pilotage" aria-label="Rafraîchir les profils de pilotage">
             <RefreshCw size={16} />
           </button>
           <button onClick={() => void createDriver()} disabled={approvedModels.length === 0}>
-            <Plus size={16} /> Nouveau driver
+            <Plus size={16} /> Nouveau profil de pilotage
           </button>
         </div>
       )}
@@ -840,7 +873,7 @@ export function EquipmentWorkspace(props: { initialSpace?: EquipmentSpace; onSpa
       {space === "catalog" && loadState === "ready" && driverLoadError && (
         <StateBlock
           title="Pilotage temporairement indisponible"
-          detail="Le catalogue reste consultable. Les profils de pilotage pourront être ouverts lorsque le service des drivers sera revenu."
+          detail="Le catalogue reste consultable. Les profils de pilotage pourront être ouverts lorsque le service de pilotage sera revenu."
         />
       )}
       {space === "drivers" && driverLoadError && <StateBlock title="Pilotage temporairement indisponible" detail={driverLoadError} />}
@@ -890,6 +923,8 @@ export function EquipmentWorkspace(props: { initialSpace?: EquipmentSpace; onSpa
             section={modelSection}
             revisions={modelRevisions}
             audit={modelAudit}
+            revisionsError={modelRevisionsError}
+            auditError={modelAuditError}
             validation={modelValidation}
             signalTransformationOptions={signalTransformationOptions}
             jsonDraft={modelJsonDraft}
@@ -1537,7 +1572,7 @@ function EquipmentRepositoryAdmin(props: {
                   <dt>Identifiant interne</dt><dd className="mono">{selectedCategory.category_id}</dd>
                   <dt>Famille de classement</dt><dd className="mono">{selectedCategory.root_category_id}</dd>
                   <dt>Descendants</dt><dd>{selectedCategoryDescendants.size}</dd>
-                  <dt>Checksum du formulaire</dt><dd className="mono">{template?.template_checksum ?? "-"}</dd>
+                  <dt>Empreinte du formulaire</dt><dd className="mono">{template?.template_checksum ?? "-"}</dd>
                 </dl>
               </details>
             )}
@@ -2063,6 +2098,8 @@ function ModelStudio(props: {
   section: ModelSection;
   revisions: EquipmentModelRevision[];
   audit: EquipmentAuditEvent[];
+  revisionsError: string | null;
+  auditError: string | null;
   validation: EquipmentValidationResult | null;
   signalTransformationOptions: SignalTransformationOption[];
   jsonDraft: string;
@@ -2088,7 +2125,6 @@ function ModelStudio(props: {
     <section className="equipmentStudio">
       <div className="studioHeader">
         <div>
-          <p className="contextBanner">Vous consultez un modèle générique.</p>
           <p className="eyebrow">Modèle constructeur</p>
           <h2>{props.model.identity.manufacturer} {props.model.identity.model_name}</h2>
           <div className="studioTitleMeta">
@@ -2125,6 +2161,8 @@ function ModelStudio(props: {
           ))}
         </nav>
         <div className="editorPane">
+          {props.revisionsError && <SecondaryPanelError title="Historique des versions indisponible" detail={`La version ouverte reste consultable. ${props.revisionsError}`} />}
+          {props.auditError && <SecondaryPanelError title="Historique des modifications indisponible" detail={`La fiche du modèle reste consultable. ${props.auditError}`} />}
           {props.section === "summary" && (
             <>
               <EditorCard title="Synthèse">
@@ -2152,7 +2190,7 @@ function ModelStudio(props: {
                   onChange={(value) => props.onDefinition({ ...definition, custom_field_values: { ...(definition.custom_field_values ?? {}), [field.field.field_code]: value } })}
                 />
               ))}
-              {!definition.template_snapshot && <p>Ce modele n'a pas encore ete cree depuis un template de categorie.</p>}
+              {!definition.template_snapshot && <p>Ce modèle n’a pas encore été créé depuis un formulaire de catégorie.</p>}
             </EditorCard>
           )}
           {props.section === "category_template" && (
@@ -2177,7 +2215,7 @@ function ModelStudio(props: {
               <Field label="Référence de classification" value={String(definition.metadata?.classification_preset_id ?? "")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, metadata: { ...(definition.metadata ?? {}), classification_preset_id: optionalString(value) } })} />
               <Field label="Notes de classification" value={String(definition.metadata?.classification_notes ?? "")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, metadata: { ...(definition.metadata ?? {}), classification_notes: value } })} />
               <dl className="businessSummary">
-                <dt>Checksum du formulaire</dt><dd className="mono">{definition.template_snapshot?.template_checksum ?? "-"}</dd>
+                <dt>Empreinte du formulaire</dt><dd className="mono">{definition.template_snapshot?.template_checksum ?? "-"}</dd>
                 <dt>Catégorie interne</dt><dd className="mono">{definition.category_code}</dd>
               </dl>
             </EditorCard>
@@ -2209,7 +2247,7 @@ function ModelStudio(props: {
               />
               <details className="technicalDisclosure">
                 <summary>Paramètres électriques avancés</summary>
-              <StructuredTable columns={["ID", "Label", "Direction", "Flow", "Domain", "Tags", "Req.", "Connector", "Quantity", "Unit", "Impedance", "Fmin", "Fmax", "Vmax", "Imax", "Pmax", "Comment"]}>
+              <StructuredTable columns={["ID", "Libellé", "Direction", "Rôle", "Domaine", "Technologies", "Obligatoire", "Connecteur", "Grandeur", "Unité", "Impédance", "Fmin", "Fmax", "Vmax", "Imax", "Pmax", "Commentaire"]}>
                 {definition.signal_ports.map((port, index) => (
                   <tr key={port.port_id}>
                     <td><input disabled={props.readOnly} value={port.port_id} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, port_id: event.target.value }) })} /></td>
@@ -2271,17 +2309,17 @@ function ModelStudio(props: {
                 ))}
               </StructuredTable>
               <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, communication_interfaces: [...definition.communication_interfaces, defaultTcpInterface(definition.communication_interfaces.length + 1)] })}>Ajouter TCP SCPI</button>
-              <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, communication_interfaces: [...definition.communication_interfaces, defaultCanInterface(definition.communication_interfaces.length + 1)] })}>Ajouter CAN bus simule</button>
+              <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, communication_interfaces: [...definition.communication_interfaces, defaultCanInterface(definition.communication_interfaces.length + 1)] })}>Ajouter un bus CAN simulé</button>
             </EditorCard>
           )}
           {props.section === "control_drivers" && (
-            <EditorCard title="Capabilities">
-              <StructuredTable columns={["ID", "Kind", "Safety", "Inputs", "Outputs"]}>
+            <EditorCard title="Capacités de pilotage">
+              <StructuredTable columns={["ID", "Type", "Sécurité", "Entrées", "Sorties"]}>
                 {definition.capabilities.map((capability) => (
                   <tr key={capability.capability_id}><td>{capability.capability_id}</td><td>{capability.capability_kind}</td><td>{capability.safety_class}</td><td>{capability.inputs.length}</td><td>{capability.outputs.length}</td></tr>
                 ))}
               </StructuredTable>
-              <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, capabilities: [...definition.capabilities, defaultCapability(definition.capabilities.length + 1)] })}>Ajouter capability mesure</button>
+              <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, capabilities: [...definition.capabilities, defaultCapability(definition.capabilities.length + 1)] })}>Ajouter une capacité de mesure</button>
             </EditorCard>
           )}
           {props.section === "measurement_corrections" && (
@@ -2295,7 +2333,7 @@ function ModelStudio(props: {
           )}
           {props.section === "documents" && (
             <EditorCard title="Documents">
-              <p>Les certificats, datasheets et scripts lies au modele seront attaches via le domaine documents. Cette release prepare l'emplacement sans upload fichier.</p>
+              <p>Les certificats, fiches techniques et scripts liés au modèle seront joints depuis le domaine documentaire. Cette version prépare leur emplacement sans ajouter encore le dépôt de fichiers.</p>
             </EditorCard>
           )}
           {props.section === "revisions_audit" && <RevisionTable revisions={props.revisions} onOpen={props.onOpenRevision} />}
@@ -2358,7 +2396,7 @@ function DriverTree(props: {
 }) {
   return (
     <aside className="equipmentList">
-      <h2>Drivers et pilotage</h2>
+      <h2>Profils de pilotage</h2>
       {props.models.map((model) => {
         const modelDrivers = props.drivers.filter((driver) => driver.identity.equipment_model_id === model.identity.equipment_model_id);
         return (
@@ -2368,7 +2406,7 @@ function DriverTree(props: {
             {modelDrivers.map((driver) => (
               <button key={driver.identity.driver_profile_id} className={props.selected?.identity.driver_profile_id === driver.identity.driver_profile_id ? "active" : ""} onClick={() => props.onOpen(driver)}>
                 <span>{driver.identity.label}</span>
-                <small>{driver.latest_revision?.status ?? "no_revision"} | {driver.latest_revision?.action_count ?? 0} actions</small>
+                <small>{driver.latest_revision ? humanStatus(driver.latest_revision.status) : "Aucune version"} · {driver.latest_revision?.action_count ?? 0} actions</small>
               </button>
             ))}
           </div>
@@ -2719,7 +2757,7 @@ function DriverStudio(props: {
   onOpenRevision: (revision: DriverProfileRevision) => void;
 }) {
   if (!props.driver || !props.revision || !props.definition) {
-    return <StateBlock title="Aucun driver ouvert" detail="Creez un driver depuis un modele approuve ou selectionnez un driver existant." />;
+    return <StateBlock title="Aucun profil de pilotage ouvert" detail="Créez un profil depuis un modèle approuvé ou sélectionnez un profil existant." />;
   }
   const definition = props.definition;
   const firstAction = definition.actions[0] ?? null;
@@ -2727,16 +2765,16 @@ function DriverStudio(props: {
     <section className="equipmentStudio">
       <div className="studioHeader">
         <div>
-          <p className="eyebrow">Driver Profile</p>
+          <p className="eyebrow">Profil de pilotage</p>
           <h2>{props.driver.identity.label}</h2>
-          <p className="mono">{props.revision.revision_id} | {props.revision.status}</p>
+          <p>{humanStatus(props.revision.status)} · Version {props.revision.revision_number}</p>
         </div>
         <div className="headerActions">
-          <button onClick={props.onValidate}><CheckCircle2 size={16} /> Valider</button>
+          <button onClick={props.onValidate}><CheckCircle2 size={16} /> Vérifier le profil</button>
           <button onClick={props.onSave} disabled={props.readOnly}><Save size={16} /> Sauvegarder</button>
           <button onClick={props.onSubmit} disabled={props.readOnly || props.revision.status !== "draft"}><Send size={16} /> Soumettre</button>
           <button onClick={props.onApprove} disabled={props.revision.status !== "under_review"}><ShieldCheck size={16} /> Approuver</button>
-          <button onClick={props.onDerive} disabled={!props.driver.current_approved_revision}><GitBranch size={16} /> Nouvelle revision</button>
+          <button onClick={props.onDerive} disabled={!props.driver.current_approved_revision}><GitBranch size={16} /> Créer une nouvelle version</button>
           <button onClick={() => firstAction && props.onSimulate(firstAction)} disabled={!firstAction}><Play size={16} /> Simuler</button>
         </div>
       </div>
@@ -2748,19 +2786,23 @@ function DriverStudio(props: {
         </nav>
         <div className="editorPane">
           {props.section === "general" && (
-            <EditorCard title="Compatibility">
-              <dl>
-                <dt>Model</dt><dd>{definition.equipment_model_id}</dd>
-                <dt>Model revision</dt><dd>{definition.supported_model_revision_id}</dd>
-                <dt>Checksum</dt><dd><code>{definition.supported_model_definition_checksum}</code></dd>
-                <dt>Interfaces</dt><dd>{definition.communication_profiles.join(", ") || "-"}</dd>
-              </dl>
+            <EditorCard title="Compatibilité avec le modèle constructeur">
+              <p>Ce profil est rattaché à une version exacte et immuable du modèle constructeur.</p>
+              <details className="technicalDisclosure">
+                <summary>Identifiants et preuve de version</summary>
+                <dl>
+                  <dt>Modèle</dt><dd>{definition.equipment_model_id}</dd>
+                  <dt>Version du modèle</dt><dd>{definition.supported_model_revision_id}</dd>
+                  <dt>Empreinte du modèle</dt><dd><code>{definition.supported_model_definition_checksum}</code></dd>
+                  <dt>Interfaces déclarées</dt><dd>{definition.communication_profiles.join(", ") || "Aucune"}</dd>
+                </dl>
+              </details>
               <ProviderList providers={props.providers} />
             </EditorCard>
           )}
           {props.section === "actions" && (
             <EditorCard title="Actions">
-              <StructuredTable columns={["ID", "Capability", "Safety", "Inputs", "Outputs", ""]}>
+              <StructuredTable columns={["ID", "Capacité", "Sécurité", "Entrées", "Sorties", ""]}>
                 {definition.actions.map((action) => (
                   <tr key={action.action_id}>
                     <td>{action.action_id}</td><td>{action.implements_capability_id}</td><td>{action.safety_class}</td><td>{action.inputs.length}</td><td>{action.outputs.length}</td>
@@ -2772,7 +2814,7 @@ function DriverStudio(props: {
             </EditorCard>
           )}
           {props.section === "script" && firstAction && (
-            <EditorCard title={`Script AST - ${firstAction.action_id}`}>
+            <EditorCard title={`Script de pilotage · ${firstAction.action_id}`}>
               <ScriptSteps steps={firstAction.script.steps} />
               <div className="buttonRow">
                 <button disabled={props.readOnly} onClick={() => props.onDefinition(replaceFirstAction(definition, { ...firstAction, script: { steps: [...firstAction.script.steps, defaultIoQueryStep(firstAction.script.steps.length + 1, definition.communication_profiles[0] ?? "tcp")] } }))}>Ajouter QUERY</button>
@@ -2783,12 +2825,12 @@ function DriverStudio(props: {
             </EditorCard>
           )}
           {props.section === "simulation" && (
-            <EditorCard title="Driver Test Console">
-              {!props.simulation && <p>Aucune simulation executee.</p>}
+            <EditorCard title="Console de simulation du pilotage">
+              {!props.simulation && <p>Aucune simulation exécutée.</p>}
               {props.simulation && (
                 <>
-                  <dl><dt>Status</dt><dd>{props.simulation.status}</dd><dt>Duree virtuelle</dt><dd>{props.simulation.virtual_duration_ms} ms</dd></dl>
-                  <StructuredTable columns={["Step", "Type", "Operation", "Request", "Response", "Status"]}>
+                  <dl><dt>Résultat</dt><dd>{simulationStatusLabel(props.simulation.status)}</dd><dt>Durée virtuelle</dt><dd>{props.simulation.virtual_duration_ms} ms</dd></dl>
+                  <StructuredTable columns={["Étape", "Type", "Opération", "Requête", "Réponse", "Résultat"]}>
                     {props.simulation.trace.map((trace, index) => (
                       <tr key={index}><td>{String(trace.step_index ?? index)}</td><td>{String(trace.step_type ?? "-")}</td><td>{String(trace.operation ?? "-")}</td><td>{JSON.stringify(trace.request ?? "")}</td><td>{JSON.stringify(trace.response ?? "")}</td><td>{String(trace.status ?? "-")}</td></tr>
                     ))}
@@ -2818,7 +2860,7 @@ function ProviderList(props: { providers: CommunicationProviderStatus[] }) {
     <div className="providerGrid">
       {props.providers.map((provider) => (
         <span key={provider.provider} className={provider.available ? "provider ok" : "provider unavailable"}>
-          {provider.provider}: {provider.available ? "available" : provider.reason ?? "not installed"}
+          {communicationProviderLabel(provider.provider)} : {provider.available ? "Disponible" : communicationProviderReason(provider.reason)}
         </span>
       ))}
     </div>
@@ -2873,7 +2915,7 @@ export function AuditTable(props: { audit: EquipmentAuditEvent[] }) {
 
 function ScriptSteps(props: { steps: DriverScriptStep[] }) {
   return (
-    <StructuredTable columns={["ID", "Type", "Interface", "Payload", "Binding", "Expression"]}>
+    <StructuredTable columns={["ID", "Type", "Interface", "Commande", "Variable de réponse", "Expression"]}>
       {props.steps.map((step) => (
         <tr key={step.step_id}><td>{step.step_id}</td><td>{step.step_type}</td><td>{step.interface_id ?? "-"}</td><td>{step.payload ?? "-"}</td><td>{step.response_binding ?? step.variable ?? "-"}</td><td>{step.expression ?? "-"}</td></tr>
       ))}
@@ -2901,6 +2943,10 @@ function FieldCaption(props: { label: string; required?: boolean }) {
 
 export function StateBlock(props: { title: string; detail: string }) {
   return <div className="stateBlock"><h2>{props.title}</h2><p>{props.detail}</p></div>;
+}
+
+function SecondaryPanelError(props: { title: string; detail: string }) {
+  return <div className="targetedError" role="alert"><AlertTriangle size={17} /><div><strong>{props.title}</strong><p>{props.detail}</p></div></div>;
 }
 
 function defaultDriverProfileDefinition(model: EquipmentModelAggregate): DriverProfileDefinition {
@@ -2989,6 +3035,28 @@ function humanLabel(value: string | null | undefined) {
 
 function humanStatus(value: string | undefined) {
   return humanLabel(value ?? "no_revision");
+}
+
+function simulationStatusLabel(value: string) {
+  return ({ success: "Réussie", passed: "Réussie", failed: "Échec", error: "Erreur" } as Record<string, string>)[value]
+    ?? humanLabel(value);
+}
+
+function communicationProviderLabel(value: string) {
+  return ({
+    native_tcp: "TCP natif",
+    ni_visa: "NI-VISA",
+    pyvisa: "PyVISA",
+    socketcan: "SocketCAN",
+    simulation: "Simulation"
+  } as Record<string, string>)[value] ?? humanLabel(value);
+}
+
+function communicationProviderReason(reason: string | null | undefined) {
+  if (!reason) return "Non installé";
+  if (/no visa implementation installed/i.test(reason)) return "Aucune implémentation VISA n’est installée.";
+  if (/not installed/i.test(reason)) return "Non installé";
+  return reason;
 }
 
 function validationIssueMessage(code: string, message: string) {

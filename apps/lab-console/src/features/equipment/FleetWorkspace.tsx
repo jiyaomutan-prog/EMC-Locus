@@ -15,6 +15,7 @@ import type { EquipmentCategory, EquipmentModelAggregate } from "../../models/eq
 import type {
   AdministrativeAvailability,
   CreatePhysicalAssetInput,
+  FleetAuditEvent,
   LaboratoryLocation,
   ModelReconciliationCandidate,
   OwnershipSource,
@@ -448,8 +449,43 @@ function AssetDetail(props: {
 }) {
   const [tab, setTab] = useState("summary");
   const [reconciliationOpen, setReconciliationOpen] = useState(false);
+  const [auditEvents, setAuditEvents] = useState<FleetAuditEvent[]>([]);
+  const [auditAssetId, setAuditAssetId] = useState("");
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const assetId = props.asset?.asset_id ?? "";
+  const assetRevision = props.asset?.revision ?? 0;
+
+  useEffect(() => {
+    if (!assetId) {
+      setAuditEvents([]);
+      setAuditAssetId("");
+      setAuditError(null);
+      return;
+    }
+    let active = true;
+    setAuditLoading(true);
+    setAuditError(null);
+    void fleetApi.listAssetAudit(assetId)
+      .then((response) => {
+        if (!active) return;
+        setAuditEvents(response.audit_events);
+        setAuditAssetId(assetId);
+      })
+      .catch((reason: unknown) => {
+        if (active) setAuditError(errorMessage(reason));
+      })
+      .finally(() => {
+        if (active) setAuditLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [assetId, assetRevision]);
+
   if (!props.asset) return <div className="assetDetail empty"><strong>Aucun exemplaire ouvert</strong><p>Sélectionnez un exemplaire dans la hiérarchie du parc.</p></div>;
   const asset = props.asset;
+  const currentAuditEvents = auditAssetId === asset.asset_id ? auditEvents : [];
   return (
     <article className="assetDetail">
       <header className="assetIdentityHeader">
@@ -473,7 +509,14 @@ function AssetDetail(props: {
       {tab === "identification" && <AssetIdentificationEditor key={`${asset.asset_id}-${asset.revision}`} asset={asset} onUpdate={props.onUpdateIdentification} />}
       {tab === "location" && <AssetOperationalEditor key={`${asset.asset_id}-${asset.revision}`} asset={asset} locations={props.locations} locationsError={props.locationsError} onMove={props.onMove} onTransitionService={props.onTransitionService} onTransitionAdministrativeAvailability={props.onTransitionAdministrativeAvailability} />}
       {tab === "metrology" && <div className="detailSection"><h3>Métrologie de cet exemplaire</h3><p>{metrologyLabel(asset)}</p><button type="button" onClick={() => props.onOpenMetrology(asset.asset_id)}><Wrench size={16} /> Ouvrir la métrologie</button></div>}
-      {tab === "history" && <div className="detailSection"><p>Créé le {formatDate(asset.created_at)} · mis à jour le {formatDate(asset.updated_at)}.</p></div>}
+      {tab === "history" && (
+        <AssetHistory
+          asset={asset}
+          events={currentAuditEvents}
+          loading={auditLoading}
+          error={auditError}
+        />
+      )}
       {tab === "technical" && <details open><summary>Identifiants et preuve de version</summary><dl><dt>Identifiant interne</dt><dd>{asset.asset_id}</dd><dt>Révision</dt><dd>{asset.revision}</dd><dt>Version du modèle</dt><dd>{asset.equipment_model_revision_id || "Lien à rapprocher"}</dd><dt>Empreinte du modèle</dt><dd className="technicalValue">{asset.equipment_model_checksum || "Indisponible"}</dd></dl></details>}
       {asset.equipment_model_id && asset.equipment_model_revision_id && <button className="secondary" type="button" onClick={() => props.onOpenPinnedModel(asset.equipment_model_id!, asset.equipment_model_revision_id!)}>Ouvrir le modèle constructeur</button>}
       {asset.model_link_state === "migration_review_required" && (
@@ -500,6 +543,68 @@ function AssetDetail(props: {
         </div>
       )}
     </article>
+  );
+}
+
+function AssetHistory(props: {
+  asset: PhysicalAsset;
+  events: FleetAuditEvent[];
+  loading: boolean;
+  error: string | null;
+}) {
+  const events = [...props.events].reverse();
+  return (
+    <section className="detailSection assetHistory" aria-label="Historique de l’exemplaire">
+      <div className="assetHistoryHeader">
+        <div>
+          <h3>Historique du parc</h3>
+          <p>Modifications enregistrées pour cet exemplaire, de la plus récente à la plus ancienne.</p>
+        </div>
+        {props.loading && <span className="muted">Actualisation…</span>}
+      </div>
+      {props.error && (
+        <TargetedError
+          title="Historique temporairement indisponible"
+          detail={`La fiche de l’exemplaire reste consultable. ${props.error}`}
+        />
+      )}
+      {!props.loading && events.length === 0 && !props.error && (
+        <p className="muted">Aucun événement d’historique n’est disponible pour cet exemplaire.</p>
+      )}
+      {events.length > 0 && (
+        <ol className="fleetAuditTimeline">
+          {events.map((event) => {
+            const changes = fleetAuditChanges(event, props.asset);
+            return (
+              <li key={event.sequence}>
+                <span className="historyMarker" aria-hidden="true" />
+                <article>
+                  <header>
+                    <div>
+                      <h4>{fleetAuditActionLabel(event)}</h4>
+                      <p><time dateTime={event.occurred_at}>{formatDateTime(event.occurred_at)}</time> · {actorLabel(event.actor)}</p>
+                    </div>
+                    {event.new_revision !== null && <span>Révision {event.new_revision}</span>}
+                  </header>
+                  <p className="auditReason"><strong>Motif :</strong> {event.reason || "Motif non renseigné"}</p>
+                  {changes.length > 0 && <ul>{changes.map((change) => <li key={change}>{change}</li>)}</ul>}
+                  <details className="technicalDisclosure">
+                    <summary>Détails techniques</summary>
+                    <dl>
+                      <dt>Opération</dt><dd className="technicalValue">{event.operation_id}</dd>
+                      <dt>Révisions</dt><dd>{event.old_revision ?? "Création"} → {event.new_revision ?? "Non renseignée"}</dd>
+                      <dt>Poste</dt><dd className="technicalValue">{event.device_id}</dd>
+                      <dt>Corrélation</dt><dd className="technicalValue">{event.correlation_id}</dd>
+                    </dl>
+                    <pre className="auditPayload">{JSON.stringify(event.payload, null, 2)}</pre>
+                  </details>
+                </article>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </section>
   );
 }
 
@@ -851,6 +956,109 @@ function formatUsageInterval(startAt: string, endAt: string | null) { return `${
 function formatDateTime(value: string) { return new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : "Erreur inattendue."; }
 function modelLabel(models: EquipmentModelAggregate[], modelId: string) { const model = models.find((candidate) => candidate.identity.equipment_model_id === modelId); return model ? `${model.identity.manufacturer} ${model.identity.model_name}${model.identity.variant ? ` ${model.identity.variant}` : ""}` : "sélectionné"; }
+
+function fleetAuditActionLabel(event: FleetAuditEvent) {
+  if (event.action === "physical_asset_identification_updated") {
+    const from = auditRecord(event.payload.from);
+    const to = auditRecord(event.payload.to);
+    if (from.inventory_code !== to.inventory_code) return "Modification du code inventaire et de l’identification";
+  }
+  return ({
+    physical_asset_created: "Création de l’exemplaire",
+    physical_asset_identification_updated: "Modification de l’identification",
+    physical_asset_moved: "Déplacement de l’exemplaire",
+    physical_asset_service_state_changed: "Changement de l’état de service",
+    physical_asset_administrative_availability_changed: "Changement de la disponibilité administrative",
+    physical_asset_model_reconciled: "Rapprochement avec un modèle constructeur",
+    physical_asset_migrated_from_metrology: "Import depuis l’ancien registre métrologique"
+  } as Record<string, string>)[event.action] ?? "Modification de l’exemplaire";
+}
+
+function fleetAuditChanges(event: FleetAuditEvent, asset: PhysicalAsset): string[] {
+  const from = auditRecord(event.payload.from);
+  const to = auditRecord(event.payload.to);
+  if (event.action === "physical_asset_created") {
+    const definition = auditRecord(event.payload.definition);
+    return [`${auditDisplayValue(definition.inventory_code ?? asset.inventory_code)} a été ajouté au parc.`];
+  }
+  if (event.action === "physical_asset_identification_updated") {
+    return changedAuditFields(from, to, [
+      ["inventory_code", "Code inventaire"],
+      ["serial_number", "Numéro de série"],
+      ["part_number", "Référence fabricant"],
+      ["ownership_source", "Origine"],
+      ["notes", "Notes"]
+    ]);
+  }
+  if (event.action === "physical_asset_moved") {
+    return [auditTransition(
+      "Emplacement",
+      from.laboratory_location_label,
+      to.laboratory_location_label,
+      "Emplacement non défini"
+    )];
+  }
+  if (event.action === "physical_asset_service_state_changed") {
+    return changedAuditFields(from, to, [
+      ["service_state", "État de service"],
+      ["service_state_reason", "Motif de l’état de service"],
+      ["administrative_availability", "Disponibilité administrative"],
+      ["administrative_unavailability_reason", "Motif d’indisponibilité"]
+    ]);
+  }
+  if (event.action === "physical_asset_administrative_availability_changed") {
+    return changedAuditFields(from, to, [
+      ["administrative_availability", "Disponibilité administrative"],
+      ["administrative_unavailability_reason", "Motif d’indisponibilité"]
+    ]);
+  }
+  if (event.action === "physical_asset_model_reconciled") {
+    const model = auditRecord(event.payload.model);
+    const label = [model.manufacturer, model.model_name, model.variant].filter(Boolean).join(" ");
+    return [label ? `Modèle constructeur associé : ${label}.` : "Le modèle constructeur exact a été associé."];
+  }
+  if (event.action === "physical_asset_migrated_from_metrology") {
+    const inventoryCode = event.payload.inventory_code ?? asset.inventory_code;
+    return [`${auditDisplayValue(inventoryCode)} a été importé avec ses preuves historiques.`];
+  }
+  return [];
+}
+
+function changedAuditFields(
+  from: Record<string, unknown>,
+  to: Record<string, unknown>,
+  fields: Array<[string, string]>
+) {
+  return fields
+    .filter(([key]) => JSON.stringify(from[key] ?? null) !== JSON.stringify(to[key] ?? null))
+    .map(([key, label]) => auditTransition(label, from[key], to[key]));
+}
+
+function auditTransition(label: string, from: unknown, to: unknown, emptyLabel = "Non renseigné") {
+  return `${label} : ${auditDisplayValue(from, emptyLabel)} → ${auditDisplayValue(to, emptyLabel)}.`;
+}
+
+function auditDisplayValue(value: unknown, emptyLabel = "Non renseigné") {
+  if (value === null || value === undefined || value === "") return emptyLabel;
+  if (typeof value !== "string") return String(value);
+  const service = serviceStateChoices.find(([key]) => key === value)?.[1];
+  const availability = administrativeAvailabilityChoices.find(([key]) => key === value)?.[1];
+  const ownership = ownershipChoices.find(([key]) => key === value)?.[1];
+  return service ?? availability ?? ownership ?? value;
+}
+
+function auditRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function actorLabel(actor: string) {
+  return ({
+    "fleet.operator": "Opérateur du parc",
+    "local-agent": "Agent local EMC Locus"
+  } as Record<string, string>)[actor] ?? actor;
+}
 
 const serviceStateChoices: Array<[ServiceState, string]> = [["usable", "Utilisable"], ["restricted", "Utilisation restreinte"], ["in_maintenance", "En maintenance"], ["out_of_service", "Hors service"], ["retired", "Retiré du parc"]];
 const administrativeAvailabilityChoices: Array<[AdministrativeAvailability, string]> = [["available", "Disponible"], ["unavailable", "Indisponible"]];

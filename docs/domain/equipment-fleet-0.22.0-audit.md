@@ -462,3 +462,37 @@ références et instantanés. Aucun dual-write d'identité physique n'est admis.
 
 L'implémentation peut commencer après commit et publication de ce document et
 de la mise à jour du journal de reprise.
+
+## État après la correction 8
+
+La séparation opérateur est maintenant effective dans LAB CONSOLE :
+
+- le catalogue conserve en permanence le contexte de modèle constructeur
+  générique, alors que le parc signale le contexte d'exemplaire physique ;
+- la préparation d'un montage parle d'aptitude à l'utilisation et expose les
+  points à corriger, sans métaphore aéronautique ;
+- l'historique d'un exemplaire provient de
+  `physical_asset_audit_events`, avec une lecture métier des changements et un
+  niveau technique replié pour les identifiants, révisions et charges JSON ;
+- le détail principal d'un modèle reste lisible si ses révisions ou son audit
+  échouent, et le contexte d'une préparation reste lisible si ses choix
+  matériels ou son historique échouent ;
+- les rafraîchissements conservent les dernières données secondaires valides
+  du même agrégat et ignorent les réponses asynchrones devenues obsolètes.
+
+Les frontières de chargement sont donc désormais alignées sur les agrégats
+visibles : identité principale, historique, options d'exécution et métrologie
+ne partagent plus un échec global. Cette règle doit rester un invariant des
+prochains écrans.
+
+### Dette de découpage conservée
+
+`EquipmentWorkspace` porte encore plusieurs orchestrations de catalogue dans
+un même composant. L'administration des catégories couple encore le modèle de
+formulaire et ses règles de champs. `PhysicalAssetMetrologyPanel`,
+`MeasurementEngineeringPanel` et `ProjectWorkspace` restent également des
+surfaces importantes à extraire à mesure que leurs verticales évoluent.
+
+Ces points n'empêchent pas les frontières métier ou les chargements isolés de
+la 0.22.0. Ils sont consignés comme dette de structure et ne doivent pas être
+traités par un refactoring transversal pendant la clôture de cette release.

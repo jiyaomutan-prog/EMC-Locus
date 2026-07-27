@@ -451,6 +451,32 @@ button.planningSlot-cancelled {
   padding: 0 !important;
 }
 
+.preparationScheduleContext {
+  background: #f7f9f8;
+  border-bottom: 1px solid #d7dfda;
+  display: grid;
+  gap: 10px 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 13px 20px;
+}
+
+.preparationScheduleContext > div {
+  border-left: 2px solid #9ebbb1;
+  display: grid;
+  gap: 2px;
+  padding-left: 9px;
+}
+
+.preparationScheduleContext span {
+  color: #68766e;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.preparationScheduleContext strong {
+  overflow-wrap: anywhere;
+}
+
 .preparationLoading,
 .preparationEmpty {
   align-items: center;
@@ -1243,6 +1269,85 @@ button.planningSlot-cancelled {
 .detailTabs button.active { border-bottom-color: #087669; color: #075f54; }
 .detailSection { max-width: 760px; padding: 18px 2px; }
 .technicalValue { overflow-wrap: anywhere; }
+
+.assetHistoryHeader,
+.fleetAuditTimeline article > header {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.assetHistoryHeader h3,
+.assetHistoryHeader p,
+.fleetAuditTimeline h4,
+.fleetAuditTimeline p {
+  margin: 0;
+}
+
+.assetHistoryHeader p,
+.fleetAuditTimeline header p {
+  color: #66756d;
+  font-size: 12px;
+}
+
+.fleetAuditTimeline {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0 0 0 16px;
+}
+
+.fleetAuditTimeline > li {
+  border-left: 1px solid #cbd5d0;
+  padding: 0 0 18px 18px;
+  position: relative;
+}
+
+.fleetAuditTimeline > li:last-child {
+  padding-bottom: 0;
+}
+
+.fleetAuditTimeline .historyMarker {
+  left: -5px;
+}
+
+.fleetAuditTimeline article {
+  display: grid;
+  gap: 8px;
+}
+
+.fleetAuditTimeline article > header > span {
+  background: #edf3f0;
+  color: #486159;
+  font-size: 11px;
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+
+.fleetAuditTimeline .auditReason {
+  color: #3f4e46;
+}
+
+.fleetAuditTimeline ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.fleetAuditTimeline .technicalDisclosure {
+  margin-top: 2px;
+}
+
+.auditPayload {
+  background: #f3f6f4;
+  border: 1px solid #d8dfdb;
+  color: #34463d;
+  font-size: 11px;
+  margin: 8px 0 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 9px;
+  white-space: pre-wrap;
+}
 
 .assetEditSection,
 .assetOperationalSection {
@@ -5443,6 +5548,7 @@ button.reservationUnavailable:disabled {
   }
 
   .preparationSummary,
+  .preparationScheduleContext,
   .preparationSection,
   .preparationAssessmentBar,
   .instrumentAssignmentRow {

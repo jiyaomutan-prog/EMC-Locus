@@ -497,7 +497,7 @@ pub fn update_physical_asset_identification(
         serial_number.as_deref(),
         part_number.as_deref(),
     )?;
-    let payload_json = render_json(&json!({
+    let request_json = render_json(&json!({
         "asset_id": input.asset_id,
         "expected_revision": input.expected_revision,
         "identity": {
@@ -508,7 +508,7 @@ pub fn update_physical_asset_identification(
             "notes": input.notes.trim()
         }
     }));
-    let checksum = request_checksum(&payload_json);
+    let checksum = request_checksum(&request_json);
     if let Some(replay) = replay_asset_operation(
         &transaction,
         &input.context,
@@ -533,6 +533,23 @@ pub fn update_physical_asset_identification(
             timestamp: &now,
         },
     )?;
+    let payload_json = render_json(&json!({
+        "asset_id": input.asset_id,
+        "from": {
+            "inventory_code": current.inventory_code,
+            "serial_number": current.serial_number,
+            "part_number": current.part_number,
+            "ownership_source": current.ownership_source,
+            "notes": current.notes
+        },
+        "to": {
+            "inventory_code": inventory_code,
+            "serial_number": serial_number,
+            "part_number": part_number,
+            "ownership_source": ownership_source_code(ownership_source),
+            "notes": input.notes.trim()
+        }
+    }));
     write_fleet_evidence(
         &transaction,
         evidence(
@@ -663,7 +680,7 @@ pub fn transition_physical_asset_service_state(
             "Indiquez pourquoi l'exemplaire n'est pas pleinement utilisable.",
         ));
     }
-    let payload_json = render_json(&json!({
+    let request_json = render_json(&json!({
         "asset_id": input.asset_id,
         "expected_revision": input.expected_revision,
         "to": service_state_code(requested),
@@ -675,7 +692,7 @@ pub fn transition_physical_asset_service_state(
         },
         "service_state_reason": reason
     }));
-    let checksum = request_checksum(&payload_json);
+    let checksum = request_checksum(&request_json);
     if let Some(replay) = replay_asset_operation(
         &transaction,
         &input.context,
@@ -717,6 +734,21 @@ pub fn transition_physical_asset_service_state(
             timestamp: &now,
         },
     )?;
+    let payload_json = render_json(&json!({
+        "asset_id": input.asset_id,
+        "from": {
+            "service_state": current.service_state,
+            "service_state_reason": current.service_state_reason,
+            "administrative_availability": current.administrative_availability,
+            "administrative_unavailability_reason": current.administrative_unavailability_reason
+        },
+        "to": {
+            "service_state": service_state_code(requested),
+            "service_state_reason": reason,
+            "administrative_availability": administrative_availability_code(next_administrative_availability),
+            "administrative_unavailability_reason": administrative_reason
+        }
+    }));
     write_fleet_evidence(
         &transaction,
         evidence(
@@ -751,13 +783,13 @@ pub fn transition_physical_asset_administrative_availability(
     let service_state = parse_service_state(&current.service_state)?;
     let current_availability =
         parse_administrative_availability(&current.administrative_availability)?;
-    let payload_json = render_json(&json!({
+    let request_json = render_json(&json!({
         "asset_id": input.asset_id,
         "expected_revision": input.expected_revision,
         "to": administrative_availability_code(requested),
         "administrative_unavailability_reason": reason
     }));
-    let checksum = request_checksum(&payload_json);
+    let checksum = request_checksum(&request_json);
     if let Some(replay) = replay_asset_operation(
         &transaction,
         &input.context,
@@ -779,6 +811,17 @@ pub fn transition_physical_asset_administrative_availability(
         reason,
         &now,
     )?;
+    let payload_json = render_json(&json!({
+        "asset_id": input.asset_id,
+        "from": {
+            "administrative_availability": current.administrative_availability,
+            "administrative_unavailability_reason": current.administrative_unavailability_reason
+        },
+        "to": {
+            "administrative_availability": administrative_availability_code(requested),
+            "administrative_unavailability_reason": reason
+        }
+    }));
     write_fleet_evidence(
         &transaction,
         evidence(
@@ -2555,6 +2598,98 @@ mod tests {
             );
             assert_eq!(created["asset"]["laboratory_location_id"], Value::Null);
         }
+
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
+    #[test]
+    fn fleet_audit_payloads_expose_readable_before_and_after_values() {
+        let storage_root = initialized_storage("fleet-readable-audit");
+        seed_approved_model(&storage_root, 1, "Scope audit", 'a');
+        let asset_id = generated_id("ASSET", "op-audit-asset", "INV-AUDIT-001");
+        create_physical_asset(
+            &storage_root,
+            asset_input("INV-AUDIT-001", Some("SN-OLD"), None, "op-audit-asset"),
+        )
+        .unwrap();
+
+        update_physical_asset_identification(
+            &storage_root,
+            UpdatePhysicalAssetIdentificationInput {
+                asset_id: asset_id.clone(),
+                expected_revision: 1,
+                inventory_code: "INV-AUDIT-002".to_owned(),
+                serial_number: Some("SN-NEW".to_owned()),
+                part_number: Some("PN-AUDIT".to_owned()),
+                ownership_source: "laboratory_owned".to_owned(),
+                notes: "Étiquette corrigée".to_owned(),
+                context: context("op-audit-identification"),
+            },
+        )
+        .unwrap();
+        transition_physical_asset_service_state(
+            &storage_root,
+            TransitionPhysicalAssetServiceStateInput {
+                asset_id: asset_id.clone(),
+                expected_revision: 2,
+                service_state: "restricted".to_owned(),
+                service_state_reason: "Utilisation surveillée".to_owned(),
+                context: context("op-audit-service"),
+            },
+        )
+        .unwrap();
+        transition_physical_asset_administrative_availability(
+            &storage_root,
+            TransitionPhysicalAssetAdministrativeAvailabilityInput {
+                asset_id: asset_id.clone(),
+                expected_revision: 3,
+                administrative_availability: "unavailable".to_owned(),
+                administrative_unavailability_reason: "Réservé à la maintenance".to_owned(),
+                context: context("op-audit-availability"),
+            },
+        )
+        .unwrap();
+
+        let audit = json_value(&list_physical_asset_audit_json(&storage_root, &asset_id).unwrap());
+        let events = audit["audit_events"].as_array().unwrap();
+        let identification = events
+            .iter()
+            .find(|event| event["action"] == "physical_asset_identification_updated")
+            .unwrap();
+        assert_eq!(
+            identification["payload"]["from"]["inventory_code"],
+            "INV-AUDIT-001"
+        );
+        assert_eq!(
+            identification["payload"]["to"]["inventory_code"],
+            "INV-AUDIT-002"
+        );
+        assert_eq!(identification["payload"]["from"]["serial_number"], "SN-OLD");
+        assert_eq!(identification["payload"]["to"]["serial_number"], "SN-NEW");
+
+        let service = events
+            .iter()
+            .find(|event| event["action"] == "physical_asset_service_state_changed")
+            .unwrap();
+        assert_eq!(service["payload"]["from"]["service_state"], "usable");
+        assert_eq!(service["payload"]["to"]["service_state"], "restricted");
+        assert_eq!(
+            service["payload"]["to"]["service_state_reason"],
+            "Utilisation surveillée"
+        );
+
+        let availability = events
+            .iter()
+            .find(|event| event["action"] == "physical_asset_administrative_availability_changed")
+            .unwrap();
+        assert_eq!(
+            availability["payload"]["from"]["administrative_availability"],
+            "available"
+        );
+        assert_eq!(
+            availability["payload"]["to"]["administrative_availability"],
+            "unavailable"
+        );
 
         let _ = std::fs::remove_dir_all(storage_root);
     }

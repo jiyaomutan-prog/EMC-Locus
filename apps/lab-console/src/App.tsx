@@ -65,7 +65,7 @@ function equipmentSpaceTitle(space: EquipmentSpace): string {
   if (space === "assets") return "Parc matériel";
   if (space === "metrology") return "Métrologie du parc";
   if (space === "setups") return "Montages de mesure";
-  if (space === "drivers") return "Drivers et pilotage";
+  if (space === "drivers") return "Profils de pilotage";
   if (space === "locations") return "Lieux du laboratoire";
   if (["signals", "sensors", "scaling", "curves", "daq", "recipes"].includes(space)) return "Signaux et corrections";
   if (space === "admin") return "Administration du référentiel";
@@ -517,7 +517,7 @@ export function App() {
           <button className={activeView === "equipment" && equipmentSpace === "assets" ? "active" : ""} onClick={() => { setEquipmentSpace("assets"); setActiveView("equipment"); }} title="Parc matériel"><PackagePlus size={18} /><span>Parc matériel</span></button>
           <button className={activeView === "equipment" && equipmentSpace === "metrology" ? "active" : ""} onClick={() => { setEquipmentSpace("metrology"); setActiveView("equipment"); }} title="Métrologie du parc"><Activity size={18} /><span>Métrologie du parc</span></button>
           <button className={activeView === "equipment" && equipmentSpace === "setups" ? "active" : ""} onClick={() => { setEquipmentSpace("setups"); setActiveView("equipment"); }} title="Montages de mesure"><Wrench size={18} /><span>Montages de mesure</span></button>
-          <button className={activeView === "equipment" && equipmentSpace === "drivers" ? "active" : ""} onClick={() => { setEquipmentSpace("drivers"); setActiveView("equipment"); }} title="Drivers et pilotage"><GitBranch size={18} /><span>Drivers et pilotage</span></button>
+          <button className={activeView === "equipment" && equipmentSpace === "drivers" ? "active" : ""} onClick={() => { setEquipmentSpace("drivers"); setActiveView("equipment"); }} title="Profils de pilotage"><GitBranch size={18} /><span>Profils de pilotage</span></button>
           <button className={activeView === "equipment" && equipmentSpace === "signals" ? "active" : ""} onClick={() => { setEquipmentSpace("signals"); setActiveView("equipment"); }} title="Signaux et corrections"><Cpu size={18} /><span>Signaux et corrections</span></button>
           <button className={activeView === "equipment" && equipmentSpace === "locations" ? "active" : ""} onClick={() => { setEquipmentSpace("locations"); setActiveView("equipment"); }} title="Lieux du laboratoire"><MapPin size={18} /><span>Lieux du laboratoire</span></button>
         </nav>

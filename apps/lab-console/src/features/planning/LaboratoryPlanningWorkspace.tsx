@@ -934,7 +934,6 @@ function PreparationWorkspace(props: {
 }) {
   const projectCode = props.item.project_code;
   const itemCode = props.item.item_code;
-  const reportError = props.onError;
   const [options, setOptions] = useState<PlannedTestPreparationOptions | null>(null);
   const [history, setHistory] = useState<PlannedTestPreparationRevision[]>([]);
   const [methodRevisionId, setMethodRevisionId] = useState(
@@ -954,30 +953,35 @@ function PreparationWorkspace(props: {
   const [reason, setReason] = useState("Vérification avant essai");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    reportError(null);
-    try {
-      const [available, revisions] = await Promise.all([
-        projectApi.plannedTestPreparationOptions(projectCode, itemCode),
-        projectApi.plannedTestPreparationRevisions(projectCode, itemCode)
-      ]);
-      setOptions(available);
-      setHistory(revisions.revisions);
-      setMethodRevisionId((current) => current || available.methods[0]?.revision_id || "");
-      setSetupRevisionId(
-        (current) => current
-          || available.station_setups.find((candidate) => candidate.eligible)?.station_setup.revision_id
-          || available.station_setups[0]?.station_setup.revision_id
-          || ""
-      );
-    } catch (caught) {
-      reportError(planningErrorMessage(caught));
-    } finally {
-      setLoading(false);
-    }
-  }, [itemCode, projectCode, reportError]);
+    setOptionsError(null);
+    setHistoryError(null);
+    const optionsLoad = projectApi.plannedTestPreparationOptions(projectCode, itemCode)
+      .then((available) => {
+        setOptions(available);
+        setOptionsError(null);
+        setMethodRevisionId((current) => current || available.methods[0]?.revision_id || "");
+        setSetupRevisionId(
+          (current) => current
+            || available.station_setups.find((candidate) => candidate.eligible)?.station_setup.revision_id
+            || available.station_setups[0]?.station_setup.revision_id
+            || ""
+        );
+      })
+      .catch((caught: unknown) => setOptionsError(planningErrorMessage(caught)))
+      .finally(() => setLoading(false));
+    const historyLoad = projectApi.plannedTestPreparationRevisions(projectCode, itemCode)
+      .then((revisions) => {
+        setHistory(revisions.revisions);
+        setHistoryError(null);
+      })
+      .catch((caught: unknown) => setHistoryError(planningErrorMessage(caught)));
+    await Promise.allSettled([optionsLoad, historyLoad]);
+  }, [itemCode, projectCode]);
 
   useEffect(() => {
     void load();
@@ -1023,11 +1027,16 @@ function PreparationWorkspace(props: {
         reason
       });
       props.onPreparation(result.preparation);
-      const revisions = await projectApi.plannedTestPreparationRevisions(
-        props.item.project_code,
-        props.item.item_code
-      );
-      setHistory(revisions.revisions);
+      try {
+        const revisions = await projectApi.plannedTestPreparationRevisions(
+          props.item.project_code,
+          props.item.item_code
+        );
+        setHistory(revisions.revisions);
+        setHistoryError(null);
+      } catch (caught) {
+        setHistoryError(planningErrorMessage(caught));
+      }
     } catch (caught) {
       props.onError(planningErrorMessage(caught));
     } finally {
@@ -1035,18 +1044,34 @@ function PreparationWorkspace(props: {
     }
   }
 
-  if (loading) {
-    return <div className="wizardBody preparationLoading"><RefreshCw size={20} /> Chargement de la préparation…</div>;
+  if (loading && !options) {
+    return <div className="wizardBody preparationWorkspace"><PreparationScheduleContext item={props.item} /><div className="preparationLoading"><RefreshCw size={20} /> Chargement de la préparation…</div></div>;
+  }
+  if (!options && optionsError) {
+    return (
+      <div className="wizardBody preparationWorkspace">
+        <PreparationScheduleContext item={props.item} />
+        <PreparationSourceError
+          title="Choix de préparation temporairement indisponibles"
+          detail={`Le projet et le créneau restent consultables. ${optionsError}`}
+        />
+        {historyError && <PreparationSourceError title="Historique de préparation indisponible" detail={historyError} />}
+        {history.length > 0 && <PreparationHistory revisions={history} />}
+      </div>
+    );
   }
   if (!options || options.methods.length === 0 || options.station_setups.length === 0) {
     return (
-      <div className="wizardBody preparationEmpty">
-        <ShieldAlert size={24} />
-        <div>
-          <strong>Préparation impossible pour le moment</strong>
-          <p>
-            Il faut au moins une méthode approuvée et un montage marqué « Prêt à câbler ».
-          </p>
+      <div className="wizardBody preparationWorkspace">
+        <PreparationScheduleContext item={props.item} />
+        <div className="preparationEmpty">
+          <ShieldAlert size={24} />
+          <div>
+            <strong>Préparation impossible pour le moment</strong>
+            <p>
+              Il faut au moins une méthode approuvée et un montage marqué « Prêt à câbler ».
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -1054,7 +1079,9 @@ function PreparationWorkspace(props: {
 
   return (
     <div className="wizardBody preparationWorkspace">
+      <PreparationScheduleContext item={props.item} />
       <PreparationVerdict preparation={props.preparation} />
+      {optionsError && <PreparationSourceError title="Actualisation des choix indisponible" detail={`Les choix déjà chargés restent affichés. ${optionsError}`} />}
 
       <section className="preparationSection">
         <div className="preparationSectionTitle">
@@ -1171,7 +1198,28 @@ function PreparationWorkspace(props: {
         </button>
       </section>
 
+      {historyError && <PreparationSourceError title="Historique de préparation indisponible" detail={`La préparation courante reste consultable. ${historyError}`} />}
       {history.length > 0 && <PreparationHistory revisions={history} />}
+    </div>
+  );
+}
+
+function PreparationScheduleContext(props: { item: LaboratoryScheduleItem }) {
+  return (
+    <section className="preparationScheduleContext" aria-label="Créneau préparé">
+      <div><span>Essai planifié</span><strong>{props.item.title}</strong></div>
+      <div><span>Créneau</span><strong>{formatFullDateTime(props.item)}</strong></div>
+      <div><span>Lieu</span><strong>{props.item.laboratory_location_label || "Lieu à identifier"}</strong></div>
+      <div><span>Objet soumis à l’essai</span><strong>{props.item.equipment_under_test || "Non renseigné"}</strong></div>
+    </section>
+  );
+}
+
+function PreparationSourceError(props: { title: string; detail: string }) {
+  return (
+    <div className="targetedError" role="alert">
+      <AlertCircle size={17} />
+      <div><strong>{props.title}</strong><p>{props.detail}</p></div>
     </div>
   );
 }

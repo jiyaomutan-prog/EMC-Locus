@@ -471,6 +471,28 @@ describe("LAB CONSOLE", () => {
     );
   });
 
+  test("keeps project and schedule context visible when preparation options fail", async () => {
+    mockLaboratoryPlanningApi({ preparationOptionsFailure: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Ouvrir Immunité rayonnée, dossier CEM-LAB-002"
+      })
+    );
+    await user.click(await screen.findByRole("button", { name: "Préparer l'essai" }));
+
+    expect(await screen.findByText("Choix de préparation temporairement indisponibles")).toBeInTheDocument();
+    expect(screen.getAllByText("CEM-LAB-002 · Mobilités Boréal").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Immunité rayonnée").length).toBeGreaterThan(0);
+    expect(screen.getByText("Objet soumis à l’essai")).toBeInTheDocument();
+    expect(screen.getByText("Calculateur de bord")).toBeInTheDocument();
+    expect(screen.queryByText("options de préparation indisponibles", { exact: true })).not.toBeInTheDocument();
+  });
+
   test("explains when a method role has no compatible material in the selected setup", async () => {
     mockLaboratoryPlanningApi({ noCompatibleMaterials: true });
     const user = userEvent.setup();
@@ -634,9 +656,11 @@ describe("LAB CONSOLE", () => {
     const modelButton = await screen.findByRole("treeitem", { name: /NRP6AN/ });
     await user.click(modelButton);
     expect(await screen.findByText("Vous consultez un modèle générique.")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Drivers et pilotage" }));
+    await user.click(screen.getByRole("button", { name: "Entrées et sorties" }));
+    expect(screen.getByText("Vous consultez un modèle générique.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Profils de pilotage" }));
     await user.click(await screen.findByRole("button", { name: /NRP6AN SCPI/ }));
-    expect(await screen.findByText(/No VISA implementation installed/)).toBeInTheDocument();
+    expect(await screen.findByText(/Aucune implémentation VISA n’est installée/)).toBeInTheDocument();
   });
 
   test("registers a physical asset from an approved equipment model", async () => {
@@ -785,6 +809,15 @@ describe("LAB CONSOLE", () => {
         return jsonResponse({ error: { code: "metrology_unavailable", message: "service métrologique indisponible" } }, 503);
       }
       if (path === "/api/v1/equipment/communication-providers") return jsonResponse({ providers: [] });
+      if (path === "/api/v1/equipment-models/EQM-NRP6AN-FWD") {
+        return jsonResponse({ equipment_model: equipmentModelFixture() });
+      }
+      if (path === "/api/v1/equipment-models/EQM-NRP6AN-FWD/revisions") {
+        return jsonResponse({ error: { code: "revisions_unavailable", message: "versions temporairement indisponibles" } }, 503);
+      }
+      if (path === "/api/v1/equipment-models/EQM-NRP6AN-FWD/audit-events") {
+        return jsonResponse({ error: { code: "audit_unavailable", message: "journal temporairement indisponible" } }, 503);
+      }
       return mockBaseApiResponse(path, init);
     });
     const user = userEvent.setup();
@@ -795,6 +828,12 @@ describe("LAB CONSOLE", () => {
     expect(await screen.findByText("Pilotage temporairement indisponible")).toBeInTheDocument();
     expect(screen.getByRole("treeitem", { name: /NRP6AN/ })).toBeInTheDocument();
     expect(screen.getByText(/Le catalogue reste consultable\./)).toBeInTheDocument();
+    await user.click(screen.getByRole("treeitem", { name: /NRP6AN/ }));
+    expect(await screen.findByText("Vous consultez un modèle générique.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "R&S NRP6AN" })).toBeInTheDocument();
+    expect(await screen.findByText("Historique des versions indisponible")).toBeInTheDocument();
+    expect(await screen.findByText("Historique des modifications indisponible")).toBeInTheDocument();
+    expect(screen.getByText(/La fiche du modèle reste consultable\./)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Parc matériel" }));
     expect(await screen.findByText("Métrologie temporairement indisponible")).toBeInTheDocument();
@@ -835,6 +874,73 @@ describe("LAB CONSOLE", () => {
     expect(openPinnedModel).toHaveBeenCalledWith("EQM-NRP6AN-FWD", "EQM-NRP6AN-FWD-rev-0001");
     await user.click(screen.getByRole("button", { name: "Par emplacement" }));
     expect(screen.getAllByRole("treeitem", { name: /Labo CEM 1/ }).some((item) => item.classList.contains("fleetGroup"))).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Historique" }));
+    expect(await screen.findByText("Historique temporairement indisponible")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "INV-0043" })).toBeInTheDocument();
+  });
+
+  test("renders real fleet audit events without coupling asset identity to audit availability", async () => {
+    const asset = physicalAssetFixture();
+    const auditEvents = [
+      {
+        sequence: 1,
+        action: "physical_asset_identification_updated",
+        actor: "fleet.operator",
+        reason: "Alignement avec l'étiquette du laboratoire",
+        old_revision: 1,
+        new_revision: 2,
+        operation_id: "op-identification-1",
+        device_id: "lab-console",
+        correlation_id: "corr-identification-1",
+        payload: {
+          from: { inventory_code: "INV-0041", serial_number: "SN-0042" },
+          to: { inventory_code: "INV-0042", serial_number: "SN-0042" }
+        },
+        occurred_at: "2026-07-27T09:15:00Z"
+      },
+      {
+        sequence: 2,
+        action: "physical_asset_moved",
+        actor: "Opérateur CEM",
+        reason: "Affectation au poste conduit",
+        old_revision: 2,
+        new_revision: 3,
+        operation_id: "op-move-1",
+        device_id: "lab-console",
+        correlation_id: "corr-move-1",
+        payload: {
+          from: { laboratory_location_label: "Magasin métrologie" },
+          to: { laboratory_location_label: "Labo CEM 1" }
+        },
+        occurred_at: "2026-07-27T10:30:00Z"
+      }
+    ];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/v1/fleet/assets") return jsonResponse({ assets: [asset] });
+      if (path === `/api/v1/fleet/assets/${asset.asset_id}/audit-events`) {
+        return jsonResponse({ entity_id: asset.asset_id, audit_events: auditEvents });
+      }
+      return mockBaseApiResponse(path);
+    });
+    const user = userEvent.setup();
+
+    render(<FleetWorkspace
+      models={[equipmentModelFixture() as EquipmentModelAggregate]}
+      categories={equipmentCategoriesFixture()}
+      onOpenPinnedModel={vi.fn()}
+      onOpenMetrology={vi.fn()}
+    />);
+
+    expect(await screen.findByRole("heading", { name: "INV-0042" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Historique" }));
+    expect(await screen.findByRole("heading", { name: "Déplacement de l’exemplaire" })).toBeInTheDocument();
+    expect(screen.getByText("Affectation au poste conduit", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("Emplacement : Magasin métrologie → Labo CEM 1.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Modification du code inventaire et de l’identification" })).toBeInTheDocument();
+    expect(screen.getByText("Code inventaire : INV-0041 → INV-0042.")).toBeInTheDocument();
+    expect(screen.getByText("Opérateur du parc", { exact: false })).toBeInTheDocument();
+    expect(screen.getAllByText("Détails techniques").filter((element) => element.tagName === "SUMMARY")).toHaveLength(2);
   });
 
   test("separates administrative availability from computed operational usage", async () => {
@@ -1118,8 +1224,9 @@ describe("LAB CONSOLE", () => {
     const view = render(<StationSetupWorkspace />);
 
     expect(await screen.findByRole("heading", { name: "Chaîne d'émissions conduites" })).toBeInTheDocument();
+    expect(screen.queryByText(/pré-vol/i)).not.toBeInTheDocument();
     const selector = screen.getByLabelText(/Exemplaire du parc/);
-    const assetOption = within(selector).getByRole("option", { name: /INV-0042.*SN 103456.*Labo CEM 1.*Utilisable.*Disponible.*Étalonnage valide/ });
+    const assetOption = await within(selector).findByRole("option", { name: /INV-0042.*SN 103456.*Labo CEM 1.*Utilisable.*Disponible.*Étalonnage valide/ });
     expect(assetOption).toBeInTheDocument();
     expect(within(selector).getByRole("option", { name: /INV-OOS.*hors service/ })).toBeDisabled();
     expect(screen.getByText("Matériels non disponibles (1)")).toBeInTheDocument();
@@ -2705,6 +2812,7 @@ function mockLaboratoryPlanningApi(settings: {
   identificationConcurrency?: boolean;
   legacyConflict?: boolean;
   locationFailure?: boolean;
+  preparationOptionsFailure?: boolean;
 } = {}) {
   let rescheduleAttempts = 0;
   const first: LaboratoryScheduleItem = {
@@ -2921,6 +3029,9 @@ function mockLaboratoryPlanningApi(settings: {
       });
     }
     if (path === `${preparationBase}/options`) {
+      if (settings.preparationOptionsFailure) {
+        return jsonResponse({ error: { code: "preparation_options_unavailable", message: "options de préparation indisponibles" } }, 503);
+      }
       return jsonResponse(preparationOptions);
     }
     if (path === `${preparationBase}/revisions`) {
@@ -3173,6 +3284,9 @@ function mockBaseApiResponse(path: string, init?: RequestInit) {
   if (path.startsWith("/api/v1/equipment/categories/rf_cable/field-rules")) return jsonResponse({ category_id: "rf_cable", rules: [] });
   if (path.startsWith("/api/v1/equipment/categories")) return jsonResponse({ categories: equipmentCategoriesFixture() });
   if (path.startsWith("/api/v1/equipment/field-definitions")) return jsonResponse({ field_definitions: equipmentFieldDefinitionsFixture() });
+  if (path.includes("/api/v1/fleet/assets/") && path.endsWith("/audit-events")) {
+    return jsonResponse({ entity_id: path.split("/")[5], audit_events: [] });
+  }
   if (path === "/api/v1/metrology/instruments") return jsonResponse({ instruments: [] });
   if (path.includes("/api/v1/metrology/instruments/") && path.endsWith("/audit-events")) {
     return jsonResponse({ audit_events: [] });
