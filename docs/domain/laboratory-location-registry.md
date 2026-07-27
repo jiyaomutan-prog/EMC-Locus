@@ -30,5 +30,19 @@ l'audit et l'outbox dans une transaction `BEGIN IMMEDIATE`. Un archivage déjà
 commité est donc refusé ; une écriture concurrente sur l'exemplaire produit un
 conflit de révision sans preuve partielle.
 
+Les commandes d'écriture d'un montage ouvrent de la même manière une
+transaction `BEGIN IMMEDIATE` sur `station.sqlite`, avec `equipment.sqlite` et
+`sync.sqlite` attachés. La création, le remplacement d'un brouillon, la
+dérivation d'une révision et le passage à l'état prêt chargent et valident le
+lieu actif dans cette transaction. Le libellé est toujours dérivé du registre :
+une valeur envoyée par un client ne peut pas remplacer le libellé officiel.
+
+Cette frontière sérialise l'affectation avec un archivage concurrent. En cas de
+refus, aucune identité de montage, révision, opération, preuve d'audit ou ligne
+d'outbox n'est conservée. Le rejeu d'une opération déjà réussie reste possible
+même si le lieu est archivé plus tard. Un renommage conserve l'identité stable,
+rafraîchit le libellé des nouvelles révisions et ne réécrit jamais les
+instantanés des révisions historiques.
+
 La 0.22.0 n'introduit pas de gestion de bâtiment, de capacité de salle ni de
 calendrier d'occupation supplémentaire.

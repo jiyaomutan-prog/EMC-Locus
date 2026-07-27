@@ -86,7 +86,6 @@ export function StationSetupWorkspace() {
       setup_id: setupId,
       label: input.label,
       laboratory_location_id: location.location_id,
-      laboratory_location_label: location.label,
       planned_use_on: input.plannedUseOn,
       execution_mode: input.executionMode
     }, operationContext);

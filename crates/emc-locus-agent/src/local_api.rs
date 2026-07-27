@@ -2104,7 +2104,6 @@ fn create_station_setup_input(payload: &Value) -> Result<CreateStationSetupInput
         setup_id: required_string(payload, "setup_id")?,
         label: required_string(payload, "label")?,
         laboratory_location_id: required_string(payload, "laboratory_location_id")?,
-        laboratory_location_label: required_string(payload, "laboratory_location_label")?,
         planned_use_on: required_string(payload, "planned_use_on")?,
         execution_mode: required_string(payload, "execution_mode")?,
         context: station_operation_context(payload)?,
@@ -3222,6 +3221,7 @@ fn status_for_error(code: &str) -> u16 {
         | "asset_correction_model_not_found"
         | "asset_correction_requirement_not_found"
         | "station_setup_not_found"
+        | "station_setup_location_not_found"
         | "station_setup_revision_not_found"
         | "planned_test_preparation_revision_not_found"
         | "planned_test_method_not_found"
@@ -3310,6 +3310,7 @@ fn status_for_error(code: &str) -> u16 {
         | "asset_correction_model_pin_mismatch"
         | "asset_correction_source_pin_mismatch"
         | "station_setup_exists"
+        | "station_setup_location_archived"
         | "station_setup_concurrent_update"
         | "station_setup_revision_not_editable"
         | "station_setup_active_draft_exists"
@@ -8173,7 +8174,7 @@ mod tests {
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
             lab_console_dist: repo_root().join("apps/lab-console/dist"),
-            max_requests: Some(7),
+            max_requests: Some(8),
         });
         assert_eq!(wait_for_http(&first_address, "/api/v1/health").0, 200);
 
@@ -8185,7 +8186,7 @@ mod tests {
                 "setup_id": "SETUP-RF-HTTP-001",
                 "label": "Mesure RF câble vers récepteur",
                 "laboratory_location_id": fixture.laboratory_location_id,
-                "laboratory_location_label": "Poste CEM mobile",
+                "laboratory_location_label": "Libellé client non autoritatif",
                 "planned_use_on": "2026-07-15",
                 "execution_mode": "accredited",
                 "actor": "test.technician",
@@ -8199,12 +8200,16 @@ mod tests {
         let draft = &created_json["station_setup"]["active_draft_revision"];
         let revision_id = draft["revision_id"].as_str().unwrap();
         let initial_checksum = draft["definition_checksum"].as_str().unwrap();
+        assert_eq!(
+            draft["definition"]["laboratory_location_label"],
+            "Poste CEM mobile"
+        );
         let definition = json!({
             "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-RF-HTTP-001",
             "label": "Mesure RF câble vers récepteur",
             "laboratory_location_id": fixture.laboratory_location_id,
-            "laboratory_location_label": "Poste CEM mobile",
+            "laboratory_location_label": "Autre libellé client non autoritatif",
             "planned_use_on": "2026-07-15",
             "execution_mode": "accredited",
             "asset_bindings": [
@@ -8255,6 +8260,11 @@ mod tests {
         );
         assert_eq!(saved.0, 200, "{}", saved.1);
         let saved_json: Value = serde_json::from_str(&saved.1).unwrap();
+        assert_eq!(
+            saved_json["station_setup"]["active_draft_revision"]["definition"]
+                ["laboratory_location_label"],
+            "Poste CEM mobile"
+        );
         let ready_checksum = saved_json["station_setup"]["active_draft_revision"]
             ["definition_checksum"]
             .as_str()
@@ -8268,6 +8278,38 @@ mod tests {
         );
         assert_eq!(readiness.0, 200, "{}", readiness.1);
         assert!(readiness.1.contains("\"ready\":true"));
+        let equipment = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        equipment
+            .execute(
+                "UPDATE laboratory_locations SET status = 'archived', revision = revision + 1
+                 WHERE location_id = ?1",
+                rusqlite::params![fixture.laboratory_location_id],
+            )
+            .unwrap();
+        let archived_ready = http_request(
+            "POST",
+            &first_address,
+            &format!(
+                "/api/v1/station-setups/SETUP-RF-HTTP-001/revisions/{revision_id}/transitions/ready"
+            ),
+            &json!({
+                "expected_definition_checksum": ready_checksum,
+                "actor": "test.technician",
+                "reason": "reject archived HTTP station location",
+                "operation_id": "op-http-station-ready-archived"
+            })
+            .to_string(),
+        );
+        assert_eq!(archived_ready.0, 409, "{}", archived_ready.1);
+        assert!(archived_ready.1.contains("station_setup_location_archived"));
+        equipment
+            .execute(
+                "UPDATE laboratory_locations SET status = 'active', revision = revision + 1
+                 WHERE location_id = ?1",
+                rusqlite::params![fixture.laboratory_location_id],
+            )
+            .unwrap();
+        drop(equipment);
         let marked_ready = http_request(
             "POST",
             &first_address,
@@ -8294,8 +8336,10 @@ mod tests {
         let outbox = http_request("GET", &first_address, "/api/v1/sync/outbox", "");
         assert_eq!(audit.0, 200, "{}", audit.1);
         assert!(audit.1.contains("station_setup_marked_ready"));
+        assert!(!audit.1.contains("op-http-station-ready-archived"));
         assert_eq!(outbox.0, 200, "{}", outbox.1);
         assert!(outbox.1.contains("\"domain\":\"station_configurations\""));
+        assert!(!outbox.1.contains("op-http-station-ready-archived"));
         first_server
             .join()
             .expect("server thread panicked")

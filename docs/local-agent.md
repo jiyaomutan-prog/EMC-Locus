@@ -387,6 +387,16 @@ makes the revision immutable and writes station audit plus sync outbox evidence
 atomically. `station.sqlite` is a separate local domain; it does not duplicate
 the equipment catalog or metrology record.
 
+From `0.22.0`, every station write that assigns or confirms a laboratory
+location runs under one `BEGIN IMMEDIATE` transaction on `station.sqlite` with
+`equipment.sqlite` and `sync.sqlite` attached. The agent validates the active
+location and derives its current label inside that boundary for creation,
+draft replacement, derived revisions and the `ready` transition. Station
+creation no longer accepts a client-owned location label. A concurrent archive
+is refused without station, audit, operation or outbox residue; a successful
+operation can still be replayed after a later archive. Existing revision JSON
+remains an immutable readable snapshot when the registry label is renamed.
+
 Version `0.18.0` adds the reviewed correction link between one physical asset,
 one requirement from its pinned approved model and one immutable calibration or
 characterization event. The agent owns draft/review/activation transitions,

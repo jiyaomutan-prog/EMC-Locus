@@ -882,7 +882,6 @@ export const stationSetupApi = {
     setup_id: string;
     label: string;
     laboratory_location_id: string;
-    laboratory_location_label: string;
     planned_use_on: string;
     execution_mode: "accredited" | "non_accredited" | "investigation";
   }, context: OperationContext) =>

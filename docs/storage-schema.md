@@ -530,8 +530,20 @@ stable `laboratory_location_id` and a readable
 retain their original canonical JSON and checksum; they do not acquire a
 fabricated location identity.
 
-Station writes attach `sync.sqlite` and add pending outbox rows in the same
-rollback-journal transaction. Sync migration
+Station writes attach both `equipment.sqlite` and `sync.sqlite` and add pending
+outbox rows in the same rollback-journal transaction. Creation, draft
+replacement, derived-revision creation and the `ready` transition use
+`BEGIN IMMEDIATE`, resolve the active registry row from
+`equipment_db.laboratory_locations`, and derive the readable label before any
+station evidence is written. Operation replay is resolved inside the same
+boundary before current-location validation, so a committed operation remains
+replayable after a later archive. A rejected assignment leaves no identity,
+revision, operation, audit or outbox row.
+
+The stable location id remains pinned in canonical station definitions. A
+registry rename is reflected only in newly written revisions; historical
+definition JSON and checksums retain their original readable label snapshot.
+Sync migration
 `0005_station_configurations_domain.sql` registers the
 `station_configurations` domain. `station.sqlite` does not store model
 definitions, calibration events, characterization bodies or acquired data; it

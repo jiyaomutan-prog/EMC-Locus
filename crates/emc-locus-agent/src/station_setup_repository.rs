@@ -7,6 +7,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::path::Path;
+use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct StoredStationSetupIdentity {
@@ -65,6 +66,13 @@ pub(crate) struct StoredStationSetupOperation {
     pub(crate) payload_checksum: String,
     pub(crate) result_revision_id: String,
     pub(crate) result_definition_checksum: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AttachedLaboratoryLocation {
+    pub(crate) location_id: String,
+    pub(crate) label: String,
+    pub(crate) status: String,
 }
 
 pub(crate) struct NewStationSetupIdentity<'a> {
@@ -160,6 +168,9 @@ pub(crate) fn open_station_connection(storage_root: &Path) -> Result<Connection,
     connection
         .execute_batch("PRAGMA foreign_keys = ON;")
         .map_err(|error| AgentError::new("database_pragma_error", error.to_string()))?;
+    connection
+        .busy_timeout(Duration::from_secs(5))
+        .map_err(|error| AgentError::new("database_pragma_error", error.to_string()))?;
     ensure_station_tables(&connection)?;
     Ok(connection)
 }
@@ -169,10 +180,11 @@ pub(crate) fn open_station_connection_with_sync(
 ) -> Result<Connection, AgentError> {
     let station_database = storage_root.join("station.sqlite");
     let sync_database = storage_root.join("sync.sqlite");
-    if !station_database.exists() || !sync_database.exists() {
+    let equipment_database = storage_root.join("equipment.sqlite");
+    if !station_database.exists() || !sync_database.exists() || !equipment_database.exists() {
         return Err(AgentError::new(
             "storage_not_initialized",
-            "station setup writes require initialized station.sqlite and sync.sqlite",
+            "station setup writes require initialized station.sqlite, sync.sqlite and equipment.sqlite",
         ));
     }
     let connection = Connection::open(&station_database).map_err(|error| {
@@ -185,13 +197,27 @@ pub(crate) fn open_station_connection_with_sync(
         .execute_batch("PRAGMA foreign_keys = ON;")
         .map_err(|error| AgentError::new("database_pragma_error", error.to_string()))?;
     connection
+        .busy_timeout(Duration::from_secs(5))
+        .map_err(|error| AgentError::new("database_pragma_error", error.to_string()))?;
+    connection
         .execute(
             "ATTACH DATABASE ?1 AS sync_db",
             params![sync_database.to_string_lossy().to_string()],
         )
         .map_err(|error| AgentError::new("database_attach_error", error.to_string()))?;
+    connection
+        .execute(
+            "ATTACH DATABASE ?1 AS equipment_db",
+            params![equipment_database.to_string_lossy().to_string()],
+        )
+        .map_err(|error| AgentError::new("database_attach_error", error.to_string()))?;
     enforce_project_slice_journal_mode(&connection, AttachedDatabase::Main, "station.sqlite")?;
     enforce_project_slice_journal_mode(&connection, AttachedDatabase::SyncDb, "sync.sqlite")?;
+    enforce_project_slice_journal_mode(
+        &connection,
+        AttachedDatabase::EquipmentDb,
+        "equipment.sqlite",
+    )?;
     ensure_station_tables(&connection)?;
     if !table_exists(&connection, "sync_db", "sync_operations")? {
         return Err(AgentError::new(
@@ -199,7 +225,34 @@ pub(crate) fn open_station_connection_with_sync(
             "missing required table sync_db.sync_operations",
         ));
     }
+    if !table_exists(&connection, "equipment_db", "laboratory_locations")? {
+        return Err(AgentError::new(
+            "storage_not_initialized",
+            "missing required table equipment_db.laboratory_locations",
+        ));
+    }
     Ok(connection)
+}
+
+pub(crate) fn load_attached_laboratory_location(
+    connection: &Connection,
+    location_id: &str,
+) -> Result<Option<AttachedLaboratoryLocation>, AgentError> {
+    connection
+        .query_row(
+            "SELECT location_id, label, status
+             FROM equipment_db.laboratory_locations WHERE location_id = ?1",
+            params![location_id],
+            |row| {
+                Ok(AttachedLaboratoryLocation {
+                    location_id: row.get(0)?,
+                    label: row.get(1)?,
+                    status: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| AgentError::new("laboratory_location_query_failed", error.to_string()))
 }
 
 fn ensure_station_tables(connection: &Connection) -> Result<(), AgentError> {
