@@ -17,6 +17,7 @@ mod measurement_engineering_dto;
 mod measurement_engineering_repository;
 mod measurement_engineering_service;
 mod metrology_agent;
+mod metrology_assessment;
 mod metrology_dto;
 mod metrology_repository;
 mod metrology_service;
@@ -88,12 +89,12 @@ pub use fleet_service::{
     archive_laboratory_location_json, create_laboratory_location, create_physical_asset,
     get_physical_asset_json, list_laboratory_location_audit_json, list_laboratory_locations_json,
     list_model_reconciliation_candidates_json, list_physical_asset_audit_json,
-    list_physical_assets_json, list_physical_assets_json_at, move_physical_asset,
-    reconcile_physical_asset_model_json, transition_physical_asset_administrative_availability,
-    transition_physical_asset_service_state, update_laboratory_location_json,
-    update_physical_asset_identification, ArchiveLaboratoryLocationInput,
-    CreateLaboratoryLocationInput, CreatePhysicalAssetInput, FleetOperationContext,
-    MovePhysicalAssetInput, ReconcilePhysicalAssetModelInput,
+    list_physical_assets_json, list_physical_assets_json_at, list_physical_assets_json_for_context,
+    move_physical_asset, reconcile_physical_asset_model_json,
+    transition_physical_asset_administrative_availability, transition_physical_asset_service_state,
+    update_laboratory_location_json, update_physical_asset_identification,
+    ArchiveLaboratoryLocationInput, CreateLaboratoryLocationInput, CreatePhysicalAssetInput,
+    FleetOperationContext, MovePhysicalAssetInput, ReconcilePhysicalAssetModelInput,
     TransitionPhysicalAssetAdministrativeAvailabilityInput,
     TransitionPhysicalAssetServiceStateInput, UpdateLaboratoryLocationInput,
     UpdatePhysicalAssetIdentificationInput,

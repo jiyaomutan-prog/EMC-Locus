@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fleetApi, type OperationContext } from "../../api";
+import { metrologyStatusGroup, metrologyStatusLabel } from "../../metrologyStatus";
 import type { EquipmentCategory, EquipmentModelAggregate } from "../../models/equipment";
 import type {
   AdministrativeAvailability,
@@ -839,8 +840,8 @@ function formatDate(value: string) { return new Intl.DateTimeFormat("fr-FR", { d
 function formatList(items: string[]) { return new Intl.ListFormat("fr-FR", { style: "long", type: "conjunction" }).format(items); }
 function reconciliationCandidateLabel(candidate: ModelReconciliationCandidate) { return `${candidate.manufacturer} ${candidate.model_name}${candidate.variant ? ` ${candidate.variant}` : ""} · ${candidate.category_path.join(" > ")} · Version ${candidate.revision_number} · ${revisionStatusLabel(candidate.lifecycle_status)}${candidate.approved_at ? ` · ${formatDate(candidate.approved_at)}` : ""}`; }
 function revisionStatusLabel(value: ModelReconciliationCandidate["lifecycle_status"]) { return value === "approved" ? "Approuvée" : "Remplacée"; }
-function metrologyGroup(asset: PhysicalAsset) { if (!asset.metrology || asset.metrology.calibration_requirement === "not_required") return "Étalonnage non requis"; if (!asset.metrology.latest_due_at) return "Étalonnage à planifier"; return new Date(asset.metrology.latest_due_at) < new Date() ? "Échéance dépassée" : "Étalonnage valide"; }
-function metrologyLabel(asset: PhysicalAsset) { if (!asset.metrology) return "Dossier métrologique indisponible"; if (asset.metrology.calibration_requirement === "not_required") return "Étalonnage non requis"; if (!asset.metrology.latest_due_at) return "Étalonnage à planifier"; return `Valide jusqu'au ${formatDate(asset.metrology.latest_due_at)}`; }
+function metrologyGroup(asset: PhysicalAsset) { return metrologyStatusGroup(asset.metrology); }
+function metrologyLabel(asset: PhysicalAsset) { return metrologyStatusLabel(asset.metrology); }
 function serviceStateLabel(value: ServiceState) { return serviceStateChoices.find(([key]) => key === value)?.[1] ?? value; }
 function serviceStateForcesUnavailability(value: ServiceState) { return value === "in_maintenance" || value === "out_of_service" || value === "retired"; }
 function locationDisplay(asset: PhysicalAsset) { if (!asset.laboratory_location_label) return "Emplacement non défini"; return asset.laboratory_location_status === "archived" ? `${asset.laboratory_location_label} (archivé)` : asset.laboratory_location_label; }

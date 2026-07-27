@@ -6,7 +6,7 @@ use crate::fleet_dto::{
     FleetAuditEventDto, FleetAuditEventListDto, LaboratoryLocationDto,
     LaboratoryLocationEnvelopeDto, LaboratoryLocationListDto, ModelReconciliationCandidateDto,
     ModelReconciliationCandidateListDto, PhysicalAssetDto, PhysicalAssetEnvelopeDto,
-    PhysicalAssetListDto, PhysicalAssetMetrologySummaryDto,
+    PhysicalAssetListDto,
 };
 use crate::fleet_repository::{
     archive_laboratory_location, existing_fleet_operation, insert_laboratory_location,
@@ -21,7 +21,11 @@ use crate::fleet_repository::{
     StoredLaboratoryLocation, StoredPhysicalAsset, UpdatePhysicalAssetIdentityInput,
 };
 use crate::fleet_usage::compute_operational_usage;
+use crate::metrology_assessment::{
+    assess_metrology_source, MetrologyAssessmentSource, MetrologyStatusSummaryDto,
+};
 use crate::{render_json, AgentError};
+use emc_locus_core::metrology::MetrologyDate;
 use emc_locus_core::{
     administrative_availability_code, ownership_source_code, service_state_code,
     validate_administrative_availability_transition, validate_service_state_transition,
@@ -143,12 +147,24 @@ pub fn list_physical_assets_json_at(
     storage_root: &Path,
     assessed_at: Option<&str>,
 ) -> Result<String, AgentError> {
+    list_physical_assets_json_for_context(storage_root, assessed_at, None)
+}
+
+pub fn list_physical_assets_json_for_context(
+    storage_root: &Path,
+    assessed_at: Option<&str>,
+    checked_on: Option<&str>,
+) -> Result<String, AgentError> {
     let connection = open_fleet_connection(storage_root)?;
     let assets = list_physical_assets(&connection)?;
     let assessed_at = parse_assessed_at(assessed_at)?;
+    let checked_on = match checked_on {
+        Some(value) => crate::metrology_assessment::parse_checked_on(value, "checked_on")?,
+        None => metrology_date_from_instant(assessed_at),
+    };
     let dtos = assets
         .iter()
-        .map(|asset| physical_asset_dto_at(&connection, asset, assessed_at))
+        .map(|asset| physical_asset_dto_at(&connection, asset, assessed_at, checked_on))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(render_json(&PhysicalAssetListDto { assets: dtos }))
 }
@@ -1195,13 +1211,20 @@ fn physical_asset_dto(
     connection: &rusqlite::Connection,
     asset: &StoredPhysicalAsset,
 ) -> Result<PhysicalAssetDto, AgentError> {
-    physical_asset_dto_at(connection, asset, OffsetDateTime::now_utc())
+    let assessed_at = OffsetDateTime::now_utc();
+    physical_asset_dto_at(
+        connection,
+        asset,
+        assessed_at,
+        metrology_date_from_instant(assessed_at),
+    )
 }
 
 fn physical_asset_dto_at(
     connection: &rusqlite::Connection,
     asset: &StoredPhysicalAsset,
     assessed_at: OffsetDateTime,
+    metrology_checked_on: MetrologyDate,
 ) -> Result<PhysicalAssetDto, AgentError> {
     let current_location = match asset.laboratory_location_id.as_deref() {
         Some(location_id) => load_laboratory_location(connection, location_id)?,
@@ -1240,10 +1263,15 @@ fn physical_asset_dto_at(
         revision: asset.revision,
         model_link_state: asset.model_link_state.clone(),
         migrated_from_metrology: asset.migrated_from_metrology,
-        metrology: load_metrology_summary(connection, &asset.asset_id)?,
+        metrology: load_metrology_summary(connection, &asset.asset_id, metrology_checked_on),
         created_at: asset.created_at.clone(),
         updated_at: asset.updated_at.clone(),
     })
+}
+
+fn metrology_date_from_instant(value: OffsetDateTime) -> MetrologyDate {
+    MetrologyDate::new(value.year() as u16, value.month() as u8, value.day())
+        .expect("an OffsetDateTime always contains a valid civil date")
 }
 
 fn parse_assessed_at(value: Option<&str>) -> Result<OffsetDateTime, AgentError> {
@@ -1262,11 +1290,13 @@ fn parse_assessed_at(value: Option<&str>) -> Result<OffsetDateTime, AgentError> 
 pub(crate) fn load_metrology_summary(
     connection: &rusqlite::Connection,
     asset_id: &str,
-) -> Result<Option<PhysicalAssetMetrologySummaryDto>, AgentError> {
-    connection
+    checked_on: MetrologyDate,
+) -> MetrologyStatusSummaryDto {
+    let source = connection
         .query_row(
             "SELECT dossier.calibration_requirement, dossier.calibration_period_months,
-                dossier.calibration_due_warning_days, latest.due_at, latest.decision
+                dossier.calibration_due_warning_days, latest.calibrated_at, latest.due_at,
+                latest.decision, latest.event_id, latest.revision
              FROM metrology_db.metrology_asset_dossiers dossier
              LEFT JOIN metrology_db.calibration_events latest
                ON latest.event_id = (
@@ -1277,17 +1307,23 @@ pub(crate) fn load_metrology_summary(
              WHERE dossier.asset_id = ?1",
             params![asset_id],
             |row| {
-                Ok(PhysicalAssetMetrologySummaryDto {
+                Ok(MetrologyAssessmentSource {
                     calibration_requirement: row.get(0)?,
                     calibration_period_months: row.get(1)?,
                     calibration_due_warning_days: row.get(2)?,
-                    latest_due_at: row.get(3)?,
-                    latest_decision: row.get(4)?,
+                    calibrated_at: row.get(3)?,
+                    due_at: row.get(4)?,
+                    decision: row.get(5)?,
+                    latest_calibration_event_id: row.get(6)?,
+                    latest_calibration_revision: row.get(7)?,
                 })
             },
         )
-        .optional()
-        .map_err(|error| AgentError::new("metrology_dossier_query_failed", error.to_string()))
+        .optional();
+    match source {
+        Ok(Some(source)) => assess_metrology_source(checked_on, source),
+        Ok(None) | Err(_) => MetrologyStatusSummaryDto::unavailable(checked_on),
+    }
 }
 
 pub(crate) fn category_path(asset: &StoredPhysicalAsset) -> Vec<String> {
@@ -1738,6 +1774,87 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 4);
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
+    #[test]
+    fn metrology_storage_failure_preserves_physical_asset_identity() {
+        let storage_root = initialized_storage("fleet-metrology-unavailable");
+        seed_approved_model(&storage_root, 1, "Scope 1", 'a');
+        let asset_id = generated_id("ASSET", "op-unavailable", "INV-UNAVAILABLE");
+        create_physical_asset(
+            &storage_root,
+            asset_input("INV-UNAVAILABLE", None, None, "op-unavailable"),
+        )
+        .unwrap();
+
+        let metrology_path = storage_root.join("metrology.sqlite");
+        let unavailable_path = storage_root.join("metrology.unavailable");
+        std::fs::rename(&metrology_path, &unavailable_path).unwrap();
+
+        let response = json_value(&get_physical_asset_json(&storage_root, &asset_id).unwrap());
+        assert_eq!(response["asset"]["inventory_code"], "INV-UNAVAILABLE");
+        assert_eq!(response["asset"]["metrology"]["status"], "unavailable");
+        assert_eq!(response["asset"]["metrology"]["blocking"], true);
+
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
+    #[test]
+    fn fleet_metrology_is_assessed_on_an_explicit_civil_date() {
+        let storage_root = initialized_storage("fleet-metrology-dated");
+        seed_approved_model(&storage_root, 1, "Scope 1", 'a');
+        let asset_id = generated_id("ASSET", "op-dated", "INV-DATED");
+        let mut input = asset_input("INV-DATED", None, None, "op-dated");
+        input.calibration_requirement = "required".to_owned();
+        input.calibration_period_months = Some(12);
+        create_physical_asset(&storage_root, input).unwrap();
+        crate::metrology_service::record_metrology_calibration(
+            &storage_root,
+            crate::metrology_service::RecordCalibrationInput {
+                event_id: "CAL-DATED-1".to_owned(),
+                asset_id,
+                certificate_reference: "CERT-DATED-1".to_owned(),
+                calibrated_at: "2025-07-27".to_owned(),
+                due_at: "2026-07-27".to_owned(),
+                provider: "Laboratoire accrédité".to_owned(),
+                decision: "conforming".to_owned(),
+                as_found_status: Some("conforming".to_owned()),
+                as_left_status: Some("conforming".to_owned()),
+                adjustment_performed: false,
+                uncertainty_summary_json: "{}".to_owned(),
+                traceability_reference: Some("TRACE-DATED-1".to_owned()),
+                comment: "Étalonnage de référence".to_owned(),
+                document_manifest_json: None,
+                recorded_by: "metrologist".to_owned(),
+                context: crate::metrology_service::MetrologyOperationContext {
+                    actor: "metrologist".to_owned(),
+                    reason: "Test du statut daté".to_owned(),
+                    operation_id: "op-cal-dated".to_owned(),
+                    correlation_id: "corr-cal-dated".to_owned(),
+                    device_id: "test-device".to_owned(),
+                },
+            },
+        )
+        .unwrap();
+
+        for (checked_on, expected) in [
+            ("2026-06-01", "valid"),
+            ("2026-07-27", "due_soon"),
+            ("2026-07-28", "expired"),
+        ] {
+            let response = json_value(
+                &list_physical_assets_json_for_context(
+                    &storage_root,
+                    Some("2026-07-27T23:30:00-11:00"),
+                    Some(checked_on),
+                )
+                .unwrap(),
+            );
+            assert_eq!(response["assets"][0]["metrology"]["status"], expected);
+            assert_eq!(response["assets"][0]["metrology"]["checked_on"], checked_on);
+        }
+
         let _ = std::fs::remove_dir_all(storage_root);
     }
 

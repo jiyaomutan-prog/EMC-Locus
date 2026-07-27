@@ -56,7 +56,7 @@ longer owns physical identity.
 ## Physical Asset Fleet
 
 ```text
-GET    /api/v1/fleet/assets[?at=<RFC3339>]
+GET    /api/v1/fleet/assets[?at=<RFC3339>&checked_on=<YYYY-MM-DD>]
 POST   /api/v1/fleet/assets
 GET    /api/v1/fleet/assets/{asset_id}
 PUT    /api/v1/fleet/assets/{asset_id}/identification
@@ -76,6 +76,16 @@ belong to planning, setup, and execution workflows. `operational_usage`
 contains structured source evidence and is recomputed for `at`; it is not a
 persisted source of truth. See
 `docs/domain/physical-asset-availability-and-usage.md`.
+
+`checked_on` controls the metrology assessment as a civil `YYYY-MM-DD` date.
+When omitted it defaults to the UTC date of `at`, or to the current UTC date.
+The nested `metrology` contract exposes `status`, `checked_on`, requirement
+(null only when the metrology source is unavailable),
+latest decision, `calibrated_at`, `due_at`, warning threshold, `blocking`,
+`explanation`, structured reason codes and latest-event references. Its status
+is one of `valid`, `due_soon`, `expired`, `missing`, `not_required`,
+`nonconforming`, `indeterminate`, or `unavailable`. An unavailable metrology
+source does not remove the asset from the response.
 
 The old `transitions/availability` route remains a temporary 0.21.x adapter.
 It accepts only the two administrative values and cannot synthesize an

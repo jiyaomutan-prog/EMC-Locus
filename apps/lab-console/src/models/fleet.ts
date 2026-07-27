@@ -23,12 +23,30 @@ export type OperationalUsageState =
   | "in_test"
   | "unavailable";
 
+export type MetrologyStatus =
+  | "valid"
+  | "due_soon"
+  | "expired"
+  | "missing"
+  | "not_required"
+  | "nonconforming"
+  | "indeterminate"
+  | "unavailable";
+
 export interface PhysicalAssetMetrologySummary {
-  calibration_requirement: string;
+  status: MetrologyStatus;
+  checked_on: string;
+  calibration_requirement: "required" | "conditional" | "not_required" | null;
   calibration_period_months: number | null;
-  calibration_due_warning_days: number;
-  latest_due_at: string | null;
-  latest_decision: string | null;
+  latest_calibration_decision: "conforming" | "nonconforming" | "indeterminate" | null;
+  calibrated_at: string | null;
+  due_at: string | null;
+  warning_threshold_days: number;
+  blocking: boolean;
+  explanation: string;
+  reasons: string[];
+  latest_calibration_event_id: string | null;
+  latest_calibration_revision: string | null;
 }
 
 export interface PhysicalAsset {
@@ -58,7 +76,7 @@ export interface PhysicalAsset {
   revision: number;
   model_link_state: string;
   migrated_from_metrology: boolean;
-  metrology: PhysicalAssetMetrologySummary | null;
+  metrology: PhysicalAssetMetrologySummary;
   created_at: string;
   updated_at: string;
 }

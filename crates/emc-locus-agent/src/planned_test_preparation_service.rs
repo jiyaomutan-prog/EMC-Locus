@@ -1,6 +1,7 @@
 use crate::equipment_repository::{load_equipment_model_revision, open_equipment_connection};
 use crate::fleet_repository::{load_physical_asset, open_fleet_connection};
 use crate::fleet_service::{category_path, load_metrology_summary};
+use crate::metrology_assessment::{parse_checked_on, MetrologyStatusSummaryDto};
 use crate::planned_test_preparation_dto::{
     PlannedTestPreparationAggregateDto, PlannedTestPreparationEnvelopeDto,
     PlannedTestPreparationMaterialCompatibilityDto, PlannedTestPreparationOperationResultDto,
@@ -796,6 +797,7 @@ fn station_snapshot(
 
     let fleet = open_fleet_connection(storage_root)?;
     let equipment = open_equipment_connection(storage_root)?;
+    let metrology_checked_on = parse_checked_on(&definition.planned_use_on, "planned_use_on")?;
     let mut assets = Vec::new();
     for binding in &definition.asset_bindings {
         let asset = load_physical_asset(&fleet, &binding.asset_id)?;
@@ -833,8 +835,8 @@ fn station_snapshot(
             })
             .unwrap_or_default();
         let metrology = match asset.as_ref() {
-            Some(asset) => load_metrology_summary(&fleet, &asset.asset_id)?,
-            None => None,
+            Some(asset) => load_metrology_summary(&fleet, &asset.asset_id, metrology_checked_on),
+            None => MetrologyStatusSummaryDto::unavailable(metrology_checked_on),
         };
         assets.push(PreparedStationAssetSnapshot {
             binding_id: binding.binding_id.clone(),
@@ -877,11 +879,7 @@ fn station_snapshot(
                 .as_ref()
                 .map(|asset| asset.administrative_availability.clone())
                 .unwrap_or_else(|| "unavailable".to_owned()),
-            metrology_status: preparation_metrology_status(
-                metrology.as_ref(),
-                &definition.planned_use_on,
-            ),
-            calibration_due_at: metrology.and_then(|summary| summary.latest_due_at),
+            metrology: metrology.assessment,
             capabilities,
         });
     }
@@ -919,29 +917,6 @@ fn station_snapshot(
         snapshot,
         readiness,
     })
-}
-
-fn preparation_metrology_status(
-    summary: Option<&crate::fleet_dto::PhysicalAssetMetrologySummaryDto>,
-    planned_use_on: &str,
-) -> String {
-    let Some(summary) = summary else {
-        return "unavailable".to_owned();
-    };
-    if summary.calibration_requirement == "not_required" {
-        return "not_required".to_owned();
-    }
-    if matches!(summary.latest_decision.as_deref(), Some("nonconforming")) {
-        return "nonconforming".to_owned();
-    }
-    let Some(due_at) = summary.latest_due_at.as_deref() else {
-        return "missing".to_owned();
-    };
-    if due_at < planned_use_on {
-        "expired".to_owned()
-    } else {
-        "valid".to_owned()
-    }
 }
 
 fn schedule_snapshot(

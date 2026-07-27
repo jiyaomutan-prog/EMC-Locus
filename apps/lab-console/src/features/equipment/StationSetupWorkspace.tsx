@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fleetApi, stationSetupApi, type OperationContext } from "../../api";
+import { metrologyStatusLabel } from "../../metrologyStatus";
 import type { LaboratoryLocation, PhysicalAsset } from "../../models/fleet";
 import type {
   StationMeasurementSetupDefinition,
@@ -379,10 +380,7 @@ function availabilityLabel(value: PhysicalAsset["availability_state"]) {
 }
 
 function metrologyLabel(asset: PhysicalAsset) {
-  if (!asset.metrology) return "Métrologie inconnue";
-  if (asset.metrology.calibration_requirement === "not_required") return "Étalonnage non requis";
-  if (!asset.metrology.latest_due_at) return "Étalonnage à planifier";
-  return `Étalonnage valide jusqu'au ${formatDate(asset.metrology.latest_due_at)}`;
+  return metrologyStatusLabel(asset.metrology);
 }
 
 function readinessDimensionLabel(value: string) {

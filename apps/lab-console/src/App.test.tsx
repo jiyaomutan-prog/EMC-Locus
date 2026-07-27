@@ -7,7 +7,7 @@ import { StationSetupWorkspace } from "./features/equipment/StationSetupWorkspac
 import { retainCompatibleAssignments } from "./features/planning/LaboratoryPlanningWorkspace";
 import type { EquipmentModelAggregate, EquipmentModelDefinition } from "./models/equipment";
 import type { AssetCorrectionAssignment } from "./models/metrology";
-import type { PhysicalAsset } from "./models/fleet";
+import type { PhysicalAsset, PhysicalAssetMetrologySummary } from "./models/fleet";
 import type {
   CompletedContractReviewItem,
   LaboratoryScheduleItem,
@@ -689,7 +689,11 @@ describe("LAB CONSOLE", () => {
           revision: 1,
           model_link_state: "controlled",
           migrated_from_metrology: false,
-          metrology: { calibration_requirement: body.calibration_requirement, calibration_period_months: body.calibration_period_months, calibration_due_warning_days: 30, latest_due_at: null, latest_decision: null },
+          metrology: metrologySummary({
+            status: body.calibration_requirement === "not_required" ? "not_required" : "missing",
+            calibration_requirement: body.calibration_requirement,
+            calibration_period_months: body.calibration_period_months
+          }),
           created_at: "2026-07-14T00:00:00Z",
           updated_at: "2026-07-14T00:00:00Z"
         };
@@ -1871,6 +1875,27 @@ function equipmentModelFixture() {
   };
 }
 
+function metrologySummary(
+  overrides: Partial<PhysicalAssetMetrologySummary> = {}
+): PhysicalAssetMetrologySummary {
+  return {
+    status: "valid",
+    checked_on: "2026-07-27",
+    calibration_requirement: "required",
+    calibration_period_months: 12,
+    latest_calibration_decision: "conforming",
+    calibrated_at: "2026-04-30",
+    due_at: "2027-04-30",
+    warning_threshold_days: 30,
+    blocking: false,
+    explanation: "Étalonnage valide jusqu’au 2027-04-30.",
+    reasons: ["calibration_valid"],
+    latest_calibration_event_id: "CAL-EVENT-001",
+    latest_calibration_revision: "rev-0001",
+    ...overrides
+  };
+}
+
 function physicalAssetFixture(overrides: Record<string, unknown> = {}) {
   return {
     asset_id: "ASSET-NRP6AN-001",
@@ -1903,13 +1928,7 @@ function physicalAssetFixture(overrides: Record<string, unknown> = {}) {
     revision: 3,
     model_link_state: "controlled",
     migrated_from_metrology: false,
-    metrology: {
-      calibration_requirement: "required",
-      calibration_period_months: 12,
-      calibration_due_warning_days: 30,
-      latest_due_at: "2027-04-30",
-      latest_decision: "conforming"
-    },
+    metrology: metrologySummary(),
     created_at: "2026-07-14T08:00:00Z",
     updated_at: "2026-07-15T08:00:00Z",
     ...overrides
@@ -2737,6 +2756,7 @@ function mockLaboratoryPlanningApi(settings: {
         equipment_model_revision_id: "MODEL-ESW-rev-0002",
         equipment_model_checksum: canonicalChecksum("c"),
         category_code: "emi_receiver",
+        metrology: metrologySummary(),
         capabilities: []
       },
       {
@@ -2752,6 +2772,7 @@ function mockLaboratoryPlanningApi(settings: {
         equipment_model_revision_id: "MODEL-SMW200A-rev-0001",
         equipment_model_checksum: canonicalChecksum("f"),
         category_code: "rf_signal_generator",
+        metrology: metrologySummary(),
         capabilities: []
       }
     ],

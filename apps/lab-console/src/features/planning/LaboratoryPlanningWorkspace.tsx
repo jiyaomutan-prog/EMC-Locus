@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, projectApi } from "../../api";
+import { metrologyStatusLabel } from "../../metrologyStatus";
 import type {
   LaboratoryLocationOption,
   LaboratoryScheduleItem,
@@ -1278,12 +1279,7 @@ function plannedAvailabilityLabel(value?: string) {
 }
 
 function plannedMetrologyLabel(asset: PlannedStationSetupSnapshot["assets"][number]) {
-  if (asset.metrology_status === "valid") return asset.calibration_due_at ? `Étalonnage valide jusqu'au ${formatShortDate(asset.calibration_due_at)}` : "Étalonnage valide";
-  if (asset.metrology_status === "not_required") return "Étalonnage non requis";
-  if (asset.metrology_status === "expired") return "Étalonnage expiré";
-  if (asset.metrology_status === "nonconforming") return "Étalonnage non conforme";
-  if (asset.metrology_status === "missing") return "Étalonnage à planifier";
-  return "Situation métrologique inconnue";
+  return metrologyStatusLabel(asset.metrology);
 }
 
 function measurementAxisLabel(axis: string) {

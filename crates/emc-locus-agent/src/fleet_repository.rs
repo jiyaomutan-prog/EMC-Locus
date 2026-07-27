@@ -135,7 +135,7 @@ pub(crate) struct FleetEvidenceInput<'a> {
 
 pub(crate) fn open_fleet_connection(storage_root: &Path) -> Result<Connection, AgentError> {
     let connection = open_equipment_connection(storage_root)?;
-    attach_metrology(&connection, storage_root)?;
+    let _ = attach_metrology(&connection, storage_root);
     attach_usage_sources(&connection, storage_root);
     Ok(connection)
 }

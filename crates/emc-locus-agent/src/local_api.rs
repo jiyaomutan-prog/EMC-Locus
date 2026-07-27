@@ -49,11 +49,12 @@ use crate::fleet_service::{
     archive_laboratory_location_json, create_laboratory_location, create_physical_asset,
     get_physical_asset_json, list_laboratory_location_audit_json, list_laboratory_locations_json,
     list_model_reconciliation_candidates_json, list_physical_asset_audit_json,
-    list_physical_assets_json_at, move_physical_asset, reconcile_physical_asset_model_json,
-    transition_physical_asset_administrative_availability, transition_physical_asset_service_state,
-    update_laboratory_location_json, update_physical_asset_identification,
-    ArchiveLaboratoryLocationInput, CreateLaboratoryLocationInput, CreatePhysicalAssetInput,
-    FleetOperationContext, MovePhysicalAssetInput, ReconcilePhysicalAssetModelInput,
+    list_physical_assets_json_for_context, move_physical_asset,
+    reconcile_physical_asset_model_json, transition_physical_asset_administrative_availability,
+    transition_physical_asset_service_state, update_laboratory_location_json,
+    update_physical_asset_identification, ArchiveLaboratoryLocationInput,
+    CreateLaboratoryLocationInput, CreatePhysicalAssetInput, FleetOperationContext,
+    MovePhysicalAssetInput, ReconcilePhysicalAssetModelInput,
     TransitionPhysicalAssetAdministrativeAvailabilityInput,
     TransitionPhysicalAssetServiceStateInput, UpdateLaboratoryLocationInput,
     UpdatePhysicalAssetIdentificationInput,
@@ -503,9 +504,10 @@ fn route_api_request(
         );
     }
     if parts.as_slice() == ["api", "v1", "fleet", "assets"] && method == "GET" {
-        return list_physical_assets_json_at(
+        return list_physical_assets_json_for_context(
             &config.storage_root,
             optional_query_value(query, "at").as_deref(),
+            optional_query_value(query, "checked_on").as_deref(),
         );
     }
     if parts.as_slice() == ["api", "v1", "fleet", "assets"] && method == "POST" {

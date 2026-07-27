@@ -1,4 +1,6 @@
 use crate::{quality::ExecutionMode, DomainError};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::{fmt, str::FromStr};
 
 pub const DEFAULT_CALIBRATION_DUE_SOON_WARNING_DAYS: u32 = 30;
 
@@ -36,6 +38,39 @@ impl MetrologyDate {
         later.days_since_epoch() - self.days_since_epoch()
     }
 
+    pub fn parse_iso(value: &str) -> Result<Self, DomainError> {
+        let parts = value.trim().split('-').collect::<Vec<_>>();
+        if parts.len() != 3 || parts[0].len() != 4 || parts[1].len() != 2 || parts[2].len() != 2 {
+            return Err(DomainError::InvalidMetrologyDate {
+                year: 0,
+                month: 0,
+                day: 0,
+            });
+        }
+        let year = parts[0]
+            .parse::<u16>()
+            .map_err(|_| DomainError::InvalidMetrologyDate {
+                year: 0,
+                month: 0,
+                day: 0,
+            })?;
+        let month = parts[1]
+            .parse::<u8>()
+            .map_err(|_| DomainError::InvalidMetrologyDate {
+                year,
+                month: 0,
+                day: 0,
+            })?;
+        let day = parts[2]
+            .parse::<u8>()
+            .map_err(|_| DomainError::InvalidMetrologyDate {
+                year,
+                month,
+                day: 0,
+            })?;
+        Self::new(year, month, day)
+    }
+
     fn days_since_epoch(self) -> i32 {
         let years_before = i32::from(self.year) - 1;
         let leap_days_before_year = years_before / 4 - years_before / 100 + years_before / 400;
@@ -69,6 +104,43 @@ impl MetrologyDate {
 
     fn is_leap_year(year: u16) -> bool {
         (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
+    }
+}
+
+impl fmt::Display for MetrologyDate {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{:04}-{:02}-{:02}",
+            self.year, self.month, self.day
+        )
+    }
+}
+
+impl FromStr for MetrologyDate {
+    type Err = DomainError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse_iso(value)
+    }
+}
+
+impl Serialize for MetrologyDate {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for MetrologyDate {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::parse_iso(&value).map_err(|_| serde::de::Error::custom("expected YYYY-MM-DD"))
     }
 }
 
@@ -134,7 +206,8 @@ pub enum InstrumentServiceability {
     Retired,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CalibrationRequirement {
     Required,
     Conditional,
@@ -149,6 +222,146 @@ pub enum CalibrationStatus {
     Missing,
     NotRequired,
     Nonconforming,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CalibrationDecision {
+    Conforming,
+    Nonconforming,
+    Indeterminate,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MetrologyAssessmentStatus {
+    Valid,
+    DueSoon,
+    Expired,
+    Missing,
+    NotRequired,
+    Nonconforming,
+    Indeterminate,
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MetrologyAssessmentReasonCode {
+    CalibrationValid,
+    CalibrationDueSoon,
+    CalibrationExpired,
+    CalibrationMissing,
+    CalibrationNotRequired,
+    CalibrationNonconforming,
+    CalibrationDecisionIndeterminate,
+    MetrologySourceUnavailable,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MetrologyAssessment {
+    pub status: MetrologyAssessmentStatus,
+    pub checked_on: MetrologyDate,
+    pub calibration_requirement: Option<CalibrationRequirement>,
+    pub latest_calibration_decision: Option<CalibrationDecision>,
+    pub calibrated_at: Option<MetrologyDate>,
+    pub due_at: Option<MetrologyDate>,
+    pub warning_threshold_days: u32,
+    pub blocking: bool,
+    pub reasons: Vec<MetrologyAssessmentReasonCode>,
+}
+
+impl MetrologyAssessment {
+    pub fn unavailable(checked_on: MetrologyDate, warning_threshold_days: u32) -> Self {
+        Self {
+            status: MetrologyAssessmentStatus::Unavailable,
+            checked_on,
+            calibration_requirement: None,
+            latest_calibration_decision: None,
+            calibrated_at: None,
+            due_at: None,
+            warning_threshold_days,
+            blocking: true,
+            reasons: vec![MetrologyAssessmentReasonCode::MetrologySourceUnavailable],
+        }
+    }
+}
+
+pub fn assess_metrology(
+    checked_on: MetrologyDate,
+    calibration_requirement: CalibrationRequirement,
+    latest_calibration_decision: Option<CalibrationDecision>,
+    calibrated_at: Option<MetrologyDate>,
+    due_at: Option<MetrologyDate>,
+    warning_threshold_days: u32,
+) -> MetrologyAssessment {
+    let (status, blocking, reason) =
+        if calibration_requirement == CalibrationRequirement::NotRequired {
+            (
+                MetrologyAssessmentStatus::NotRequired,
+                false,
+                MetrologyAssessmentReasonCode::CalibrationNotRequired,
+            )
+        } else {
+            match latest_calibration_decision {
+                None => (
+                    MetrologyAssessmentStatus::Missing,
+                    true,
+                    MetrologyAssessmentReasonCode::CalibrationMissing,
+                ),
+                Some(CalibrationDecision::Nonconforming) => (
+                    MetrologyAssessmentStatus::Nonconforming,
+                    true,
+                    MetrologyAssessmentReasonCode::CalibrationNonconforming,
+                ),
+                Some(CalibrationDecision::Indeterminate) => (
+                    MetrologyAssessmentStatus::Indeterminate,
+                    true,
+                    MetrologyAssessmentReasonCode::CalibrationDecisionIndeterminate,
+                ),
+                Some(CalibrationDecision::Conforming) => match (calibrated_at, due_at) {
+                    (Some(_), Some(due_at)) => {
+                        let days_until_due = checked_on.days_until(due_at);
+                        if days_until_due < 0 {
+                            (
+                                MetrologyAssessmentStatus::Expired,
+                                true,
+                                MetrologyAssessmentReasonCode::CalibrationExpired,
+                            )
+                        } else if days_until_due <= warning_threshold_days as i32 {
+                            (
+                                MetrologyAssessmentStatus::DueSoon,
+                                false,
+                                MetrologyAssessmentReasonCode::CalibrationDueSoon,
+                            )
+                        } else {
+                            (
+                                MetrologyAssessmentStatus::Valid,
+                                false,
+                                MetrologyAssessmentReasonCode::CalibrationValid,
+                            )
+                        }
+                    }
+                    _ => (
+                        MetrologyAssessmentStatus::Indeterminate,
+                        true,
+                        MetrologyAssessmentReasonCode::CalibrationDecisionIndeterminate,
+                    ),
+                },
+            }
+        };
+
+    MetrologyAssessment {
+        status,
+        checked_on,
+        calibration_requirement: Some(calibration_requirement),
+        latest_calibration_decision,
+        calibrated_at,
+        due_at,
+        warning_threshold_days,
+        blocking,
+        reasons: vec![reason],
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -550,4 +763,61 @@ fn normalized_label(
     }
 
     Ok(trimmed.to_owned())
+}
+
+#[cfg(test)]
+mod authoritative_assessment_tests {
+    use super::*;
+
+    #[test]
+    fn due_date_boundaries_use_civil_dates() {
+        let calibrated_at = Some(MetrologyDate::parse_iso("2025-07-27").unwrap());
+        let due_at = Some(MetrologyDate::parse_iso("2026-07-27").unwrap());
+        for (checked_on, expected) in [
+            ("2026-06-01", MetrologyAssessmentStatus::Valid),
+            ("2026-07-27", MetrologyAssessmentStatus::DueSoon),
+            ("2026-07-28", MetrologyAssessmentStatus::Expired),
+        ] {
+            let assessment = assess_metrology(
+                MetrologyDate::parse_iso(checked_on).unwrap(),
+                CalibrationRequirement::Required,
+                Some(CalibrationDecision::Conforming),
+                calibrated_at,
+                due_at,
+                30,
+            );
+            assert_eq!(assessment.status, expected);
+        }
+    }
+
+    #[test]
+    fn decision_and_requirement_precede_temporal_validity() {
+        let checked_on = MetrologyDate::parse_iso("2026-07-27").unwrap();
+        let future_due = Some(MetrologyDate::parse_iso("2027-07-27").unwrap());
+        let calibrated_at = Some(MetrologyDate::parse_iso("2026-07-01").unwrap());
+        assert_eq!(
+            assess_metrology(
+                checked_on,
+                CalibrationRequirement::Required,
+                Some(CalibrationDecision::Nonconforming),
+                calibrated_at,
+                future_due,
+                30,
+            )
+            .status,
+            MetrologyAssessmentStatus::Nonconforming
+        );
+        assert_eq!(
+            assess_metrology(
+                checked_on,
+                CalibrationRequirement::NotRequired,
+                None,
+                None,
+                None,
+                30,
+            )
+            .status,
+            MetrologyAssessmentStatus::NotRequired
+        );
+    }
 }

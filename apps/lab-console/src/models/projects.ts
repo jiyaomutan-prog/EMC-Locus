@@ -197,8 +197,7 @@ export interface PlannedStationAssetSnapshot {
   laboratory_location_label?: string;
   service_state?: string;
   availability_state?: string;
-  metrology_status?: string;
-  calibration_due_at?: string | null;
+  metrology: import("./fleet").PhysicalAssetMetrologySummary;
   capabilities?: Array<{
     capability_id: string;
     label: string;

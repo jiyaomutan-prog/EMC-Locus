@@ -1,3 +1,4 @@
+use crate::metrology::MetrologyAssessment;
 use crate::service_planning::ServiceScheduleStatus;
 use crate::station_setup::{
     StationCorrectionKind, StationReadinessDimension, StationReadinessSeverity,
@@ -149,10 +150,7 @@ pub struct PreparedStationAssetSnapshot {
     pub service_state: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub availability_state: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub metrology_status: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub calibration_due_at: Option<String>,
+    pub metrology: MetrologyAssessment,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub capabilities: Vec<PreparedEquipmentCapabilitySnapshot>,
 }
@@ -1250,7 +1248,6 @@ fn normalize_definition(definition: &mut PlannedTestPreparationDefinition) {
         asset.laboratory_location_label = asset.laboratory_location_label.trim().to_owned();
         asset.service_state = asset.service_state.trim().to_owned();
         asset.availability_state = asset.availability_state.trim().to_owned();
-        asset.metrology_status = asset.metrology_status.trim().to_owned();
         asset.capabilities.sort_by(|left, right| {
             left.capability_id
                 .cmp(&right.capability_id)
@@ -1453,8 +1450,14 @@ mod tests {
                     laboratory_location_label: "Poste CEM 1".to_owned(),
                     service_state: "usable".to_owned(),
                     availability_state: "available".to_owned(),
-                    metrology_status: "valid".to_owned(),
-                    calibration_due_at: Some("2027-06-30".to_owned()),
+                    metrology: crate::metrology::assess_metrology(
+                        crate::metrology::MetrologyDate::parse_iso("2026-07-16").unwrap(),
+                        crate::metrology::CalibrationRequirement::Required,
+                        Some(crate::metrology::CalibrationDecision::Conforming),
+                        Some(crate::metrology::MetrologyDate::parse_iso("2026-06-30").unwrap()),
+                        Some(crate::metrology::MetrologyDate::parse_iso("2027-06-30").unwrap()),
+                        30,
+                    ),
                     capabilities: vec![PreparedEquipmentCapabilitySnapshot {
                         capability_id: "spectrum_measurement".to_owned(),
                         label: "Mesure spectrale".to_owned(),

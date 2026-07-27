@@ -3,6 +3,10 @@ use crate::fleet_service::{
     get_physical_asset_json, transition_physical_asset_service_state, FleetOperationContext,
     TransitionPhysicalAssetServiceStateInput,
 };
+use crate::metrology_assessment::{
+    assess_metrology_source, metrology_reason_code, metrology_status_code, parse_checked_on,
+    MetrologyAssessmentSource,
+};
 use crate::metrology_dto::{
     asset_characterization_dto, calibration_event_dto, instrument_dto, AssetCharacterizationDto,
     AssetCharacterizationEnvelopeDto, AssetCharacterizationListDto, CalibrationEventEnvelopeDto,
@@ -1461,32 +1465,7 @@ fn safe_identifier(value: &str, field: &'static str) -> Result<String, AgentErro
 }
 
 fn parse_metrology_date(value: &str, field: &'static str) -> Result<MetrologyDate, AgentError> {
-    let parts = value.trim().split('-').collect::<Vec<_>>();
-    if parts.len() != 3 || parts[0].len() != 4 || parts[1].len() != 2 || parts[2].len() != 2 {
-        return Err(AgentError::new(
-            "invalid_metrology_date",
-            format!("{field} must use YYYY-MM-DD"),
-        ));
-    }
-    let year = parts[0].parse::<u16>().map_err(|_| {
-        AgentError::new(
-            "invalid_metrology_date",
-            format!("{field} must use YYYY-MM-DD"),
-        )
-    })?;
-    let month = parts[1].parse::<u8>().map_err(|_| {
-        AgentError::new(
-            "invalid_metrology_date",
-            format!("{field} must use YYYY-MM-DD"),
-        )
-    })?;
-    let day = parts[2].parse::<u8>().map_err(|_| {
-        AgentError::new(
-            "invalid_metrology_date",
-            format!("{field} must use YYYY-MM-DD"),
-        )
-    })?;
-    MetrologyDate::new(year, month, day).map_err(domain_error)
+    parse_checked_on(value, field)
 }
 
 fn computed_status(
@@ -1494,99 +1473,42 @@ fn computed_status(
     latest: Option<&StoredCalibrationEvent>,
     checked_on: MetrologyDate,
 ) -> Result<CalibrationStatusDto, AgentError> {
-    let mut reasons = Vec::new();
-    if instrument.calibration_requirement == "not_required" {
-        reasons.push("calibration_not_required".to_owned());
-        return Ok(status_dto(
-            instrument,
-            checked_on,
-            "not_required",
-            None,
-            None,
-            reasons,
-        ));
-    }
-
-    let Some(latest) = latest else {
-        reasons.push("calibration_missing".to_owned());
-        return Ok(status_dto(
-            instrument, checked_on, "missing", None, None, reasons,
-        ));
-    };
-
-    if latest.decision != "conforming" {
-        reasons.push(format!("calibration_decision_{}", latest.decision));
-        return Ok(status_dto(
-            instrument,
-            checked_on,
-            "nonconforming",
-            Some(latest),
-            Some(latest.due_at.clone()),
-            reasons,
-        ));
-    }
-
-    let due_at = parse_metrology_date(&latest.due_at, "due_at")?;
-    let days_until_due = checked_on.days_until(due_at);
-    if days_until_due < 0 {
-        reasons.push("calibration_expired".to_owned());
-        return Ok(status_dto(
-            instrument,
-            checked_on,
-            "expired",
-            Some(latest),
-            Some(latest.due_at.clone()),
-            reasons,
-        ));
-    }
-    if days_until_due <= instrument.calibration_due_warning_days as i32 {
-        reasons.push("calibration_due_soon".to_owned());
-        return Ok(status_dto(
-            instrument,
-            checked_on,
-            "due_soon",
-            Some(latest),
-            Some(latest.due_at.clone()),
-            reasons,
-        ));
-    }
-    reasons.push("calibration_valid".to_owned());
-    Ok(status_dto(
-        instrument,
+    let summary = assess_metrology_source(
         checked_on,
-        "valid",
-        Some(latest),
-        Some(latest.due_at.clone()),
-        reasons,
-    ))
-}
-
-fn status_dto(
-    instrument: &StoredInstrument,
-    checked_on: MetrologyDate,
-    calibration_status: &str,
-    latest: Option<&StoredCalibrationEvent>,
-    due_at: Option<String>,
-    reasons: Vec<String>,
-) -> CalibrationStatusDto {
-    CalibrationStatusDto {
+        MetrologyAssessmentSource {
+            calibration_requirement: instrument.calibration_requirement.clone(),
+            calibration_period_months: instrument.calibration_period_months,
+            calibration_due_warning_days: instrument.calibration_due_warning_days,
+            calibrated_at: latest.map(|event| event.calibrated_at.clone()),
+            due_at: latest.map(|event| event.due_at.clone()),
+            decision: latest.map(|event| event.decision.clone()),
+            latest_calibration_event_id: latest.map(|event| event.event_id.clone()),
+            latest_calibration_revision: latest.map(|event| event.revision.clone()),
+        },
+    );
+    Ok(CalibrationStatusDto {
         asset_id: instrument.asset_id.clone(),
-        checked_on: format_metrology_date(checked_on),
-        calibration_status: calibration_status.to_owned(),
+        checked_on: summary.assessment.checked_on.to_string(),
+        calibration_status: metrology_status_code(summary.assessment.status).to_owned(),
         serviceability_status: instrument.serviceability_status.clone(),
         calibration_requirement: instrument.calibration_requirement.clone(),
         calibration_due_warning_days: instrument.calibration_due_warning_days,
-        due_at,
+        due_at: summary.assessment.due_at.map(|value| value.to_string()),
         decision: latest.map(|event| event.decision.clone()),
         latest_calibration_event_id: latest.map(|event| event.event_id.clone()),
         latest_calibration_revision: latest.map(|event| event.revision.clone()),
         instrument_revision: instrument.revision.clone(),
-        reasons,
-    }
+        reasons: summary
+            .assessment
+            .reasons
+            .into_iter()
+            .map(|reason| metrology_reason_code(reason).to_owned())
+            .collect(),
+    })
 }
 
 fn format_metrology_date(date: MetrologyDate) -> String {
-    format!("{:04}-{:02}-{:02}", date.year(), date.month(), date.day())
+    date.to_string()
 }
 
 fn trimmed_optional(value: Option<&str>) -> Option<&str> {
@@ -1805,7 +1727,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(status["calibration_status"], "nonconforming");
-        assert_eq!(status["reasons"][0], "calibration_decision_nonconforming");
+        assert_eq!(status["reasons"][0], "calibration_nonconforming");
 
         remove_temporary_storage_root(&storage_root);
     }

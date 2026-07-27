@@ -33,3 +33,28 @@ composer l'identité courante.
 
 Les mathématiques de correction, l'acquisition et l'application numérique des
 corrections ne sont pas étendues par cette release.
+
+## Statut métrologique daté
+
+Le statut affiché n'est jamais déduit dans l'interface à partir de la seule
+échéance. Le cœur calcule un verdict pour une date civile `checked_on` à partir
+de l'exigence, de la dernière décision, des dates d'étalonnage et du seuil
+d'attention :
+
+- `valid`, `due_soon`, `expired` ;
+- `missing`, `nonconforming`, `indeterminate` ;
+- `not_required` ;
+- `unavailable` lorsque la source métrologique ne peut pas être lue.
+
+Le contrat contient aussi la date contrôlée, la décision, `calibrated_at`,
+`due_at`, le seuil, le caractère bloquant, une explication et des codes de
+raison. Une échéance égale à `checked_on` est `due_soon`; elle n'est expirée
+que si elle est strictement antérieure. Les comparaisons portent sur des dates
+civiles `YYYY-MM-DD`, sans conversion par le fuseau du navigateur.
+L'exigence est `null` uniquement lorsque la source est indisponible : le parc
+ne transforme pas une panne de lecture en fausse exigence métier.
+
+Le parc, le sélecteur de montage et l'instantané de préparation consomment ce
+même verdict. Une panne de `metrology.sqlite` conserve l'identité physique et
+retourne `metrology.status = unavailable`; elle ne fait jamais échouer toute
+la liste du parc.
