@@ -787,6 +787,87 @@ describe("LAB CONSOLE", () => {
     expect(screen.getAllByRole("treeitem", { name: /Labo CEM 1/ }).some((item) => item.classList.contains("fleetGroup"))).toBe(true);
   });
 
+  test("reconciles a migrated asset through a readable exact model revision", async () => {
+    const unresolved = physicalAssetFixture({
+      asset_id: "LEGACY-SCOPE-001",
+      inventory_code: "LEGACY-SCOPE-001",
+      equipment_model_id: null,
+      equipment_model_revision_id: null,
+      equipment_model_checksum: null,
+      manufacturer: "Ancien fabricant",
+      model_name: "Modèle à rapprocher",
+      variant: null,
+      category_code: "legacy_metrology",
+      category_path: ["Ancien registre"],
+      revision: 1,
+      model_link_state: "migration_review_required",
+      migrated_from_metrology: true
+    });
+    const candidate = {
+      equipment_model_id: "EQM-NRP6AN-FWD",
+      equipment_model_revision_id: "EQM-NRP6AN-FWD-rev-0001",
+      revision_number: 1,
+      lifecycle_status: "superseded",
+      approved_at: "2026-07-03T00:00:00Z",
+      manufacturer: "R&S",
+      model_name: "NRP6AN",
+      variant: "FWD",
+      category_path: ["Mesure RF", "Wattmètres"]
+    };
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/fleet/assets") return jsonResponse({ assets: [unresolved] });
+      if (path === "/api/v1/laboratory-locations") return mockBaseApiResponse(path);
+      if (path === "/api/v1/fleet/model-reconciliation-candidates") {
+        return jsonResponse({ candidates: [candidate] });
+      }
+      if (path.endsWith("/transitions/reconcile-model") && init?.method === "POST") {
+        return jsonResponse({
+          replayed: false,
+          asset: {
+            ...unresolved,
+            equipment_model_id: candidate.equipment_model_id,
+            equipment_model_revision_id: candidate.equipment_model_revision_id,
+            equipment_model_checksum: canonicalChecksum("a"),
+            manufacturer: candidate.manufacturer,
+            model_name: candidate.model_name,
+            variant: candidate.variant,
+            category_code: "power_meter",
+            category_path: candidate.category_path,
+            revision: 2,
+            model_link_state: "resolved"
+          }
+        });
+      }
+      return jsonResponse({ error: { code: "unexpected", message: path } }, 500);
+    });
+    const user = userEvent.setup();
+
+    render(<FleetWorkspace
+      models={[equipmentModelFixture() as EquipmentModelAggregate]}
+      categories={equipmentCategoriesFixture()}
+      onOpenPinnedModel={vi.fn()}
+      onOpenMetrology={vi.fn()}
+    />);
+
+    expect(await screen.findByRole("heading", { name: "Modèle constructeur à rapprocher" })).toBeInTheDocument();
+    expect(screen.getByText(/provient de l’ancien registre métrologique/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Rapprocher avec un modèle constructeur" }));
+    expect(await screen.findByRole("option", { name: /R&S NRP6AN FWD.*Mesure RF > Wattmètres.*Version 1.*Remplacée/ })).toBeInTheDocument();
+    expect(screen.queryByText(candidate.equipment_model_id)).not.toBeInTheDocument();
+    expect(screen.queryByText(candidate.equipment_model_revision_id)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Rapprocher cette version" }));
+
+    expect(await screen.findByRole("button", { name: "Ouvrir le modèle constructeur" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Modèle constructeur à rapprocher" })).not.toBeInTheDocument();
+    const request = fetchMock.mock.calls.find(([path]) => String(path).endsWith("/transitions/reconcile-model"));
+    const body = JSON.parse(String((request?.[1] as RequestInit).body));
+    expect(body.expected_revision).toBe(1);
+    expect(body.equipment_model_id).toBe(candidate.equipment_model_id);
+    expect(body.equipment_model_revision_id).toBe(candidate.equipment_model_revision_id);
+    expect(body.equipment_model_checksum).toBeUndefined();
+  });
+
   test("uses only physical fleet assets in a station setup and isolates fleet failure", async () => {
     const setup = stationSetupFixture();
     let failFleet = false;

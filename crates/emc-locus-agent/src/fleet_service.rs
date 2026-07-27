@@ -1,19 +1,22 @@
 use crate::equipment_repository::{
-    list_equipment_categories, load_equipment_model_identity, load_equipment_model_revision,
+    list_equipment_categories, list_equipment_model_identities, list_equipment_model_revisions,
+    load_equipment_model_identity, load_equipment_model_revision, EquipmentModelListFilter,
 };
 use crate::fleet_dto::{
     FleetAuditEventDto, FleetAuditEventListDto, LaboratoryLocationDto,
-    LaboratoryLocationEnvelopeDto, LaboratoryLocationListDto, PhysicalAssetDto,
-    PhysicalAssetEnvelopeDto, PhysicalAssetListDto, PhysicalAssetMetrologySummaryDto,
+    LaboratoryLocationEnvelopeDto, LaboratoryLocationListDto, ModelReconciliationCandidateDto,
+    ModelReconciliationCandidateListDto, PhysicalAssetDto, PhysicalAssetEnvelopeDto,
+    PhysicalAssetListDto, PhysicalAssetMetrologySummaryDto,
 };
 use crate::fleet_repository::{
     archive_laboratory_location, existing_fleet_operation, insert_laboratory_location,
     insert_physical_asset, list_laboratory_locations, list_physical_assets,
     load_fleet_audit_events, load_laboratory_location, load_physical_asset,
     load_physical_asset_by_inventory_code, open_fleet_connection, open_fleet_connection_with_sync,
-    request_checksum, update_laboratory_location, update_physical_asset_availability,
-    update_physical_asset_identity, update_physical_asset_service_state, write_fleet_evidence,
-    FleetEvidenceInput, NewPhysicalAssetRecord, StoredLaboratoryLocation, StoredPhysicalAsset,
+    reconcile_physical_asset_model, request_checksum, update_laboratory_location,
+    update_physical_asset_availability, update_physical_asset_identity,
+    update_physical_asset_service_state, write_fleet_evidence, FleetEvidenceInput,
+    NewPhysicalAssetRecord, StoredLaboratoryLocation, StoredPhysicalAsset,
     UpdatePhysicalAssetIdentityInput,
 };
 use crate::{render_json, AgentError};
@@ -89,6 +92,15 @@ pub struct TransitionPhysicalAssetAvailabilityInput {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReconcilePhysicalAssetModelInput {
+    pub asset_id: String,
+    pub expected_revision: u64,
+    pub equipment_model_id: String,
+    pub equipment_model_revision_id: String,
+    pub context: FleetOperationContext,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CreateLaboratoryLocationInput {
     pub label: String,
     pub description: String,
@@ -128,6 +140,120 @@ pub fn get_physical_asset_json(storage_root: &Path, asset_id: &str) -> Result<St
         asset: physical_asset_dto(&connection, &asset)?,
         replayed: false,
     }))
+}
+
+pub fn list_model_reconciliation_candidates_json(
+    storage_root: &Path,
+) -> Result<String, AgentError> {
+    let connection = open_fleet_connection(storage_root)?;
+    let identities =
+        list_equipment_model_identities(&connection, EquipmentModelListFilter::default())?;
+    let mut candidates = Vec::new();
+    for identity in identities {
+        for revision in list_equipment_model_revisions(&connection, &identity.equipment_model_id)? {
+            if !matches!(revision.status.as_str(), "approved" | "superseded") {
+                continue;
+            }
+            let model = resolve_immutable_model_revision(
+                &connection,
+                &identity.equipment_model_id,
+                &revision.revision_id,
+            )?;
+            candidates.push(ModelReconciliationCandidateDto {
+                equipment_model_id: model.equipment_model_id,
+                equipment_model_revision_id: model.equipment_model_revision_id,
+                revision_number: revision.revision_number,
+                lifecycle_status: revision.status,
+                approved_at: revision.approved_at,
+                manufacturer: model.manufacturer,
+                model_name: model.model_name,
+                variant: model.variant,
+                category_path: model.category_path,
+            });
+        }
+    }
+    candidates.sort_by(|left, right| {
+        left.manufacturer
+            .cmp(&right.manufacturer)
+            .then(left.model_name.cmp(&right.model_name))
+            .then(left.variant.cmp(&right.variant))
+            .then(left.revision_number.cmp(&right.revision_number))
+    });
+    Ok(render_json(&ModelReconciliationCandidateListDto {
+        candidates,
+    }))
+}
+
+pub fn reconcile_physical_asset_model_json(
+    storage_root: &Path,
+    input: ReconcilePhysicalAssetModelInput,
+) -> Result<String, AgentError> {
+    validate_context(&input.context)?;
+    let mut connection = open_fleet_connection_with_sync(storage_root)?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    let current = required_asset(&transaction, &input.asset_id)?;
+    let request_json = render_json(&json!({
+        "asset_id": input.asset_id,
+        "expected_revision": input.expected_revision,
+        "equipment_model_id": input.equipment_model_id.trim(),
+        "equipment_model_revision_id": input.equipment_model_revision_id.trim()
+    }));
+    let checksum = request_checksum(&request_json);
+    if let Some(replay) = replay_asset_operation(
+        &transaction,
+        &input.context,
+        &input.asset_id,
+        "physical_asset_model_reconciled",
+        &checksum,
+    )? {
+        return Ok(replay);
+    }
+    require_expected_revision(&current.asset_id, current.revision, input.expected_revision)?;
+    if current.model_link_state != "migration_review_required" {
+        return Err(AgentError::new(
+            "physical_asset_model_already_resolved",
+            "Le modÃ¨le constructeur de cet exemplaire est dÃ©jÃ  rapprochÃ©. Aucune nouvelle affectation silencieuse n'est autorisÃ©e.",
+        ));
+    }
+    let model = resolve_immutable_model_revision(
+        &transaction,
+        input.equipment_model_id.trim(),
+        input.equipment_model_revision_id.trim(),
+    )?;
+    let category_path_json = render_json(&model.category_path);
+    let now = utc_timestamp()?;
+    let new_revision = reconcile_physical_asset_model(
+        &transaction,
+        &input.asset_id,
+        input.expected_revision,
+        &model,
+        &category_path_json,
+        &now,
+    )?;
+    let payload_json = render_json(&json!({
+        "asset_id": input.asset_id,
+        "expected_revision": input.expected_revision,
+        "model": model,
+        "migration_evidence_preserved": true
+    }));
+    write_fleet_evidence(
+        &transaction,
+        evidence(
+            "physical_asset",
+            &input.asset_id,
+            "physical_asset_model_reconciled",
+            EvidenceRevision::changed(input.expected_revision, new_revision),
+            EvidencePayload::new(&checksum, &payload_json),
+            &input.context,
+            &now,
+        ),
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+    get_physical_asset_json(storage_root, &input.asset_id)
 }
 
 pub fn create_physical_asset(
@@ -290,28 +416,37 @@ pub fn update_physical_asset(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
     let current = required_asset(&transaction, &input.asset_id)?;
-    require_resolved_asset(&current)?;
     let location = resolve_active_location(&transaction, input.laboratory_location_id.as_deref())?;
-    let definition = definition_from_stored(
-        &current,
-        input.inventory_code.trim(),
-        trimmed_optional(input.serial_number.as_deref()),
-        trimmed_optional(input.part_number.as_deref()),
-        location.as_ref(),
-        ownership_source,
-        input.notes.trim(),
+    let inventory_code = input.inventory_code.trim().to_owned();
+    let serial_number = trimmed_optional(input.serial_number.as_deref());
+    let part_number = trimmed_optional(input.part_number.as_deref());
+    validate_asset_identity_fields(
+        &inventory_code,
+        serial_number.as_deref(),
+        part_number.as_deref(),
     )?;
-    validate_asset_definition(&definition)?;
+    if current.model_link_state == "resolved" {
+        let definition = definition_from_stored(
+            &current,
+            &inventory_code,
+            serial_number.clone(),
+            part_number.clone(),
+            location.as_ref(),
+            ownership_source,
+            input.notes.trim(),
+        )?;
+        validate_asset_definition(&definition)?;
+    }
     let payload_json = render_json(&json!({
         "asset_id": input.asset_id,
         "expected_revision": input.expected_revision,
         "identity": {
-            "inventory_code": definition.inventory_code,
-            "serial_number": definition.serial_number,
-            "part_number": definition.part_number,
-            "laboratory_location_id": definition.laboratory_location_id,
-            "ownership_source": ownership_source_code(definition.ownership_source),
-            "notes": definition.notes
+            "inventory_code": inventory_code,
+            "serial_number": serial_number,
+            "part_number": part_number,
+            "laboratory_location_id": location.as_ref().map(|item| item.location_id.clone()),
+            "ownership_source": ownership_source_code(ownership_source),
+            "notes": input.notes.trim()
         }
     }));
     let checksum = request_checksum(&payload_json);
@@ -331,13 +466,13 @@ pub fn update_physical_asset(
         UpdatePhysicalAssetIdentityInput {
             asset_id: &input.asset_id,
             expected_revision: input.expected_revision,
-            inventory_code: &definition.inventory_code,
-            serial_number: definition.serial_number.as_deref(),
-            part_number: definition.part_number.as_deref(),
-            laboratory_location_id: definition.laboratory_location_id.as_deref(),
-            laboratory_location_label_snapshot: definition.laboratory_location_label.as_deref(),
-            ownership_source: ownership_source_code(definition.ownership_source),
-            notes: &definition.notes,
+            inventory_code: &inventory_code,
+            serial_number: serial_number.as_deref(),
+            part_number: part_number.as_deref(),
+            laboratory_location_id: location.as_ref().map(|item| item.location_id.as_str()),
+            laboratory_location_label_snapshot: location.as_ref().map(|item| item.label.as_str()),
+            ownership_source: ownership_source_code(ownership_source),
+            notes: input.notes.trim(),
             timestamp: &now,
         },
     )?;
@@ -781,14 +916,64 @@ fn resolve_current_approved_model(
             "La version courante du modèle constructeur n'est pas approuvée.",
         ));
     }
+    resolve_immutable_model_revision(connection, equipment_model_id, revision_id)
+}
+
+fn resolve_immutable_model_revision(
+    connection: &rusqlite::Connection,
+    equipment_model_id: &str,
+    revision_id: &str,
+) -> Result<PinnedEquipmentModel, AgentError> {
+    let identity =
+        load_equipment_model_identity(connection, equipment_model_id)?.ok_or_else(|| {
+            AgentError::new(
+                "equipment_model_not_found",
+                "Le modèle constructeur sélectionné n'existe pas.",
+            )
+        })?;
+    let revision = load_equipment_model_revision(connection, equipment_model_id, revision_id)?
+        .ok_or_else(|| {
+            AgentError::new(
+                "equipment_model_revision_not_found",
+                "La version sélectionnée du modèle constructeur est introuvable.",
+            )
+        })?;
+    if !matches!(revision.status.as_str(), "approved" | "superseded") {
+        return Err(AgentError::with_details(
+            "equipment_model_revision_not_immutable",
+            "Sélectionnez une version approuvée ou remplacée, donc immuable.",
+            json!({ "revision_status": revision.status }),
+        ));
+    }
     let definition =
         EquipmentModelDefinition::from_json_str(&revision.definition_json).map_err(|issue| {
             AgentError::with_details(
                 "invalid_equipment_model_definition",
-                "La version approuvée du modèle constructeur est illisible.",
+                "La version du modèle constructeur est illisible.",
                 json!({ "issue_code": issue.code, "message": issue.message }),
             )
         })?;
+    let canonical = definition.canonicalize().map_err(|issues| {
+        AgentError::with_details(
+            "invalid_equipment_model_definition",
+            "La version du modèle constructeur ne respecte pas son contrat métier.",
+            json!({ "issues": issues }),
+        )
+    })?;
+    if canonical.definition_schema_version != revision.definition_schema_version
+        || canonical.definition_checksum != revision.definition_checksum
+    {
+        return Err(AgentError::with_details(
+            "equipment_model_revision_checksum_mismatch",
+            "L'empreinte de la version constructeur ne correspond pas à sa définition canonique.",
+            json!({
+                "equipment_model_id": equipment_model_id,
+                "equipment_model_revision_id": revision_id,
+                "stored_checksum": revision.definition_checksum,
+                "computed_checksum": canonical.definition_checksum
+            }),
+        ));
+    }
     let category_path = if let Some(snapshot) = definition.template_snapshot.as_ref() {
         let mut path = snapshot.category_path.clone();
         if path.first().is_some_and(|label| label == "Général") {
@@ -801,7 +986,7 @@ fn resolve_current_approved_model(
     Ok(PinnedEquipmentModel {
         equipment_model_id: identity.equipment_model_id,
         equipment_model_revision_id: revision.revision_id,
-        equipment_model_checksum: revision.definition_checksum,
+        equipment_model_checksum: canonical.definition_checksum,
         manufacturer: definition.manufacturer,
         model_name: definition.model_name,
         variant: definition.variant,
@@ -1205,6 +1390,33 @@ fn validate_asset_definition(definition: &PhysicalAssetDefinition) -> Result<(),
     }
 }
 
+fn validate_asset_identity_fields(
+    inventory_code: &str,
+    serial_number: Option<&str>,
+    part_number: Option<&str>,
+) -> Result<(), AgentError> {
+    let inventory_is_valid = !inventory_code.is_empty()
+        && inventory_code.chars().count() <= 80
+        && inventory_code.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.' | '/')
+        });
+    let optional_is_valid = |value: Option<&str>| {
+        value.is_none_or(|text| !text.trim().is_empty() && text.trim().chars().count() <= 200)
+    };
+    if inventory_is_valid && optional_is_valid(serial_number) && optional_is_valid(part_number) {
+        return Ok(());
+    }
+    Err(AgentError::with_details(
+        "invalid_physical_asset",
+        "L'identification de l'exemplaire contient une valeur invalide.",
+        json!({
+            "inventory_code_valid": inventory_is_valid,
+            "serial_number_valid": optional_is_valid(serial_number),
+            "part_number_valid": optional_is_valid(part_number)
+        }),
+    ))
+}
+
 fn validate_metrology_dossier_input(
     calibration_requirement: &str,
     calibration_period_months: Option<u32>,
@@ -1321,17 +1533,6 @@ fn require_expected_revision(
                 "expected_revision": expected,
                 "actual_revision": current
             }),
-        ))
-    }
-}
-
-fn require_resolved_asset(asset: &StoredPhysicalAsset) -> Result<(), AgentError> {
-    if asset.model_link_state == "resolved" {
-        Ok(())
-    } else {
-        Err(AgentError::new(
-            "physical_asset_model_reconciliation_required",
-            "Rattachez cet exemplaire migré à un modèle approuvé avant de poursuivre.",
         ))
     }
 }
@@ -1597,6 +1798,213 @@ mod tests {
         let _ = std::fs::remove_dir_all(storage_root);
     }
 
+    #[test]
+    fn migrated_asset_reconciliation_is_exact_idempotent_and_atomic() {
+        let storage_root = initialized_storage("fleet-model-reconciliation");
+        seed_approved_model(&storage_root, 1, "Scope historique", 'a');
+        seed_approved_model(&storage_root, 2, "Scope courant", 'b');
+        seed_unresolved_migrated_asset(&storage_root, "LEGACY-SCOPE-001");
+
+        let candidates =
+            json_value(&list_model_reconciliation_candidates_json(&storage_root).unwrap());
+        let candidates = candidates["candidates"].as_array().unwrap();
+        assert_eq!(candidates.len(), 2);
+        let historical = candidates
+            .iter()
+            .find(|candidate| candidate["revision_number"] == 1)
+            .unwrap();
+        let current = candidates
+            .iter()
+            .find(|candidate| candidate["revision_number"] == 2)
+            .unwrap();
+        assert_eq!(historical["lifecycle_status"], "superseded");
+        assert_eq!(current["lifecycle_status"], "approved");
+
+        let evidence_before_rejections = fleet_evidence_counts(&storage_root);
+        let stale = reconcile_physical_asset_model_json(
+            &storage_root,
+            reconciliation_input("LEGACY-SCOPE-001", 2, 1, "op-reconcile-stale"),
+        )
+        .unwrap_err();
+        assert_eq!(stale.code, "fleet_revision_conflict");
+
+        seed_revision_copy(&storage_root, 3, "draft", None);
+        let draft = reconcile_physical_asset_model_json(
+            &storage_root,
+            reconciliation_input("LEGACY-SCOPE-001", 1, 3, "op-reconcile-draft"),
+        )
+        .unwrap_err();
+        assert_eq!(draft.code, "equipment_model_revision_not_immutable");
+        assert_eq!(
+            fleet_evidence_counts(&storage_root),
+            evidence_before_rejections
+        );
+
+        let migration_evidence_before = migration_evidence(&storage_root, "LEGACY-SCOPE-001");
+        let first_input =
+            reconciliation_input("LEGACY-SCOPE-001", 1, 1, "op-reconcile-legacy-scope");
+        let first = json_value(
+            &reconcile_physical_asset_model_json(&storage_root, first_input.clone()).unwrap(),
+        );
+        assert_eq!(first["asset"]["model_link_state"], "resolved");
+        assert_eq!(first["asset"]["revision"], 2);
+        assert_eq!(first["asset"]["model_name"], "Scope historique");
+        assert_eq!(
+            first["asset"]["equipment_model_revision_id"],
+            "EQM-SCOPE-REV-0001"
+        );
+        assert_eq!(
+            first["asset"]["equipment_model_checksum"],
+            model_revision_checksum(&storage_root, 1)
+        );
+        assert_eq!(
+            migration_evidence(&storage_root, "LEGACY-SCOPE-001"),
+            migration_evidence_before
+        );
+
+        let replay =
+            json_value(&reconcile_physical_asset_model_json(&storage_root, first_input).unwrap());
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(replay["asset"]["revision"], 2);
+        let evidence_after_success = fleet_evidence_counts(&storage_root);
+
+        let mismatch = reconcile_physical_asset_model_json(
+            &storage_root,
+            reconciliation_input("LEGACY-SCOPE-001", 1, 2, "op-reconcile-legacy-scope"),
+        )
+        .unwrap_err();
+        assert_eq!(mismatch.code, "operation_replay_mismatch");
+        let repoint = reconcile_physical_asset_model_json(
+            &storage_root,
+            reconciliation_input("LEGACY-SCOPE-001", 2, 2, "op-reconcile-repoint"),
+        )
+        .unwrap_err();
+        assert_eq!(repoint.code, "physical_asset_model_already_resolved");
+        assert_eq!(fleet_evidence_counts(&storage_root), evidence_after_success);
+
+        seed_unresolved_migrated_asset(&storage_root, "LEGACY-SCOPE-CORRUPT");
+        seed_revision_copy(
+            &storage_root,
+            4,
+            "approved",
+            Some("sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+        );
+        let before_corrupt = fleet_evidence_counts(&storage_root);
+        let corrupt = reconcile_physical_asset_model_json(
+            &storage_root,
+            reconciliation_input("LEGACY-SCOPE-CORRUPT", 1, 4, "op-reconcile-corrupt"),
+        )
+        .unwrap_err();
+        assert_eq!(corrupt.code, "equipment_model_revision_checksum_mismatch");
+        assert_eq!(fleet_evidence_counts(&storage_root), before_corrupt);
+
+        seed_unresolved_migrated_asset(&storage_root, "LEGACY-SCOPE-ATOMIC");
+        seed_conflicting_outbox_operation(&storage_root, "op-reconcile-atomic");
+        let before_atomic = fleet_evidence_counts(&storage_root);
+        let atomic = reconcile_physical_asset_model_json(
+            &storage_root,
+            reconciliation_input("LEGACY-SCOPE-ATOMIC", 1, 1, "op-reconcile-atomic"),
+        )
+        .unwrap_err();
+        assert_eq!(atomic.code, "fleet_outbox_write_failed");
+        assert_eq!(fleet_evidence_counts(&storage_root), before_atomic);
+        let unchanged =
+            json_value(&get_physical_asset_json(&storage_root, "LEGACY-SCOPE-ATOMIC").unwrap());
+        assert_eq!(
+            unchanged["asset"]["model_link_state"],
+            "migration_review_required"
+        );
+        assert_eq!(unchanged["asset"]["revision"], 1);
+
+        let restarted =
+            json_value(&get_physical_asset_json(&storage_root, "LEGACY-SCOPE-001").unwrap());
+        assert_eq!(restarted["asset"]["model_link_state"], "resolved");
+        assert_eq!(restarted["asset"]["model_name"], "Scope historique");
+        let audit =
+            json_value(&list_physical_asset_audit_json(&storage_root, "LEGACY-SCOPE-001").unwrap());
+        assert_eq!(audit["audit_events"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            audit["audit_events"][0]["action"],
+            "physical_asset_model_reconciled"
+        );
+
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
+    #[test]
+    fn unresolved_migrated_asset_keeps_safe_administrative_edits() {
+        let storage_root = initialized_storage("fleet-unresolved-safe-edits");
+        seed_approved_model(&storage_root, 1, "Scope fiable", 'a');
+        seed_unresolved_migrated_asset(&storage_root, "LEGACY-EDIT-001");
+        let location_id = generated_id("LOC", "op-safe-location", "Zone attente");
+        create_laboratory_location(
+            &storage_root,
+            CreateLaboratoryLocationInput {
+                label: "Zone attente".to_owned(),
+                description: "Matériels à identifier".to_owned(),
+                context: context("op-safe-location"),
+            },
+        )
+        .unwrap();
+
+        let updated = json_value(
+            &update_physical_asset(
+                &storage_root,
+                UpdatePhysicalAssetInput {
+                    asset_id: "LEGACY-EDIT-001".to_owned(),
+                    expected_revision: 1,
+                    inventory_code: "LEGACY-EDIT-RENAMED".to_owned(),
+                    serial_number: Some("SN-RETROUVE".to_owned()),
+                    part_number: None,
+                    laboratory_location_id: Some(location_id.clone()),
+                    ownership_source: "laboratory_owned".to_owned(),
+                    notes: "Identification complétée avant rapprochement".to_owned(),
+                    context: context("op-safe-identity"),
+                },
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            updated["asset"]["model_link_state"],
+            "migration_review_required"
+        );
+        assert_eq!(updated["asset"]["equipment_model_id"], Value::Null);
+        assert_eq!(updated["asset"]["laboratory_location_id"], location_id);
+        assert_eq!(updated["asset"]["revision"], 2);
+
+        let restricted = json_value(
+            &transition_physical_asset_service_state(
+                &storage_root,
+                TransitionPhysicalAssetServiceStateInput {
+                    asset_id: "LEGACY-EDIT-001".to_owned(),
+                    expected_revision: 2,
+                    service_state: "restricted".to_owned(),
+                    service_state_reason: "Utilisation sous surveillance".to_owned(),
+                    context: context("op-safe-service-state"),
+                },
+            )
+            .unwrap(),
+        );
+        assert_eq!(restricted["asset"]["service_state"], "restricted");
+        assert_eq!(
+            restricted["asset"]["model_link_state"],
+            "migration_review_required"
+        );
+
+        let reconciled = json_value(
+            &reconcile_physical_asset_model_json(
+                &storage_root,
+                reconciliation_input("LEGACY-EDIT-001", 3, 1, "op-safe-reconciliation"),
+            )
+            .unwrap(),
+        );
+        assert_eq!(reconciled["asset"]["model_link_state"], "resolved");
+        assert_eq!(reconciled["asset"]["inventory_code"], "LEGACY-EDIT-RENAMED");
+        assert_eq!(reconciled["asset"]["laboratory_location_id"], location_id);
+
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
     fn initialized_storage(name: &str) -> PathBuf {
         let storage_root = test_storage_root(name);
         run_storage_action(
@@ -1608,7 +2016,7 @@ mod tests {
         storage_root
     }
 
-    fn seed_approved_model(storage_root: &Path, revision: u64, model_name: &str, hash: char) {
+    fn seed_approved_model(storage_root: &Path, revision: u64, model_name: &str, _hash: char) {
         let connection = open_fleet_connection(storage_root).unwrap();
         let revision_id = format!("EQM-SCOPE-REV-{revision:04}");
         let definition = render_json(&json!({
@@ -1618,13 +2026,32 @@ mod tests {
             "equipment_class": "controllable_instrument",
             "functional_role": "measurement_instrument",
             "category_code": "oscilloscope",
-            "signal_domains": [],
+            "signal_domains": ["rf"],
+            "technology_tags": [],
             "specifications": [],
-            "signal_ports": [],
+            "signal_ports": [{
+                "port_id": "rf_input",
+                "label": "Entrée RF",
+                "directionality": "input",
+                "flow_role": "measurement_port",
+                "signal_domain": "rf",
+                "required": true,
+                "technology_tags": [],
+                "quantity": "voltage",
+                "unit": "V",
+                "impedance": 50.0,
+                "differential": false,
+                "isolated": false
+            }],
             "communication_interfaces": [],
             "capabilities": [],
             "metadata": {}
         }));
+        let canonical = EquipmentModelDefinition::from_json_str(&definition)
+            .unwrap()
+            .canonicalize()
+            .unwrap();
+        let definition = canonical.canonical_json;
         if revision == 1 {
             connection
                 .execute(
@@ -1645,7 +2072,7 @@ mod tests {
                 )
                 .unwrap();
         }
-        let checksum = format!("sha256:{}", hash.to_string().repeat(64));
+        let checksum = canonical.definition_checksum;
         connection
             .execute(
                 "INSERT INTO equipment_model_revisions (
@@ -1665,6 +2092,147 @@ mod tests {
                     model_name = ?2, updated_at = '2026-07-26T00:00:00Z'
                  WHERE equipment_model_id = 'EQM-SCOPE'",
                 params![revision_id, model_name],
+            )
+            .unwrap();
+    }
+
+    fn seed_unresolved_migrated_asset(storage_root: &Path, asset_id: &str) {
+        let equipment = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        let migration_evidence = render_json(&json!({
+            "source": "metrology.sqlite/legacy_instruments_0_21_1",
+            "legacy_asset_id": asset_id,
+            "legacy_model_reference": null
+        }));
+        equipment
+            .execute(
+                "INSERT INTO physical_assets (
+                    asset_id, inventory_code, serial_number, part_number,
+                    equipment_model_id, equipment_model_revision_id, equipment_model_checksum,
+                    manufacturer_snapshot, model_name_snapshot, variant_snapshot,
+                    category_code_snapshot, category_path_json, laboratory_location_id,
+                    laboratory_location_label_snapshot, ownership_source, service_state,
+                    availability_state, service_state_reason, notes, revision,
+                    model_link_state, migrated_from_metrology, created_at, updated_at,
+                    migration_evidence_json
+                 ) VALUES (?1, ?1, NULL, NULL, NULL, NULL, NULL,
+                    'Ancien fabricant', 'Modèle à rapprocher', NULL, 'legacy_metrology',
+                    '[\"Ancien registre\"]', NULL, NULL, 'laboratory_owned', 'usable',
+                    'available', '', 'Import historique', 1, 'migration_review_required', 1,
+                    '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z', ?2)",
+                params![asset_id, migration_evidence],
+            )
+            .unwrap();
+        let metrology = Connection::open(storage_root.join("metrology.sqlite")).unwrap();
+        metrology
+            .execute(
+                "INSERT INTO metrology_asset_dossiers (
+                    asset_id, calibration_requirement, calibration_period_months,
+                    calibration_due_warning_days, metrology_notes, legacy_capabilities_json,
+                    revision, created_at, updated_at
+                 ) VALUES (?1, 'not_required', NULL, 30, '', '[]', 1,
+                    '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z')",
+                params![asset_id],
+            )
+            .unwrap();
+    }
+
+    fn seed_revision_copy(
+        storage_root: &Path,
+        revision: u64,
+        status: &str,
+        checksum_override: Option<&str>,
+    ) {
+        let connection = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        let revision_id = format!("EQM-SCOPE-REV-{revision:04}");
+        let source: (String, String, String) = connection
+            .query_row(
+                "SELECT definition_schema_version, definition_json, definition_checksum
+                 FROM equipment_model_revisions WHERE revision_id = 'EQM-SCOPE-REV-0002'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO equipment_model_revisions (
+                    revision_id, equipment_model_id, revision_number, parent_revision_id, status,
+                    definition_schema_version, definition_json, definition_checksum, created_by,
+                    created_at, updated_at, submitted_at, approved_at
+                 ) VALUES (?1, 'EQM-SCOPE', ?2, 'EQM-SCOPE-REV-0002', ?3, ?4, ?5, ?6,
+                    'test', '2026-07-26T00:00:00Z', '2026-07-26T00:00:00Z',
+                    ?7, ?8)",
+                params![
+                    revision_id,
+                    revision,
+                    status,
+                    source.0,
+                    source.1,
+                    checksum_override.unwrap_or(&source.2),
+                    if status == "draft" {
+                        None
+                    } else {
+                        Some("2026-07-26T00:00:00Z")
+                    },
+                    if status == "approved" {
+                        Some("2026-07-26T00:00:00Z")
+                    } else {
+                        None
+                    }
+                ],
+            )
+            .unwrap();
+    }
+
+    fn reconciliation_input(
+        asset_id: &str,
+        expected_revision: u64,
+        model_revision: u64,
+        operation_id: &str,
+    ) -> ReconcilePhysicalAssetModelInput {
+        ReconcilePhysicalAssetModelInput {
+            asset_id: asset_id.to_owned(),
+            expected_revision,
+            equipment_model_id: "EQM-SCOPE".to_owned(),
+            equipment_model_revision_id: format!("EQM-SCOPE-REV-{model_revision:04}"),
+            context: context(operation_id),
+        }
+    }
+
+    fn model_revision_checksum(storage_root: &Path, revision: u64) -> String {
+        let connection = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        connection
+            .query_row(
+                "SELECT definition_checksum FROM equipment_model_revisions WHERE revision_id = ?1",
+                params![format!("EQM-SCOPE-REV-{revision:04}")],
+                |row| row.get(0),
+            )
+            .unwrap()
+    }
+
+    fn migration_evidence(storage_root: &Path, asset_id: &str) -> String {
+        let connection = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        connection
+            .query_row(
+                "SELECT migration_evidence_json FROM physical_assets WHERE asset_id = ?1",
+                params![asset_id],
+                |row| row.get(0),
+            )
+            .unwrap()
+    }
+
+    fn seed_conflicting_outbox_operation(storage_root: &Path, operation_id: &str) {
+        let connection = Connection::open(storage_root.join("sync.sqlite")).unwrap();
+        connection
+            .execute(
+                "INSERT INTO sync_operations (
+                    operation_id, domain, entity_type, entity_id, operation_kind,
+                    base_revision, resulting_revision, actor_id, device_id, correlation_id,
+                    payload_json, payload_checksum, status, occurred_at, recorded_at
+                 ) VALUES (?1, 'equipment', 'fixture', 'fixture', 'fixture', 'rev-0000',
+                    'rev-0001', 'fixture', 'fixture', 'fixture', '{}',
+                    'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    'pending', '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z')",
+                params![operation_id],
             )
             .unwrap();
     }

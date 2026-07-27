@@ -50,6 +50,24 @@ pub(crate) struct PhysicalAssetListDto {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub(crate) struct ModelReconciliationCandidateDto {
+    pub(crate) equipment_model_id: String,
+    pub(crate) equipment_model_revision_id: String,
+    pub(crate) revision_number: u32,
+    pub(crate) lifecycle_status: String,
+    pub(crate) approved_at: Option<String>,
+    pub(crate) manufacturer: String,
+    pub(crate) model_name: String,
+    pub(crate) variant: Option<String>,
+    pub(crate) category_path: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct ModelReconciliationCandidateListDto {
+    pub(crate) candidates: Vec<ModelReconciliationCandidateDto>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct LaboratoryLocationDto {
     pub(crate) location_id: String,
     pub(crate) label: String,

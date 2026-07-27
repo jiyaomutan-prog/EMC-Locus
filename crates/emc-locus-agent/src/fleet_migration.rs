@@ -384,8 +384,14 @@ mod tests {
     use super::*;
     use crate::metrology_repository::{load_asset_characterizations, load_calibration_events};
     use crate::{
-        fleet_repository::open_fleet_connection, metrology_repository::open_metrology_connection,
+        fleet_repository::open_fleet_connection,
+        fleet_service::{
+            reconcile_physical_asset_model_json, FleetOperationContext,
+            ReconcilePhysicalAssetModelInput,
+        },
+        metrology_repository::open_metrology_connection,
     };
+    use emc_locus_core::EquipmentModelDefinition;
     use rusqlite::Connection;
     use std::{fs, path::PathBuf};
 
@@ -523,6 +529,42 @@ mod tests {
             .unwrap();
         assert_eq!(outbox_count, 2);
 
+        let reconciled: serde_json::Value = serde_json::from_str(
+            &reconcile_physical_asset_model_json(
+                &storage_root,
+                ReconcilePhysicalAssetModelInput {
+                    asset_id: "LEGACY-CABLE-002".to_owned(),
+                    expected_revision: 1,
+                    equipment_model_id: "EQM-LEGACY-SCOPE".to_owned(),
+                    equipment_model_revision_id: "EQM-LEGACY-SCOPE-REV-0001".to_owned(),
+                    context: FleetOperationContext {
+                        actor: "fixture.metrologue".to_owned(),
+                        reason: "Rapprochement contrôlé du fixture migré".to_owned(),
+                        operation_id: "op-fixture-migrated-reconciliation".to_owned(),
+                        correlation_id: "corr-fixture-migrated-reconciliation".to_owned(),
+                        device_id: "fixture-device".to_owned(),
+                    },
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(reconciled["asset"]["model_link_state"], "resolved");
+        assert_eq!(
+            reconciled["asset"]["equipment_model_revision_id"],
+            "EQM-LEGACY-SCOPE-REV-0001"
+        );
+        let equipment = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        let migration_evidence: String = equipment
+            .query_row(
+                "SELECT migration_evidence_json FROM physical_assets
+                 WHERE asset_id = 'LEGACY-CABLE-002'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(migration_evidence.contains("legacy_instruments_0_21_1"));
+
         let _ = fs::remove_dir_all(storage_root);
     }
 
@@ -539,7 +581,39 @@ mod tests {
                 [],
             )
             .unwrap();
-        let checksum = format!("sha256:{}", "a".repeat(64));
+        let definition = render_json(&json!({
+            "definition_schema_version": "emc-locus.equipment-model-definition.v2",
+            "manufacturer": "Acme Test",
+            "model_name": "Scope 1",
+            "equipment_class": "controllable_instrument",
+            "functional_role": "measurement_instrument",
+            "category_code": "oscilloscope",
+            "signal_domains": ["rf"],
+            "technology_tags": [],
+            "specifications": [],
+            "signal_ports": [{
+                "port_id": "rf_input",
+                "label": "Entrée RF",
+                "directionality": "input",
+                "flow_role": "measurement_port",
+                "signal_domain": "rf",
+                "required": true,
+                "technology_tags": [],
+                "quantity": "voltage",
+                "unit": "V",
+                "impedance": 50.0,
+                "differential": false,
+                "isolated": false
+            }],
+            "communication_interfaces": [],
+            "capabilities": [],
+            "metadata": {}
+        }));
+        let canonical = EquipmentModelDefinition::from_json_str(&definition)
+            .unwrap()
+            .canonicalize()
+            .unwrap();
+        let checksum = canonical.definition_checksum;
         equipment
             .execute(
                 "INSERT INTO equipment_model_revisions (
@@ -547,10 +621,10 @@ mod tests {
                     definition_schema_version, definition_json, definition_checksum,
                     created_by, created_at, updated_at, submitted_at, approved_at
                  ) VALUES ('EQM-LEGACY-SCOPE-REV-0001', 'EQM-LEGACY-SCOPE', 1, 'approved',
-                    'emc-locus.equipment-model-definition.v2', '{}', ?1, 'fixture',
+                    'emc-locus.equipment-model-definition.v2', ?1, ?2, 'fixture',
                     '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z',
                     '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z')",
-                params![checksum],
+                params![canonical.canonical_json, checksum],
             )
             .unwrap();
         equipment

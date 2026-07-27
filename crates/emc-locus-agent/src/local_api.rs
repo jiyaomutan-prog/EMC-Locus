@@ -48,12 +48,14 @@ use crate::equipment_service::{
 use crate::fleet_service::{
     archive_laboratory_location_json, create_laboratory_location, create_physical_asset,
     get_physical_asset_json, list_laboratory_location_audit_json, list_laboratory_locations_json,
-    list_physical_asset_audit_json, list_physical_assets_json,
+    list_model_reconciliation_candidates_json, list_physical_asset_audit_json,
+    list_physical_assets_json, reconcile_physical_asset_model_json,
     transition_physical_asset_availability, transition_physical_asset_service_state,
     update_laboratory_location_json, update_physical_asset, ArchiveLaboratoryLocationInput,
     CreateLaboratoryLocationInput, CreatePhysicalAssetInput, FleetOperationContext,
-    TransitionPhysicalAssetAvailabilityInput, TransitionPhysicalAssetServiceStateInput,
-    UpdateLaboratoryLocationInput, UpdatePhysicalAssetInput,
+    ReconcilePhysicalAssetModelInput, TransitionPhysicalAssetAvailabilityInput,
+    TransitionPhysicalAssetServiceStateInput, UpdateLaboratoryLocationInput,
+    UpdatePhysicalAssetInput,
 };
 use crate::measurement_engineering_service::{
     clone_measurement_engineering_definition, create_measurement_engineering_definition,
@@ -506,6 +508,11 @@ fn route_api_request(
         let payload = parse_json_body(body)?;
         return create_physical_asset(&config.storage_root, create_physical_asset_input(&payload)?);
     }
+    if parts.as_slice() == ["api", "v1", "fleet", "model-reconciliation-candidates"]
+        && method == "GET"
+    {
+        return list_model_reconciliation_candidates_json(&config.storage_root);
+    }
     if parts.len() == 5
         && parts[0] == "api"
         && parts[1] == "v1"
@@ -552,6 +559,12 @@ fn route_api_request(
             return transition_physical_asset_availability(
                 &config.storage_root,
                 transition_physical_asset_availability_input(parts[4], &payload)?,
+            );
+        }
+        if parts[6] == "reconcile-model" {
+            return reconcile_physical_asset_model_json(
+                &config.storage_root,
+                reconcile_physical_asset_model_input(parts[4], &payload)?,
             );
         }
     }
@@ -2233,6 +2246,19 @@ fn transition_physical_asset_availability_input(
     })
 }
 
+fn reconcile_physical_asset_model_input(
+    asset_id: &str,
+    payload: &Value,
+) -> Result<ReconcilePhysicalAssetModelInput, AgentError> {
+    Ok(ReconcilePhysicalAssetModelInput {
+        asset_id: asset_id.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        equipment_model_id: required_string(payload, "equipment_model_id")?,
+        equipment_model_revision_id: required_string(payload, "equipment_model_revision_id")?,
+        context: fleet_operation_context(payload)?,
+    })
+}
+
 fn create_laboratory_location_input(
     payload: &Value,
 ) -> Result<CreateLaboratoryLocationInput, AgentError> {
@@ -3170,7 +3196,10 @@ fn status_for_error(code: &str) -> u16 {
         | "test_template_revision_transition_not_allowed"
         | "equipment_model_already_exists"
         | "equipment_model_not_approved"
+        | "equipment_model_revision_not_immutable"
+        | "equipment_model_revision_checksum_mismatch"
         | "physical_asset_inventory_code_conflict"
+        | "physical_asset_model_already_resolved"
         | "physical_asset_revision_conflict"
         | "fleet_revision_conflict"
         | "laboratory_location_label_conflict"

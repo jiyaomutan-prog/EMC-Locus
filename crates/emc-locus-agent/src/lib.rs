@@ -86,12 +86,14 @@ pub use equipment_service::{
 pub use fleet_service::{
     archive_laboratory_location_json, create_laboratory_location, create_physical_asset,
     get_physical_asset_json, list_laboratory_location_audit_json, list_laboratory_locations_json,
-    list_physical_asset_audit_json, list_physical_assets_json,
+    list_model_reconciliation_candidates_json, list_physical_asset_audit_json,
+    list_physical_assets_json, reconcile_physical_asset_model_json,
     transition_physical_asset_availability, transition_physical_asset_service_state,
     update_laboratory_location_json, update_physical_asset, ArchiveLaboratoryLocationInput,
     CreateLaboratoryLocationInput, CreatePhysicalAssetInput, FleetOperationContext,
-    TransitionPhysicalAssetAvailabilityInput, TransitionPhysicalAssetServiceStateInput,
-    UpdateLaboratoryLocationInput, UpdatePhysicalAssetInput,
+    ReconcilePhysicalAssetModelInput, TransitionPhysicalAssetAvailabilityInput,
+    TransitionPhysicalAssetServiceStateInput, UpdateLaboratoryLocationInput,
+    UpdatePhysicalAssetInput,
 };
 pub use local_api::{run_local_api_server, ApiServerConfig};
 pub use measurement_engineering_service::{

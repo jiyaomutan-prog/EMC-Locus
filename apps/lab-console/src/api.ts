@@ -53,6 +53,7 @@ import type {
   AvailabilityState,
   CreatePhysicalAssetInput,
   LaboratoryLocation,
+  ModelReconciliationCandidate,
   OwnershipSource,
   PhysicalAsset,
   ServiceState
@@ -742,6 +743,28 @@ export const fleetApi = {
       ...context,
       operation_id: operationId("fleet-asset-create", input.inventory_code)
     }),
+  listModelReconciliationCandidates: () =>
+    request<{ candidates: ModelReconciliationCandidate[] }>(
+      "/api/v1/fleet/model-reconciliation-candidates"
+    ),
+  reconcileModel: (
+    asset: PhysicalAsset,
+    candidate: ModelReconciliationCandidate,
+    context: OperationContext
+  ) =>
+    post<{ asset: PhysicalAsset; replayed: boolean }>(
+      `/api/v1/fleet/assets/${encodeURIComponent(asset.asset_id)}/transitions/reconcile-model`,
+      {
+        expected_revision: asset.revision,
+        equipment_model_id: candidate.equipment_model_id,
+        equipment_model_revision_id: candidate.equipment_model_revision_id,
+        ...context,
+        operation_id: operationId(
+          "fleet-model-reconciliation",
+          `${asset.asset_id}-${candidate.equipment_model_revision_id}`
+        )
+      }
+    ),
   updateAsset: (
     asset: PhysicalAsset,
     input: {

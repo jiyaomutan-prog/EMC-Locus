@@ -67,6 +67,18 @@ export interface LaboratoryLocation {
   updated_at: string;
 }
 
+export interface ModelReconciliationCandidate {
+  equipment_model_id: string;
+  equipment_model_revision_id: string;
+  revision_number: number;
+  lifecycle_status: "approved" | "superseded";
+  approved_at: string | null;
+  manufacturer: string;
+  model_name: string;
+  variant: string | null;
+  category_path: string[];
+}
+
 export interface CreatePhysicalAssetInput {
   inventory_code: string;
   serial_number?: string;

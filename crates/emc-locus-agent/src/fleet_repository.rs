@@ -349,6 +349,49 @@ pub(crate) fn update_physical_asset_availability(
     Ok(expected_revision + 1)
 }
 
+pub(crate) fn reconcile_physical_asset_model(
+    transaction: &Transaction<'_>,
+    asset_id: &str,
+    expected_revision: u64,
+    model: &emc_locus_core::PinnedEquipmentModel,
+    category_path_json: &str,
+    timestamp: &str,
+) -> Result<u64, AgentError> {
+    let changed = transaction
+        .execute(
+            "UPDATE physical_assets SET
+                equipment_model_id = ?3,
+                equipment_model_revision_id = ?4,
+                equipment_model_checksum = ?5,
+                manufacturer_snapshot = ?6,
+                model_name_snapshot = ?7,
+                variant_snapshot = ?8,
+                category_code_snapshot = ?9,
+                category_path_json = ?10,
+                model_link_state = 'resolved',
+                revision = revision + 1,
+                updated_at = ?11
+             WHERE asset_id = ?1 AND revision = ?2
+               AND model_link_state = 'migration_review_required'",
+            params![
+                asset_id,
+                expected_revision,
+                model.equipment_model_id,
+                model.equipment_model_revision_id,
+                model.equipment_model_checksum,
+                model.manufacturer,
+                model.model_name,
+                model.variant,
+                model.category_code,
+                category_path_json,
+                timestamp,
+            ],
+        )
+        .map_err(map_asset_write_error)?;
+    require_asset_update(changed, asset_id, expected_revision)?;
+    Ok(expected_revision + 1)
+}
+
 pub(crate) fn load_laboratory_location(
     connection: &Connection,
     location_id: &str,

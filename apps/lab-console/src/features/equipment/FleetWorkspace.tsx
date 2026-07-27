@@ -15,6 +15,7 @@ import type {
   AvailabilityState,
   CreatePhysicalAssetInput,
   LaboratoryLocation,
+  ModelReconciliationCandidate,
   OwnershipSource,
   PhysicalAsset,
   ServiceState
@@ -149,6 +150,14 @@ export function FleetWorkspace(props: FleetWorkspaceProps) {
     replaceAsset(response.asset);
   }
 
+  async function reconcileModel(
+    asset: PhysicalAsset,
+    candidate: ModelReconciliationCandidate
+  ) {
+    const response = await fleetApi.reconcileModel(asset, candidate, context);
+    replaceAsset(response.asset);
+  }
+
   return (
     <section className="fleetWorkspace" aria-label="Parc matériel">
       <header className="resourcePageHeader">
@@ -217,6 +226,7 @@ export function FleetWorkspace(props: FleetWorkspaceProps) {
           onUpdate={updateAsset}
           onTransitionService={transitionServiceState}
           onTransitionAvailability={transitionAvailability}
+          onReconcileModel={reconcileModel}
           onOpenPinnedModel={props.onOpenPinnedModel}
           onOpenMetrology={props.onOpenMetrology}
         />
@@ -408,10 +418,15 @@ function AssetDetail(props: {
   onUpdate: (asset: PhysicalAsset, input: Parameters<typeof fleetApi.updateAsset>[1]) => Promise<void>;
   onTransitionService: (asset: PhysicalAsset, state: ServiceState, reason: string) => Promise<void>;
   onTransitionAvailability: (asset: PhysicalAsset, state: AvailabilityState) => Promise<void>;
+  onReconcileModel: (
+    asset: PhysicalAsset,
+    candidate: ModelReconciliationCandidate
+  ) => Promise<void>;
   onOpenPinnedModel: (modelId: string, revisionId: string) => void;
   onOpenMetrology: (assetId: string) => void;
 }) {
   const [tab, setTab] = useState("summary");
+  const [reconciliationOpen, setReconciliationOpen] = useState(false);
   if (!props.asset) return <div className="assetDetail empty"><strong>Aucun exemplaire ouvert</strong><p>Sélectionnez un exemplaire dans la hiérarchie du parc.</p></div>;
   const asset = props.asset;
   return (
@@ -439,8 +454,120 @@ function AssetDetail(props: {
       {tab === "history" && <div className="detailSection"><p>Créé le {formatDate(asset.created_at)} · mis à jour le {formatDate(asset.updated_at)}.</p></div>}
       {tab === "technical" && <details open><summary>Identifiants et preuve de version</summary><dl><dt>Identifiant interne</dt><dd>{asset.asset_id}</dd><dt>Révision</dt><dd>{asset.revision}</dd><dt>Version du modèle</dt><dd>{asset.equipment_model_revision_id || "Lien à rapprocher"}</dd><dt>Empreinte du modèle</dt><dd className="technicalValue">{asset.equipment_model_checksum || "Indisponible"}</dd></dl></details>}
       {asset.equipment_model_id && asset.equipment_model_revision_id && <button className="secondary" type="button" onClick={() => props.onOpenPinnedModel(asset.equipment_model_id!, asset.equipment_model_revision_id!)}>Ouvrir le modèle constructeur</button>}
-      {(!asset.equipment_model_id || !asset.equipment_model_revision_id) && <p className="actionExplanation">Le lien exact vers le modèle doit être rapproché par un administrateur du référentiel.</p>}
+      {asset.model_link_state === "migration_review_required" && (
+        <section className="modelReconciliationCallout">
+          <div>
+            <h3>Modèle constructeur à rapprocher</h3>
+            <p>Cet exemplaire provient de l’ancien registre métrologique. Sélectionnez la version exacte de son modèle avant de l’utiliser dans un montage ou un essai.</p>
+          </div>
+          <button type="button" onClick={() => setReconciliationOpen(true)}>
+            Rapprocher avec un modèle constructeur
+          </button>
+        </section>
+      )}
+      {reconciliationOpen && (
+        <div className="modalBackdrop">
+          <ModelReconciliationDialog
+            asset={asset}
+            onCancel={() => setReconciliationOpen(false)}
+            onReconcile={async (candidate) => {
+              await props.onReconcileModel(asset, candidate);
+              setReconciliationOpen(false);
+            }}
+          />
+        </div>
+      )}
     </article>
+  );
+}
+
+function ModelReconciliationDialog(props: {
+  asset: PhysicalAsset;
+  onCancel: () => void;
+  onReconcile: (candidate: ModelReconciliationCandidate) => Promise<void>;
+}) {
+  const [candidates, setCandidates] = useState<ModelReconciliationCandidate[]>([]);
+  const [selectedRevisionId, setSelectedRevisionId] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void fleetApi.listModelReconciliationCandidates()
+      .then((response) => {
+        if (!active) return;
+        setCandidates(response.candidates);
+        setSelectedRevisionId(response.candidates[0]?.equipment_model_revision_id ?? "");
+        setError(null);
+      })
+      .catch((reason: unknown) => {
+        if (active) setError(errorMessage(reason));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const selected = candidates.find(
+    (candidate) => candidate.equipment_model_revision_id === selectedRevisionId
+  );
+
+  async function reconcile() {
+    if (!selected) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await props.onReconcile(selected);
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="modalCard reconciliationDialog" role="dialog" aria-modal="true" aria-labelledby="reconciliation-title">
+      <header>
+        <div>
+          <p className="eyebrow">Exemplaire migré · {props.asset.inventory_code}</p>
+          <h2 id="reconciliation-title">Rapprocher avec un modèle constructeur</h2>
+        </div>
+        <button className="iconButton secondary" type="button" onClick={props.onCancel} aria-label="Fermer"><X size={17} /></button>
+      </header>
+      <p>Sélectionnez la version exacte correspondant à cet exemplaire. Ce choix est définitif pour préserver la traçabilité.</p>
+      {loading ? (
+        <p className="muted">Lecture des versions contrôlées...</p>
+      ) : candidates.length === 0 ? (
+        <p className="actionExplanation">Aucune version approuvée ou remplacée n’est disponible. Faites approuver le modèle constructeur attendu avant de poursuivre.</p>
+      ) : (
+        <label>Modèle et version <Required />
+          <select value={selectedRevisionId} onChange={(event) => setSelectedRevisionId(event.target.value)}>
+            {candidates.map((candidate) => (
+              <option key={candidate.equipment_model_revision_id} value={candidate.equipment_model_revision_id}>
+                {reconciliationCandidateLabel(candidate)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {selected && (
+        <div className="selectedModelSummary">
+          <strong>{selected.manufacturer} {selected.model_name}{selected.variant ? ` ${selected.variant}` : ""}</strong>
+          <span>{selected.category_path.join(" > ")} · Version {selected.revision_number} · {revisionStatusLabel(selected.lifecycle_status)}{selected.approved_at ? ` le ${formatDate(selected.approved_at)}` : ""}</span>
+        </div>
+      )}
+      {error && <TargetedError title="Rapprochement indisponible" detail={error} />}
+      <footer>
+        <button className="secondary" type="button" onClick={props.onCancel}>Annuler</button>
+        <button type="button" disabled={submitting || !selected} onClick={() => void reconcile()}>
+          {submitting ? "Rapprochement..." : "Rapprocher cette version"}
+        </button>
+      </footer>
+    </section>
   );
 }
 
@@ -654,6 +781,8 @@ function categoryPath(asset: PhysicalAsset) { return asset.category_path.length 
 function searchText(asset: PhysicalAsset) { return [categoryPath(asset), asset.manufacturer, asset.model_name, asset.variant, asset.inventory_code, asset.serial_number, asset.laboratory_location_label].filter(Boolean).join(" ").toLocaleLowerCase("fr"); }
 function formatDate(value: string) { return new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(value)); }
 function formatList(items: string[]) { return new Intl.ListFormat("fr-FR", { style: "long", type: "conjunction" }).format(items); }
+function reconciliationCandidateLabel(candidate: ModelReconciliationCandidate) { return `${candidate.manufacturer} ${candidate.model_name}${candidate.variant ? ` ${candidate.variant}` : ""} · ${candidate.category_path.join(" > ")} · Version ${candidate.revision_number} · ${revisionStatusLabel(candidate.lifecycle_status)}${candidate.approved_at ? ` · ${formatDate(candidate.approved_at)}` : ""}`; }
+function revisionStatusLabel(value: ModelReconciliationCandidate["lifecycle_status"]) { return value === "approved" ? "Approuvée" : "Remplacée"; }
 function metrologyGroup(asset: PhysicalAsset) { if (!asset.metrology || asset.metrology.calibration_requirement === "not_required") return "Étalonnage non requis"; if (!asset.metrology.latest_due_at) return "Étalonnage à planifier"; return new Date(asset.metrology.latest_due_at) < new Date() ? "Échéance dépassée" : "Étalonnage valide"; }
 function metrologyLabel(asset: PhysicalAsset) { if (!asset.metrology) return "Dossier métrologique indisponible"; if (asset.metrology.calibration_requirement === "not_required") return "Étalonnage non requis"; if (!asset.metrology.latest_due_at) return "Étalonnage à planifier"; return `Valide jusqu'au ${formatDate(asset.metrology.latest_due_at)}`; }
 function serviceStateLabel(value: ServiceState) { return serviceStateChoices.find(([key]) => key === value)?.[1] ?? value; }

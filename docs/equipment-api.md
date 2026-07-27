@@ -49,10 +49,39 @@ Manufacturer and model name are structural model identifiers and cannot be
 archived. Other active field definitions can be edited or archived. Historical
 model revisions keep their template snapshot and values.
 
-Physical serial-numbered equipment is registered through
-`POST /api/v1/metrology/instruments`. LAB CONSOLE fills that contract from an
-approved equipment model; it does not store a serial number on the reusable
-model definition.
+Physical and software items used by the laboratory are registered in the fleet
+domain. Metrology stores only their metrology dossier and evidence; it no
+longer owns physical identity.
+
+## Physical Asset Fleet
+
+```text
+GET    /api/v1/fleet/assets
+POST   /api/v1/fleet/assets
+GET    /api/v1/fleet/assets/{asset_id}
+PUT    /api/v1/fleet/assets/{asset_id}
+GET    /api/v1/fleet/assets/{asset_id}/audit-events
+POST   /api/v1/fleet/assets/{asset_id}/transitions/service-state
+POST   /api/v1/fleet/assets/{asset_id}/transitions/availability
+GET    /api/v1/fleet/model-reconciliation-candidates
+POST   /api/v1/fleet/assets/{asset_id}/transitions/reconcile-model
+```
+
+`POST .../transitions/reconcile-model` is the only command that can resolve a
+migrated asset whose `model_link_state` is `migration_review_required`. It
+requires `expected_revision`, `equipment_model_id`,
+`equipment_model_revision_id`, `actor`, `reason`, and `operation_id`. The agent
+accepts only an exact `approved` or `superseded` immutable revision, parses and
+validates its typed definition, recomputes the canonical SHA-256 checksum, and
+derives manufacturer, model, variant and category snapshots server-side. The
+client neither supplies nor chooses a checksum or category code.
+
+The command runs under `BEGIN IMMEDIATE`. Asset update, revision increment,
+audit event, operation replay record and sync outbox entry commit together.
+Reusing an operation ID with the same request returns `replayed: true`; a
+different request is rejected. A resolved asset cannot be silently repointed.
+Migration evidence remains unchanged. Safe administrative edits do not make an
+unresolved asset executable.
 
 ## Equipment Models
 
