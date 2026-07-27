@@ -765,25 +765,41 @@ export const fleetApi = {
         )
       }
     ),
-  updateAsset: (
+  updateAssetIdentification: (
     asset: PhysicalAsset,
     input: {
       inventory_code: string;
       serial_number?: string;
       part_number?: string;
-      laboratory_location_id?: string;
       ownership_source: OwnershipSource;
       notes?: string;
     },
     context: OperationContext
   ) =>
     put<{ asset: PhysicalAsset; replayed: boolean }>(
-      `/api/v1/fleet/assets/${encodeURIComponent(asset.asset_id)}`,
+      `/api/v1/fleet/assets/${encodeURIComponent(asset.asset_id)}/identification`,
       {
         ...input,
         expected_revision: asset.revision,
         ...context,
-        operation_id: operationId("fleet-asset-update", asset.asset_id)
+        operation_id: operationId("fleet-asset-identification", asset.asset_id)
+      }
+    ),
+  moveAsset: (
+    asset: PhysicalAsset,
+    destinationLocationId: string | undefined,
+    context: OperationContext
+  ) =>
+    post<{ asset: PhysicalAsset; replayed: boolean }>(
+      `/api/v1/fleet/assets/${encodeURIComponent(asset.asset_id)}/transitions/move`,
+      {
+        expected_revision: asset.revision,
+        destination_location_id: destinationLocationId,
+        ...context,
+        operation_id: operationId(
+          "fleet-asset-move",
+          `${asset.asset_id}-${destinationLocationId ?? "unassigned"}`
+        )
       }
     ),
   transitionServiceState: (

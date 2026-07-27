@@ -655,6 +655,9 @@ describe("LAB CONSOLE", () => {
       if (path === "/api/v1/equipment/communication-providers") return jsonResponse({ providers: [] });
       if (path === "/api/v1/fleet/assets" && init?.method === "POST") {
         const body = JSON.parse(String(init.body));
+        if (body.inventory_code === "SA-REJECT") {
+          return jsonResponse({ error: { code: "physical_asset_inventory_code_conflict", message: "Code inventaire déjà utilisé" } }, 409);
+        }
         const asset = {
           asset_id: `ASSET-${body.inventory_code}`,
           inventory_code: body.inventory_code,
@@ -669,7 +672,8 @@ describe("LAB CONSOLE", () => {
           category_code: "rf_power_sensor",
           category_path: ["Mesure RF", "Wattmètres"],
           laboratory_location_id: body.laboratory_location_id,
-          laboratory_location_label: "Labo CEM 1",
+          laboratory_location_label: body.laboratory_location_id ? "Labo CEM 1" : null,
+          laboratory_location_status: body.laboratory_location_id ? "active" : null,
           ownership_source: body.ownership_source,
           service_state: body.service_state,
           administrative_availability: body.administrative_availability,
@@ -680,8 +684,8 @@ describe("LAB CONSOLE", () => {
             evidence: []
           },
           availability_state: body.administrative_availability,
-          service_state_reason: "",
-          notes: "",
+          service_state_reason: body.service_state_reason ?? "",
+          notes: body.notes ?? "",
           revision: 1,
           model_link_state: "controlled",
           migrated_from_metrology: false,
@@ -717,14 +721,48 @@ describe("LAB CONSOLE", () => {
     expect(body.equipment_model_id).toBe("EQM-NRP6AN-FWD");
     expect(body.equipment_model_revision_id).toBeUndefined();
     expect(body.equipment_model_checksum).toBeUndefined();
+    expect(body.administrative_availability).toBe("available");
 
     expect(screen.getByText("Vous consultez un exemplaire du parc.")).toBeInTheDocument();
     expect(screen.getByText("SN-7788")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Ajouter un exemplaire" }));
     await user.type(screen.getByLabelText(/Code inventaire/), "SA-LAB-002");
-    await user.selectOptions(screen.getByLabelText(/Emplacement/), "LAB-LOCATION-CEM-1");
     await user.click(screen.getByRole("button", { name: "Enregistrer l'exemplaire" }));
     expect(await screen.findByText("Sans numéro de série")).toBeInTheDocument();
+    expect(screen.getAllByText("Emplacement non défini").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Ajouter un exemplaire" }));
+    await user.type(screen.getByLabelText(/Code inventaire/), "SA-LAB-003");
+    await user.selectOptions(screen.getByLabelText(/État de service/), "in_maintenance");
+    const serviceReason = screen.getByLabelText(/Motif de l'état de service/);
+    const administrativeAvailability = screen.getByLabelText(/Disponibilité administrative/);
+    expect(administrativeAvailability).toHaveValue("unavailable");
+    expect(administrativeAvailability).toBeDisabled();
+    const saveUnavailable = screen.getByRole("button", { name: "Enregistrer l'exemplaire" });
+    expect(saveUnavailable).toHaveAttribute("aria-disabled", "true");
+    await user.click(saveUnavailable);
+    expect(serviceReason).toHaveFocus();
+    await user.type(serviceReason, "Maintenance préventive");
+    await user.click(saveUnavailable);
+    await waitFor(() => expect(assets).toHaveLength(3));
+    const createRequests = fetchMock.mock.calls.filter(([path, options]) =>
+      String(path) === "/api/v1/fleet/assets" && (options as RequestInit | undefined)?.method === "POST"
+    );
+    const unavailableBody = JSON.parse(String((createRequests.at(-1)?.[1] as RequestInit).body));
+    expect(unavailableBody.service_state).toBe("in_maintenance");
+    expect(unavailableBody.service_state_reason).toBe("Maintenance préventive");
+    expect(unavailableBody.administrative_availability).toBe("unavailable");
+    expect(unavailableBody.administrative_unavailability_reason).toBe("Maintenance préventive");
+    expect(unavailableBody.laboratory_location_id).toBeUndefined();
+
+    await user.click(screen.getByRole("button", { name: "Ajouter un exemplaire" }));
+    await user.type(screen.getByLabelText(/Code inventaire/), "SA-REJECT");
+    await user.type(screen.getByLabelText(/Numéro de série/), "SN-A-CONSERVER");
+    await user.click(screen.getByRole("button", { name: "Enregistrer l'exemplaire" }));
+    expect(await screen.findByText("Code inventaire déjà utilisé")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Code inventaire/)).toHaveValue("SA-REJECT");
+    expect(screen.getByLabelText(/Numéro de série/)).toHaveValue("SN-A-CONSERVER");
+    expect(assets).toHaveLength(3);
   });
 
   test("keeps catalogue and fleet identity visible when secondary services fail", async () => {
@@ -873,6 +911,69 @@ describe("LAB CONSOLE", () => {
       String(path).endsWith("/transitions/administrative-availability")
     )).toBe(true));
     expect(await screen.findByLabelText(/Motif d'indisponibilité/)).toHaveValue("Prêt externe");
+  });
+
+  test("edits identity at an archived location and moves through a dedicated command", async () => {
+    let asset = physicalAssetFixture({
+      laboratory_location_id: "LAB-LOCATION-ARCHIVED",
+      laboratory_location_label: "Ancien laboratoire",
+      laboratory_location_status: "archived"
+    }) as PhysicalAsset;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/fleet/assets") return jsonResponse({ assets: [asset] });
+      if (path === "/api/v1/laboratory-locations") return mockBaseApiResponse(path);
+      if (path.endsWith("/identification") && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body));
+        expect(body.laboratory_location_id).toBeUndefined();
+        asset = { ...asset, ...body, revision: asset.revision + 1 };
+        return jsonResponse({ asset, replayed: false });
+      }
+      if (path.endsWith("/transitions/move") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        asset = {
+          ...asset,
+          laboratory_location_id: body.destination_location_id,
+          laboratory_location_label: "Chambre semi-anéchoïque",
+          laboratory_location_status: "active",
+          revision: asset.revision + 1
+        };
+        return jsonResponse({ asset, replayed: false });
+      }
+      return jsonResponse({ error: { code: "unexpected", message: path } }, 500);
+    });
+    const user = userEvent.setup();
+
+    render(<FleetWorkspace
+      models={[equipmentModelFixture() as EquipmentModelAggregate]}
+      categories={equipmentCategoriesFixture()}
+      onOpenPinnedModel={vi.fn()}
+      onOpenMetrology={vi.fn()}
+    />);
+
+    expect((await screen.findAllByText("Ancien laboratoire (archivé)")).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "Identification" }));
+    const notes = screen.getByLabelText("Notes");
+    await user.clear(notes);
+    await user.type(notes, "Inventaire vérifié sur place");
+    await user.click(screen.getByRole("button", { name: "Enregistrer l'identification" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([path]) => String(path).endsWith("/identification"))).toBe(true));
+    expect(screen.getAllByText("Ancien laboratoire (archivé)").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Emplacement et disponibilité" }));
+    expect(await screen.findByText(/Emplacement actuel archivé/)).toBeInTheDocument();
+    const location = screen.getByLabelText("Nouvel emplacement");
+    expect(within(location).getByRole("option", { name: /Ancien laboratoire.*archivé/ })).toBeDisabled();
+    await user.selectOptions(location, "LAB-LOCATION-ANECHOIC");
+    await user.type(screen.getByLabelText(/Motif du déplacement/), "Transfert vers la chambre rayonnée");
+    await user.click(screen.getByRole("button", { name: "Enregistrer le déplacement" }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([path]) => String(path).endsWith("/transitions/move"))).toBe(true));
+    expect((await screen.findAllByText("Chambre semi-anéchoïque")).length).toBeGreaterThan(0);
+    const moveRequest = fetchMock.mock.calls.find(([path]) => String(path).endsWith("/transitions/move"));
+    const moveBody = JSON.parse(String((moveRequest?.[1] as RequestInit).body));
+    expect(moveBody.destination_location_id).toBe("LAB-LOCATION-ANECHOIC");
+    expect(moveBody.reason).toBe("Transfert vers la chambre rayonnée");
   });
 
   test("reconciles a migrated asset through a readable exact model revision", async () => {
@@ -1786,6 +1887,7 @@ function physicalAssetFixture(overrides: Record<string, unknown> = {}) {
     category_path: ["Mesure RF", "Wattmètres"],
     laboratory_location_id: "LAB-LOCATION-CEM-1",
     laboratory_location_label: "Labo CEM 1",
+    laboratory_location_status: "active",
     ownership_source: "laboratory_owned",
     service_state: "usable",
     administrative_availability: "available",

@@ -104,10 +104,16 @@ pub(crate) struct UpdatePhysicalAssetIdentityInput<'a> {
     pub(crate) inventory_code: &'a str,
     pub(crate) serial_number: Option<&'a str>,
     pub(crate) part_number: Option<&'a str>,
-    pub(crate) laboratory_location_id: Option<&'a str>,
-    pub(crate) laboratory_location_label_snapshot: Option<&'a str>,
     pub(crate) ownership_source: &'a str,
     pub(crate) notes: &'a str,
+    pub(crate) timestamp: &'a str,
+}
+
+pub(crate) struct MovePhysicalAssetRecord<'a> {
+    pub(crate) asset_id: &'a str,
+    pub(crate) expected_revision: u64,
+    pub(crate) laboratory_location_id: Option<&'a str>,
+    pub(crate) laboratory_location_label_snapshot: Option<&'a str>,
     pub(crate) timestamp: &'a str,
 }
 
@@ -296,8 +302,7 @@ pub(crate) fn update_physical_asset_identity(
         .execute(
             "UPDATE physical_assets SET
                 inventory_code = ?3, serial_number = ?4, part_number = ?5,
-                laboratory_location_id = ?6, laboratory_location_label_snapshot = ?7,
-                ownership_source = ?8, notes = ?9, revision = revision + 1, updated_at = ?10
+                ownership_source = ?6, notes = ?7, revision = revision + 1, updated_at = ?8
              WHERE asset_id = ?1 AND revision = ?2",
             params![
                 input.asset_id,
@@ -305,8 +310,6 @@ pub(crate) fn update_physical_asset_identity(
                 input.inventory_code,
                 input.serial_number,
                 input.part_number,
-                input.laboratory_location_id,
-                input.laboratory_location_label_snapshot,
                 input.ownership_source,
                 input.notes,
                 input.timestamp,
@@ -320,6 +323,29 @@ pub(crate) fn update_physical_asset_identity(
             json!({ "asset_id": input.asset_id, "expected_revision": input.expected_revision }),
         ));
     }
+    Ok(input.expected_revision + 1)
+}
+
+pub(crate) fn move_physical_asset(
+    transaction: &Transaction<'_>,
+    input: MovePhysicalAssetRecord<'_>,
+) -> Result<u64, AgentError> {
+    let changed = transaction
+        .execute(
+            "UPDATE physical_assets SET laboratory_location_id = ?3,
+                laboratory_location_label_snapshot = ?4,
+                revision = revision + 1, updated_at = ?5
+             WHERE asset_id = ?1 AND revision = ?2",
+            params![
+                input.asset_id,
+                input.expected_revision,
+                input.laboratory_location_id,
+                input.laboratory_location_label_snapshot,
+                input.timestamp,
+            ],
+        )
+        .map_err(map_asset_write_error)?;
+    require_asset_update(changed, input.asset_id, input.expected_revision)?;
     Ok(input.expected_revision + 1)
 }
 

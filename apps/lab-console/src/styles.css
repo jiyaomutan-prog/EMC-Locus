@@ -1215,6 +1215,17 @@ button.planningSlot-cancelled {
   grid-column: 1 / -1;
 }
 
+.formGridExplanation {
+  align-self: end;
+  margin: 0 0 4px;
+}
+
+.assetCreationDialog label small {
+  color: #53615a;
+  display: block;
+  margin-top: 4px;
+}
+
 .operationalEditBlock {
   background: #f7f9f8;
   border: 1px solid #d7dfda;

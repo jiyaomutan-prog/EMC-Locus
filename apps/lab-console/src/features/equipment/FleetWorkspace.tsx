@@ -135,8 +135,13 @@ export function FleetWorkspace(props: FleetWorkspaceProps) {
     setAssets((current) => current.map((candidate) => candidate.asset_id === asset.asset_id ? asset : candidate));
   }
 
-  async function updateAsset(asset: PhysicalAsset, input: Parameters<typeof fleetApi.updateAsset>[1]) {
-    const response = await fleetApi.updateAsset(asset, input, context);
+  async function updateAssetIdentification(asset: PhysicalAsset, input: Parameters<typeof fleetApi.updateAssetIdentification>[1]) {
+    const response = await fleetApi.updateAssetIdentification(asset, input, context);
+    replaceAsset(response.asset);
+  }
+
+  async function moveAsset(asset: PhysicalAsset, destinationLocationId: string | undefined, reason: string) {
+    const response = await fleetApi.moveAsset(asset, destinationLocationId, { ...context, reason });
     replaceAsset(response.asset);
   }
 
@@ -232,7 +237,8 @@ export function FleetWorkspace(props: FleetWorkspaceProps) {
           asset={selectedAsset}
           locations={locations}
           locationsError={locationsError}
-          onUpdate={updateAsset}
+          onUpdateIdentification={updateAssetIdentification}
+          onMove={moveAsset}
           onTransitionService={transitionServiceState}
           onTransitionAdministrativeAvailability={transitionAdministrativeAvailability}
           onReconcileModel={reconcileModel}
@@ -411,7 +417,7 @@ function renderModelGroups(
       {open && <div className="fleetAssetNodes" role="group">{modelAssets.map((asset) => (
         <button key={asset.asset_id} type="button" role="treeitem" className={asset.asset_id === selectedAssetId ? "active" : ""} onClick={() => onSelect(asset.asset_id)}>
           <span><b>{asset.inventory_code}</b> · {asset.serial_number || "Sans numéro de série"}</span>
-          <small>{asset.laboratory_location_label || "Emplacement non défini"}</small>
+          <small>{locationDisplay(asset)}</small>
           <span className="assetRowStates"><span className={`status ${asset.service_state}`}>{serviceStateLabel(asset.service_state)}</span><span>{operationalUsageLabel(asset.availability_state)}</span><span>{metrologyLabel(asset)}</span></span>
         </button>
       ))}</div>}
@@ -424,7 +430,8 @@ function AssetDetail(props: {
   asset: PhysicalAsset | null;
   locations: LaboratoryLocation[];
   locationsError: string | null;
-  onUpdate: (asset: PhysicalAsset, input: Parameters<typeof fleetApi.updateAsset>[1]) => Promise<void>;
+  onUpdateIdentification: (asset: PhysicalAsset, input: Parameters<typeof fleetApi.updateAssetIdentification>[1]) => Promise<void>;
+  onMove: (asset: PhysicalAsset, destinationLocationId: string | undefined, reason: string) => Promise<void>;
   onTransitionService: (asset: PhysicalAsset, state: ServiceState, reason: string) => Promise<void>;
   onTransitionAdministrativeAvailability: (
     asset: PhysicalAsset,
@@ -449,7 +456,7 @@ function AssetDetail(props: {
         <div className="identityFacts">
           <IdentityFact label="Numéro de série" value={asset.serial_number || "Sans numéro de série"} />
           <IdentityFact label="Catégorie" value={categoryPath(asset)} />
-          <IdentityFact label="Emplacement" value={asset.laboratory_location_label || "Non défini"} />
+          <IdentityFact label="Emplacement" value={locationDisplay(asset)} />
           <IdentityFact label="État de service" value={serviceStateLabel(asset.service_state)} />
           <IdentityFact label="Disponibilité administrative" value={administrativeAvailabilityLabel(asset.administrative_availability)} />
           <IdentityFact label="Utilisation calculée" value={operationalUsageLabel(asset.availability_state)} />
@@ -462,8 +469,8 @@ function AssetDetail(props: {
         ))}
       </nav>
       {tab === "summary" && <div className="detailSection"><h3>Utilisation au laboratoire</h3><p>{asset.notes || "Aucune note d'utilisation."}</p><p><strong>État technique :</strong> {serviceStateLabel(asset.service_state)}</p><p><strong>Disponibilité administrative :</strong> {administrativeAvailabilityLabel(asset.administrative_availability)}</p><p><strong>Utilisation calculée :</strong> {operationalUsageLabel(asset.operational_usage.state)}</p>{asset.operational_usage.evidence.length > 0 && <ul className="usageEvidenceList">{asset.operational_usage.evidence.map((item) => <li key={`${item.source_kind}-${item.source_identifier}-${item.reason}`}><strong>{item.source_label}</strong><span>{item.reason}</span>{item.relevant_start_at && <small>{formatUsageInterval(item.relevant_start_at, item.relevant_end_at)}</small>}</li>)}</ul>}</div>}
-      {tab === "identification" && <AssetIdentificationEditor key={`${asset.asset_id}-${asset.revision}`} asset={asset} onUpdate={props.onUpdate} />}
-      {tab === "location" && <AssetOperationalEditor key={`${asset.asset_id}-${asset.revision}`} asset={asset} locations={props.locations} locationsError={props.locationsError} onUpdate={props.onUpdate} onTransitionService={props.onTransitionService} onTransitionAdministrativeAvailability={props.onTransitionAdministrativeAvailability} />}
+      {tab === "identification" && <AssetIdentificationEditor key={`${asset.asset_id}-${asset.revision}`} asset={asset} onUpdate={props.onUpdateIdentification} />}
+      {tab === "location" && <AssetOperationalEditor key={`${asset.asset_id}-${asset.revision}`} asset={asset} locations={props.locations} locationsError={props.locationsError} onMove={props.onMove} onTransitionService={props.onTransitionService} onTransitionAdministrativeAvailability={props.onTransitionAdministrativeAvailability} />}
       {tab === "metrology" && <div className="detailSection"><h3>Métrologie de cet exemplaire</h3><p>{metrologyLabel(asset)}</p><button type="button" onClick={() => props.onOpenMetrology(asset.asset_id)}><Wrench size={16} /> Ouvrir la métrologie</button></div>}
       {tab === "history" && <div className="detailSection"><p>Créé le {formatDate(asset.created_at)} · mis à jour le {formatDate(asset.updated_at)}.</p></div>}
       {tab === "technical" && <details open><summary>Identifiants et preuve de version</summary><dl><dt>Identifiant interne</dt><dd>{asset.asset_id}</dd><dt>Révision</dt><dd>{asset.revision}</dd><dt>Version du modèle</dt><dd>{asset.equipment_model_revision_id || "Lien à rapprocher"}</dd><dt>Empreinte du modèle</dt><dd className="technicalValue">{asset.equipment_model_checksum || "Indisponible"}</dd></dl></details>}
@@ -587,7 +594,7 @@ function ModelReconciliationDialog(props: {
 
 function AssetIdentificationEditor(props: {
   asset: PhysicalAsset;
-  onUpdate: (asset: PhysicalAsset, input: Parameters<typeof fleetApi.updateAsset>[1]) => Promise<void>;
+  onUpdate: (asset: PhysicalAsset, input: Parameters<typeof fleetApi.updateAssetIdentification>[1]) => Promise<void>;
 }) {
   const [inventoryCode, setInventoryCode] = useState(props.asset.inventory_code);
   const [serialNumber, setSerialNumber] = useState(props.asset.serial_number ?? "");
@@ -606,7 +613,6 @@ function AssetIdentificationEditor(props: {
         inventory_code: inventoryCode.trim(),
         serial_number: serialNumber.trim() || undefined,
         part_number: partNumber.trim() || undefined,
-        laboratory_location_id: props.asset.laboratory_location_id ?? undefined,
         ownership_source: ownership,
         notes: notes.trim()
       });
@@ -638,7 +644,7 @@ function AssetOperationalEditor(props: {
   asset: PhysicalAsset;
   locations: LaboratoryLocation[];
   locationsError: string | null;
-  onUpdate: (asset: PhysicalAsset, input: Parameters<typeof fleetApi.updateAsset>[1]) => Promise<void>;
+  onMove: (asset: PhysicalAsset, destinationLocationId: string | undefined, reason: string) => Promise<void>;
   onTransitionService: (asset: PhysicalAsset, state: ServiceState, reason: string) => Promise<void>;
   onTransitionAdministrativeAvailability: (
     asset: PhysicalAsset,
@@ -647,6 +653,7 @@ function AssetOperationalEditor(props: {
   ) => Promise<void>;
 }) {
   const [locationId, setLocationId] = useState(props.asset.laboratory_location_id ?? "");
+  const [movementReason, setMovementReason] = useState("");
   const [serviceState, setServiceState] = useState<ServiceState>(props.asset.service_state);
   const [serviceReason, setServiceReason] = useState(props.asset.service_state_reason);
   const [administrativeAvailability, setAdministrativeAvailability] = useState<AdministrativeAvailability>(props.asset.administrative_availability);
@@ -674,11 +681,14 @@ function AssetOperationalEditor(props: {
   return (
     <section className="detailSection assetOperationalSection">
       <div className="operationalEditBlock">
-        <div><h3>Emplacement</h3><p>Le lieu stable utilisé par le parc, les montages et le planning.</p></div>
-        <label>Lieu du laboratoire <Required /><select value={locationId} disabled={Boolean(props.locationsError)} onChange={(event) => setLocationId(event.target.value)}><option value="">Non défini</option>{activeLocations.map((location) => <option key={location.location_id} value={location.location_id}>{location.label}</option>)}</select></label>
+        <div><h3>Déplacer l'exemplaire</h3><p>Le lieu courant reste autorisé s'il a été archivé. Toute nouvelle destination doit être active.</p></div>
+        {props.asset.laboratory_location_status === "archived" && <p className="actionExplanation"><strong>Emplacement actuel archivé.</strong> L'identification reste modifiable. Déplacez l'exemplaire vers un lieu actif ou retirez son affectation.</p>}
+        <label>Nouvel emplacement <select value={locationId} disabled={Boolean(props.locationsError)} onChange={(event) => setLocationId(event.target.value)}><option value="">Emplacement non défini</option>{props.asset.laboratory_location_status === "archived" && props.asset.laboratory_location_id && <option value={props.asset.laboratory_location_id} disabled>{props.asset.laboratory_location_label} (emplacement actuel archivé)</option>}{activeLocations.map((location) => <option key={location.location_id} value={location.location_id}>{location.label}</option>)}</select></label>
+        <label>Motif du déplacement <Required /><input value={movementReason} onChange={(event) => setMovementReason(event.target.value)} placeholder="Réaffectation, retour de prêt ou mise en attente" /></label>
         {props.locationsError && <TargetedError title="Registre des lieux indisponible" detail="L'identité de l'exemplaire reste consultable. Le déplacement est suspendu jusqu'au retour du registre." />}
         {!locationChanged && <p className="actionExplanation">Sélectionnez un autre emplacement pour déplacer cet exemplaire.</p>}
-        <button type="button" disabled={busy || !locationChanged || Boolean(props.locationsError)} onClick={() => void run(() => props.onUpdate(props.asset, { inventory_code: props.asset.inventory_code, serial_number: props.asset.serial_number ?? undefined, part_number: props.asset.part_number ?? undefined, laboratory_location_id: locationId || undefined, ownership_source: props.asset.ownership_source, notes: props.asset.notes }))}>Enregistrer l'emplacement</button>
+        {locationChanged && !movementReason.trim() && <p className="actionExplanation">Renseignez le motif du déplacement.</p>}
+        <button type="button" disabled={busy || !locationChanged || !movementReason.trim() || Boolean(props.locationsError)} onClick={() => void run(() => props.onMove(props.asset, locationId || undefined, movementReason.trim()))}>Enregistrer le déplacement</button>
       </div>
       <div className="operationalEditBlock">
         <div><h3>État de service</h3><p>Indique si l'exemplaire peut techniquement être utilisé.</p></div>
@@ -716,6 +726,7 @@ function CreateAssetDialog(props: {
   const [locationId, setLocationId] = useState("");
   const [ownership, setOwnership] = useState<OwnershipSource>("laboratory_owned");
   const [serviceState, setServiceState] = useState<ServiceState>("usable");
+  const [serviceStateReason, setServiceStateReason] = useState("");
   const [administrativeAvailability, setAdministrativeAvailability] = useState<AdministrativeAvailability>("available");
   const [administrativeReason, setAdministrativeReason] = useState("");
   const [calibrationRequirement, setCalibrationRequirement] = useState("required");
@@ -724,11 +735,28 @@ function CreateAssetDialog(props: {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const selectedModel = props.models.find((model) => model.identity.equipment_model_id === modelId);
-  const missing = [!modelId && "le modèle constructeur", !inventoryCode.trim() && "le code inventaire", !locationId && "l'emplacement"].filter(Boolean) as string[];
+  const serviceReasonRequired = serviceState !== "usable";
+  const availabilityForced = serviceStateForcesUnavailability(serviceState);
+  const missing = [
+    !modelId && "le modèle constructeur",
+    !inventoryCode.trim() && "le code inventaire",
+    serviceReasonRequired && !serviceStateReason.trim() && "le motif de l'état de service",
+    administrativeAvailability === "unavailable" && !availabilityForced && !administrativeReason.trim() && "le motif de l'indisponibilité administrative",
+    calibrationRequirement !== "not_required" && (!Number.isInteger(Number(periodMonths)) || Number(periodMonths) < 1) && "une périodicité d'étalonnage valide"
+  ].filter(Boolean) as string[];
 
   async function submit() {
     if (missing.length > 0) {
-      document.querySelector<HTMLInputElement | HTMLSelectElement>(!modelId ? "#fleet-model" : !inventoryCode.trim() ? "#fleet-inventory" : "#fleet-location")?.focus();
+      const target = !modelId
+        ? "#fleet-model"
+        : !inventoryCode.trim()
+          ? "#fleet-inventory"
+          : serviceReasonRequired && !serviceStateReason.trim()
+            ? "#fleet-service-reason"
+            : administrativeAvailability === "unavailable" && !availabilityForced && !administrativeReason.trim()
+              ? "#fleet-administrative-reason"
+              : "#fleet-calibration-period";
+      document.querySelector<HTMLInputElement | HTMLSelectElement>(target)?.focus();
       return;
     }
     setSubmitting(true);
@@ -739,11 +767,12 @@ function CreateAssetDialog(props: {
         serial_number: serialNumber.trim() || undefined,
         part_number: partNumber.trim() || undefined,
         equipment_model_id: modelId,
-        laboratory_location_id: locationId,
+        laboratory_location_id: locationId || undefined,
         ownership_source: ownership,
         service_state: serviceState,
-        administrative_availability: administrativeAvailability,
-        administrative_unavailability_reason: administrativeReason.trim() || undefined,
+        service_state_reason: serviceStateReason.trim() || undefined,
+        administrative_availability: availabilityForced ? "unavailable" : administrativeAvailability,
+        administrative_unavailability_reason: (availabilityForced ? serviceStateReason : administrativeReason).trim() || undefined,
         notes: notes.trim(),
         calibration_requirement: calibrationRequirement,
         calibration_period_months: calibrationRequirement === "not_required" ? undefined : Number(periodMonths),
@@ -766,26 +795,28 @@ function CreateAssetDialog(props: {
         <label>Numéro de série <span className="fieldHint">Facultatif</span><input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} /></label>
         <label>Référence fabricant <span className="fieldHint">Facultatif</span><input value={partNumber} onChange={(event) => setPartNumber(event.target.value)} /></label>
         <label>Propriété / source <Required /><select value={ownership} onChange={(event) => setOwnership(event.target.value as OwnershipSource)}>{ownershipChoices.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-        <label>Emplacement <Required /><select id="fleet-location" value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={Boolean(props.locationsError)}><option value="">Sélectionner...</option>{props.locations.map((location) => <option value={location.location_id} key={location.location_id}>{location.label}</option>)}</select></label>
-        <label>État de service <Required /><select value={serviceState} onChange={(event) => setServiceState(event.target.value as ServiceState)}>{serviceStateChoices.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-        <label>Disponibilité administrative <Required /><select value={administrativeAvailability} onChange={(event) => { const value = event.target.value as AdministrativeAvailability; setAdministrativeAvailability(value); if (value === "available") setAdministrativeReason(""); }}>{administrativeAvailabilityChoices.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-        {administrativeAvailability === "unavailable" && <label>Motif d'indisponibilité <Required /><input value={administrativeReason} onChange={(event) => setAdministrativeReason(event.target.value)} /></label>}
+        <label>Emplacement <span className="fieldHint">Facultatif</span><select id="fleet-location" value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={Boolean(props.locationsError)}><option value="">Emplacement non défini</option>{props.locations.map((location) => <option value={location.location_id} key={location.location_id}>{location.label}</option>)}</select></label>
+        <label>État de service <Required /><select value={serviceState} onChange={(event) => { const value = event.target.value as ServiceState; if (serviceStateForcesUnavailability(value)) setAdministrativeAvailability("unavailable"); else if (serviceStateForcesUnavailability(serviceState)) setAdministrativeAvailability("available"); setServiceState(value); }}>{serviceStateChoices.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+        {serviceReasonRequired && <label>Motif de l'état de service <Required /><input id="fleet-service-reason" value={serviceStateReason} onChange={(event) => setServiceStateReason(event.target.value)} placeholder="Restriction, maintenance ou décision de retrait" /><small>Ce motif explique pourquoi l'exemplaire n'est pas déclaré pleinement utilisable.</small></label>}
+        <label>Disponibilité administrative <Required /><select value={availabilityForced ? "unavailable" : administrativeAvailability} disabled={availabilityForced} onChange={(event) => { const value = event.target.value as AdministrativeAvailability; setAdministrativeAvailability(value); if (value === "available") setAdministrativeReason(""); }}>{administrativeAvailabilityChoices.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+        {availabilityForced && <p className="actionExplanation formGridExplanation">Indisponible automatiquement car cet état technique interdit l'utilisation.</p>}
+        {administrativeAvailability === "unavailable" && !availabilityForced && <label>Motif d'indisponibilité <Required /><input id="fleet-administrative-reason" value={administrativeReason} onChange={(event) => setAdministrativeReason(event.target.value)} /></label>}
         <label>Exigence métrologique <Required /><select value={calibrationRequirement} onChange={(event) => setCalibrationRequirement(event.target.value)}><option value="required">Étalonnage requis</option><option value="conditional">Selon l'utilisation</option><option value="not_required">Non requis</option></select></label>
-        {calibrationRequirement !== "not_required" && <label>Périodicité (mois) <Required /><input type="number" min="1" value={periodMonths} onChange={(event) => setPeriodMonths(event.target.value)} /></label>}
+        {calibrationRequirement !== "not_required" && <label>Périodicité (mois) <Required /><input id="fleet-calibration-period" type="number" min="1" value={periodMonths} onChange={(event) => setPeriodMonths(event.target.value)} /></label>}
         <label className="wideField">Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
       </div>
       {selectedModel && <p className="selectedModelSummary">Modèle sélectionné : <strong>{selectedModel.identity.manufacturer} {selectedModel.identity.model_name}</strong>. La version approuvée exacte sera figée par l'agent local.</p>}
-      {props.locationsError && <TargetedError title="Choix de l'emplacement indisponible" detail="La création est suspendue jusqu'au retour du registre des lieux." />}
+      {props.locationsError && <TargetedError title="Registre des lieux indisponible" detail="Vous pouvez enregistrer l'exemplaire sans emplacement et l'affecter plus tard." />}
       {error && <TargetedError title="Enregistrement refusé" detail={error} />}
       {missing.length > 0 && <p className="actionExplanation">Pour enregistrer : renseignez {formatList(missing)}.</p>}
-      <footer><button className="secondary" type="button" onClick={props.onCancel}>Annuler</button><button type="button" onClick={() => void submit()} disabled={submitting || missing.length > 0 || Boolean(props.locationsError)}><PackagePlus size={16} /> {submitting ? "Enregistrement..." : "Enregistrer l'exemplaire"}</button></footer>
+      <footer><button className="secondary" type="button" onClick={props.onCancel}>Annuler</button><button type="button" onClick={() => void submit()} disabled={submitting} aria-disabled={missing.length > 0}><PackagePlus size={16} /> {submitting ? "Enregistrement..." : "Enregistrer l'exemplaire"}</button></footer>
     </section>
   );
 }
 
 function buildGroups(assets: PhysicalAsset[], grouping: GroupingMode) {
   const grouped = groupBy(assets, (asset) => {
-    if (grouping === "location") return asset.laboratory_location_label || "Emplacement non défini";
+    if (grouping === "location") return locationDisplay(asset);
     if (grouping === "service") return serviceStateLabel(asset.service_state);
     if (grouping === "metrology") return metrologyGroup(asset);
     return categoryPath(asset);
@@ -811,6 +842,8 @@ function revisionStatusLabel(value: ModelReconciliationCandidate["lifecycle_stat
 function metrologyGroup(asset: PhysicalAsset) { if (!asset.metrology || asset.metrology.calibration_requirement === "not_required") return "Étalonnage non requis"; if (!asset.metrology.latest_due_at) return "Étalonnage à planifier"; return new Date(asset.metrology.latest_due_at) < new Date() ? "Échéance dépassée" : "Étalonnage valide"; }
 function metrologyLabel(asset: PhysicalAsset) { if (!asset.metrology) return "Dossier métrologique indisponible"; if (asset.metrology.calibration_requirement === "not_required") return "Étalonnage non requis"; if (!asset.metrology.latest_due_at) return "Étalonnage à planifier"; return `Valide jusqu'au ${formatDate(asset.metrology.latest_due_at)}`; }
 function serviceStateLabel(value: ServiceState) { return serviceStateChoices.find(([key]) => key === value)?.[1] ?? value; }
+function serviceStateForcesUnavailability(value: ServiceState) { return value === "in_maintenance" || value === "out_of_service" || value === "retired"; }
+function locationDisplay(asset: PhysicalAsset) { if (!asset.laboratory_location_label) return "Emplacement non défini"; return asset.laboratory_location_status === "archived" ? `${asset.laboratory_location_label} (archivé)` : asset.laboratory_location_label; }
 function administrativeAvailabilityLabel(value: AdministrativeAvailability) { return administrativeAvailabilityChoices.find(([key]) => key === value)?.[1] ?? value; }
 function operationalUsageLabel(value: PhysicalAsset["availability_state"]) { return operationalUsageChoices.find(([key]) => key === value)?.[1] ?? value; }
 function formatUsageInterval(startAt: string, endAt: string | null) { return `${formatDateTime(startAt)}${endAt ? ` au ${formatDateTime(endAt)}` : ""}`; }

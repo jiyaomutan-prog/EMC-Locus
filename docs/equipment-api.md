@@ -59,8 +59,9 @@ longer owns physical identity.
 GET    /api/v1/fleet/assets[?at=<RFC3339>]
 POST   /api/v1/fleet/assets
 GET    /api/v1/fleet/assets/{asset_id}
-PUT    /api/v1/fleet/assets/{asset_id}
+PUT    /api/v1/fleet/assets/{asset_id}/identification
 GET    /api/v1/fleet/assets/{asset_id}/audit-events
+POST   /api/v1/fleet/assets/{asset_id}/transitions/move
 POST   /api/v1/fleet/assets/{asset_id}/transitions/service-state
 POST   /api/v1/fleet/assets/{asset_id}/transitions/administrative-availability
 GET    /api/v1/fleet/model-reconciliation-candidates
@@ -79,6 +80,23 @@ persisted source of truth. See
 The old `transitions/availability` route remains a temporary 0.21.x adapter.
 It accepts only the two administrative values and cannot synthesize an
 operational fact.
+
+Creation permits an absent serial number and an absent laboratory location.
+Every non-`usable` service state requires `service_state_reason`. For
+`in_maintenance`, `out_of_service`, and `retired`, the agent canonicalizes
+administrative availability to `unavailable`; when no separate administrative
+reason is supplied, the service-state reason becomes the unavailability
+reason. The transaction writes neither asset nor evidence if validation fails.
+
+Identification and movement are separate commands. `PUT .../identification`
+can change only inventory code, serial number, manufacturer part number,
+ownership/source, and notes. It does not read or revalidate the current
+location. `POST .../transitions/move` accepts `expected_revision`, optional
+`destination_location_id`, and the operation context with a human reason. The
+agent validates an assigned destination as active under `BEGIN IMMEDIATE`,
+derives its label, then commits the location snapshot, asset revision, audit,
+operation record, and outbox together. Omitting the destination removes the
+location assignment.
 
 `POST .../transitions/reconcile-model` is the only command that can resolve a
 migrated asset whose `model_link_state` is `migration_review_required`. It

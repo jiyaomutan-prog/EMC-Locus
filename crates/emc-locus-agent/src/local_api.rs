@@ -49,13 +49,14 @@ use crate::fleet_service::{
     archive_laboratory_location_json, create_laboratory_location, create_physical_asset,
     get_physical_asset_json, list_laboratory_location_audit_json, list_laboratory_locations_json,
     list_model_reconciliation_candidates_json, list_physical_asset_audit_json,
-    list_physical_assets_json_at, reconcile_physical_asset_model_json,
+    list_physical_assets_json_at, move_physical_asset, reconcile_physical_asset_model_json,
     transition_physical_asset_administrative_availability, transition_physical_asset_service_state,
-    update_laboratory_location_json, update_physical_asset, ArchiveLaboratoryLocationInput,
-    CreateLaboratoryLocationInput, CreatePhysicalAssetInput, FleetOperationContext,
-    ReconcilePhysicalAssetModelInput, TransitionPhysicalAssetAdministrativeAvailabilityInput,
+    update_laboratory_location_json, update_physical_asset_identification,
+    ArchiveLaboratoryLocationInput, CreateLaboratoryLocationInput, CreatePhysicalAssetInput,
+    FleetOperationContext, MovePhysicalAssetInput, ReconcilePhysicalAssetModelInput,
+    TransitionPhysicalAssetAdministrativeAvailabilityInput,
     TransitionPhysicalAssetServiceStateInput, UpdateLaboratoryLocationInput,
-    UpdatePhysicalAssetInput,
+    UpdatePhysicalAssetIdentificationInput,
 };
 use crate::measurement_engineering_service::{
     clone_measurement_engineering_definition, create_measurement_engineering_definition,
@@ -521,17 +522,23 @@ fn route_api_request(
         && parts[1] == "v1"
         && parts[2] == "fleet"
         && parts[3] == "assets"
+        && method == "GET"
     {
-        if method == "GET" {
-            return get_physical_asset_json(&config.storage_root, parts[4]);
-        }
-        if method == "PUT" {
-            let payload = parse_json_body(body)?;
-            return update_physical_asset(
-                &config.storage_root,
-                update_physical_asset_input(parts[4], &payload)?,
-            );
-        }
+        return get_physical_asset_json(&config.storage_root, parts[4]);
+    }
+    if parts.len() == 6
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "fleet"
+        && parts[3] == "assets"
+        && parts[5] == "identification"
+        && method == "PUT"
+    {
+        let payload = parse_json_body(body)?;
+        return update_physical_asset_identification(
+            &config.storage_root,
+            update_physical_asset_identification_input(parts[4], &payload)?,
+        );
     }
     if parts.len() == 6
         && parts[0] == "api"
@@ -562,6 +569,12 @@ fn route_api_request(
             return transition_physical_asset_administrative_availability(
                 &config.storage_root,
                 transition_physical_asset_administrative_availability_input(parts[4], &payload)?,
+            );
+        }
+        if parts[6] == "move" {
+            return move_physical_asset(
+                &config.storage_root,
+                move_physical_asset_input(parts[4], &payload)?,
             );
         }
         if parts[6] == "reconcile-model" {
@@ -2220,19 +2233,30 @@ fn create_physical_asset_input(payload: &Value) -> Result<CreatePhysicalAssetInp
     })
 }
 
-fn update_physical_asset_input(
+fn update_physical_asset_identification_input(
     asset_id: &str,
     payload: &Value,
-) -> Result<UpdatePhysicalAssetInput, AgentError> {
-    Ok(UpdatePhysicalAssetInput {
+) -> Result<UpdatePhysicalAssetIdentificationInput, AgentError> {
+    Ok(UpdatePhysicalAssetIdentificationInput {
         asset_id: asset_id.to_owned(),
         expected_revision: required_u64(payload, "expected_revision")?,
         inventory_code: required_string(payload, "inventory_code")?,
         serial_number: optional_string(payload, "serial_number"),
         part_number: optional_string(payload, "part_number"),
-        laboratory_location_id: optional_string(payload, "laboratory_location_id"),
         ownership_source: required_string(payload, "ownership_source")?,
         notes: optional_string(payload, "notes").unwrap_or_default(),
+        context: fleet_operation_context(payload)?,
+    })
+}
+
+fn move_physical_asset_input(
+    asset_id: &str,
+    payload: &Value,
+) -> Result<MovePhysicalAssetInput, AgentError> {
+    Ok(MovePhysicalAssetInput {
+        asset_id: asset_id.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        destination_location_id: optional_string(payload, "destination_location_id"),
         context: fleet_operation_context(payload)?,
     })
 }

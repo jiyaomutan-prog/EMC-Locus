@@ -46,6 +46,7 @@ export interface PhysicalAsset {
   category_path: string[];
   laboratory_location_id: string | null;
   laboratory_location_label: string | null;
+  laboratory_location_status: "active" | "archived" | null;
   ownership_source: OwnershipSource;
   service_state: ServiceState;
   administrative_availability: AdministrativeAvailability;

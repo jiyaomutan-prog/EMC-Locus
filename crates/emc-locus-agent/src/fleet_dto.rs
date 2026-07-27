@@ -16,6 +16,7 @@ pub(crate) struct PhysicalAssetDto {
     pub(crate) category_path: Vec<String>,
     pub(crate) laboratory_location_id: Option<String>,
     pub(crate) laboratory_location_label: Option<String>,
+    pub(crate) laboratory_location_status: Option<String>,
     pub(crate) ownership_source: String,
     pub(crate) service_state: String,
     pub(crate) administrative_availability: String,

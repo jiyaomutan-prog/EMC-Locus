@@ -12,12 +12,13 @@ use crate::fleet_repository::{
     archive_laboratory_location, existing_fleet_operation, insert_laboratory_location,
     insert_physical_asset, list_laboratory_locations, list_physical_assets,
     load_fleet_audit_events, load_laboratory_location, load_physical_asset,
-    load_physical_asset_by_inventory_code, open_fleet_connection, open_fleet_connection_with_sync,
-    reconcile_physical_asset_model, request_checksum, update_laboratory_location,
+    load_physical_asset_by_inventory_code, move_physical_asset as persist_physical_asset_move,
+    open_fleet_connection, open_fleet_connection_with_sync, reconcile_physical_asset_model,
+    request_checksum, update_laboratory_location,
     update_physical_asset_administrative_availability, update_physical_asset_identity,
     update_physical_asset_service_state, write_fleet_evidence, FleetEvidenceInput,
-    NewPhysicalAssetRecord, PhysicalAssetServiceStateUpdate, StoredLaboratoryLocation,
-    StoredPhysicalAsset, UpdatePhysicalAssetIdentityInput,
+    MovePhysicalAssetRecord, NewPhysicalAssetRecord, PhysicalAssetServiceStateUpdate,
+    StoredLaboratoryLocation, StoredPhysicalAsset, UpdatePhysicalAssetIdentityInput,
 };
 use crate::fleet_usage::compute_operational_usage;
 use crate::{render_json, AgentError};
@@ -65,15 +66,22 @@ pub struct CreatePhysicalAssetInput {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UpdatePhysicalAssetInput {
+pub struct UpdatePhysicalAssetIdentificationInput {
     pub asset_id: String,
     pub expected_revision: u64,
     pub inventory_code: String,
     pub serial_number: Option<String>,
     pub part_number: Option<String>,
-    pub laboratory_location_id: Option<String>,
     pub ownership_source: String,
     pub notes: String,
+    pub context: FleetOperationContext,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MovePhysicalAssetInput {
+    pub asset_id: String,
+    pub expected_revision: u64,
+    pub destination_location_id: Option<String>,
     pub context: FleetOperationContext,
 }
 
@@ -275,9 +283,25 @@ pub fn create_physical_asset(
     validate_context(&input.context)?;
     let ownership_source = parse_ownership_source(&input.ownership_source)?;
     let service_state = parse_service_state(&input.service_state)?;
-    let administrative_availability =
+    let requested_administrative_availability =
         parse_administrative_availability(&input.administrative_availability)?;
-    let administrative_unavailability_reason = input.administrative_unavailability_reason.trim();
+    let service_state_reason = input.service_state_reason.trim();
+    let service_forces_unavailability = matches!(
+        service_state,
+        ServiceState::InMaintenance | ServiceState::OutOfService | ServiceState::Retired
+    );
+    let administrative_availability = if service_forces_unavailability {
+        AdministrativeAvailability::Unavailable
+    } else {
+        requested_administrative_availability
+    };
+    let administrative_unavailability_reason = if service_forces_unavailability
+        && input.administrative_unavailability_reason.trim().is_empty()
+    {
+        service_state_reason
+    } else {
+        input.administrative_unavailability_reason.trim()
+    };
     validate_administrative_unavailability_reason(
         administrative_availability,
         administrative_unavailability_reason,
@@ -307,7 +331,7 @@ pub fn create_physical_asset(
         "service_state": service_state_code(service_state),
         "administrative_availability": administrative_availability_code(administrative_availability),
         "administrative_unavailability_reason": administrative_unavailability_reason,
-        "service_state_reason": input.service_state_reason.trim(),
+        "service_state_reason": service_state_reason,
         "notes": input.notes.trim(),
         "metrology": {
             "calibration_requirement": input.calibration_requirement.trim(),
@@ -349,7 +373,7 @@ pub fn create_physical_asset(
         service_state,
         administrative_availability,
         administrative_unavailability_reason: administrative_unavailability_reason.to_owned(),
-        service_state_reason: input.service_state_reason.trim().to_owned(),
+        service_state_reason: service_state_reason.to_owned(),
         notes: input.notes.trim().to_owned(),
     };
     validate_asset_definition(&definition)?;
@@ -428,9 +452,9 @@ pub fn create_physical_asset(
     get_physical_asset_json(storage_root, &asset_id)
 }
 
-pub fn update_physical_asset(
+pub fn update_physical_asset_identification(
     storage_root: &Path,
-    input: UpdatePhysicalAssetInput,
+    input: UpdatePhysicalAssetIdentificationInput,
 ) -> Result<String, AgentError> {
     validate_context(&input.context)?;
     let ownership_source = parse_ownership_source(&input.ownership_source)?;
@@ -439,7 +463,6 @@ pub fn update_physical_asset(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
     let current = required_asset(&transaction, &input.asset_id)?;
-    let location = resolve_active_location(&transaction, input.laboratory_location_id.as_deref())?;
     let inventory_code = input.inventory_code.trim().to_owned();
     let serial_number = trimmed_optional(input.serial_number.as_deref());
     let part_number = trimmed_optional(input.part_number.as_deref());
@@ -448,18 +471,6 @@ pub fn update_physical_asset(
         serial_number.as_deref(),
         part_number.as_deref(),
     )?;
-    if current.model_link_state == "resolved" {
-        let definition = definition_from_stored(
-            &current,
-            &inventory_code,
-            serial_number.clone(),
-            part_number.clone(),
-            location.as_ref(),
-            ownership_source,
-            input.notes.trim(),
-        )?;
-        validate_asset_definition(&definition)?;
-    }
     let payload_json = render_json(&json!({
         "asset_id": input.asset_id,
         "expected_revision": input.expected_revision,
@@ -467,7 +478,6 @@ pub fn update_physical_asset(
             "inventory_code": inventory_code,
             "serial_number": serial_number,
             "part_number": part_number,
-            "laboratory_location_id": location.as_ref().map(|item| item.location_id.clone()),
             "ownership_source": ownership_source_code(ownership_source),
             "notes": input.notes.trim()
         }
@@ -477,7 +487,7 @@ pub fn update_physical_asset(
         &transaction,
         &input.context,
         &input.asset_id,
-        "physical_asset_updated",
+        "physical_asset_identification_updated",
         &checksum,
     )? {
         return Ok(replay);
@@ -492,8 +502,6 @@ pub fn update_physical_asset(
             inventory_code: &inventory_code,
             serial_number: serial_number.as_deref(),
             part_number: part_number.as_deref(),
-            laboratory_location_id: location.as_ref().map(|item| item.location_id.as_str()),
-            laboratory_location_label_snapshot: location.as_ref().map(|item| item.label.as_str()),
             ownership_source: ownership_source_code(ownership_source),
             notes: input.notes.trim(),
             timestamp: &now,
@@ -504,7 +512,92 @@ pub fn update_physical_asset(
         evidence(
             "physical_asset",
             &input.asset_id,
-            "physical_asset_updated",
+            "physical_asset_identification_updated",
+            EvidenceRevision::changed(input.expected_revision, new_revision),
+            EvidencePayload::new(&checksum, &payload_json),
+            &input.context,
+            &now,
+        ),
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+    get_physical_asset_json(storage_root, &input.asset_id)
+}
+
+pub fn move_physical_asset(
+    storage_root: &Path,
+    input: MovePhysicalAssetInput,
+) -> Result<String, AgentError> {
+    validate_context(&input.context)?;
+    let mut connection = open_fleet_connection_with_sync(storage_root)?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    let current = required_asset(&transaction, &input.asset_id)?;
+    let requested_destination_id = trimmed_optional(input.destination_location_id.as_deref());
+    let request_json = render_json(&json!({
+        "asset_id": input.asset_id,
+        "expected_revision": input.expected_revision,
+        "destination_location_id": requested_destination_id
+    }));
+    let checksum = request_checksum(&request_json);
+    if let Some(replay) = replay_asset_operation(
+        &transaction,
+        &input.context,
+        &input.asset_id,
+        "physical_asset_moved",
+        &checksum,
+    )? {
+        return Ok(replay);
+    }
+    require_expected_revision(&current.asset_id, current.revision, input.expected_revision)?;
+    let destination = resolve_active_location(&transaction, requested_destination_id.as_deref())?;
+    let destination_id = destination.as_ref().map(|item| item.location_id.as_str());
+    if current.laboratory_location_id.as_deref() == destination_id {
+        return Err(AgentError::new(
+            "physical_asset_location_unchanged",
+            "L'exemplaire est deja affecte a cet emplacement.",
+        ));
+    }
+    let current_location = match current.laboratory_location_id.as_deref() {
+        Some(location_id) => load_laboratory_location(&transaction, location_id)?,
+        None => None,
+    };
+    let payload_json = render_json(&json!({
+        "asset_id": input.asset_id,
+        "expected_revision": input.expected_revision,
+        "from": {
+            "laboratory_location_id": current.laboratory_location_id,
+            "laboratory_location_label": current_location
+                .as_ref()
+                .map(|item| item.label.clone())
+                .or_else(|| current.laboratory_location_label_snapshot.clone())
+        },
+        "to": {
+            "laboratory_location_id": destination.as_ref().map(|item| item.location_id.clone()),
+            "laboratory_location_label": destination.as_ref().map(|item| item.label.clone())
+        }
+    }));
+    let now = utc_timestamp()?;
+    let new_revision = persist_physical_asset_move(
+        &transaction,
+        MovePhysicalAssetRecord {
+            asset_id: &input.asset_id,
+            expected_revision: input.expected_revision,
+            laboratory_location_id: destination_id,
+            laboratory_location_label_snapshot: destination
+                .as_ref()
+                .map(|item| item.label.as_str()),
+            timestamp: &now,
+        },
+    )?;
+    write_fleet_evidence(
+        &transaction,
+        evidence(
+            "physical_asset",
+            &input.asset_id,
+            "physical_asset_moved",
             EvidenceRevision::changed(input.expected_revision, new_revision),
             EvidencePayload::new(&checksum, &payload_json),
             &input.context,
@@ -1098,62 +1191,6 @@ fn resolve_active_location(
     Ok(Some(location))
 }
 
-fn definition_from_stored(
-    current: &StoredPhysicalAsset,
-    inventory_code: &str,
-    serial_number: Option<String>,
-    part_number: Option<String>,
-    location: Option<&StoredLaboratoryLocation>,
-    ownership_source: OwnershipSource,
-    notes: &str,
-) -> Result<PhysicalAssetDefinition, AgentError> {
-    let equipment_model_id = current.equipment_model_id.clone().ok_or_else(|| {
-        AgentError::new(
-            "physical_asset_model_reconciliation_required",
-            "Rattachez cet exemplaire migré à un modèle approuvé avant de modifier sa fiche.",
-        )
-    })?;
-    let equipment_model_revision_id =
-        current.equipment_model_revision_id.clone().ok_or_else(|| {
-            AgentError::new(
-                "physical_asset_model_reconciliation_required",
-                "Rattachez cet exemplaire migré à un modèle approuvé avant de modifier sa fiche.",
-            )
-        })?;
-    let equipment_model_checksum = current.equipment_model_checksum.clone().ok_or_else(|| {
-        AgentError::new(
-            "physical_asset_model_reconciliation_required",
-            "Rattachez cet exemplaire migré à un modèle approuvé avant de modifier sa fiche.",
-        )
-    })?;
-    Ok(PhysicalAssetDefinition {
-        definition_schema_version: PHYSICAL_ASSET_DEFINITION_SCHEMA_VERSION.to_owned(),
-        inventory_code: inventory_code.to_owned(),
-        serial_number,
-        part_number,
-        model: PinnedEquipmentModel {
-            equipment_model_id,
-            equipment_model_revision_id,
-            equipment_model_checksum,
-            manufacturer: current.manufacturer_snapshot.clone(),
-            model_name: current.model_name_snapshot.clone(),
-            variant: current.variant_snapshot.clone(),
-            category_code: current.category_code_snapshot.clone(),
-            category_path: category_path(current),
-        },
-        laboratory_location_id: location.map(|item| item.location_id.clone()),
-        laboratory_location_label: location.map(|item| item.label.clone()),
-        ownership_source,
-        service_state: parse_service_state(&current.service_state)?,
-        administrative_availability: parse_administrative_availability(
-            &current.administrative_availability,
-        )?,
-        administrative_unavailability_reason: current.administrative_unavailability_reason.clone(),
-        service_state_reason: current.service_state_reason.clone(),
-        notes: notes.to_owned(),
-    })
-}
-
 fn physical_asset_dto(
     connection: &rusqlite::Connection,
     asset: &StoredPhysicalAsset,
@@ -1166,12 +1203,14 @@ fn physical_asset_dto_at(
     asset: &StoredPhysicalAsset,
     assessed_at: OffsetDateTime,
 ) -> Result<PhysicalAssetDto, AgentError> {
-    let current_location_label = match asset.laboratory_location_id.as_deref() {
-        Some(location_id) => load_laboratory_location(connection, location_id)?
-            .map(|location| location.label)
-            .or_else(|| asset.laboratory_location_label_snapshot.clone()),
+    let current_location = match asset.laboratory_location_id.as_deref() {
+        Some(location_id) => load_laboratory_location(connection, location_id)?,
         None => None,
     };
+    let current_location_label = current_location
+        .as_ref()
+        .map(|location| location.label.clone())
+        .or_else(|| asset.laboratory_location_label_snapshot.clone());
     let operational_usage = compute_operational_usage(connection, asset, assessed_at);
     let availability_state = operational_usage.state.clone();
     Ok(PhysicalAssetDto {
@@ -1189,6 +1228,7 @@ fn physical_asset_dto_at(
         category_path: category_path(asset),
         laboratory_location_id: asset.laboratory_location_id.clone(),
         laboratory_location_label: current_location_label,
+        laboratory_location_status: current_location.map(|location| location.status),
         ownership_source: asset.ownership_source.clone(),
         service_state: asset.service_state.clone(),
         administrative_availability: asset.administrative_availability.clone(),
@@ -1825,31 +1865,25 @@ mod tests {
             },
         )
         .unwrap();
-        update_physical_asset(
+        move_physical_asset(
             &storage_root,
-            UpdatePhysicalAssetInput {
+            MovePhysicalAssetInput {
                 asset_id: asset_one_id.clone(),
                 expected_revision: 1,
-                inventory_code: "INV-0001".to_owned(),
-                serial_number: Some("SN-001".to_owned()),
-                part_number: None,
-                laboratory_location_id: Some(location_b_id),
-                ownership_source: "laboratory_owned".to_owned(),
-                notes: "Deplace en salle B".to_owned(),
+                destination_location_id: Some(location_b_id),
                 context: context("op-asset-1-move"),
             },
         )
         .unwrap();
         let evidence_before_stale_write = fleet_evidence_counts(&storage_root);
-        let stale_write = update_physical_asset(
+        let stale_write = update_physical_asset_identification(
             &storage_root,
-            UpdatePhysicalAssetInput {
+            UpdatePhysicalAssetIdentificationInput {
                 asset_id: asset_one_id.clone(),
                 expected_revision: 1,
                 inventory_code: "INV-0001".to_owned(),
                 serial_number: Some("SN-001".to_owned()),
                 part_number: None,
-                laboratory_location_id: None,
                 ownership_source: "laboratory_owned".to_owned(),
                 notes: String::new(),
                 context: context("op-asset-1-stale"),
@@ -2038,6 +2072,266 @@ mod tests {
     }
 
     #[test]
+    fn asset_creation_canonicalizes_unusable_states_and_keeps_optional_identity_fields() {
+        let storage_root = initialized_storage("fleet-create-combinations");
+        seed_approved_model(&storage_root, 1, "Scope creation", 'a');
+
+        let without_location = json_value(
+            &create_physical_asset(
+                &storage_root,
+                asset_input("INV-NO-LOCATION", None, None, "op-no-location"),
+            )
+            .unwrap(),
+        );
+        assert_eq!(without_location["asset"]["serial_number"], Value::Null);
+        assert_eq!(
+            without_location["asset"]["laboratory_location_id"],
+            Value::Null
+        );
+
+        let evidence_before_invalid = fleet_evidence_counts(&storage_root);
+        let mut restricted_without_reason = asset_input(
+            "INV-RESTRICTED-INVALID",
+            None,
+            None,
+            "op-restricted-invalid",
+        );
+        restricted_without_reason.service_state = "restricted".to_owned();
+        let invalid = create_physical_asset(&storage_root, restricted_without_reason).unwrap_err();
+        assert_eq!(invalid.code, "invalid_physical_asset");
+        assert_eq!(
+            fleet_evidence_counts(&storage_root),
+            evidence_before_invalid
+        );
+
+        let mut restricted = asset_input("INV-RESTRICTED", None, None, "op-restricted-valid");
+        restricted.service_state = "restricted".to_owned();
+        restricted.service_state_reason = "Utilisation sous surveillance".to_owned();
+        let restricted = json_value(&create_physical_asset(&storage_root, restricted).unwrap());
+        assert_eq!(restricted["asset"]["service_state"], "restricted");
+        assert_eq!(
+            restricted["asset"]["administrative_availability"],
+            "available"
+        );
+
+        for (index, service_state) in ["in_maintenance", "out_of_service", "retired"]
+            .into_iter()
+            .enumerate()
+        {
+            let inventory_code = format!("INV-FORCED-{index}");
+            let operation_id = format!("op-forced-{index}");
+            let mut input = asset_input(&inventory_code, None, None, &operation_id);
+            input.ownership_source = if index == 0 {
+                "software_license".to_owned()
+            } else {
+                "laboratory_owned".to_owned()
+            };
+            input.service_state = service_state.to_owned();
+            input.service_state_reason = "État technique déclaré à la création".to_owned();
+            input.administrative_availability = "available".to_owned();
+            let created = json_value(&create_physical_asset(&storage_root, input).unwrap());
+            assert_eq!(created["asset"]["service_state"], service_state);
+            assert_eq!(
+                created["asset"]["administrative_availability"],
+                "unavailable"
+            );
+            assert_eq!(
+                created["asset"]["administrative_unavailability_reason"],
+                "État technique déclaré à la création"
+            );
+            assert_eq!(created["asset"]["laboratory_location_id"], Value::Null);
+        }
+
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
+    #[test]
+    fn archived_location_does_not_block_identity_edit_and_moves_are_explicit() {
+        let storage_root = initialized_storage("fleet-identity-move-boundary");
+        seed_approved_model(&storage_root, 1, "Scope mouvement", 'a');
+        let location_a_id = generated_id("LOC", "op-move-location-a", "Salle historique");
+        let location_b_id = generated_id("LOC", "op-move-location-b", "Salle active");
+        for (location_id, label, operation_id) in [
+            (&location_a_id, "Salle historique", "op-move-location-a"),
+            (&location_b_id, "Salle active", "op-move-location-b"),
+        ] {
+            let created = json_value(
+                &create_laboratory_location(
+                    &storage_root,
+                    CreateLaboratoryLocationInput {
+                        label: label.to_owned(),
+                        description: String::new(),
+                        context: context(operation_id),
+                    },
+                )
+                .unwrap(),
+            );
+            assert_eq!(created["location"]["location_id"], location_id.as_str());
+        }
+        let asset_id = generated_id("ASSET", "op-move-asset", "INV-MOVE-001");
+        create_physical_asset(
+            &storage_root,
+            asset_input(
+                "INV-MOVE-001",
+                Some("SN-MOVE"),
+                Some(&location_a_id),
+                "op-move-asset",
+            ),
+        )
+        .unwrap();
+        archive_laboratory_location_json(
+            &storage_root,
+            ArchiveLaboratoryLocationInput {
+                location_id: location_a_id.clone(),
+                expected_revision: 1,
+                context: context("op-archive-current-location"),
+            },
+        )
+        .unwrap();
+
+        let archived_current =
+            json_value(&get_physical_asset_json(&storage_root, &asset_id).unwrap());
+        assert_eq!(
+            archived_current["asset"]["laboratory_location_status"],
+            "archived"
+        );
+        assert_eq!(
+            archived_current["asset"]["laboratory_location_label"],
+            "Salle historique"
+        );
+
+        let edited = json_value(
+            &update_physical_asset_identification(
+                &storage_root,
+                UpdatePhysicalAssetIdentificationInput {
+                    asset_id: asset_id.clone(),
+                    expected_revision: 1,
+                    inventory_code: "INV-MOVE-RENAMED".to_owned(),
+                    serial_number: Some("SN-MOVE".to_owned()),
+                    part_number: Some("PN-MOVE".to_owned()),
+                    ownership_source: "laboratory_owned".to_owned(),
+                    notes: "Identification modifiée au lieu archivé".to_owned(),
+                    context: context("op-edit-at-archived-location"),
+                },
+            )
+            .unwrap(),
+        );
+        assert_eq!(edited["asset"]["revision"], 2);
+        assert_eq!(edited["asset"]["laboratory_location_status"], "archived");
+
+        let evidence_before_archived_move = fleet_evidence_counts(&storage_root);
+        let archived_destination = move_physical_asset(
+            &storage_root,
+            MovePhysicalAssetInput {
+                asset_id: asset_id.clone(),
+                expected_revision: 2,
+                destination_location_id: Some(location_a_id.clone()),
+                context: context("op-move-to-archived"),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(archived_destination.code, "laboratory_location_archived");
+        assert_eq!(
+            fleet_evidence_counts(&storage_root),
+            evidence_before_archived_move
+        );
+
+        let move_input = MovePhysicalAssetInput {
+            asset_id: asset_id.clone(),
+            expected_revision: 2,
+            destination_location_id: Some(location_b_id.clone()),
+            context: context("op-move-to-active"),
+        };
+        let moved = json_value(&move_physical_asset(&storage_root, move_input.clone()).unwrap());
+        assert_eq!(moved["asset"]["laboratory_location_id"], location_b_id);
+        assert_eq!(moved["asset"]["laboratory_location_status"], "active");
+        let replay = json_value(&move_physical_asset(&storage_root, move_input.clone()).unwrap());
+        assert_eq!(replay["replayed"], true);
+
+        update_laboratory_location_json(
+            &storage_root,
+            UpdateLaboratoryLocationInput {
+                location_id: location_b_id.clone(),
+                expected_revision: 1,
+                label: "Salle active renommée".to_owned(),
+                description: String::new(),
+                context: context("op-rename-active-location"),
+            },
+        )
+        .unwrap();
+        let renamed = json_value(&get_physical_asset_json(&storage_root, &asset_id).unwrap());
+        assert_eq!(renamed["asset"]["laboratory_location_id"], location_b_id);
+        assert_eq!(
+            renamed["asset"]["laboratory_location_label"],
+            "Salle active renommée"
+        );
+
+        let audit = json_value(&list_physical_asset_audit_json(&storage_root, &asset_id).unwrap());
+        let move_event = audit["audit_events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|event| event["action"] == "physical_asset_moved")
+            .unwrap();
+        assert_eq!(
+            move_event["payload"]["to"]["laboratory_location_label"],
+            "Salle active"
+        );
+        assert_eq!(
+            move_event["payload"]["from"]["laboratory_location_label"],
+            "Salle historique"
+        );
+
+        archive_laboratory_location_json(
+            &storage_root,
+            ArchiveLaboratoryLocationInput {
+                location_id: location_b_id.clone(),
+                expected_revision: 2,
+                context: context("op-archive-move-destination"),
+            },
+        )
+        .unwrap();
+        let replay_after_archive =
+            json_value(&move_physical_asset(&storage_root, move_input).unwrap());
+        assert_eq!(replay_after_archive["replayed"], true);
+
+        let removed = json_value(
+            &move_physical_asset(
+                &storage_root,
+                MovePhysicalAssetInput {
+                    asset_id: asset_id.clone(),
+                    expected_revision: 3,
+                    destination_location_id: None,
+                    context: context("op-remove-location"),
+                },
+            )
+            .unwrap(),
+        );
+        assert_eq!(removed["asset"]["laboratory_location_id"], Value::Null);
+        let evidence_before_stale_move = fleet_evidence_counts(&storage_root);
+        let stale = move_physical_asset(
+            &storage_root,
+            MovePhysicalAssetInput {
+                asset_id: asset_id.clone(),
+                expected_revision: 3,
+                destination_location_id: Some(location_b_id),
+                context: context("op-stale-concurrent-move"),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(stale.code, "fleet_revision_conflict");
+        assert_eq!(
+            fleet_evidence_counts(&storage_root),
+            evidence_before_stale_move
+        );
+        let restarted = json_value(&get_physical_asset_json(&storage_root, &asset_id).unwrap());
+        assert_eq!(restarted["asset"]["inventory_code"], "INV-MOVE-RENAMED");
+        assert_eq!(restarted["asset"]["laboratory_location_id"], Value::Null);
+
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
+    #[test]
     fn unresolved_migrated_asset_keeps_safe_administrative_edits() {
         let storage_root = initialized_storage("fleet-unresolved-safe-edits");
         seed_approved_model(&storage_root, 1, "Scope fiable", 'a');
@@ -2054,15 +2348,14 @@ mod tests {
         .unwrap();
 
         let updated = json_value(
-            &update_physical_asset(
+            &update_physical_asset_identification(
                 &storage_root,
-                UpdatePhysicalAssetInput {
+                UpdatePhysicalAssetIdentificationInput {
                     asset_id: "LEGACY-EDIT-001".to_owned(),
                     expected_revision: 1,
                     inventory_code: "LEGACY-EDIT-RENAMED".to_owned(),
                     serial_number: Some("SN-RETROUVE".to_owned()),
                     part_number: None,
-                    laboratory_location_id: Some(location_id.clone()),
                     ownership_source: "laboratory_owned".to_owned(),
                     notes: "Identification complétée avant rapprochement".to_owned(),
                     context: context("op-safe-identity"),
@@ -2075,15 +2368,30 @@ mod tests {
             "migration_review_required"
         );
         assert_eq!(updated["asset"]["equipment_model_id"], Value::Null);
-        assert_eq!(updated["asset"]["laboratory_location_id"], location_id);
+        assert_eq!(updated["asset"]["laboratory_location_id"], Value::Null);
         assert_eq!(updated["asset"]["revision"], 2);
+
+        let moved = json_value(
+            &move_physical_asset(
+                &storage_root,
+                MovePhysicalAssetInput {
+                    asset_id: "LEGACY-EDIT-001".to_owned(),
+                    expected_revision: 2,
+                    destination_location_id: Some(location_id.clone()),
+                    context: context("op-safe-move"),
+                },
+            )
+            .unwrap(),
+        );
+        assert_eq!(moved["asset"]["laboratory_location_id"], location_id);
+        assert_eq!(moved["asset"]["revision"], 3);
 
         let restricted = json_value(
             &transition_physical_asset_service_state(
                 &storage_root,
                 TransitionPhysicalAssetServiceStateInput {
                     asset_id: "LEGACY-EDIT-001".to_owned(),
-                    expected_revision: 2,
+                    expected_revision: 3,
                     service_state: "restricted".to_owned(),
                     service_state_reason: "Utilisation sous surveillance".to_owned(),
                     context: context("op-safe-service-state"),
@@ -2100,7 +2408,7 @@ mod tests {
         let reconciled = json_value(
             &reconcile_physical_asset_model_json(
                 &storage_root,
-                reconciliation_input("LEGACY-EDIT-001", 3, 1, "op-safe-reconciliation"),
+                reconciliation_input("LEGACY-EDIT-001", 4, 1, "op-safe-reconciliation"),
             )
             .unwrap(),
         );

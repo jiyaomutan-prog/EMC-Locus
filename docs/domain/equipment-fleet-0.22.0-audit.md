@@ -362,9 +362,10 @@ Les nouveaux workflows utiliseront notamment :
 GET    /api/v1/fleet/assets
 POST   /api/v1/fleet/assets
 GET    /api/v1/fleet/assets/{asset_id}
-PUT    /api/v1/fleet/assets/{asset_id}
+PUT    /api/v1/fleet/assets/{asset_id}/identification
+POST   /api/v1/fleet/assets/{asset_id}/transitions/move
 POST   /api/v1/fleet/assets/{asset_id}/transitions/service-state
-POST   /api/v1/fleet/assets/{asset_id}/transitions/availability
+POST   /api/v1/fleet/assets/{asset_id}/transitions/administrative-availability
 GET    /api/v1/fleet/assets/{asset_id}/audit-events
 
 GET    /api/v1/laboratory-locations
@@ -384,8 +385,9 @@ ne passeront plus par cette API. Sa suppression sera documentée.
 
 ### Lieux et instantanés
 
-Les nouveaux montages, créneaux et exemplaires sélectionneront un
-`location_id` actif. Le serveur résoudra le libellé; le client ne pourra plus
+Les nouveaux montages, créneaux et déplacements d'exemplaires sélectionneront
+un `location_id` actif. Un exemplaire peut aussi rester sans emplacement. Le
+serveur résoudra le libellé; le client ne pourra plus
 imposer un couple ID/libellé incohérent. Renommer un lieu conservera son ID et
 les anciennes versions garderont leur libellé instantané. Un lieu archivé
 restera lisible mais sera refusé pour toute nouvelle affectation.

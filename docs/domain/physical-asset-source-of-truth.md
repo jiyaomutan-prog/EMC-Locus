@@ -13,6 +13,16 @@ datée issue des réservations, montages et essais réels ; elle n'est pas un é
 manuel du parc. Les écritures passent par des transactions `BEGIN IMMEDIATE`
 incluant contrôle de concurrence, mutation, audit et outbox.
 
+Les commandes d'écriture respectent deux responsabilités :
+
+- **Modifier l'identification** ne touche qu'au code inventaire, au numéro de
+  série, à la référence fabricant, à la provenance et aux notes ;
+- **Déplacer l'exemplaire** valide une destination active ou retire
+  explicitement l'affectation de lieu.
+
+Cette séparation permet de corriger une fiche située dans un lieu archivé sans
+transformer l'édition en nouvelle affectation implicite.
+
 Le registre des lieux est également possédé par equipment :
 
 `equipment.sqlite / laboratory_locations`
