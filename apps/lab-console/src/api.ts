@@ -874,6 +874,13 @@ export const fleetApi = {
 
 export const stationSetupApi = {
   list: () => request<{ station_setups: StationSetupAggregate[] }>("/api/v1/station-setups"),
+  assetOptions: (input: {
+    planned_use_on: string;
+    execution_mode: "accredited" | "non_accredited" | "investigation";
+    laboratory_location_id: string;
+  }) => request<import("./models/fleet").ExecutablePhysicalAssetOptions>(
+    `/api/v1/station-setups/asset-options?${new URLSearchParams(input).toString()}`
+  ),
   get: (setupId: string) =>
     request<{ station_setup: StationSetupAggregate }>(
       `/api/v1/station-setups/${encodeURIComponent(setupId)}`

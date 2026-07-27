@@ -3,19 +3,36 @@ use crate::fleet_repository::StoredPhysicalAsset;
 use emc_locus_core::{operational_usage_state_code, OperationalUsageState};
 use rusqlite::{params, Connection};
 use serde_json::Value;
+use std::borrow::Cow;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
-pub(crate) fn compute_operational_usage(
+pub(crate) fn parse_laboratory_instant(value: &str) -> Result<OffsetDateTime, time::error::Parse> {
+    let normalized = match value.len() {
+        16 if value.as_bytes().get(10) == Some(&b'T') => Cow::Owned(format!("{value}:00Z")),
+        19 if value.as_bytes().get(10) == Some(&b'T') => Cow::Owned(format!("{value}Z")),
+        _ => Cow::Borrowed(value),
+    };
+    OffsetDateTime::parse(&normalized, &Rfc3339)
+}
+
+pub(crate) fn compute_operational_usage_for_context(
     connection: &Connection,
     asset: &StoredPhysicalAsset,
     assessed_at: OffsetDateTime,
+    excluded_schedule_item_code: Option<&str>,
 ) -> OperationalUsageSummaryDto {
     let assessed_at_text = assessed_at
         .format(&Rfc3339)
         .unwrap_or_else(|_| assessed_at.unix_timestamp().to_string());
     let mut evidence = administrative_and_service_evidence(asset);
     append_active_test_evidence(connection, asset, assessed_at, &mut evidence);
-    append_schedule_evidence(connection, asset, assessed_at, &mut evidence);
+    append_schedule_evidence(
+        connection,
+        asset,
+        assessed_at,
+        excluded_schedule_item_code,
+        &mut evidence,
+    );
     append_setup_evidence(connection, asset, &mut evidence);
 
     let state = if evidence.iter().any(|item| {
@@ -140,6 +157,7 @@ fn append_schedule_evidence(
     connection: &Connection,
     asset: &StoredPhysicalAsset,
     assessed_at: OffsetDateTime,
+    excluded_schedule_item_code: Option<&str>,
     evidence: &mut Vec<OperationalUsageEvidenceDto>,
 ) {
     let query = connection.prepare(
@@ -171,6 +189,9 @@ fn append_schedule_evidence(
         return;
     };
     for row in rows.flatten() {
+        if excluded_schedule_item_code.is_some_and(|item_code| item_code == row.0.as_str()) {
+            continue;
+        }
         if !interval_contains(assessed_at, &row.2, Some(&row.3)) {
             continue;
         }
@@ -259,10 +280,10 @@ fn json_array_references_asset(definition: &Value, pointer: &str, asset_id: &str
 }
 
 fn interval_contains(assessed_at: OffsetDateTime, start_at: &str, end_at: Option<&str>) -> bool {
-    let Ok(start) = OffsetDateTime::parse(start_at, &Rfc3339) else {
+    let Ok(start) = parse_laboratory_instant(start_at) else {
         return false;
     };
-    let end = end_at.and_then(|value| OffsetDateTime::parse(value, &Rfc3339).ok());
+    let end = end_at.and_then(|value| parse_laboratory_instant(value).ok());
     start <= assessed_at && end.is_none_or(|value| assessed_at < value)
 }
 

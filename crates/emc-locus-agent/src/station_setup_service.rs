@@ -1,5 +1,8 @@
 use crate::equipment_repository::{load_equipment_model_revision, StoredEquipmentModelRevision};
+use crate::fleet_dto::{AssetSelectionReasonDto, ExecutablePhysicalAssetOptionListDto};
 use crate::fleet_repository::{load_physical_asset, open_fleet_connection};
+use crate::fleet_service::{executable_physical_asset_options, PhysicalAssetSelectionContext};
+use crate::metrology_assessment::parse_checked_on;
 use crate::metrology_repository::{load_asset_characterization, open_metrology_connection};
 use crate::metrology_service::{assess_metrology_readiness_report, AssessReadinessInput};
 use crate::station_setup_dto::{
@@ -75,6 +78,60 @@ pub struct DeriveStationSetupRevisionInput {
     pub setup_id: String,
     pub source_revision_id: String,
     pub context: StationOperationContext,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListStationSetupAssetOptionsInput {
+    pub planned_use_on: String,
+    pub execution_mode: String,
+    pub laboratory_location_id: String,
+}
+
+pub fn list_station_setup_asset_options_json(
+    storage_root: &Path,
+    input: ListStationSetupAssetOptionsInput,
+) -> Result<String, AgentError> {
+    let checked_on = parse_checked_on(input.planned_use_on.trim(), "planned_use_on")?;
+    if !matches!(
+        input.execution_mode.trim(),
+        "accredited" | "non_accredited" | "investigation"
+    ) {
+        return Err(AgentError::new(
+            "invalid_station_setup_request",
+            "execution_mode must be accredited, non_accredited or investigation",
+        ));
+    }
+    safe_id(
+        input.laboratory_location_id.trim(),
+        "laboratory_location_id",
+    )?;
+    let assessed_at = OffsetDateTime::parse(
+        &format!("{}T12:00:00Z", input.planned_use_on.trim()),
+        &Rfc3339,
+    )
+    .map_err(|error| {
+        AgentError::new(
+            "invalid_station_setup_request",
+            format!("planned_use_on: {error}"),
+        )
+    })?;
+    let context = PhysicalAssetSelectionContext {
+        assessed_at,
+        checked_on,
+        execution_mode: input.execution_mode.trim().to_owned(),
+        laboratory_location_id: Some(input.laboratory_location_id.trim().to_owned()),
+        excluded_schedule_item_code: None,
+    };
+    let assets = executable_physical_asset_options(storage_root, &context)?;
+    Ok(render_json(&ExecutablePhysicalAssetOptionListDto {
+        assessed_at: assessed_at
+            .format(&Rfc3339)
+            .map_err(|error| AgentError::new("timestamp_failed", error.to_string()))?,
+        checked_on: input.planned_use_on.trim().to_owned(),
+        execution_mode: context.execution_mode,
+        laboratory_location_id: context.laboratory_location_id,
+        assets,
+    }))
 }
 
 pub fn create_station_setup(
@@ -608,6 +665,25 @@ pub(crate) fn assess_station_setup_readiness(
     storage_root: &Path,
     definition: &StationMeasurementSetupDefinition,
 ) -> Result<StationSetupReadiness, AgentError> {
+    let assessed_at = OffsetDateTime::parse(
+        &format!("{}T12:00:00Z", definition.planned_use_on),
+        &Rfc3339,
+    )
+    .map_err(|error| {
+        AgentError::new(
+            "invalid_station_setup_request",
+            format!("planned_use_on: {error}"),
+        )
+    })?;
+    assess_station_setup_readiness_for_context(storage_root, definition, assessed_at, None)
+}
+
+pub(crate) fn assess_station_setup_readiness_for_context(
+    storage_root: &Path,
+    definition: &StationMeasurementSetupDefinition,
+    assessed_at: OffsetDateTime,
+    excluded_schedule_item_code: Option<&str>,
+) -> Result<StationSetupReadiness, AgentError> {
     let mut issues = definition.structural_readiness_issues();
     let binding_by_asset: BTreeMap<&str, &str> = definition
         .asset_bindings
@@ -616,6 +692,37 @@ pub(crate) fn assess_station_setup_readiness(
         .collect();
 
     if !definition.asset_bindings.is_empty() {
+        let checked_on = parse_checked_on(&definition.planned_use_on, "planned_use_on")?;
+        let option_context = PhysicalAssetSelectionContext {
+            assessed_at,
+            checked_on,
+            execution_mode: definition.execution_mode.clone(),
+            laboratory_location_id: definition.laboratory_location_id.clone(),
+            excluded_schedule_item_code: excluded_schedule_item_code.map(str::to_owned),
+        };
+        let selection_options = executable_physical_asset_options(storage_root, &option_context)?;
+        for binding in &definition.asset_bindings {
+            let Some(option) = selection_options
+                .iter()
+                .find(|option| option.asset.asset_id == binding.asset_id)
+            else {
+                continue;
+            };
+            for reason in &option.blocking_reasons {
+                issues.push(selection_readiness_issue(
+                    reason,
+                    StationReadinessSeverity::Blocking,
+                    &binding.binding_id,
+                ));
+            }
+            for reason in &option.warnings {
+                issues.push(selection_readiness_issue(
+                    reason,
+                    StationReadinessSeverity::Warning,
+                    &binding.binding_id,
+                ));
+            }
+        }
         let report = assess_metrology_readiness_report(
             storage_root,
             AssessReadinessInput {
@@ -807,6 +914,12 @@ pub(crate) fn assess_station_setup_readiness(
             .then_with(|| left.code.cmp(&right.code))
             .then_with(|| left.binding_ids.cmp(&right.binding_ids))
             .then_with(|| left.connection_ids.cmp(&right.connection_ids))
+    });
+    issues.dedup_by(|left, right| {
+        left.code == right.code
+            && left.severity == right.severity
+            && left.binding_ids == right.binding_ids
+            && left.connection_ids == right.connection_ids
     });
     Ok(StationSetupReadiness::from_issues(
         definition.planned_use_on.clone(),
@@ -1000,6 +1113,36 @@ fn metrology_issue(
         },
         message: message.to_owned(),
         binding_ids: binding_id.into_iter().map(str::to_owned).collect(),
+        connection_ids: Vec::new(),
+    }
+}
+
+fn selection_readiness_issue(
+    reason: &AssetSelectionReasonDto,
+    severity: StationReadinessSeverity,
+    binding_id: &str,
+) -> StationReadinessIssue {
+    let dimension = if reason.code.starts_with("calibration_") {
+        if reason.code == "calibration_nonconforming" {
+            StationReadinessDimension::Nonconformance
+        } else if reason.code == "calibration_missing" {
+            StationReadinessDimension::MissingEvidence
+        } else {
+            StationReadinessDimension::CalibrationValidity
+        }
+    } else if reason.code == "metrology_unavailable" {
+        StationReadinessDimension::MissingEvidence
+    } else if reason.code.starts_with("model_") || reason.code.starts_with("location_") {
+        StationReadinessDimension::AssetIdentity
+    } else {
+        StationReadinessDimension::Serviceability
+    };
+    StationReadinessIssue {
+        code: format!("station_{}", reason.code),
+        severity,
+        dimension,
+        message: format!("{} {}", reason.message, reason.next_action),
+        binding_ids: vec![binding_id.to_owned()],
         connection_ids: Vec::new(),
     }
 }

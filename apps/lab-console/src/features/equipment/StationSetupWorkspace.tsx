@@ -10,7 +10,11 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fleetApi, stationSetupApi, type OperationContext } from "../../api";
 import { metrologyStatusLabel } from "../../metrologyStatus";
-import type { LaboratoryLocation, PhysicalAsset } from "../../models/fleet";
+import type {
+  ExecutablePhysicalAssetOption,
+  LaboratoryLocation,
+  PhysicalAsset
+} from "../../models/fleet";
 import type {
   StationMeasurementSetupDefinition,
   StationSetupAggregate,
@@ -24,11 +28,9 @@ const operationContext: OperationContext = {
 
 export function StationSetupWorkspace() {
   const [setups, setSetups] = useState<StationSetupAggregate[]>([]);
-  const [assets, setAssets] = useState<PhysicalAsset[]>([]);
   const [locations, setLocations] = useState<LaboratoryLocation[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [listError, setListError] = useState<string | null>(null);
-  const [assetsError, setAssetsError] = useState<string | null>(null);
   const [locationsError, setLocationsError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -45,16 +47,6 @@ export function StationSetupWorkspace() {
     }
   }, []);
 
-  const loadAssets = useCallback(async () => {
-    try {
-      const response = await fleetApi.listAssets();
-      setAssets(response.assets);
-      setAssetsError(null);
-    } catch (error) {
-      setAssetsError(errorMessage(error));
-    }
-  }, []);
-
   const loadLocations = useCallback(async () => {
     try {
       const response = await fleetApi.listLocations();
@@ -67,9 +59,8 @@ export function StationSetupWorkspace() {
 
   useEffect(() => {
     void loadSetups();
-    void loadAssets();
     void loadLocations();
-  }, [loadAssets, loadLocations, loadSetups]);
+  }, [loadLocations, loadSetups]);
 
   const selected = setups.find((setup) => setup.identity.setup_id === selectedId) ?? null;
 
@@ -132,8 +123,6 @@ export function StationSetupWorkspace() {
         </aside>
         <StationSetupDetail
           setup={selected}
-          assets={assets}
-          assetsError={assetsError}
           locations={locations}
           locationsError={locationsError}
           onReplace={replaceSetup}
@@ -147,8 +136,6 @@ export function StationSetupWorkspace() {
 
 function StationSetupDetail(props: {
   setup: StationSetupAggregate | null;
-  assets: PhysicalAsset[];
-  assetsError: string | null;
   locations: LaboratoryLocation[];
   locationsError: string | null;
   onReplace: (setup: StationSetupAggregate) => void;
@@ -156,6 +143,8 @@ function StationSetupDetail(props: {
   const revision = props.setup?.active_draft_revision ?? props.setup?.current_ready_revision ?? props.setup?.latest_revision ?? null;
   const [definition, setDefinition] = useState<StationMeasurementSetupDefinition | null>(revision?.definition ?? null);
   const [readiness, setReadiness] = useState<StationSetupReadiness | null>(revision?.readiness ?? null);
+  const [assetOptions, setAssetOptions] = useState<ExecutablePhysicalAssetOption[]>([]);
+  const [assetsError, setAssetsError] = useState<string | null>(null);
   const [roleLabel, setRoleLabel] = useState("");
   const [assetId, setAssetId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -168,11 +157,36 @@ function StationSetupDetail(props: {
     setError(null);
   }, [revision]);
 
+  const plannedUseOn = definition?.planned_use_on ?? "";
+  const executionMode = definition?.execution_mode ?? "accredited";
+  const laboratoryLocationId = definition?.laboratory_location_id ?? "";
+
+  useEffect(() => {
+    if (!plannedUseOn || !laboratoryLocationId) return;
+    let current = true;
+    void stationSetupApi.assetOptions({
+      planned_use_on: plannedUseOn,
+      execution_mode: executionMode,
+      laboratory_location_id: laboratoryLocationId
+    }).then((response) => {
+      if (!current) return;
+      setAssetOptions(response.assets);
+      setAssetsError(null);
+      setAssetId((selected) => response.assets.some((option) => option.asset.asset_id === selected)
+        ? selected
+        : "");
+    }).catch((reason) => {
+      if (current) setAssetsError(errorMessage(reason));
+    });
+    return () => { current = false; };
+  }, [executionMode, laboratoryLocationId, plannedUseOn]);
+
   const dirty = Boolean(definition && revision && JSON.stringify(definition) !== JSON.stringify(revision.definition));
   const selectedAssetIds = new Set(definition?.asset_bindings.map((binding) => binding.asset_id) ?? []);
-  const availableAssets = props.assets.filter((asset) => !selectedAssetIds.has(asset.asset_id));
-  const selectedAsset = props.assets.find((asset) => asset.asset_id === assetId);
-  const canAdd = Boolean(roleLabel.trim() && selectedAsset && hasExactModelPin(selectedAsset));
+  const availableOptions = assetOptions.filter((option) => !selectedAssetIds.has(option.asset.asset_id));
+  const selectedAssetOption = assetOptions.find((option) => option.asset.asset_id === assetId);
+  const selectedAsset = selectedAssetOption?.asset;
+  const canAdd = Boolean(roleLabel.trim() && selectedAssetOption?.eligible);
 
   if (!props.setup || !revision || !definition) {
     return <article className="stationDetail empty"><strong>Aucun montage ouvert</strong><p>Sélectionnez un montage ou créez-en un nouveau.</p></article>;
@@ -252,7 +266,7 @@ function StationSetupDetail(props: {
       <span className={`status ${revision.status}`}>{revision.status === "ready" ? "Prêt à utiliser" : revision.status === "draft" ? "À préparer" : "Version remplacée"}</span>
     </header>
 
-    {props.assetsError && <TargetedError title="Parc matériel indisponible" detail="Le montage reste consultable. L'ajout d'un exemplaire est suspendu jusqu'au retour du parc." />}
+    {assetsError && <TargetedError title="Aptitude du parc temporairement indisponible" detail="Le montage et les choix déjà chargés restent consultables. L'ajout d'un exemplaire est suspendu jusqu'au prochain contrôle." />}
 
     <section className="stationSection">
       <div className="sectionTitleRow"><div><h3>Contexte d'utilisation</h3><p>Le lieu et la date servent au contrôle métrologique du montage.</p></div></div>
@@ -268,7 +282,7 @@ function StationSetupDetail(props: {
       <div className="sectionTitleRow"><div><h3>Matériels du laboratoire</h3><p>Seuls les exemplaires réels du parc peuvent être affectés au montage.</p></div><span className="countBadge">{definition.asset_bindings.length}</span></div>
       {definition.asset_bindings.length === 0 && <div className="compactEmpty"><strong>Aucun matériel affecté</strong><span>Choisissez le rôle tenu dans la chaîne puis un exemplaire du parc.</span></div>}
       <div className="stationBindingList">{definition.asset_bindings.map((binding) => {
-        const asset = props.assets.find((candidate) => candidate.asset_id === binding.asset_id);
+        const asset = assetOptions.find((candidate) => candidate.asset.asset_id === binding.asset_id)?.asset;
         return <div key={binding.binding_id}>
           <div><strong>{binding.role_label}</strong><span>{asset ? assetOperatorLabel(asset) : "Exemplaire momentanément introuvable dans le parc"}</span></div>
           {!readOnly && <button className="iconButton secondary" type="button" aria-label={`Retirer ${binding.role_label}`} onClick={() => { setDefinition({ ...definition, asset_bindings: definition.asset_bindings.filter((candidate) => candidate.binding_id !== binding.binding_id) }); setReadiness(null); }}><X size={15} /></button>}
@@ -277,11 +291,13 @@ function StationSetupDetail(props: {
 
       {!readOnly && <div className="stationAssetPicker">
         <label>Rôle dans le montage <Required /><input ref={roleRef} value={roleLabel} onChange={(event) => setRoleLabel(event.target.value)} placeholder="Ex. Récepteur EMI" /></label>
-        <label>Exemplaire du parc <Required /><select value={assetId} disabled={Boolean(props.assetsError)} onChange={(event) => setAssetId(event.target.value)}><option value="">Sélectionner...</option>{assetOptionGroups(availableAssets)}</select></label>
-        <button type="button" onClick={addAsset} disabled={!canAdd || Boolean(props.assetsError)}><Plus size={15} /> Affecter au montage</button>
+        <label>Exemplaire du parc <Required /><select value={assetId} disabled={Boolean(assetsError)} onChange={(event) => setAssetId(event.target.value)}><option value="">Sélectionner...</option>{assetOptionGroups(availableOptions)}</select></label>
+        <button type="button" onClick={addAsset} disabled={!canAdd || Boolean(assetsError)}><Plus size={15} /> Affecter au montage</button>
       </div>}
-      {!readOnly && !canAdd && <p className="actionExplanation">Renseignez le rôle et choisissez un exemplaire relié à une version approuvée de son modèle.</p>}
-      {!readOnly && !props.assetsError && availableAssets.length === 0 && <p className="actionExplanation">Aucun autre exemplaire n'est disponible dans le parc. Ajoutez l'exemplaire requis depuis un modèle constructeur approuvé.</p>}
+      {!readOnly && selectedAssetOption && selectedAssetOption.warnings.length > 0 && <SelectionReasons title="Points d'attention" reasons={selectedAssetOption.warnings} />}
+      {!readOnly && !canAdd && <p className="actionExplanation">Renseignez le rôle et choisissez un exemplaire déclaré disponible pour ce lieu, cette date et ce mode d'essai.</p>}
+      {!readOnly && !assetsError && availableOptions.length === 0 && <p className="actionExplanation">Aucun autre exemplaire n'est enregistré dans le parc. Ajoutez l'exemplaire requis depuis un modèle constructeur approuvé.</p>}
+      {!readOnly && availableOptions.some((option) => !option.eligible) && <UnavailableAssetExplanations options={availableOptions.filter((option) => !option.eligible)} />}
     </section>
 
     <section className={`stationReadinessPanel ${readiness?.ready ? "ready" : "blocked"}`}>
@@ -347,23 +363,22 @@ function CreateStationDialog(props: {
   </section>;
 }
 
-function assetOptionGroups(assets: PhysicalAsset[]) {
+function assetOptionGroups(options: ExecutablePhysicalAssetOption[]) {
   const groups = new Map<string, PhysicalAsset[]>();
-  for (const asset of assets) {
+  for (const { asset, eligible } of options) {
+    if (!eligible) continue;
     const key = `${categoryPath(asset)} · ${asset.manufacturer} ${asset.model_name}${asset.variant ? ` ${asset.variant}` : ""}`;
     groups.set(key, [...(groups.get(key) ?? []), asset]);
   }
-  return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, "fr")).map(([label, rows]) =>
-    <optgroup key={label} label={label}>{rows.map((asset) => <option key={asset.asset_id} value={asset.asset_id} disabled={!hasExactModelPin(asset)}>{assetOperatorLabel(asset)}</option>)}</optgroup>
+  const eligibleGroups = Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, "fr")).map(([label, rows]) =>
+    <optgroup key={label} label={label}>{rows.map((asset) => <option key={asset.asset_id} value={asset.asset_id}>{assetOperatorLabel(asset)}</option>)}</optgroup>
   );
+  const unavailable = options.filter((option) => !option.eligible);
+  return <>{eligibleGroups}{unavailable.length > 0 && <optgroup label="Matériels non disponibles">{unavailable.map((option) => <option key={option.asset.asset_id} value={option.asset.asset_id} disabled>{categoryPath(option.asset)} · {option.asset.manufacturer} {option.asset.model_name} · {option.asset.inventory_code} · {option.blocking_reasons[0]?.message ?? "Non disponible"}</option>)}</optgroup>}</>;
 }
 
 function assetOperatorLabel(asset: PhysicalAsset) {
   return `${asset.inventory_code} · ${asset.serial_number || "Sans numéro de série"} · ${asset.laboratory_location_label || "Sans emplacement"} · ${serviceLabel(asset.service_state)} · ${availabilityLabel(asset.availability_state)} · ${metrologyLabel(asset)}`;
-}
-
-function hasExactModelPin(asset: PhysicalAsset) {
-  return Boolean(asset.equipment_model_id && asset.equipment_model_revision_id && asset.equipment_model_checksum);
 }
 
 function categoryPath(asset: PhysicalAsset) {
@@ -384,6 +399,15 @@ function metrologyLabel(asset: PhysicalAsset) {
 
 function readinessDimensionLabel(value: string) {
   return ({ structure: "Structure :", asset_identity: "Identité :", serviceability: "État de service :", calibration_validity: "Étalonnage :", missing_evidence: "Preuve manquante :", nonconformance: "Non-conformité :", port_compatibility: "Connexions :", correction_validity: "Correction :" })[value] ?? "Pré-vol :";
+}
+
+function SelectionReasons(props: { title: string; reasons: ExecutablePhysicalAssetOption["warnings"] }) {
+  return <div className="selectionReasonPanel"><strong>{props.title}</strong><ul>{props.reasons.map((reason) => <li key={reason.code}>{reason.message} <span>{reason.next_action}</span></li>)}</ul></div>;
+}
+
+function UnavailableAssetExplanations(props: { options: ExecutablePhysicalAssetOption[] }) {
+  const visible = props.options.slice(0, 20);
+  return <details className="unavailableAssetExplanations"><summary>Matériels non disponibles ({props.options.length})</summary><div>{visible.map((option) => <article key={option.asset.asset_id}><strong>{option.asset.inventory_code} · {option.asset.manufacturer} {option.asset.model_name}</strong>{option.blocking_reasons.map((reason) => <p key={reason.code}>{reason.message} <span>{reason.next_action}</span></p>)}</article>)}</div>{props.options.length > visible.length && <p>{props.options.length - visible.length} autre(s) exemplaire(s) restent visibles dans la liste de sélection.</p>}</details>;
 }
 
 function Required() { return <span className="requiredBadge">Obligatoire</span>; }

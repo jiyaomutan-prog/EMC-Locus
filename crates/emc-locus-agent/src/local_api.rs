@@ -94,11 +94,11 @@ use crate::service_schedule_service::{
 };
 use crate::station_setup_service::{
     assess_station_setup_revision_json, create_station_setup, derive_station_setup_revision,
-    get_station_setup, get_station_setup_revision_json, list_station_setup_audit_events_json,
-    list_station_setup_revisions_json, list_station_setups, mark_station_setup_revision_ready,
-    replace_station_setup_draft_definition, CreateStationSetupInput,
-    DeriveStationSetupRevisionInput, MarkStationSetupReadyInput, ReplaceStationSetupDraftInput,
-    StationOperationContext,
+    get_station_setup, get_station_setup_revision_json, list_station_setup_asset_options_json,
+    list_station_setup_audit_events_json, list_station_setup_revisions_json, list_station_setups,
+    mark_station_setup_revision_ready, replace_station_setup_draft_definition,
+    CreateStationSetupInput, DeriveStationSetupRevisionInput, ListStationSetupAssetOptionsInput,
+    MarkStationSetupReadyInput, ReplaceStationSetupDraftInput, StationOperationContext,
 };
 use crate::test_execution_service::{
     get_simulated_test_execution, list_project_simulated_test_executions, run_simulated_emc_test,
@@ -639,6 +639,16 @@ fn route_api_request(
     if parts.as_slice() == ["api", "v1", "station-setups"] && method == "POST" {
         let payload = parse_json_body(body)?;
         return create_station_setup(&config.storage_root, create_station_setup_input(&payload)?);
+    }
+    if parts.as_slice() == ["api", "v1", "station-setups", "asset-options"] && method == "GET" {
+        return list_station_setup_asset_options_json(
+            &config.storage_root,
+            ListStationSetupAssetOptionsInput {
+                planned_use_on: required_query_value(query, "planned_use_on")?,
+                execution_mode: required_query_value(query, "execution_mode")?,
+                laboratory_location_id: required_query_value(query, "laboratory_location_id")?,
+            },
+        );
     }
     if parts.len() == 4
         && parts[0] == "api"
@@ -5285,6 +5295,20 @@ mod tests {
                 &config,
             );
             assert_eq!(registered.status, 200, "{}", registered.body);
+            let moved = handle_api_request(
+                "POST",
+                &format!("/api/v1/fleet/assets/{asset_id}/transitions/move"),
+                &json!({
+                    "expected_revision": 1,
+                    "destination_location_id": laboratory_location_id.clone(),
+                    "actor": "fleet.fixture",
+                    "reason": "place station fixture material in its laboratory location",
+                    "operation_id": format!("op-fixture-move-{asset_id}")
+                })
+                .to_string(),
+                &config,
+            );
+            assert_eq!(moved.status, 200, "{}", moved.body);
         }
 
         let cable_characterization = handle_api_request(
@@ -8174,9 +8198,22 @@ mod tests {
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
             lab_console_dist: repo_root().join("apps/lab-console/dist"),
-            max_requests: Some(8),
+            max_requests: Some(9),
         });
         assert_eq!(wait_for_http(&first_address, "/api/v1/health").0, 200);
+
+        let asset_options = http_request(
+            "GET",
+            &first_address,
+            &format!(
+                "/api/v1/station-setups/asset-options?planned_use_on=2026-07-15&execution_mode=accredited&laboratory_location_id={}",
+                fixture.laboratory_location_id
+            ),
+            "",
+        );
+        assert_eq!(asset_options.0, 200, "{}", asset_options.1);
+        assert!(asset_options.1.contains("SA-CABLE-STATION-001"));
+        assert!(asset_options.1.contains("\"eligible\":true"));
 
         let created = http_request(
             "POST",
@@ -9318,6 +9355,20 @@ mod tests {
                 config,
             );
             assert_eq!(registered.status, 200, "{}", registered.body);
+            let moved = handle_api_request(
+                "POST",
+                &format!("/api/v1/fleet/assets/{asset_id}/transitions/move"),
+                &json!({
+                    "expected_revision": 1,
+                    "destination_location_id": laboratory_location_id.clone(),
+                    "actor": "fleet.fixture",
+                    "reason": "place station fixture material in its laboratory location",
+                    "operation_id": format!("op-fixture-move-{asset_id}")
+                })
+                .to_string(),
+                config,
+            );
+            assert_eq!(moved.status, 200, "{}", moved.body);
         }
 
         let characterization = handle_api_request(

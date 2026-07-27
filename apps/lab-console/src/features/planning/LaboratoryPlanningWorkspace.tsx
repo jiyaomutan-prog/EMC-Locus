@@ -967,7 +967,10 @@ function PreparationWorkspace(props: {
       setHistory(revisions.revisions);
       setMethodRevisionId((current) => current || available.methods[0]?.revision_id || "");
       setSetupRevisionId(
-        (current) => current || available.station_setups[0]?.station_setup.revision_id || ""
+        (current) => current
+          || available.station_setups.find((candidate) => candidate.eligible)?.station_setup.revision_id
+          || available.station_setups[0]?.station_setup.revision_id
+          || ""
       );
     } catch (caught) {
       reportError(planningErrorMessage(caught));
@@ -1082,11 +1085,7 @@ function PreparationWorkspace(props: {
         <label>
           Montage
           <select value={setupRevisionId} onChange={(event) => setSetupRevisionId(event.target.value)}>
-            {options.station_setups.map((candidate) => (
-              <option key={candidate.station_setup.revision_id} value={candidate.station_setup.revision_id}>
-                {candidate.station_setup.label} · {candidate.station_setup.laboratory_location_label}
-              </option>
-            ))}
+            {plannedStationOptionGroups(options.station_setups)}
           </select>
         </label>
         {stationOption && (
@@ -1099,6 +1098,8 @@ function PreparationWorkspace(props: {
             </span>
           </div>
         )}
+        {stationOption && stationOption.blocking_reasons.length > 0 && <div className="materialCompatibilityEmpty" role="status"><strong>Montage non disponible pour ce créneau.</strong>{stationOption.blocking_reasons.map((reason) => <span key={reason.code}>{reason.message} {reason.next_action}</span>)}</div>}
+        {stationOption && stationOption.warnings.length > 0 && <div className="selectionReasonPanel"><strong>Points d'attention</strong><ul>{stationOption.warnings.map((reason) => <li key={reason.code}>{reason.message} <span>{reason.next_action}</span></li>)}</ul></div>}
       </section>
 
       {method && stationOption && (
@@ -1115,7 +1116,11 @@ function PreparationWorkspace(props: {
                 slotCompatibility.some(
                   (candidate) => candidate.binding_id === asset.binding_id && candidate.compatible
                 )
+                && stationOption.asset_options.find((option) => option.asset.asset_id === asset.asset_id)?.eligible
               );
+              const firstIneligible = stationOption.station_setup.assets
+                .map((asset) => stationOption.asset_options.find((option) => option.asset.asset_id === asset.asset_id))
+                .find((option) => option && !option.eligible);
               const firstRejection = slotCompatibility.find((candidate) => !candidate.compatible);
               return (
                 <div className="instrumentAssignmentRow" key={slot.slot_id}>
@@ -1143,6 +1148,7 @@ function PreparationWorkspace(props: {
                     {compatibleAssets.length === 0 && (
                       <div className="materialCompatibilityEmpty" role="status">
                         <strong>Aucun matériel compatible dans ce montage.</strong>
+                        {firstIneligible?.blocking_reasons[0] && <span>{firstIneligible.blocking_reasons[0].message}</span>}
                         {firstRejection?.reason && <span>{firstRejection.reason}</span>}
                         {firstRejection?.next_action && <small>{firstRejection.next_action}</small>}
                       </div>
@@ -1160,7 +1166,7 @@ function PreparationWorkspace(props: {
           Motif du contrôle
           <input value={reason} onChange={(event) => setReason(event.target.value)} />
         </label>
-        <button disabled={busy || !method || !stationOption || !reason.trim()} onClick={() => void assess()}>
+        <button disabled={busy || !method || !stationOption?.eligible || !reason.trim()} onClick={() => void assess()}>
           <ClipboardCheck size={16} /> Vérifier la préparation
         </button>
       </section>
@@ -1249,6 +1255,15 @@ function preparationStateTitle(state: PlannedTestPreparationAggregate["current_s
 function methodOptionLabel(method: PlannedTestMethodSnapshot) {
   const reference = method.method_code ? ` · ${method.method_code}` : "";
   return `${method.title}${reference} · version ${method.revision_number}`;
+}
+
+function plannedStationOptionGroups(options: PlannedTestPreparationOptions["station_setups"]) {
+  const eligible = options.filter((option) => option.eligible);
+  const unavailable = options.filter((option) => !option.eligible);
+  return <>
+    {eligible.length > 0 && <optgroup label="Montages disponibles">{eligible.map((candidate) => <option key={candidate.station_setup.revision_id} value={candidate.station_setup.revision_id}>{candidate.station_setup.label} · {candidate.station_setup.laboratory_location_label}</option>)}</optgroup>}
+    {unavailable.length > 0 && <optgroup label="Matériels non disponibles">{unavailable.map((candidate) => <option key={candidate.station_setup.revision_id} value={candidate.station_setup.revision_id} disabled>{candidate.station_setup.label} · {candidate.blocking_reasons[0]?.message ?? "Montage non disponible"}</option>)}</optgroup>}
+  </>;
 }
 
 function assetOptionLabel(asset: PlannedStationSetupSnapshot["assets"][number]) {

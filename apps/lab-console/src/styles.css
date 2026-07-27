@@ -1092,6 +1092,52 @@ button.planningSlot-cancelled {
   font-size: 12px;
 }
 
+.selectionReasonPanel {
+  background: #fff8e8;
+  border-left: 3px solid #b98423;
+  color: #574618;
+  padding: 9px 12px;
+}
+
+.selectionReasonPanel ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+}
+
+.selectionReasonPanel span,
+.unavailableAssetExplanations span {
+  color: #5d6c64;
+}
+
+.unavailableAssetExplanations {
+  border-top: 1px solid #d8dfdb;
+  padding-top: 9px;
+}
+
+.unavailableAssetExplanations summary {
+  color: #70402d;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.unavailableAssetExplanations > div {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.unavailableAssetExplanations article {
+  background: #fff4ef;
+  border-left: 3px solid #b35b3d;
+  padding: 8px 10px;
+}
+
+.unavailableAssetExplanations p {
+  margin: 4px 0 0;
+}
+
 .stationReadinessPanel {
   border-left: 4px solid #b35b3d;
   margin-top: 16px;

@@ -97,6 +97,27 @@ export interface OperationalUsageSummary {
   evidence: OperationalUsageEvidence[];
 }
 
+export interface AssetSelectionReason {
+  code: string;
+  message: string;
+  next_action: string;
+}
+
+export interface ExecutablePhysicalAssetOption {
+  asset: PhysicalAsset;
+  eligible: boolean;
+  blocking_reasons: AssetSelectionReason[];
+  warnings: AssetSelectionReason[];
+}
+
+export interface ExecutablePhysicalAssetOptions {
+  assessed_at: string;
+  checked_on: string;
+  execution_mode: "accredited" | "non_accredited" | "investigation";
+  laboratory_location_id: string | null;
+  assets: ExecutablePhysicalAssetOption[];
+}
+
 export interface LaboratoryLocation {
   location_id: string;
   label: string;

@@ -295,6 +295,10 @@ export interface PlannedTestPreparationOptions {
   methods: PlannedTestMethodSnapshot[];
   station_setups: Array<{
     station_setup: PlannedStationSetupSnapshot;
+    eligible: boolean;
+    blocking_reasons: import("./fleet").AssetSelectionReason[];
+    warnings: import("./fleet").AssetSelectionReason[];
+    asset_options: import("./fleet").ExecutablePhysicalAssetOption[];
     readiness: {
       ready: boolean;
       checked_on: string;

@@ -39,7 +39,7 @@ instruments et n'acquiert aucune donnée.
 1. L'opérateur crée un montage et lui donne un nom de laboratoire, par exemple
    `Mesure des pertes du câble EUT`.
 2. Il précise le poste utilisé et la date prévue d'utilisation.
-3. Il ajoute des matériels réels depuis le registre métrologique. Le numéro
+3. Il ajoute des matériels réels depuis le parc matériel. Le numéro
    d'inventaire, le numéro de série, l'état de service et l'échéance
    d'étalonnage sont affichés ensemble.
 4. Il donne à chaque matériel un rôle lisible dans ce montage, par exemple
@@ -105,6 +105,10 @@ Le contrôle bloque notamment lorsque :
   cohérente ;
 - un matériel est hors service, retiré ou soumis à une restriction incompatible
   avec le montage ;
+- un matériel est indisponible administrativement, déjà utilisé par un essai
+  actif ou réservé sur un créneau concurrent ;
+- son modèle constructeur n'est pas rapproché avec une version immuable ;
+- son emplacement est absent, archivé ou différent du lieu prévu ;
 - un étalonnage requis est absent ou expiré à la date prévue ;
 - un port n'existe pas dans la révision de modèle figée ;
 - deux ports ont des directions incompatibles ;

@@ -140,11 +140,11 @@ pub use service_schedule_service::{
 use sqlite_policy::{initialize_project_slice_journal_mode, journal_mode, AttachedDatabase};
 pub use station_setup_service::{
     assess_station_setup_revision_json, create_station_setup, derive_station_setup_revision,
-    get_station_setup, get_station_setup_revision_json, list_station_setup_audit_events_json,
-    list_station_setup_revisions_json, list_station_setups, mark_station_setup_revision_ready,
-    replace_station_setup_draft_definition, CreateStationSetupInput,
-    DeriveStationSetupRevisionInput, MarkStationSetupReadyInput, ReplaceStationSetupDraftInput,
-    StationOperationContext,
+    get_station_setup, get_station_setup_revision_json, list_station_setup_asset_options_json,
+    list_station_setup_audit_events_json, list_station_setup_revisions_json, list_station_setups,
+    mark_station_setup_revision_ready, replace_station_setup_draft_definition,
+    CreateStationSetupInput, DeriveStationSetupRevisionInput, ListStationSetupAssetOptionsInput,
+    MarkStationSetupReadyInput, ReplaceStationSetupDraftInput, StationOperationContext,
 };
 use std::{
     error::Error,

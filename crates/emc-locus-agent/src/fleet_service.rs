@@ -3,8 +3,9 @@ use crate::equipment_repository::{
     load_equipment_model_identity, load_equipment_model_revision, EquipmentModelListFilter,
 };
 use crate::fleet_dto::{
-    FleetAuditEventDto, FleetAuditEventListDto, LaboratoryLocationDto,
-    LaboratoryLocationEnvelopeDto, LaboratoryLocationListDto, ModelReconciliationCandidateDto,
+    AssetSelectionReasonDto, ExecutablePhysicalAssetOptionDto, FleetAuditEventDto,
+    FleetAuditEventListDto, LaboratoryLocationDto, LaboratoryLocationEnvelopeDto,
+    LaboratoryLocationListDto, ModelReconciliationCandidateDto,
     ModelReconciliationCandidateListDto, PhysicalAssetDto, PhysicalAssetEnvelopeDto,
     PhysicalAssetListDto,
 };
@@ -20,7 +21,7 @@ use crate::fleet_repository::{
     MovePhysicalAssetRecord, NewPhysicalAssetRecord, PhysicalAssetServiceStateUpdate,
     StoredLaboratoryLocation, StoredPhysicalAsset, UpdatePhysicalAssetIdentityInput,
 };
-use crate::fleet_usage::compute_operational_usage;
+use crate::fleet_usage::compute_operational_usage_for_context;
 use crate::metrology_assessment::{
     assess_metrology_source, MetrologyAssessmentSource, MetrologyStatusSummaryDto,
 };
@@ -30,8 +31,8 @@ use emc_locus_core::{
     administrative_availability_code, ownership_source_code, service_state_code,
     validate_administrative_availability_transition, validate_service_state_transition,
     AdministrativeAvailability, EquipmentModelDefinition, LaboratoryLocationDefinition,
-    LaboratoryLocationStatus, OwnershipSource, PhysicalAssetDefinition, PinnedEquipmentModel,
-    ServiceState, LABORATORY_LOCATION_DEFINITION_SCHEMA_VERSION,
+    LaboratoryLocationStatus, MetrologyAssessmentStatus, OwnershipSource, PhysicalAssetDefinition,
+    PinnedEquipmentModel, ServiceState, LABORATORY_LOCATION_DEFINITION_SCHEMA_VERSION,
     PHYSICAL_ASSET_DEFINITION_SCHEMA_VERSION,
 };
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
@@ -47,6 +48,15 @@ pub struct FleetOperationContext {
     pub operation_id: String,
     pub correlation_id: String,
     pub device_id: String,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PhysicalAssetSelectionContext {
+    pub(crate) assessed_at: OffsetDateTime,
+    pub(crate) checked_on: MetrologyDate,
+    pub(crate) execution_mode: String,
+    pub(crate) laboratory_location_id: Option<String>,
+    pub(crate) excluded_schedule_item_code: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1207,6 +1217,278 @@ fn resolve_active_location(
     Ok(Some(location))
 }
 
+pub(crate) fn executable_physical_asset_options(
+    storage_root: &Path,
+    context: &PhysicalAssetSelectionContext,
+) -> Result<Vec<ExecutablePhysicalAssetOptionDto>, AgentError> {
+    let connection = open_fleet_connection(storage_root)?;
+    let mut options = list_physical_assets(&connection)?
+        .iter()
+        .map(|asset| executable_physical_asset_option(&connection, asset, context))
+        .collect::<Result<Vec<_>, _>>()?;
+    options.sort_by(|left, right| {
+        right
+            .eligible
+            .cmp(&left.eligible)
+            .then_with(|| left.asset.category_path.cmp(&right.asset.category_path))
+            .then_with(|| left.asset.manufacturer.cmp(&right.asset.manufacturer))
+            .then_with(|| left.asset.model_name.cmp(&right.asset.model_name))
+            .then_with(|| left.asset.inventory_code.cmp(&right.asset.inventory_code))
+    });
+    Ok(options)
+}
+
+fn executable_physical_asset_option(
+    connection: &rusqlite::Connection,
+    asset: &StoredPhysicalAsset,
+    context: &PhysicalAssetSelectionContext,
+) -> Result<ExecutablePhysicalAssetOptionDto, AgentError> {
+    let asset_dto = physical_asset_dto_at_for_context(
+        connection,
+        asset,
+        context.assessed_at,
+        context.checked_on,
+        context.excluded_schedule_item_code.as_deref(),
+    )?;
+    let mut blocking_reasons = Vec::new();
+    let mut warnings = Vec::new();
+
+    if let Some(reason) = model_pin_selection_issue(connection, asset)? {
+        blocking_reasons.push(reason);
+    }
+    match asset.service_state.as_str() {
+        "restricted" => warnings.push(selection_reason(
+            "service_restricted",
+            "Cet exemplaire comporte une restriction d'utilisation.",
+            if asset.service_state_reason.trim().is_empty() {
+                "Consultez son dossier avant de confirmer son utilisation."
+            } else {
+                asset.service_state_reason.trim()
+            },
+        )),
+        "in_maintenance" => blocking_reasons.push(selection_reason(
+            "service_in_maintenance",
+            "Cet exemplaire est en maintenance.",
+            "Attendez sa remise en service ou choisissez un autre exemplaire.",
+        )),
+        "out_of_service" => blocking_reasons.push(selection_reason(
+            "service_out_of_service",
+            "Cet exemplaire est hors service.",
+            "Faites rétablir son état de service ou choisissez un autre exemplaire.",
+        )),
+        "retired" => blocking_reasons.push(selection_reason(
+            "service_retired",
+            "Cet exemplaire est retiré du parc.",
+            "Choisissez un exemplaire actif du parc.",
+        )),
+        _ => {}
+    }
+    if asset.administrative_availability == "unavailable" {
+        blocking_reasons.push(selection_reason(
+            "administratively_unavailable",
+            "Cet exemplaire est déclaré indisponible par le parc matériel.",
+            if asset.administrative_unavailability_reason.trim().is_empty() {
+                "Rendez-le disponible dans son dossier ou choisissez un autre exemplaire."
+            } else {
+                asset.administrative_unavailability_reason.trim()
+            },
+        ));
+    }
+
+    for evidence in &asset_dto.operational_usage.evidence {
+        match evidence.source_kind.as_str() {
+            "active_test" if evidence.blocks_selection => blocking_reasons.push(selection_reason(
+                "active_test_conflict",
+                "Cet exemplaire est déjà utilisé par un essai en cours.",
+                "Attendez la fin de l'essai ou choisissez un autre exemplaire.",
+            )),
+            "planned_test_reservation" if evidence.blocks_selection => {
+                blocking_reasons.push(selection_reason(
+                    "planned_test_reservation_conflict",
+                    "Cet exemplaire est réservé sur ce créneau.",
+                    "Choisissez un autre exemplaire ou modifiez la réservation concernée.",
+                ))
+            }
+            "station_setup_reference" => warnings.push(selection_reason(
+                "referenced_by_ready_setup",
+                "Cet exemplaire est déjà référencé par un montage prêt.",
+                "Cette référence n'est pas exclusive ; vérifiez néanmoins son usage prévu.",
+            )),
+            kind if kind.ends_with("_source") && !evidence.blocks_selection => {
+                warnings.push(selection_reason(
+                    format!("{kind}_unavailable"),
+                    &evidence.reason,
+                    "Actualisez la liste avant l'utilisation effective.",
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    match asset_dto.laboratory_location_id.as_deref() {
+        None => blocking_reasons.push(selection_reason(
+            "location_missing",
+            "L'emplacement de cet exemplaire n'est pas défini.",
+            "Déplacez l'exemplaire vers un lieu actif du laboratoire.",
+        )),
+        Some(_) if asset_dto.laboratory_location_status.as_deref() != Some("active") => {
+            blocking_reasons.push(selection_reason(
+                "location_archived",
+                "L'emplacement actuel de cet exemplaire est archivé.",
+                "Déplacez l'exemplaire vers un lieu actif du laboratoire.",
+            ));
+        }
+        Some(location_id)
+            if context
+                .laboratory_location_id
+                .as_deref()
+                .is_some_and(|required| required != location_id) =>
+        {
+            blocking_reasons.push(selection_reason(
+                "location_mismatch",
+                "Cet exemplaire se trouve dans un autre lieu.",
+                "Déplacez-le vers le lieu prévu ou choisissez un exemplaire déjà présent.",
+            ));
+        }
+        _ => {}
+    }
+
+    append_metrology_selection_reasons(
+        &asset_dto.metrology,
+        &context.execution_mode,
+        &mut blocking_reasons,
+        &mut warnings,
+    );
+    blocking_reasons.sort_by(|left, right| left.code.cmp(&right.code));
+    blocking_reasons.dedup_by(|left, right| left.code == right.code);
+    warnings.sort_by(|left, right| left.code.cmp(&right.code));
+    warnings.dedup_by(|left, right| left.code == right.code);
+
+    Ok(ExecutablePhysicalAssetOptionDto {
+        eligible: blocking_reasons.is_empty(),
+        asset: asset_dto,
+        blocking_reasons,
+        warnings,
+    })
+}
+
+fn model_pin_selection_issue(
+    connection: &rusqlite::Connection,
+    asset: &StoredPhysicalAsset,
+) -> Result<Option<AssetSelectionReasonDto>, AgentError> {
+    let unresolved = || {
+        selection_reason(
+            "model_reconciliation_required",
+            "Le modèle constructeur doit être rapproché.",
+            "Rapprochez cet exemplaire avec la version exacte de son modèle constructeur.",
+        )
+    };
+    if asset.model_link_state != "resolved" {
+        return Ok(Some(unresolved()));
+    }
+    let (Some(model_id), Some(revision_id), Some(checksum)) = (
+        asset.equipment_model_id.as_deref(),
+        asset.equipment_model_revision_id.as_deref(),
+        asset.equipment_model_checksum.as_deref(),
+    ) else {
+        return Ok(Some(unresolved()));
+    };
+    let Some(revision) = load_equipment_model_revision(connection, model_id, revision_id)? else {
+        return Ok(Some(selection_reason(
+            "model_revision_unavailable",
+            "La version exacte du modèle constructeur n'est plus disponible.",
+            "Restaurez le référentiel local avant d'utiliser cet exemplaire.",
+        )));
+    };
+    let definition_valid = EquipmentModelDefinition::from_json_str(&revision.definition_json)
+        .ok()
+        .and_then(|definition| definition.canonicalize().ok())
+        .is_some_and(|canonical| canonical.definition_checksum == revision.definition_checksum);
+    if !matches!(revision.status.as_str(), "approved" | "superseded")
+        || revision.definition_checksum != checksum
+        || !definition_valid
+    {
+        return Ok(Some(selection_reason(
+            "model_revision_not_trusted",
+            "La version du modèle constructeur n'est pas une référence immuable valide.",
+            "Faites contrôler le lien au modèle avant d'utiliser cet exemplaire.",
+        )));
+    }
+    Ok(None)
+}
+
+fn append_metrology_selection_reasons(
+    metrology: &MetrologyStatusSummaryDto,
+    execution_mode: &str,
+    blocking_reasons: &mut Vec<AssetSelectionReasonDto>,
+    warnings: &mut Vec<AssetSelectionReasonDto>,
+) {
+    let accredited = execution_mode == "accredited";
+    let (code, message, next_action) = match metrology.assessment.status {
+        MetrologyAssessmentStatus::Valid | MetrologyAssessmentStatus::NotRequired => return,
+        MetrologyAssessmentStatus::DueSoon => (
+            "calibration_due_soon",
+            "L'échéance d'étalonnage de cet exemplaire est proche.",
+            "Planifiez son étalonnage avant l'échéance.",
+        ),
+        MetrologyAssessmentStatus::Expired => (
+            "calibration_expired",
+            "L'étalonnage requis est expiré à la date prévue.",
+            "Enregistrez un étalonnage conforme ou choisissez un autre exemplaire.",
+        ),
+        MetrologyAssessmentStatus::Missing => (
+            "calibration_missing",
+            "Aucun étalonnage valide n'est disponible à la date prévue.",
+            "Enregistrez la preuve métrologique requise ou choisissez un autre exemplaire.",
+        ),
+        MetrologyAssessmentStatus::Nonconforming => (
+            "calibration_nonconforming",
+            "Le dernier étalonnage de cet exemplaire est non conforme.",
+            "Traitez la non-conformité avant toute utilisation.",
+        ),
+        MetrologyAssessmentStatus::Indeterminate => (
+            "calibration_indeterminate",
+            "La décision métrologique de cet exemplaire est indéterminée.",
+            "Faites statuer le métrologue avant l'utilisation.",
+        ),
+        MetrologyAssessmentStatus::Unavailable => (
+            "metrology_unavailable",
+            "La métrologie de cet exemplaire est temporairement indisponible.",
+            "Rétablissez l'accès au dossier métrologique avant l'utilisation.",
+        ),
+    };
+    let reason = selection_reason(code, message, next_action);
+    let always_blocking = matches!(
+        metrology.assessment.status,
+        MetrologyAssessmentStatus::Nonconforming | MetrologyAssessmentStatus::Unavailable
+    );
+    if always_blocking
+        || (accredited
+            && matches!(
+                metrology.assessment.status,
+                MetrologyAssessmentStatus::Expired
+                    | MetrologyAssessmentStatus::Missing
+                    | MetrologyAssessmentStatus::Indeterminate
+            ))
+    {
+        blocking_reasons.push(reason);
+    } else {
+        warnings.push(reason);
+    }
+}
+
+fn selection_reason(
+    code: impl Into<String>,
+    message: impl Into<String>,
+    next_action: impl Into<String>,
+) -> AssetSelectionReasonDto {
+    AssetSelectionReasonDto {
+        code: code.into(),
+        message: message.into(),
+        next_action: next_action.into(),
+    }
+}
+
 fn physical_asset_dto(
     connection: &rusqlite::Connection,
     asset: &StoredPhysicalAsset,
@@ -1226,6 +1508,16 @@ fn physical_asset_dto_at(
     assessed_at: OffsetDateTime,
     metrology_checked_on: MetrologyDate,
 ) -> Result<PhysicalAssetDto, AgentError> {
+    physical_asset_dto_at_for_context(connection, asset, assessed_at, metrology_checked_on, None)
+}
+
+fn physical_asset_dto_at_for_context(
+    connection: &rusqlite::Connection,
+    asset: &StoredPhysicalAsset,
+    assessed_at: OffsetDateTime,
+    metrology_checked_on: MetrologyDate,
+    excluded_schedule_item_code: Option<&str>,
+) -> Result<PhysicalAssetDto, AgentError> {
     let current_location = match asset.laboratory_location_id.as_deref() {
         Some(location_id) => load_laboratory_location(connection, location_id)?,
         None => None,
@@ -1234,7 +1526,12 @@ fn physical_asset_dto_at(
         .as_ref()
         .map(|location| location.label.clone())
         .or_else(|| asset.laboratory_location_label_snapshot.clone());
-    let operational_usage = compute_operational_usage(connection, asset, assessed_at);
+    let operational_usage = compute_operational_usage_for_context(
+        connection,
+        asset,
+        assessed_at,
+        excluded_schedule_item_code,
+    );
     let availability_state = operational_usage.state.clone();
     Ok(PhysicalAssetDto {
         asset_id: asset.asset_id.clone(),
@@ -2659,6 +2956,231 @@ mod tests {
         let _ = std::fs::remove_dir_all(storage_root);
     }
 
+    #[test]
+    fn executable_options_explain_contextual_eligibility_and_real_usage() {
+        let storage_root = initialized_storage("fleet-executable-options");
+        seed_approved_model(&storage_root, 1, "Scope sélection", 'a');
+        let location_a = generated_id("LOC", "op-options-location-a", "Salle A");
+        let location_b = generated_id("LOC", "op-options-location-b", "Salle B");
+        for (label, operation_id) in [
+            ("Salle A", "op-options-location-a"),
+            ("Salle B", "op-options-location-b"),
+        ] {
+            create_laboratory_location(
+                &storage_root,
+                CreateLaboratoryLocationInput {
+                    label: label.to_owned(),
+                    description: String::new(),
+                    context: context(operation_id),
+                },
+            )
+            .unwrap();
+        }
+
+        let eligible_id = generated_id("ASSET", "op-options-eligible", "INV-OPTIONS-OK");
+        create_physical_asset(
+            &storage_root,
+            asset_input(
+                "INV-OPTIONS-OK",
+                Some("SN-OK"),
+                Some(&location_a),
+                "op-options-eligible",
+            ),
+        )
+        .unwrap();
+
+        let restricted_id =
+            generated_id("ASSET", "op-options-restricted", "INV-OPTIONS-RESTRICTED");
+        create_physical_asset(
+            &storage_root,
+            asset_input(
+                "INV-OPTIONS-RESTRICTED",
+                None,
+                Some(&location_a),
+                "op-options-restricted",
+            ),
+        )
+        .unwrap();
+        transition_physical_asset_service_state(
+            &storage_root,
+            TransitionPhysicalAssetServiceStateInput {
+                asset_id: restricted_id,
+                expected_revision: 1,
+                service_state: "restricted".to_owned(),
+                service_state_reason: "Usage sous surveillance".to_owned(),
+                context: context("op-options-restricted-state"),
+            },
+        )
+        .unwrap();
+
+        let out_of_service_id =
+            generated_id("ASSET", "op-options-out-of-service", "INV-OPTIONS-OOS");
+        create_physical_asset(
+            &storage_root,
+            asset_input(
+                "INV-OPTIONS-OOS",
+                None,
+                Some(&location_a),
+                "op-options-out-of-service",
+            ),
+        )
+        .unwrap();
+        transition_physical_asset_service_state(
+            &storage_root,
+            TransitionPhysicalAssetServiceStateInput {
+                asset_id: out_of_service_id,
+                expected_revision: 1,
+                service_state: "out_of_service".to_owned(),
+                service_state_reason: "Panne confirmée".to_owned(),
+                context: context("op-options-out-of-service-state"),
+            },
+        )
+        .unwrap();
+
+        let unavailable_id =
+            generated_id("ASSET", "op-options-unavailable", "INV-OPTIONS-UNAVAILABLE");
+        create_physical_asset(
+            &storage_root,
+            asset_input(
+                "INV-OPTIONS-UNAVAILABLE",
+                None,
+                Some(&location_a),
+                "op-options-unavailable",
+            ),
+        )
+        .unwrap();
+        transition_physical_asset_administrative_availability(
+            &storage_root,
+            TransitionPhysicalAssetAdministrativeAvailabilityInput {
+                asset_id: unavailable_id,
+                expected_revision: 1,
+                administrative_availability: "unavailable".to_owned(),
+                administrative_unavailability_reason: "Prêt externe".to_owned(),
+                context: context("op-options-unavailable-state"),
+            },
+        )
+        .unwrap();
+
+        create_physical_asset(
+            &storage_root,
+            asset_input("INV-OPTIONS-NO-LOC", None, None, "op-options-no-location"),
+        )
+        .unwrap();
+        create_physical_asset(
+            &storage_root,
+            asset_input(
+                "INV-OPTIONS-WRONG-LOC",
+                None,
+                Some(&location_b),
+                "op-options-wrong-location",
+            ),
+        )
+        .unwrap();
+
+        seed_unresolved_migrated_asset(&storage_root, "LEGACY-OPTIONS-001");
+        move_physical_asset(
+            &storage_root,
+            MovePhysicalAssetInput {
+                asset_id: "LEGACY-OPTIONS-001".to_owned(),
+                expected_revision: 1,
+                destination_location_id: Some(location_a.clone()),
+                context: context("op-options-move-legacy"),
+            },
+        )
+        .unwrap();
+
+        let expired_id = generated_id("ASSET", "op-options-expired", "INV-OPTIONS-EXPIRED");
+        let mut expired_input = asset_input(
+            "INV-OPTIONS-EXPIRED",
+            None,
+            Some(&location_a),
+            "op-options-expired",
+        );
+        expired_input.calibration_requirement = "required".to_owned();
+        expired_input.calibration_period_months = Some(12);
+        create_physical_asset(&storage_root, expired_input).unwrap();
+        seed_calibration(
+            &storage_root,
+            &expired_id,
+            "CAL-OPTIONS-EXPIRED",
+            "2025-07-26",
+            "2026-07-26",
+            "conforming",
+        );
+
+        let context = PhysicalAssetSelectionContext {
+            assessed_at: OffsetDateTime::parse("2026-07-27T10:00:00Z", &Rfc3339).unwrap(),
+            checked_on: MetrologyDate::parse_iso("2026-07-27").unwrap(),
+            execution_mode: "accredited".to_owned(),
+            laboratory_location_id: Some(location_a),
+            excluded_schedule_item_code: None,
+        };
+        let initial = executable_physical_asset_options(&storage_root, &context).unwrap();
+        assert!(option_by_inventory(&initial, "INV-OPTIONS-OK").eligible);
+        assert!(option_by_inventory(&initial, "INV-OPTIONS-RESTRICTED").eligible);
+        assert_reason(
+            option_by_inventory(&initial, "INV-OPTIONS-RESTRICTED"),
+            "service_restricted",
+            false,
+        );
+        assert_reason(
+            option_by_inventory(&initial, "INV-OPTIONS-OOS"),
+            "service_out_of_service",
+            true,
+        );
+        assert_reason(
+            option_by_inventory(&initial, "INV-OPTIONS-UNAVAILABLE"),
+            "administratively_unavailable",
+            true,
+        );
+        assert_reason(
+            option_by_inventory(&initial, "INV-OPTIONS-NO-LOC"),
+            "location_missing",
+            true,
+        );
+        assert_reason(
+            option_by_inventory(&initial, "INV-OPTIONS-WRONG-LOC"),
+            "location_mismatch",
+            true,
+        );
+        assert_reason(
+            option_by_inventory(&initial, "LEGACY-OPTIONS-001"),
+            "model_reconciliation_required",
+            true,
+        );
+        assert_reason(
+            option_by_inventory(&initial, "INV-OPTIONS-EXPIRED"),
+            "calibration_expired",
+            true,
+        );
+        assert!(initial
+            .iter()
+            .all(|option| option.asset.asset_id != "EQM-SCOPE"));
+
+        seed_planned_test_reservation(&storage_root, &eligible_id);
+        let reserved = executable_physical_asset_options(&storage_root, &context).unwrap();
+        assert_reason(
+            option_by_inventory(&reserved, "INV-OPTIONS-OK"),
+            "planned_test_reservation_conflict",
+            true,
+        );
+        let mut own_schedule_context = context.clone();
+        own_schedule_context.excluded_schedule_item_code = Some("SCHED-USAGE-001".to_owned());
+        let own_schedule =
+            executable_physical_asset_options(&storage_root, &own_schedule_context).unwrap();
+        assert!(option_by_inventory(&own_schedule, "INV-OPTIONS-OK").eligible);
+
+        seed_active_measurement_run(&storage_root, &eligible_id);
+        let active =
+            executable_physical_asset_options(&storage_root, &own_schedule_context).unwrap();
+        assert_reason(
+            option_by_inventory(&active, "INV-OPTIONS-OK"),
+            "active_test_conflict",
+            true,
+        );
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
     fn initialized_storage(name: &str) -> PathBuf {
         let storage_root = test_storage_root(name);
         run_storage_action(
@@ -3052,6 +3574,50 @@ mod tests {
                 [],
             )
             .unwrap();
+    }
+
+    fn seed_calibration(
+        storage_root: &Path,
+        asset_id: &str,
+        event_id: &str,
+        calibrated_at: &str,
+        due_at: &str,
+        decision: &str,
+    ) {
+        let connection = Connection::open(storage_root.join("metrology.sqlite")).unwrap();
+        connection
+            .execute(
+                "INSERT INTO calibration_events (
+                    event_id, asset_id, certificate_reference, calibrated_at, due_at,
+                    provider, decision, adjustment_performed, uncertainty_summary_json,
+                    comment, recorded_at, recorded_by, revision
+                 ) VALUES (?1, ?2, ?1, ?3, ?4, 'Laboratoire étalon', ?5, 0, '{}', '',
+                    '2026-07-27T08:00:00Z', 'fixture', 'rev-0001')",
+                params![event_id, asset_id, calibrated_at, due_at, decision],
+            )
+            .unwrap();
+    }
+
+    fn option_by_inventory<'a>(
+        options: &'a [ExecutablePhysicalAssetOptionDto],
+        inventory_code: &str,
+    ) -> &'a ExecutablePhysicalAssetOptionDto {
+        options
+            .iter()
+            .find(|option| option.asset.inventory_code == inventory_code)
+            .unwrap()
+    }
+
+    fn assert_reason(option: &ExecutablePhysicalAssetOptionDto, code: &str, blocking: bool) {
+        let reasons = if blocking {
+            &option.blocking_reasons
+        } else {
+            &option.warnings
+        };
+        assert!(reasons.iter().any(|reason| reason.code == code), "{code}");
+        if blocking {
+            assert!(!option.eligible);
+        }
     }
 
     fn asset_input(

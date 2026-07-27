@@ -1067,10 +1067,49 @@ describe("LAB CONSOLE", () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const path = String(input);
       if (path === "/api/v1/station-setups") return jsonResponse({ station_setups: [setup] });
-      if (path === "/api/v1/fleet/assets") {
+      if (path.startsWith("/api/v1/station-setups/asset-options?")) {
         return failFleet
           ? jsonResponse({ error: { code: "fleet_unavailable", message: "parc indisponible" } }, 503)
-          : jsonResponse({ assets: [physicalAssetFixture()] });
+          : jsonResponse({
+            assessed_at: "2026-07-30T12:00:00Z",
+            checked_on: "2026-07-30",
+            execution_mode: "accredited",
+            laboratory_location_id: "LAB-LOCATION-CEM-1",
+            assets: [
+              { asset: physicalAssetFixture(), eligible: true, blocking_reasons: [], warnings: [] },
+              {
+                asset: physicalAssetFixture({
+                  asset_id: "ASSET-RESTRICTED-001",
+                  inventory_code: "INV-RESTRICTED",
+                  serial_number: null,
+                  service_state: "restricted"
+                }),
+                eligible: true,
+                blocking_reasons: [],
+                warnings: [{
+                  code: "service_restricted",
+                  message: "Cet exemplaire comporte une restriction d'utilisation.",
+                  next_action: "Consultez son dossier avant de confirmer son utilisation."
+                }]
+              },
+              {
+                asset: physicalAssetFixture({
+                  asset_id: "ASSET-OOS-001",
+                  inventory_code: "INV-OOS",
+                  serial_number: null,
+                  service_state: "out_of_service",
+                  availability_state: "unavailable"
+                }),
+                eligible: false,
+                blocking_reasons: [{
+                  code: "service_out_of_service",
+                  message: "Cet exemplaire est hors service.",
+                  next_action: "Faites rétablir son état de service ou choisissez un autre exemplaire."
+                }],
+                warnings: []
+              }
+            ]
+          });
       }
       if (path === "/api/v1/laboratory-locations") return mockBaseApiResponse(path);
       return jsonResponse({ error: { code: "unexpected", message: path } }, 500);
@@ -1082,6 +1121,10 @@ describe("LAB CONSOLE", () => {
     const selector = screen.getByLabelText(/Exemplaire du parc/);
     const assetOption = within(selector).getByRole("option", { name: /INV-0042.*SN 103456.*Labo CEM 1.*Utilisable.*Disponible.*Étalonnage valide/ });
     expect(assetOption).toBeInTheDocument();
+    expect(within(selector).getByRole("option", { name: /INV-OOS.*hors service/ })).toBeDisabled();
+    expect(screen.getByText("Matériels non disponibles (1)")).toBeInTheDocument();
+    await user.selectOptions(selector, "ASSET-RESTRICTED-001");
+    expect(screen.getByText("Cet exemplaire comporte une restriction d'utilisation.")).toBeInTheDocument();
     expect(screen.queryByText("EQM-NRP6AN-FWD-rev-0001")).not.toBeInTheDocument();
     await user.type(screen.getByLabelText(/Rôle dans le montage/), "Récepteur EMI");
     await user.selectOptions(selector, "ASSET-NRP6AN-001");
@@ -1092,7 +1135,7 @@ describe("LAB CONSOLE", () => {
     view.unmount();
     render(<StationSetupWorkspace />);
     expect(await screen.findByRole("heading", { name: "Chaîne d'émissions conduites" })).toBeInTheDocument();
-    expect(await screen.findByText("Parc matériel indisponible")).toBeInTheDocument();
+    expect(await screen.findByText("Aptitude du parc temporairement indisponible")).toBeInTheDocument();
     expect(screen.getByText(/Labo CEM 1.*utilisation prévue/)).toBeInTheDocument();
   });
 
@@ -2785,6 +2828,30 @@ function mockLaboratoryPlanningApi(settings: {
     station_setups: [
       {
         station_setup: station,
+        eligible: true,
+        blocking_reasons: [],
+        warnings: [],
+        asset_options: station.assets.map((asset) => ({
+          asset: physicalAssetFixture({
+            asset_id: asset.asset_id,
+            inventory_code: asset.inventory_code,
+            serial_number: asset.serial_number,
+            equipment_model_id: asset.equipment_model_id,
+            equipment_model_revision_id: asset.equipment_model_revision_id,
+            equipment_model_checksum: asset.equipment_model_checksum,
+            manufacturer: asset.manufacturer,
+            model_name: asset.model_name,
+            category_code: asset.category_code,
+            category_path: [],
+            laboratory_location_label: "Labo CEM 1",
+            service_state: "usable",
+            availability_state: "available",
+            metrology: asset.metrology
+          }) as PhysicalAsset,
+          eligible: true,
+          blocking_reasons: [],
+          warnings: []
+        })),
         readiness: { ready: true, checked_on: "2026-07-16", issues: [] }
       }
     ],

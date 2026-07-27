@@ -52,6 +52,30 @@ pub(crate) struct OperationalUsageSummaryDto {
     pub(crate) evidence: Vec<OperationalUsageEvidenceDto>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct AssetSelectionReasonDto {
+    pub(crate) code: String,
+    pub(crate) message: String,
+    pub(crate) next_action: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct ExecutablePhysicalAssetOptionDto {
+    pub(crate) asset: PhysicalAssetDto,
+    pub(crate) eligible: bool,
+    pub(crate) blocking_reasons: Vec<AssetSelectionReasonDto>,
+    pub(crate) warnings: Vec<AssetSelectionReasonDto>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct ExecutablePhysicalAssetOptionListDto {
+    pub(crate) assessed_at: String,
+    pub(crate) checked_on: String,
+    pub(crate) execution_mode: String,
+    pub(crate) laboratory_location_id: Option<String>,
+    pub(crate) assets: Vec<ExecutablePhysicalAssetOptionDto>,
+}
+
 #[derive(Serialize)]
 pub(crate) struct PhysicalAssetEnvelopeDto {
     pub(crate) asset: PhysicalAssetDto,

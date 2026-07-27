@@ -254,6 +254,7 @@ GET  /api/v1/projects/{code}/test-executions
 GET  /api/v1/sync/outbox
 GET  /api/v1/station-setups
 POST /api/v1/station-setups
+GET  /api/v1/station-setups/asset-options?planned_use_on=YYYY-MM-DD&execution_mode=...&laboratory_location_id=...
 GET  /api/v1/station-setups/{setup_id}
 GET  /api/v1/station-setups/{setup_id}/revisions
 POST /api/v1/station-setups/{setup_id}/revisions
@@ -396,6 +397,15 @@ creation no longer accepts a client-owned location label. A concurrent archive
 is refused without station, audit, operation or outbox residue; a successful
 operation can still be replayed after a later archive. Existing revision JSON
 remains an immutable readable snapshot when the registry label is renamed.
+
+The station asset-option route and planned-test preparation options share one
+dated eligibility projection. It combines exact model linkage, current
+location, service state, administrative availability, real usage evidence and
+the authoritative metrology assessment. Planned preparation evaluates the
+exact schedule instant and excludes only its own schedule reservation; an
+active test or another overlapping reservation remains blocking. Stored civil
+laboratory times without an offset are normalized deterministically rather
+than interpreted through the workstation timezone.
 
 Version `0.18.0` adds the reviewed correction link between one physical asset,
 one requirement from its pinned approved model and one immutable calibration or
