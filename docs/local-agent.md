@@ -480,10 +480,18 @@ layer: legacy calibration rows are backfilled into calibration events, and a
 real loopback HTTP test verifies readiness, serviceability, idempotence,
 restart persistence, audit, and outbox for the migrated metrology slice.
 
-Version `0.7.0` promotes that metrology path to the current vertical-slice
-baseline. The remaining direct-SQLite Qt forms are outside this baseline and are
-tracked as future slices, starting with standalone metrology documents and
-richer execution/method evidence.
+Release `0.22.0` closes the remaining direct identity ambiguity. After
+metrology migration `0011`, Python/Qt direct-SQLite identity reads and writes
+fail explicitly with guidance to configure `agent_url` and use the equipment
+fleet API. The bootstrap can still expose legacy category definitions and the
+other local repository domains, but it never reads
+`legacy_instruments_0_21_1` as a runtime fleet fallback. This prevents a
+second writable identity path beside `equipment.sqlite/physical_assets`.
+
+Version `0.7.0` promoted the agent metrology path to the vertical-slice
+baseline. Standalone metrology documents and richer execution/method evidence
+remain future agent-owned slices; they do not authorize direct instrument
+identity access.
 
 Version `0.8.0` adds that first simulated EMC execution workflow. `POST
 /api/v1/test-executions/simulated-emc` persists the operator launch attempt,

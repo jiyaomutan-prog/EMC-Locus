@@ -36,6 +36,7 @@ from .qt_console_models import (
 )
 from .session_plan import SessionPlan, Workstream, default_backlog
 from .sqlite_repositories import (
+    DirectMetrologyIdentityAccessError,
     MeasurementDataRepository,
     MetrologyRepository,
     ProjectRepository,
@@ -54,6 +55,7 @@ __all__ = [
     "SQLiteDomainRepository",
     "SyncRepository",
     "ConsoleViewModel",
+    "DirectMetrologyIdentityAccessError",
     "FormFieldSpec",
     "LocalAgentClient",
     "LocalAgentError",

@@ -359,6 +359,12 @@ archive. The coordinated equipment migration preserves existing IDs and
 proofs, and either pins an exact verified model revision or marks the asset for
 explicit reconciliation.
 
+The Python/Qt direct-SQLite adapter also refuses identity reads and writes once
+this boundary is present. Operators and integrations must configure the Local
+Agent and use the fleet/metrology HTTP routes; the archive is migration
+evidence, never a runtime identity fallback. Category reads remain available
+to legacy bootstrap tooling without exposing archived instruments.
+
 Migration `0009_asset_characterizations.sql` adds immutable characterization
 events with canonical typed definitions, checksums, validity, uncertainty,
 evidence manifests, and revision evidence. The current execution runtime does

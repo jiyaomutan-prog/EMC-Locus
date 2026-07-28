@@ -11,6 +11,7 @@ from typing import Any
 
 from .local_agent_client import LocalAgentClient
 from .sqlite_repositories import (
+    DirectMetrologyIdentityAccessError,
     MeasurementDataRepository,
     MetrologyRepository,
     ProjectRepository,
@@ -282,7 +283,10 @@ def build_bootstrap(
             else []
         )
     elif metrology is not None:
-        instruments = metrology.list_instruments()
+        try:
+            instruments = metrology.list_instruments()
+        except DirectMetrologyIdentityAccessError:
+            instruments = []
         payload["instruments"] = [_instrument_row(metrology, row) for row in instruments]
         payload["instrument_documents"] = [
             _instrument_document_row(document)
