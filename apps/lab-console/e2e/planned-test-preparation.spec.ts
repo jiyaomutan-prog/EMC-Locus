@@ -718,6 +718,18 @@ async function createReadyStation(
     ?? await createLaboratoryLocation(request, locationLabel, input.operationPrefix);
   const locationId = location.location_id;
   const locationSnapshotLabel = input.locationSnapshotLabel ?? location.label;
+  await moveInstrumentToStationLocation(
+    request,
+    input.generator,
+    location,
+    `${input.operationPrefix}-generator-location`
+  );
+  await moveInstrumentToStationLocation(
+    request,
+    input.meter,
+    location,
+    `${input.operationPrefix}-meter-location`
+  );
   const created = await request.post("/api/v1/station-setups", {
     data: {
       setup_id: input.setupId,
@@ -775,7 +787,8 @@ async function createReadyStation(
     `/api/v1/station-setups/${input.setupId}/revisions/${draft.revision_id}/readiness`
   );
   expect(readiness.ok(), await readiness.text()).toBeTruthy();
-  expect((await readiness.json()).readiness.ready).toBe(true);
+  const readinessBody = await readiness.json();
+  expect(readinessBody.readiness.ready, JSON.stringify(readinessBody.readiness)).toBe(true);
   const ready = await request.post(
     `/api/v1/station-setups/${input.setupId}/revisions/${draft.revision_id}/transitions/ready`,
     {
@@ -789,6 +802,38 @@ async function createReadyStation(
   );
   expect(ready.ok(), await ready.text()).toBeTruthy();
   return location;
+}
+
+async function moveInstrumentToStationLocation(
+  request: APIRequestContext,
+  instrument: RegisteredInstrument,
+  location: { location_id: string; label: string },
+  operationSuffix: string
+) {
+  const currentResponse = await request.get(`/api/v1/fleet/assets/${instrument.asset_id}`);
+  expect(currentResponse.ok(), await currentResponse.text()).toBeTruthy();
+  const current = (await currentResponse.json()).asset;
+  if (current.laboratory_location_id === location.location_id) {
+    instrument.revision = String(current.revision);
+    return;
+  }
+
+  const movedResponse = await request.post(
+    `/api/v1/fleet/assets/${instrument.asset_id}/transitions/move`,
+    {
+      data: {
+        expected_revision: current.revision,
+        destination_location_id: location.location_id,
+        actor: "E2E technicien",
+        reason: "Affecter le matériel au lieu réel du montage",
+        operation_id: `op-${operationSuffix}`,
+        device_id: "playwright-api",
+        correlation_id: `corr-${operationSuffix}`
+      }
+    }
+  );
+  expect(movedResponse.ok(), await movedResponse.text()).toBeTruthy();
+  instrument.revision = String((await movedResponse.json()).asset.revision);
 }
 
 function stationBinding(

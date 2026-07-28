@@ -15,19 +15,20 @@ test("an investigation dossier reaches a confirmed laboratory slot", async ({ pa
   await page.setViewportSize(viewports[0]);
   await page.goto("/lab/");
   await page.getByRole("button", { name: "Dossiers d'essai" }).click();
-  await expect(page.getByText("Aucun dossier d'essai.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dossiers d'essai" })).toBeVisible();
 
   await page.getByRole("button", { name: "Nouveau dossier" }).first().click();
-  await page.getByLabel("Référence du dossier").fill(projectCode);
-  await page.getByLabel("Client").fill("Industries Atlas");
-  await page.getByRole("radio", { name: /Investigation/ }).check();
-  await page.getByLabel("Responsable du dossier").fill("Claire Martin");
+  const projectDialog = page.getByRole("dialog");
+  await projectDialog.getByLabel("Référence du dossier").fill(projectCode);
+  await projectDialog.getByRole("textbox", { name: "Client", exact: true }).fill("Industries Atlas");
+  await projectDialog.getByRole("radio", { name: /Investigation/ }).check();
+  await projectDialog.getByLabel("Responsable du dossier").fill("Claire Martin");
   const createResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/v1/projects") &&
       response.request().method() === "POST"
   );
-  await page.getByRole("button", { name: "Ouvrir le dossier" }).click();
+  await projectDialog.getByRole("button", { name: "Ouvrir le dossier" }).click();
   expect((await createResponse).ok()).toBeTruthy();
 
   await expect(page.getByRole("heading", { name: projectCode })).toBeVisible();
@@ -123,6 +124,8 @@ test("an investigation dossier reaches a confirmed laboratory slot", async ({ pa
     await page.setViewportSize(viewport);
     await page.goto("/lab/");
     await page.getByRole("button", { name: "Dossiers d'essai" }).click();
+    await page.getByLabel("Rechercher un dossier").fill(projectCode);
+    await page.getByRole("button", { name: new RegExp(projectCode) }).click();
     await expect(page.getByRole("heading", { name: projectCode })).toBeVisible();
     await expect(page.getByText("Planning à jour")).toBeVisible();
     await assertNoHorizontalOverflow(page);

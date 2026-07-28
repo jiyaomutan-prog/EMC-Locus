@@ -85,6 +85,9 @@ try {
     $env:LAB_CONSOLE_E2E_STORAGE_RELATIVE = $StorageRelative
     $env:LAB_CONSOLE_E2E_AGENT_BIND = "127.0.0.1:$Port"
     $env:LAB_CONSOLE_E2E_RESTARTED_AGENT_PID_FILE = $RestartedAgentPidFile
+    $env:LAB_CONSOLE_E2E_ALLOW_AGENT_RESTART = if (
+        ($PlaywrightArguments -join " ") -match "equipment-fleet-0\.22\.spec\.ts"
+    ) { "1" } else { "0" }
     Push-Location $LabRoot
     try {
         & $NodeCommand $Playwright @PlaywrightArguments

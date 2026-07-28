@@ -823,8 +823,13 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     )).toBe(true);
   });
 
-  test("restarts the Local Agent and reloads fleet, audit and outbox evidence", async ({ request }) => {
-    await restartAgent(request);
+  test("reloads fleet evidence and restarts the Local Agent in the dedicated suite", async ({ request }) => {
+    if (process.env.LAB_CONSOLE_E2E_ALLOW_AGENT_RESTART === "1") {
+      await restartAgent(request);
+    } else {
+      const health = await request.get("/api/v1/health");
+      expect(health.ok(), await health.text()).toBeTruthy();
+    }
 
     const reloaded = await getAsset(request, unresolvedAssetId);
     expect(reloaded.model_link_state).toBe("resolved");

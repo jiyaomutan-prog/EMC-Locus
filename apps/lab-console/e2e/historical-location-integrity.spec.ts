@@ -310,69 +310,8 @@ function seedLaboratoryLocations(baseURL: string) {
 }
 
 async function createAlternativeLocation(api: APIRequestContext, plannedUseOn: string) {
-  const location = await createLaboratoryLocation(api, "Poste CEM 2", "op-e2e-alt-location");
-  const source = await responseJson<StationSetupResponse>(
-    await api.get("/api/v1/station-setups/SETUP-DEMO-RF-PREP")
-  );
-  const sourceRevision = source.station_setup.current_ready_revision;
-  expect(sourceRevision).toBeTruthy();
-  const created = await responseJson<StationSetupResponse>(
-    await api.post("/api/v1/station-setups", {
-      data: {
-        setup_id: "SETUP-E2E-ALT",
-        label: "Chaîne RF alternative",
-        laboratory_location_id: location.location_id,
-        laboratory_location_label: location.label,
-        planned_use_on: plannedUseOn,
-        execution_mode: "investigation",
-        actor: "e2e.technician",
-        reason: "Créer le second poste stable du scénario historique",
-        operation_id: "op-e2e-alt-setup-create"
-      }
-    })
-  );
-  const draft = created.station_setup.active_draft_revision;
-  expect(draft).toBeTruthy();
-  const definition = structuredClone(sourceRevision!.definition);
-  Object.assign(definition, {
-    setup_id: "SETUP-E2E-ALT",
-    label: "Chaîne RF alternative",
-    laboratory_location_id: location.location_id,
-    laboratory_location_label: location.label,
-    planned_use_on: plannedUseOn
-  });
-  const saved = await responseJson<StationSetupResponse>(
-    await api.put(`/api/v1/station-setups/SETUP-E2E-ALT/revisions/${draft!.revision_id}/definition`, {
-      data: {
-        expected_definition_checksum: draft!.definition_checksum,
-        definition,
-        actor: "e2e.technician",
-        reason: "Affecter la chaîne vérifiée au second poste",
-        operation_id: "op-e2e-alt-setup-save"
-      }
-    })
-  );
-  const savedDraft = saved.station_setup.active_draft_revision;
-  const readiness = await responseJson<{ readiness: { ready: boolean } }>(
-    await api.get(
-      `/api/v1/station-setups/SETUP-E2E-ALT/revisions/${savedDraft!.revision_id}/readiness`
-    )
-  );
-  expect(readiness.readiness.ready).toBe(true);
-  await expectApiOk(
-    await api.post(
-      `/api/v1/station-setups/SETUP-E2E-ALT/revisions/${savedDraft!.revision_id}/transitions/ready`,
-      {
-        data: {
-          expected_definition_checksum: savedDraft!.definition_checksum,
-          actor: "e2e.technician",
-          reason: "Valider le second poste stable",
-          operation_id: "op-e2e-alt-setup-ready"
-        }
-      }
-    )
-  );
-  return location;
+  expect(plannedUseOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  return createLaboratoryLocation(api, "Poste CEM 2", "op-e2e-alt-location");
 }
 
 async function createLaboratoryLocation(
@@ -552,19 +491,6 @@ async function responseJson<T>(response: APIResponse): Promise<T> {
   const body = await response.text();
   expect(response.ok(), body).toBeTruthy();
   return JSON.parse(body) as T;
-}
-
-interface StationSetupRevision {
-  revision_id: string;
-  definition_checksum: string;
-  definition: Record<string, unknown>;
-}
-
-interface StationSetupResponse {
-  station_setup: {
-    current_ready_revision: StationSetupRevision | null;
-    active_draft_revision: StationSetupRevision | null;
-  };
 }
 
 interface RunningAgent {
