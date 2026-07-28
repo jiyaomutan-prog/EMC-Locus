@@ -78,6 +78,13 @@ usage, and authoritative metrology assessment for the requested civil date.
 `eligible`, `blocking_reasons` and `warnings` are computed by the agent. Each
 reason has a stable code, human message and next action.
 
+LAB CONSOLE keys each option request by `planned_use_on`, `execution_mode` and
+`laboratory_location_id`. A context change immediately clears the pending
+selection and disables assignment until the matching response arrives. Late
+responses for an older context are ignored, while bindings already stored in
+the draft remain readable. This client guard prevents stale choices; backend
+readiness and write validation remain authoritative.
+
 Unresolved migrated assets, invalid model pins, non-usable or administratively
 unavailable assets, active tests, conflicting reservations, missing or
 incompatible locations, and blocking metrology states are explained rather

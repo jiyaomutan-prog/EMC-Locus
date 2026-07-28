@@ -666,6 +666,8 @@ test.describe.serial("0.22.0 equipment fleet", () => {
   test("reviews the operator workflow and refreshes only 0.22.0 evidence", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/lab/");
+    await expect(page.getByText("LAB CONSOLE 0.22.0", { exact: true })).toBeVisible();
+    await expect(page.locator(".connectionStatus")).toContainText("Agent local0.22.0");
     await page.getByRole("button", { name: "Catalogue des modèles" }).click();
     await showDemoModels(page);
     await expect(page.getByText("Ressources techniques", { exact: true })).toBeVisible();
@@ -693,6 +695,7 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     await capture(page, "asset-metrology-tab-1440x900.png");
     await page.getByRole("button", { name: "Ouvrir le modèle constructeur" }).click();
     await expect(page.getByText("Vous consultez un modèle générique.")).toBeVisible();
+    await expect(page.getByText("power_meter", { exact: true })).not.toBeVisible();
     await capture(page, "model-detail-with-linked-assets-1440x900.png");
     await capture(page, "generic-model-without-asset-calibration-1440x900.png");
 

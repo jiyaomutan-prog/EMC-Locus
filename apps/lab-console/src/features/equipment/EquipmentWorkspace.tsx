@@ -35,7 +35,7 @@ import {
   type MeasurementEngineeringConfig,
   type OperationContext
 } from "../../api";
-import { operatorCategoryPath, operatorModelName, operatorModelVariant } from "../../operatorEquipmentLabels";
+import { operatorCategoryLabel, operatorCategoryPath, operatorModelName, operatorModelVariant } from "../../operatorEquipmentLabels";
 import type {
   CommunicationProviderStatus,
   CorrectionRequirementDefinition,
@@ -2173,7 +2173,7 @@ function ModelStudio(props: {
                 <Field label="Fabricant" value={definition.manufacturer} disabled={props.readOnly} onChange={(manufacturer) => props.onDefinition({ ...definition, manufacturer })} />
                 <Field label="Modèle" value={definition.model_name} disabled={props.readOnly} onChange={(model_name) => props.onDefinition({ ...definition, model_name })} />
                 <dl>
-                  <dt>Catégorie</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || humanLabel(definition.category_code)}</dd>
+                  <dt>Catégorie</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || operatorCategoryLabel(definition.category_code, humanLabel(definition.category_code))}</dd>
                   <dt>Statut</dt><dd>{humanStatus(props.revision.status)}</dd>
                   <dt>Champs renseignés</dt><dd>{Object.keys(definition.custom_field_values ?? {}).length}</dd>
                   <dt>Ports</dt><dd>{props.revision.signal_port_count}</dd>
@@ -2201,7 +2201,7 @@ function ModelStudio(props: {
             <EditorCard title="Catégorie et champs">
               <dl>
                 <dt>Famille</dt><dd>{humanLabel(definition.template_snapshot?.root_category_id ?? props.model.identity.root_category_id ?? "")}</dd>
-                <dt>Catégorie</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || humanLabel(definition.category_code)}</dd>
+                <dt>Catégorie</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || operatorCategoryLabel(definition.category_code, humanLabel(definition.category_code))}</dd>
                 <dt>Formulaire utilisé</dt><dd>{(definition.template_snapshot?.fields ?? []).filter((field) => field.visible).length} champs visibles</dd>
               </dl>
             </EditorCard>
@@ -2405,7 +2405,7 @@ function DriverTree(props: {
         const modelDrivers = props.drivers.filter((driver) => driver.identity.equipment_model_id === model.identity.equipment_model_id);
         return (
           <div className="driverGroup" key={model.identity.equipment_model_id}>
-            <strong>{model.identity.category_code}</strong>
+            <strong>{operatorCategoryLabel(model.identity.category_code, humanLabel(model.identity.category_code))}</strong>
             <span>{model.identity.manufacturer} {model.identity.model_name}</span>
             {modelDrivers.map((driver) => (
               <button key={driver.identity.driver_profile_id} className={props.selected?.identity.driver_profile_id === driver.identity.driver_profile_id ? "active" : ""} onClick={() => props.onOpen(driver)}>

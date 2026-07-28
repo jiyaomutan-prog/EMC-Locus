@@ -196,6 +196,12 @@ Deliverables:
   typed backend compatibility decision, and start validation plus transition
   share one Local Agent consistency boundary. Historical decisions and release
   screenshots remain immutable.
+- `0.22.0` establishes the equipment-owned physical fleet, exact immutable
+  model pins, stable laboratory locations, explicit migration reconciliation,
+  administrative availability distinct from calculated usage, one dated
+  metrology status and backend eligibility for setup/preparation selectors.
+  It manages laboratory resources and their traceability; it does not add
+  acquisition or instrument control.
 
 ## Phase 3: Measurement Runtime
 
@@ -553,7 +559,7 @@ Deliverables:
 
 ## Near-Term Next Session
 
-Recommended next vertical after review of `0.21.1`: return to the unfinished
+Recommended next vertical after review of `0.22.0`: return to the unfinished
 serial-specific metrology correction workflow. The next slice should prove how
 an approved material correction is selected and carried into simulated
 measurement lineage without redesigning acquisition, FFT, reporting, RBAC or

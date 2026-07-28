@@ -133,6 +133,30 @@ demo models, sensors, drivers, or recipes are inserted by this migration.
 Demo records are created only by explicit seed commands and must be marked as
 demo data.
 
+### physical assets and laboratory locations
+
+Release `0.22.0` makes `equipment.sqlite / physical_assets` the only writable
+source of physical and software fleet identity. Equipment migration `0007`
+adds the asset identity, exact immutable model pin, readable model/category
+snapshots, optional serial number and location, service state, ownership,
+optimistic revision, command operations and audit tables. The same migration
+adds `laboratory_locations`, its audit and operations tables. Labels can change
+without changing stable location IDs; historical asset, station and planning
+snapshots are not rewritten.
+
+Equipment migration `0008` adds coordinated import and reconciliation evidence
+for 0.21.1 metrology identities. Metrology migration `0011` replaces the
+writable identity table with `metrology_asset_dossiers`, rebuilds evidence
+references, and retains `legacy_instruments_0_21_1` as a trigger-protected
+archive. The initialization coordinator attaches equipment, metrology and sync
+databases, imports under `BEGIN IMMEDIATE`, verifies counts and references, and
+records idempotent completion in `equipment_cross_domain_migrations`.
+
+SQLite cannot declare foreign keys across database files. The Local Agent
+therefore checks the fleet asset and the metrology dossier inside coordinated
+application transactions. Runtime reads never use the legacy archive as a
+fallback and there is no dual-write identity path.
+
 ### physical asset administrative availability
 
 Migration `storage/sqlite/equipment/0009_administrative_availability.sql`

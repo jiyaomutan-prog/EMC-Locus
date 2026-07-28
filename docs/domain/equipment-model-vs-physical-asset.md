@@ -36,9 +36,13 @@ L'instantané garde leur contexte historique même si le catalogue évolue.
 L'**état de service** répond à la question « cet exemplaire est-il apte ? » :
 utilisable, utilisation restreinte, en maintenance, hors service ou retiré.
 
-La **disponibilité** répond à la question « peut-il être affecté maintenant ? »
-: disponible, réservé, affecté à un montage, utilisé en essai ou indisponible.
+La **disponibilité administrative** répond à la décision manuelle du parc :
+disponible ou indisponible avec un motif. Un exemplaire en maintenance, hors
+service ou retiré est nécessairement indisponible.
 
-Ces dimensions ne sont pas interchangeables. Un exemplaire en maintenance,
-hors service ou retiré est nécessairement indisponible. Les transitions sont
-protégées par une révision optimiste.
+L'**utilisation opérationnelle** répond à la question « que mobilise réellement
+cet exemplaire maintenant ? ». Réservation, présence dans un montage et essai
+actif sont dérivés des enregistrements autoritatifs de ces workflows. Ils ne
+peuvent pas être saisis dans la fiche du parc. Ces dimensions ne sont pas
+interchangeables et les transitions manuelles sont protégées par une révision
+optimiste.

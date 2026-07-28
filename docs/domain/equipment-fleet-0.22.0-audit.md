@@ -2,6 +2,14 @@
 
 ## Statut et périmètre
 
+Le diagnostic initial ci-dessous a guidé l'implémentation. Au checkpoint final
+0.22.0, les huit corrections de la revue externe sont réalisées : source de
+vérité du parc, rapprochement des imports, disponibilité administrative et
+usage calculé, création et déplacement cohérents, statut métrologique daté,
+atomicité lieu/montage, sélecteurs d'éligibilité et lisibilité opérateur. Les
+preuves détaillées et limitations sont regroupées dans la note de release, le
+journal de session et la revue UX 0.22.0.
+
 Cet audit décrit l'état de la release `0.21.1` au commit
 `471e656ab007c1d627456a8dc90d9e3064074f35` et fixe la cible de la verticale
 `0.22.0`. Il précède volontairement toute modification du domaine, du stockage,

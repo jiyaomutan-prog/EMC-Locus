@@ -1,8 +1,9 @@
 # Local Agent
 
-`emc-locus-agent` is the future local runtime boundary for EMC Locus. It should
-eventually own local SQLite lifecycle, offline synchronization, health checks,
-local API hosting, and object-cache coordination.
+`emc-locus-agent` is the local runtime boundary for the delivered EMC Locus
+vertical slices. It owns local SQLite lifecycle, loopback APIs, health checks,
+transactional audit/outbox writes and the current offline-first repositories.
+Network synchronization and distributed coordination remain future work.
 
 The first committed health command is read-only:
 
@@ -18,9 +19,9 @@ It returns JSON with:
 - whether the storage root exists;
 - repository domains known by the Rust core.
 
-This command is not the final service API. It is the first executable boundary
-that lets the project move Python and Qt workflows behind local Rust services
-one capability at a time.
+This command is a diagnostic surface rather than the operator API. LAB CONSOLE,
+Python and Qt integrations use the versioned loopback routes owned by the same
+process.
 
 ## Agent Storage Commands
 

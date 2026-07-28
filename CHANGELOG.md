@@ -8,6 +8,59 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-07-28
+
+### Added
+
+- Added the equipment-owned `PhysicalAsset` aggregate, exact immutable model
+  revision pins, optional serial/location semantics, optimistic concurrency,
+  idempotent commands and atomic audit/outbox evidence.
+- Added a stable laboratory-location registry and dedicated identification and
+  movement commands that preserve readable historical snapshots.
+- Added an explicit migrated-asset reconciliation workflow that derives the
+  trusted manufacturer, model, category and checksum snapshots server-side.
+- Added authoritative dated metrology summaries and backend-computed station
+  and planned-test material options with eligibility reasons and warnings.
+- Added 32 reviewed 0.22.0 screenshots and a dedicated 11-workflow real-agent
+  Playwright suite covering fleet integrity, restart persistence and failure
+  isolation.
+
+### Changed
+
+- Separated manually controlled administrative availability from operational
+  usage derived from real reservations, setup references and active tests.
+- Moved physical identity and serviceability out of the metrology source of
+  truth while preserving calibration, characterization, correction, audit and
+  legacy migration evidence by stable `asset_id`.
+- Made station location validation, label derivation, revision write, audit and
+  outbox share one attached-SQLite `BEGIN IMMEDIATE` transaction.
+- Reworked LAB CONSOLE around explicit **Catalogue des modèles**, **Parc
+  matériel**, **Métrologie du parc**, **Montages de mesure** and **Lieux du
+  laboratoire** contexts, with hierarchical navigation and local failure
+  messages that preserve the primary object.
+
+### Fixed
+
+- Prevented manually invented `reserved`, `assigned_to_setup` and `in_test`
+  states, false valid wording for expired calibration, and executable use of
+  unresolved or otherwise ineligible assets.
+- Prevented archived locations from blocking unrelated identification edits
+  while refusing new moves or setup assignments to archived destinations.
+- Prevented generic models from appearing where a real fleet asset is required
+  and kept the customer **Objet soumis à l'essai** distinct from laboratory
+  materials.
+- Prevented secondary metrology, provider, audit, revision-history or
+  preparation-option failures from hiding already loaded primary records.
+
+### Migrations
+
+- Added equipment migrations `0007_equipment_fleet_and_locations.sql`,
+  `0008_legacy_metrology_asset_import.sql` and
+  `0009_administrative_availability.sql`.
+- Added metrology migration `0011_physical_asset_boundary.sql`; the legacy
+  identity table becomes a trigger-protected archive after coordinated import,
+  with no second writable physical identity.
+
 ## [0.21.1] - 2026-07-16
 
 ### Added
