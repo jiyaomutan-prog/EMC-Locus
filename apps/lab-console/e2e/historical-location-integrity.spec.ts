@@ -89,9 +89,26 @@ test("a historical location is identified before the physical resource can be bo
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto(`${baseURL}/lab/`);
     await page.getByRole("button", { name: "Dossiers d'essai" }).click();
+    await expect(page.getByText("Ouverture du dossier…", { exact: true })).toHaveCount(0, {
+      timeout: 30_000
+    });
+    await page.getByLabel("Rechercher un dossier").fill(legacyProject);
+    await page.getByRole("button", { name: new RegExp(legacyProject) }).click();
+    await expect(page.getByRole("heading", { name: legacyProject })).toBeVisible({
+      timeout: 30_000
+    });
     await page.getByLabel("Rechercher un dossier").fill(candidateProject);
+    const candidateScheduleResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/api/v1/projects/${candidateProject}/schedule-items`)
+        && response.request().method() === "GET",
+      { timeout: 30_000 }
+    );
     await page.getByRole("button", { name: new RegExp(candidateProject) }).click();
-    await expect(page.getByRole("heading", { name: candidateProject })).toBeVisible();
+    expect((await candidateScheduleResponse).ok()).toBeTruthy();
+    await expect(page.getByRole("heading", { name: candidateProject })).toBeVisible({
+      timeout: 30_000
+    });
     await page.getByRole("button", { name: "Planifier un essai" }).first().click();
     const bookingDialog = page.getByRole("dialog");
     const reserveButton = bookingDialog.getByRole("button", { name: "Réserver le créneau" });
