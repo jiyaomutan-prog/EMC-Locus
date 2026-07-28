@@ -748,7 +748,7 @@ function ScheduleDetailDialog(props: {
                   setForm({ ...form, laboratory_location_id: event.target.value })
                 }
               >
-                <option value="">Sélectionner un poste prêt à câbler</option>
+                <option value="">Sélectionner un lieu actif du laboratoire</option>
                 {props.locations.map((location) => (
                   <option
                     key={location.laboratory_location_id}

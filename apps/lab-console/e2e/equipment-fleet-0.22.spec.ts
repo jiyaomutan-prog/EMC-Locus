@@ -528,6 +528,12 @@ test.describe.serial("0.22.0 equipment fleet", () => {
   });
 
   test("offers physical assets in station setup and planned-test preparation", async ({ page, request }) => {
+    const alternateLocation = await createLocation(
+      request,
+      "Zone parc 0.22 C",
+      "Lieu actif utilisé pour invalider un ancien contexte de sélection",
+      "location-selector-context"
+    );
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/lab/");
     await page.getByRole("button", { name: "Montages de mesure" }).click();
@@ -544,6 +550,35 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     await expect(assetSelector.locator("option", { hasText: inventoryCode })).toHaveCount(1);
     await expect(assetSelector.locator("option", { hasText: modelId })).toHaveCount(0);
     await capture(page, "station-selector-eligible-assets-1440x900.png");
+
+    let releaseStaleLocationRequest!: () => void;
+    const staleLocationRequest = new Promise<void>((resolve) => { releaseStaleLocationRequest = resolve; });
+    await page.route("**/api/v1/station-setups/asset-options?*", async (route) => {
+      const query = new URL(route.request().url()).searchParams;
+      if (query.get("laboratory_location_id") === alternateLocation.location_id) {
+        await staleLocationRequest;
+      }
+      await route.continue();
+    });
+    const contextLocation = page.locator(".stationDetail").getByLabel(/Lieu du laboratoire/);
+    await contextLocation.selectOption(alternateLocation.location_id);
+    await expect(page.getByRole("status")).toContainText("Actualisation des exemplaires disponibles");
+    await expect(assetSelector).toBeDisabled();
+    await expect(assetSelector.locator("option", { hasText: inventoryCode })).toHaveCount(0);
+
+    await contextLocation.selectOption(secondLocation.location_id);
+    await expect(assetSelector.locator("option", { hasText: inventoryCode })).toHaveCount(1);
+    await expect(assetSelector).toBeEnabled();
+    const staleResponse = page.waitForResponse((response) => {
+      const query = new URL(response.url()).searchParams;
+      return response.url().includes("/api/v1/station-setups/asset-options")
+        && query.get("laboratory_location_id") === alternateLocation.location_id;
+    });
+    releaseStaleLocationRequest();
+    await staleResponse;
+    await expect(assetSelector.locator("option", { hasText: inventoryCode })).toHaveCount(1);
+    await page.unroute("**/api/v1/station-setups/asset-options?*");
+
     const unavailableAssets = page.locator("details.unavailableAssetExplanations");
     await expect(unavailableAssets).toBeVisible();
     await unavailableAssets.locator("summary").click();

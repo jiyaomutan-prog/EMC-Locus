@@ -1246,6 +1246,82 @@ describe("LAB CONSOLE", () => {
     expect(screen.getByText(/Labo CEM 1.*utilisation prévue/)).toBeInTheDocument();
   });
 
+  test("invalidates stale station asset options when the use context changes", async () => {
+    const setup = stationSetupFixture();
+    const locationAAsset = physicalAssetFixture({
+      asset_id: "ASSET-LOCATION-A",
+      inventory_code: "INV-LOCATION-A"
+    });
+    const locationBAsset = physicalAssetFixture({
+      asset_id: "ASSET-LOCATION-B",
+      inventory_code: "INV-LOCATION-B",
+      laboratory_location_id: "LAB-LOCATION-ANECHOIC",
+      laboratory_location_label: "Chambre semi-anéchoïque"
+    });
+    let resolveLocationA!: (response: Response) => void;
+    let resolveLocationB!: (response: Response) => void;
+    const locationAResponse = new Promise<Response>((resolve) => { resolveLocationA = resolve; });
+    const locationBResponse = new Promise<Response>((resolve) => { resolveLocationB = resolve; });
+    let locationBRequests = 0;
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/v1/station-setups") return jsonResponse({ station_setups: [setup] });
+      if (path === "/api/v1/laboratory-locations") return mockBaseApiResponse(path);
+      if (path.startsWith("/api/v1/station-setups/asset-options?")) {
+        const query = new URL(path, "http://localhost").searchParams;
+        if (query.get("laboratory_location_id") === "LAB-LOCATION-CEM-1") {
+          return locationAResponse;
+        }
+        locationBRequests += 1;
+        if (locationBRequests === 1) return locationBResponse;
+        return jsonResponse({ error: { code: "fleet_unavailable", message: "parc indisponible" } }, 503);
+      }
+      return jsonResponse({ error: { code: "unexpected", message: path } }, 500);
+    });
+    const user = userEvent.setup();
+    render(<StationSetupWorkspace />);
+
+    expect(await screen.findByRole("heading", { name: "Chaîne d'émissions conduites" })).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent(/Actualisation des exemplaires/);
+    const locationSelector = screen.getByLabelText(/Lieu du laboratoire/);
+    const assetSelector = screen.getByLabelText(/Exemplaire du parc/);
+    const assignButton = screen.getByRole("button", { name: "Affecter au montage" });
+
+    await user.selectOptions(locationSelector, "LAB-LOCATION-ANECHOIC");
+    expect(assetSelector).toBeDisabled();
+    expect(assignButton).toBeDisabled();
+    expect(within(assetSelector).queryByRole("option", { name: /INV-LOCATION-A/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(fetchMock.mock.calls.some(([request]) =>
+      String(request).includes("laboratory_location_id=LAB-LOCATION-ANECHOIC")
+    )).toBe(true));
+
+    resolveLocationA(stationAssetOptionsResponse("LAB-LOCATION-CEM-1", locationAAsset));
+    await waitFor(() => expect(within(assetSelector).queryByRole("option", { name: /INV-LOCATION-A/ })).not.toBeInTheDocument());
+    expect(assetSelector).toBeDisabled();
+
+    resolveLocationB(stationAssetOptionsResponse("LAB-LOCATION-ANECHOIC", locationBAsset));
+    const locationBOption = await within(assetSelector).findByRole("option", { name: /INV-LOCATION-B/ });
+    expect(locationBOption).toBeEnabled();
+    await user.type(screen.getByLabelText(/Rôle dans le montage/), "Récepteur EMI");
+    await user.selectOptions(assetSelector, "ASSET-LOCATION-B");
+    expect(assignButton).toBeEnabled();
+    await user.click(assignButton);
+    expect(screen.getByText(/INV-LOCATION-B.*Chambre semi-anéchoïque/)).toBeInTheDocument();
+
+    await user.selectOptions(locationSelector, "");
+    expect(assetSelector).toBeDisabled();
+    expect(within(assetSelector).queryByRole("option", { name: /INV-LOCATION-B/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Renseignez le lieu et la date d'utilisation/)).toBeInTheDocument();
+    expect(screen.getByText(/INV-LOCATION-B.*Chambre semi-anéchoïque/)).toBeInTheDocument();
+
+    await user.selectOptions(locationSelector, "LAB-LOCATION-ANECHOIC");
+    expect(await screen.findByText("Aptitude du parc temporairement indisponible")).toBeInTheDocument();
+    expect(assignButton).toBeDisabled();
+    expect(screen.getByRole("heading", { name: "Chaîne d'émissions conduites" })).toBeInTheDocument();
+    expect(screen.getByText(/INV-LOCATION-B.*Chambre semi-anéchoïque/)).toBeInTheDocument();
+  });
+
   test("records and displays a frequency response for a physical asset", async () => {
     const instrument = metrologyInstrumentFixture();
     const characterizations: Array<Record<string, unknown>> = [];
@@ -2131,6 +2207,16 @@ function stationSetupFixture() {
     current_ready_revision: null,
     latest_revision: revision
   };
+}
+
+function stationAssetOptionsResponse(laboratoryLocationId: string, asset: ReturnType<typeof physicalAssetFixture>) {
+  return jsonResponse({
+    assessed_at: "2026-07-30T12:00:00Z",
+    checked_on: "2026-07-30",
+    execution_mode: "accredited",
+    laboratory_location_id: laboratoryLocationId,
+    assets: [{ asset, eligible: true, blocking_reasons: [], warnings: [] }]
+  });
 }
 
 function rfCableModelFixture() {

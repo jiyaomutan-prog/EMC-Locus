@@ -145,12 +145,16 @@ function StationSetupDetail(props: {
   const [definition, setDefinition] = useState<StationMeasurementSetupDefinition | null>(revision?.definition ?? null);
   const [readiness, setReadiness] = useState<StationSetupReadiness | null>(revision?.readiness ?? null);
   const [assetOptions, setAssetOptions] = useState<ExecutablePhysicalAssetOption[]>([]);
+  const [loadedAssetOptionsContextKey, setLoadedAssetOptionsContextKey] = useState("");
+  const [assetsLoading, setAssetsLoading] = useState(false);
   const [assetsError, setAssetsError] = useState<string | null>(null);
   const [roleLabel, setRoleLabel] = useState("");
   const [assetId, setAssetId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const roleRef = useRef<HTMLInputElement>(null);
+  const assetOptionsRequestSequence = useRef(0);
+  const knownAssets = useRef(new Map<string, PhysicalAsset>());
 
   useEffect(() => {
     setDefinition(revision?.definition ?? null);
@@ -161,31 +165,49 @@ function StationSetupDetail(props: {
   const plannedUseOn = definition?.planned_use_on ?? "";
   const executionMode = definition?.execution_mode ?? "accredited";
   const laboratoryLocationId = definition?.laboratory_location_id ?? "";
+  const assetOptionsContextKey = stationAssetOptionsContextKey(
+    plannedUseOn,
+    executionMode,
+    laboratoryLocationId
+  );
 
   useEffect(() => {
-    if (!plannedUseOn || !laboratoryLocationId) return;
-    let current = true;
+    const requestSequence = ++assetOptionsRequestSequence.current;
+    let cancelled = false;
+    setAssetId("");
+    setAssetsError(null);
+    setLoadedAssetOptionsContextKey("");
+    if (!plannedUseOn || !laboratoryLocationId) {
+      setAssetOptions([]);
+      setAssetsLoading(false);
+      return () => { cancelled = true; };
+    }
+    setAssetsLoading(true);
     void stationSetupApi.assetOptions({
       planned_use_on: plannedUseOn,
       execution_mode: executionMode,
       laboratory_location_id: laboratoryLocationId
     }).then((response) => {
-      if (!current) return;
+      if (cancelled || requestSequence !== assetOptionsRequestSequence.current) return;
+      response.assets.forEach((option) => knownAssets.current.set(option.asset.asset_id, option.asset));
       setAssetOptions(response.assets);
+      setLoadedAssetOptionsContextKey(assetOptionsContextKey);
+      setAssetsLoading(false);
       setAssetsError(null);
-      setAssetId((selected) => response.assets.some((option) => option.asset.asset_id === selected)
-        ? selected
-        : "");
     }).catch((reason) => {
-      if (current) setAssetsError(errorMessage(reason));
+      if (cancelled || requestSequence !== assetOptionsRequestSequence.current) return;
+      setAssetsLoading(false);
+      setAssetsError(errorMessage(reason));
     });
-    return () => { current = false; };
-  }, [executionMode, laboratoryLocationId, plannedUseOn]);
+    return () => { cancelled = true; };
+  }, [assetOptionsContextKey, executionMode, laboratoryLocationId, plannedUseOn]);
 
   const dirty = Boolean(definition && revision && JSON.stringify(definition) !== JSON.stringify(revision.definition));
   const selectedAssetIds = new Set(definition?.asset_bindings.map((binding) => binding.asset_id) ?? []);
-  const availableOptions = assetOptions.filter((option) => !selectedAssetIds.has(option.asset.asset_id));
-  const selectedAssetOption = assetOptions.find((option) => option.asset.asset_id === assetId);
+  const assetOptionsAreCurrent = Boolean(assetOptionsContextKey && loadedAssetOptionsContextKey === assetOptionsContextKey);
+  const currentAssetOptions = assetOptionsAreCurrent ? assetOptions : [];
+  const availableOptions = currentAssetOptions.filter((option) => !selectedAssetIds.has(option.asset.asset_id));
+  const selectedAssetOption = currentAssetOptions.find((option) => option.asset.asset_id === assetId);
   const selectedAsset = selectedAssetOption?.asset;
   const canAdd = Boolean(roleLabel.trim() && selectedAssetOption?.eligible);
 
@@ -267,7 +289,7 @@ function StationSetupDetail(props: {
       <span className={`status ${revision.status}`}>{revision.status === "ready" ? "Prêt à utiliser" : revision.status === "draft" ? "À préparer" : "Version remplacée"}</span>
     </header>
 
-    {assetsError && <TargetedError title="Aptitude du parc temporairement indisponible" detail="Le montage et les choix déjà chargés restent consultables. L'ajout d'un exemplaire est suspendu jusqu'au prochain contrôle." />}
+    {assetsError && <TargetedError title="Aptitude du parc temporairement indisponible" detail="Le montage et ses affectations restent consultables. L'ajout d'un exemplaire est suspendu jusqu'au prochain contrôle." />}
 
     <section className="stationSection">
       <div className="sectionTitleRow"><div><h3>Contexte d'utilisation</h3><p>Le lieu et la date servent au contrôle métrologique du montage.</p></div></div>
@@ -283,7 +305,8 @@ function StationSetupDetail(props: {
       <div className="sectionTitleRow"><div><h3>Matériels du laboratoire</h3><p>Seuls les exemplaires réels du parc peuvent être affectés au montage.</p></div><span className="countBadge">{definition.asset_bindings.length}</span></div>
       {definition.asset_bindings.length === 0 && <div className="compactEmpty"><strong>Aucun matériel affecté</strong><span>Choisissez le rôle tenu dans la chaîne puis un exemplaire du parc.</span></div>}
       <div className="stationBindingList">{definition.asset_bindings.map((binding) => {
-        const asset = assetOptions.find((candidate) => candidate.asset.asset_id === binding.asset_id)?.asset;
+        const asset = currentAssetOptions.find((candidate) => candidate.asset.asset_id === binding.asset_id)?.asset
+          ?? knownAssets.current.get(binding.asset_id);
         return <div key={binding.binding_id}>
           <div><strong>{binding.role_label}</strong><span>{asset ? assetOperatorLabel(asset) : "Exemplaire momentanément introuvable dans le parc"}</span></div>
           {!readOnly && <button className="iconButton secondary" type="button" aria-label={`Retirer ${binding.role_label}`} onClick={() => { setDefinition({ ...definition, asset_bindings: definition.asset_bindings.filter((candidate) => candidate.binding_id !== binding.binding_id) }); setReadiness(null); }}><X size={15} /></button>}
@@ -292,12 +315,14 @@ function StationSetupDetail(props: {
 
       {!readOnly && <div className="stationAssetPicker">
         <label>Rôle dans le montage <Required /><input ref={roleRef} value={roleLabel} onChange={(event) => setRoleLabel(event.target.value)} placeholder="Ex. Récepteur EMI" /></label>
-        <label>Exemplaire du parc <Required /><select value={assetId} disabled={Boolean(assetsError)} onChange={(event) => setAssetId(event.target.value)}><option value="">Sélectionner...</option>{assetOptionGroups(availableOptions)}</select></label>
-        <button type="button" onClick={addAsset} disabled={!canAdd || Boolean(assetsError)}><Plus size={15} /> Affecter au montage</button>
+        <label>Exemplaire du parc <Required /><select value={assetId} disabled={assetsLoading || Boolean(assetsError) || !assetOptionsAreCurrent} onChange={(event) => setAssetId(event.target.value)}><option value="">Sélectionner...</option>{assetOptionGroups(availableOptions)}</select></label>
+        <button type="button" onClick={addAsset} disabled={!canAdd || assetsLoading || Boolean(assetsError) || !assetOptionsAreCurrent}><Plus size={15} /> Affecter au montage</button>
       </div>}
+      {!readOnly && assetsLoading && <p className="actionExplanation" role="status">Actualisation des exemplaires disponibles pour ce lieu, cette date et ce mode d'essai...</p>}
+      {!readOnly && !assetsLoading && (!plannedUseOn || !laboratoryLocationId) && <p className="actionExplanation">Renseignez le lieu et la date d'utilisation pour contrôler les exemplaires disponibles.</p>}
       {!readOnly && selectedAssetOption && selectedAssetOption.warnings.length > 0 && <SelectionReasons title="Points d'attention" reasons={selectedAssetOption.warnings} />}
-      {!readOnly && !canAdd && <p className="actionExplanation">Renseignez le rôle et choisissez un exemplaire déclaré disponible pour ce lieu, cette date et ce mode d'essai.</p>}
-      {!readOnly && !assetsError && availableOptions.length === 0 && <p className="actionExplanation">Aucun autre exemplaire n'est enregistré dans le parc. Ajoutez l'exemplaire requis depuis un modèle constructeur approuvé.</p>}
+      {!readOnly && !assetsLoading && assetOptionsAreCurrent && !canAdd && <p className="actionExplanation">Renseignez le rôle et choisissez un exemplaire déclaré disponible pour ce lieu, cette date et ce mode d'essai.</p>}
+      {!readOnly && !assetsLoading && assetOptionsAreCurrent && !assetsError && availableOptions.length === 0 && <p className="actionExplanation">Aucun autre exemplaire n'est enregistré dans le parc. Ajoutez l'exemplaire requis depuis un modèle constructeur approuvé.</p>}
       {!readOnly && availableOptions.some((option) => !option.eligible) && <UnavailableAssetExplanations options={availableOptions.filter((option) => !option.eligible)} />}
     </section>
 
@@ -416,5 +441,8 @@ function UnavailableAssetExplanations(props: { options: ExecutablePhysicalAssetO
 function Required() { return <span className="requiredBadge">Obligatoire</span>; }
 function TargetedError(props: { title: string; detail: string }) { return <div className="targetedError"><AlertCircle size={17} /><div><strong>{props.title}</strong><p>{props.detail}</p></div></div>; }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : "Erreur inattendue."; }
+function stationAssetOptionsContextKey(plannedUseOn: string, executionMode: string, laboratoryLocationId: string) {
+  return JSON.stringify({ planned_use_on: plannedUseOn, execution_mode: executionMode, laboratory_location_id: laboratoryLocationId });
+}
 function today() { return new Date().toISOString().slice(0, 10); }
 function formatDate(value: string) { const date = new Date(value.length === 10 ? `${value}T12:00:00` : value); return Number.isNaN(date.valueOf()) ? value : new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(date); }
