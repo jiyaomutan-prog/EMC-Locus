@@ -503,7 +503,7 @@ def _station_setup_tab(
     save_button = qt.QPushButton("Sauvegarder le brouillon")
     check_button = qt.QPushButton("Contrôler")
     check_button.setObjectName("SecondaryButton")
-    ready_button = qt.QPushButton("Prêt à câbler")
+    ready_button = qt.QPushButton("Déclarer le montage prêt")
     derive_button = qt.QPushButton("Nouvelle révision")
     derive_button.setObjectName("SecondaryButton")
     workflow_actions.addWidget(save_button)
@@ -555,7 +555,7 @@ def _station_setup_tab(
             return
         status = {
             "draft": "Brouillon",
-            "ready": "Prêt à câbler",
+            "ready": "Montage prêt",
             "superseded": "Remplacé",
         }.get(str(revision.get("status")), str(revision.get("status", "")))
         dirty = " · modifications non sauvegardées" if state["dirty"] else ""
@@ -1057,8 +1057,8 @@ def _station_setup_tab(
                 reason="contrôle terminé avant câblage",
             )
             open_aggregate(result["station_setup"])
-            qt.QMessageBox.information(root, "EMC Locus", "Le montage est prêt à câbler.")
-            on_completed("Montage prêt à câbler")
+            qt.QMessageBox.information(root, "EMC Locus", "Le montage est déclaré prêt.")
+            on_completed("Montage déclaré prêt")
         except Exception as error:  # noqa: BLE001 - Qt boundary.
             fail(error)
 

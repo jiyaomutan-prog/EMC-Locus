@@ -459,7 +459,7 @@ With `--agent-url`, the console becomes Locus Test Station and opens the focused
 `Préparation du poste` workflow. It reads and writes only through the local
 agent: selecting real materials, connecting typed ports, choosing a
 serial-specific correction, checking readiness, saving a draft and declaring
-the revision `Prêt à câbler`.
+the revision `ready` (`Montage déclaré prêt`).
 
 Version `0.6.6` also routes the temporary Qt/Python metrology surface through
 the agent when `agent_url` is configured:

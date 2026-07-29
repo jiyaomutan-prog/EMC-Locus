@@ -471,6 +471,31 @@ describe("LAB CONSOLE", () => {
     );
   });
 
+  test("uses current operator wording when preparation choices are empty", async () => {
+    mockLaboratoryPlanningApi({ emptyPreparationOptions: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Immunité rayonnée, dossier CEM-LAB-002"
+      })
+    );
+    await user.click(await screen.findByRole("button", { name: "Préparer l'essai" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Préparer l'essai" });
+    expect(within(dialog).getByText("Préparation impossible pour le moment")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        "Il faut au moins une méthode approuvée et un montage déclaré prêt à être utilisé."
+      )
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText(/pré-vol/i)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/Prêt à câbler/i)).not.toBeInTheDocument();
+  });
+
   test("keeps project and schedule context visible when preparation options fail", async () => {
     mockLaboratoryPlanningApi({ preparationOptionsFailure: true });
     const user = userEvent.setup();
@@ -2899,6 +2924,7 @@ function mockLaboratoryPlanningApi(settings: {
   legacyConflict?: boolean;
   locationFailure?: boolean;
   preparationOptionsFailure?: boolean;
+  emptyPreparationOptions?: boolean;
 } = {}) {
   let rescheduleAttempts = 0;
   const first: LaboratoryScheduleItem = {
@@ -3117,6 +3143,14 @@ function mockLaboratoryPlanningApi(settings: {
     if (path === `${preparationBase}/options`) {
       if (settings.preparationOptionsFailure) {
         return jsonResponse({ error: { code: "preparation_options_unavailable", message: "options de préparation indisponibles" } }, 503);
+      }
+      if (settings.emptyPreparationOptions) {
+        return jsonResponse({
+          ...preparationOptions,
+          methods: [],
+          station_setups: [],
+          material_compatibility: []
+        });
       }
       return jsonResponse(preparationOptions);
     }

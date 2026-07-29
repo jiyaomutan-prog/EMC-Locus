@@ -2251,8 +2251,8 @@ def _simulated_emc_message(execution: dict[str, Any]) -> str:
                 for cause in causes
                 if isinstance(cause, dict)
             )
-            return f"Essai refuse {attempt_id}: {details}"
-        return f"Essai refuse {attempt_id}: pre-vol metrologique bloquant"
+            return f"Essai refusé {attempt_id} : {details}"
+        return f"Essai refusé {attempt_id} : contrôle d’aptitude métrologique bloquant"
     if status == "completed":
         result = execution.get("simulation_result")
         if isinstance(result, dict):

@@ -182,7 +182,7 @@ def editable_definition(revision: dict[str, Any]) -> dict[str, Any]:
 def readiness_lines(readiness: dict[str, Any]) -> list[str]:
     issues = readiness.get("issues")
     if not isinstance(issues, list) or not issues:
-        return ["Aucun blocage détecté. Le montage peut être déclaré prêt à câbler."]
+        return ["Aucun blocage détecté. Le montage peut être déclaré prêt."]
     lines: list[str] = []
     for issue in issues:
         if not isinstance(issue, dict):

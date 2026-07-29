@@ -416,6 +416,10 @@ class QtConsoleTests(unittest.TestCase):
             execution_by_id["run_simulated_emc_test"].fields[2].default,
             "SIM-EMC-CONDUCTED",
         )
+        self.assertEqual(
+            execution_by_id["run_simulated_emc_test"].submit_label,
+            "Contrôler l’aptitude et lancer",
+        )
 
     def test_qt_direct_metrology_form_requires_agent_without_pyside(self) -> None:
         module = load_qt_console_module()
@@ -530,7 +534,7 @@ class QtConsoleTests(unittest.TestCase):
 
         with patch.object(module, "run_simulated_emc_test_action") as run_test:
             run_test.return_value = {
-                "message": "Essai refuse RUN-QT: SA-QT/missing_evidence/calibration_missing"
+                "message": "Essai refusé RUN-QT : SA-QT/missing_evidence/calibration_missing"
             }
             message = module._execute_form_action(
                 args,
@@ -552,7 +556,7 @@ class QtConsoleTests(unittest.TestCase):
             run_test.call_args.kwargs["agent_url"],
             "http://127.0.0.1:8765",
         )
-        self.assertIn("Essai refuse RUN-QT", message)
+        self.assertIn("Essai refusé RUN-QT", message)
 
     def test_qt_agent_status_maps_storage_state_without_pyside(self) -> None:
         module = load_qt_console_module()

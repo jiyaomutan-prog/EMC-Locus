@@ -2343,9 +2343,9 @@ mod tests {
                     "assigned_operator, location, laboratory_location_id, ",
                     "laboratory_location_label, equipment_under_test, status, notes, ",
                     "created_at, updated_at, revision, created_by, updated_by) VALUES (",
-                    "?1, 'CEM-LEGACY-001', 'CrÃ©neau rÃ©servÃ©', ",
+                    "?1, 'CEM-LEGACY-001', 'Créneau réservé', ",
                     "'2026-07-15T09:30', '2026-07-15T11:30', ?2, ?4, ?3, ?4, ",
-                    "'EUT rÃ©servÃ©', 'planned', '', '2026-07-14T08:30:00Z', ",
+                    "'EUT réservé', 'planned', '', '2026-07-14T08:30:00Z', ",
                     "'2026-07-14T08:30:00Z', 1, 'test', 'test')"
                 ),
                 params![

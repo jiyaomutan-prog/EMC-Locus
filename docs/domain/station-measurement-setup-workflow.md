@@ -91,7 +91,7 @@ et empreintes sont générés ou résolus par le logiciel.
 ## États
 
 - `Brouillon` : le montage peut être remplacé avec contrôle de concurrence ;
-- `Prêt à câbler` : le montage a passé le contrôle et devient immuable ;
+- `Montage déclaré prêt` (`ready`) : le montage a passé le contrôle et devient immuable ;
 - `Remplacé` : une version prête plus récente existe pour la même identité.
 
 Un ancien brouillon ne peut pas écraser une modification plus récente. Une
@@ -131,7 +131,7 @@ jamais transformer une incompatibilité connue en simple avertissement.
 L'opérateur peut préparer un chemin `antenne réelle -> câble RF réel ->
 récepteur réel`, choisir la caractérisation de pertes du câble correspondant à
 son numéro de série, constater l'aptitude métrologique de chaque matériel et
-obtenir un montage prêt à câbler conservé avec son audit.
+obtenir un montage déclaré prêt conservé avec son audit.
 
 Le même contrat doit pouvoir représenter ensuite une chaîne temporelle
 `capteur -> conditionneur -> voie DAQ`, sans mélanger la préparation physique

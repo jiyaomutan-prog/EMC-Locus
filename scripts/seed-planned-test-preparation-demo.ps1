@@ -18,8 +18,9 @@ function Invoke-EmcApi {
         TimeoutSec = 20
     }
     if ($null -ne $Body) {
-        $parameters.ContentType = "application/json"
-        $parameters.Body = ($Body | ConvertTo-Json -Depth 50)
+        $json = $Body | ConvertTo-Json -Depth 50
+        $parameters.ContentType = "application/json; charset=utf-8"
+        $parameters.Body = [System.Text.Encoding]::UTF8.GetBytes($json)
     }
 
     try {
@@ -275,7 +276,7 @@ function Ensure-ReadyStation {
             }
         )
         correction_selections = @()
-        notes = [ordered]@{ purpose = "Demonstration du pre-vol operateur" }
+        notes = [ordered]@{ purpose = "Démonstration du contrôle d’aptitude du montage" }
     }
     $saved = Invoke-EmcApi -Method PUT -Path "/api/v1/station-setups/$setupId/revisions/$($draft.revision_id)/definition" -Body ([ordered]@{
         expected_definition_checksum = $draft.definition_checksum

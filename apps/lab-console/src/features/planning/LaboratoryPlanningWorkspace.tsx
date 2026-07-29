@@ -478,7 +478,7 @@ function ScheduleDetailDialog(props: {
       (candidate) => candidate.laboratory_location_id === form.laboratory_location_id
     );
     if (!location) {
-      setError("Choisissez un poste de laboratoire prêt à câbler.");
+      setError("Choisissez un lieu actif du laboratoire.");
       return;
     }
     setBusy(true);
@@ -1070,7 +1070,7 @@ function PreparationWorkspace(props: {
           <div>
             <strong>Préparation impossible pour le moment</strong>
             <p>
-              Il faut au moins une méthode approuvée et un montage marqué « Prêt à câbler ».
+              Il faut au moins une méthode approuvée et un montage déclaré prêt à être utilisé.
             </p>
           </div>
         </div>
@@ -1446,7 +1446,7 @@ function planningErrorMessage(caught: unknown): string {
     planned_test_method_not_approved:
       "La méthode choisie n'est plus approuvée. Sélectionnez une méthode disponible.",
     planned_test_station_setup_not_ready:
-      "Le montage choisi n'est plus marqué « Prêt à câbler ». Sélectionnez un autre montage.",
+      "Le montage choisi n’est plus déclaré prêt. Sélectionnez un autre montage.",
     storage_not_initialized: "Le stockage local doit être initialisé avant d'ouvrir le planning."
   };
   return messages[caught.code] ?? caught.message;

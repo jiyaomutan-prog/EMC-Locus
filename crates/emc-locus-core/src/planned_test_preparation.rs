@@ -912,8 +912,8 @@ fn derive_static_readiness_issues(
         issues.push(blocking_issue(
             "planned_test_station_not_ready",
             PlannedTestPreparationDimension::StationSetup,
-            "Le montage choisi n'est pas prêt à câbler.",
-            "Choisissez un montage prêt ou terminez sa préparation dans Test Station.",
+            "Le montage choisi n’est pas déclaré prêt.",
+            "Choisissez un montage déclaré prêt ou terminez sa préparation dans Montages de mesure.",
             None,
             None,
             None,

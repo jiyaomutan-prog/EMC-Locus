@@ -164,7 +164,7 @@ Deliverables:
   operator binds real serialized assets to their approved model revisions,
   connects typed ports, selects an applicable serial-specific conversion or
   frequency response, receives an explainable readiness verdict, and freezes a
-  revision as `Prêt à câbler`. The selected correction is not yet applied to
+  `ready` revision shown as `Montage déclaré prêt`. The selected correction is not yet applied to
   acquired or simulated measurement data.
 - `0.18.0` separates correction requirements, nominal model values and reviewed
   values belonging to one serial number. LAB CONSOLE now drives the missing

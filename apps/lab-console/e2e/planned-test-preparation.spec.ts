@@ -536,7 +536,7 @@ async function createApprovedPresetModel(
       manufacturer: input.manufacturer,
       model_name: input.modelName,
       actor: "E2E catalogue",
-      reason: "Préparer le matériel du scénario de pré-vol",
+      reason: "Préparer le matériel du scénario de contrôle d’aptitude",
       is_demo: true,
       operation_id: `op-${input.operationPrefix}-create`
     }
@@ -553,7 +553,7 @@ async function createApprovedPresetModel(
       {
         data: {
           actor,
-          reason: "Valider le modèle du scénario de pré-vol",
+          reason: "Valider le modèle du scénario de contrôle d’aptitude",
           operation_id: `op-${input.operationPrefix}-${transition}`
         }
       }
@@ -600,7 +600,7 @@ async function registerInstrument(
       serviceability_reason: "Matériel E2E contrôlé",
       capabilities: {},
       actor: "E2E métrologie",
-      reason: "Enregistrer le matériel du scénario de pré-vol",
+      reason: "Enregistrer le matériel du scénario de contrôle d’aptitude",
       operation_id: input.operationId
     }
   });
@@ -674,7 +674,7 @@ async function createApprovedMethod(
         method_parameters: {}
       },
       actor: "E2E méthodiste",
-      reason: "Créer la méthode du scénario de pré-vol",
+      reason: "Créer la méthode du scénario de contrôle d’aptitude",
       operation_id: `op-${input.operationPrefix}-create`
     }
   });
@@ -689,7 +689,7 @@ async function createApprovedMethod(
       {
         data: {
           actor,
-          reason: "Valider la méthode du scénario de pré-vol",
+          reason: "Valider la méthode du scénario de contrôle d’aptitude",
           operation_id: `op-${input.operationPrefix}-${transition}`
         }
       }
@@ -739,7 +739,7 @@ async function createReadyStation(
       planned_use_on: input.plannedDate,
       execution_mode: "investigation",
       actor: "E2E technicien",
-      reason: "Créer le montage du scénario de pré-vol",
+      reason: "Créer le montage du scénario de contrôle d’aptitude",
       operation_id: `op-${input.operationPrefix}-create`
     }
   });
@@ -767,7 +767,7 @@ async function createReadyStation(
       }
     ],
     correction_selections: [],
-    notes: { purpose: "Pré-vol E2E" }
+    notes: { purpose: "Contrôle d’aptitude E2E" }
   };
   const saved = await request.put(
     `/api/v1/station-setups/${input.setupId}/revisions/${draft.revision_id}/definition`,
@@ -776,7 +776,7 @@ async function createReadyStation(
         expected_definition_checksum: draft.definition_checksum,
         definition,
         actor: "E2E technicien",
-        reason: "Affecter et raccorder les matériels du scénario de pré-vol",
+        reason: "Affecter et raccorder les matériels du scénario de contrôle d’aptitude",
         operation_id: `op-${input.operationPrefix}-save`
       }
     }
@@ -795,7 +795,7 @@ async function createReadyStation(
       data: {
         expected_definition_checksum: savedDraft.definition_checksum,
         actor: "E2E technicien",
-        reason: "Valider le montage du scénario de pré-vol",
+        reason: "Valider le montage du scénario de contrôle d’aptitude",
         operation_id: `op-${input.operationPrefix}-ready`
       }
     }
@@ -877,7 +877,7 @@ async function createSchedule(
       customer_name: "Industries Horizon",
       execution_mode: "investigation",
       actor: "E2E responsable laboratoire",
-      reason: "Créer le dossier du scénario de pré-vol",
+      reason: "Créer le dossier du scénario de contrôle d’aptitude",
       operation_id: `op-${input.operationPrefix}-create`
     }
   });
@@ -893,7 +893,7 @@ async function createSchedule(
       {
         data: {
           actor: "E2E responsable laboratoire",
-          comment: "Vérifié pour le scénario de pré-vol",
+          comment: "Vérifié pour le scénario de contrôle d’aptitude",
           operation_id: `op-${input.operationPrefix}-review-${index}`
         }
       }
@@ -905,7 +905,7 @@ async function createSchedule(
     {
       data: {
         actor: "E2E responsable laboratoire",
-        reason: "Revue terminée pour le scénario de pré-vol",
+        reason: "Revue terminée pour le scénario de contrôle d’aptitude",
         operation_id: `op-${input.operationPrefix}-plan`
       }
     }
@@ -924,7 +924,7 @@ async function createSchedule(
         laboratory_location_label: location.label,
         equipment_under_test: "Convertisseur Horizon HCU-4",
         actor: "E2E responsable laboratoire",
-        reason: "Planifier le scénario de pré-vol",
+        reason: "Planifier le scénario de contrôle d’aptitude",
         operation_id: `op-${input.operationPrefix}-schedule`
       }
     }
@@ -938,7 +938,7 @@ async function createSchedule(
       data: {
         expected_revision: scheduleItem.revision,
         actor: "E2E responsable laboratoire",
-        reason: "Confirmer le créneau du scénario de pré-vol",
+        reason: "Confirmer le créneau du scénario de contrôle d’aptitude",
         operation_id: `op-${input.operationPrefix}-confirm`
       }
     }

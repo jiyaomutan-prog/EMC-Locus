@@ -270,7 +270,7 @@ pub fn reconcile_physical_asset_model_json(
     if current.model_link_state != "migration_review_required" {
         return Err(AgentError::new(
             "physical_asset_model_already_resolved",
-            "Le modÃ¨le constructeur de cet exemplaire est dÃ©jÃ  rapprochÃ©. Aucune nouvelle affectation silencieuse n'est autorisÃ©e.",
+            "Le modèle constructeur de cet exemplaire est déjà rapproché. Aucune nouvelle affectation silencieuse n’est autorisée.",
         ));
     }
     let model = resolve_immutable_model_revision(
@@ -610,7 +610,7 @@ pub fn move_physical_asset(
     if current.laboratory_location_id.as_deref() == destination_id {
         return Err(AgentError::new(
             "physical_asset_location_unchanged",
-            "L'exemplaire est deja affecte a cet emplacement.",
+            "L’exemplaire est déjà affecté à cet emplacement.",
         ));
     }
     let current_location = match current.laboratory_location_id.as_deref() {
@@ -2487,7 +2487,18 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(repoint.code, "physical_asset_model_already_resolved");
+        assert_eq!(
+            repoint.message,
+            "Le modèle constructeur de cet exemplaire est déjà rapproché. Aucune nouvelle affectation silencieuse n’est autorisée."
+        );
         assert_eq!(fleet_evidence_counts(&storage_root), evidence_after_success);
+        let resolved_after_repoint =
+            json_value(&get_physical_asset_json(&storage_root, "LEGACY-SCOPE-001").unwrap());
+        assert_eq!(resolved_after_repoint["asset"]["revision"], 2);
+        assert_eq!(
+            resolved_after_repoint["asset"]["equipment_model_revision_id"],
+            "EQM-SCOPE-REV-0001"
+        );
 
         seed_unresolved_migrated_asset(&storage_root, "LEGACY-SCOPE-CORRUPT");
         seed_revision_copy(
@@ -2806,6 +2817,34 @@ mod tests {
         assert_eq!(moved["asset"]["laboratory_location_status"], "active");
         let replay = json_value(&move_physical_asset(&storage_root, move_input.clone()).unwrap());
         assert_eq!(replay["replayed"], true);
+
+        let evidence_before_unchanged_move = fleet_evidence_counts(&storage_root);
+        let unchanged_move = move_physical_asset(
+            &storage_root,
+            MovePhysicalAssetInput {
+                asset_id: asset_id.clone(),
+                expected_revision: 3,
+                destination_location_id: Some(location_b_id.clone()),
+                context: context("op-move-to-same-location"),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(unchanged_move.code, "physical_asset_location_unchanged");
+        assert_eq!(
+            unchanged_move.message,
+            "L’exemplaire est déjà affecté à cet emplacement."
+        );
+        assert_eq!(
+            fleet_evidence_counts(&storage_root),
+            evidence_before_unchanged_move
+        );
+        let unchanged_asset =
+            json_value(&get_physical_asset_json(&storage_root, &asset_id).unwrap());
+        assert_eq!(unchanged_asset["asset"]["revision"], 3);
+        assert_eq!(
+            unchanged_asset["asset"]["laboratory_location_id"],
+            location_b_id
+        );
 
         update_laboratory_location_json(
             &storage_root,

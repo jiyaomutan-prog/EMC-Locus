@@ -2314,6 +2314,7 @@ class GuiActionAgentPathTests(unittest.TestCase):
 
         client.run_simulated_emc_test.assert_called_once()
         self.assertEqual(result["status"], "refused")
+        self.assertTrue(result["message"].startswith("Essai refusé RUN-SIM-PY :"))
         self.assertIn("SA-PY/missing_evidence/calibration_missing", result["message"])
 
     def test_gui_actions_project_reads_use_agent_when_agent_url_present(self) -> None:

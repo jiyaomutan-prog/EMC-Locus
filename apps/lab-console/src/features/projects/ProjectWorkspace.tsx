@@ -290,7 +290,7 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
       (candidate) => candidate.laboratory_location_id === scheduleForm.laboratory_location_id
     );
     if (!location) {
-      setError("Choisissez un poste de laboratoire prêt à câbler.");
+      setError("Choisissez un lieu actif du laboratoire.");
       return;
     }
     setBusyAction("create-schedule");
