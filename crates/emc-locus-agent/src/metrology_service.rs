@@ -1,4 +1,12 @@
 use crate::file_store::{store_content_addressed_file, FileStorePolicy, StoreLocalFileInput};
+use crate::fleet_service::{
+    get_physical_asset_json, transition_physical_asset_service_state, FleetOperationContext,
+    TransitionPhysicalAssetServiceStateInput,
+};
+use crate::metrology_assessment::{
+    assess_metrology_source, metrology_reason_code, metrology_status_code, parse_checked_on,
+    MetrologyAssessmentSource,
+};
 use crate::metrology_dto::{
     asset_characterization_dto, calibration_event_dto, instrument_dto, AssetCharacterizationDto,
     AssetCharacterizationEnvelopeDto, AssetCharacterizationListDto, CalibrationEventEnvelopeDto,
@@ -13,9 +21,9 @@ use crate::metrology_repository::{
     load_calibration_event, load_calibration_events, load_instrument, load_instruments,
     load_latest_calibration_event, load_latest_calibration_record, load_metrology_audit_events,
     next_metrology_audit_sequence, open_metrology_connection, open_metrology_connection_with_sync,
-    update_instrument_serviceability, MetrologyAuditEventInput, MetrologyOperationFingerprintInput,
-    MetrologySyncOperationInput, NewAssetCharacterizationRecord, NewCalibrationEventRecord,
-    NewInstrumentRecord, StoredAssetCharacterization, StoredCalibrationEvent, StoredInstrument,
+    MetrologyAuditEventInput, MetrologyOperationFingerprintInput, MetrologySyncOperationInput,
+    NewAssetCharacterizationRecord, NewCalibrationEventRecord, NewInstrumentRecord,
+    StoredAssetCharacterization, StoredCalibrationEvent, StoredInstrument,
 };
 use crate::{render_json, AgentError};
 use emc_locus_core::{
@@ -274,6 +282,11 @@ pub fn register_metrology_instrument(
             metrology_notes: input.metrology_notes.trim(),
             serviceability_status: input.serviceability_status.trim(),
             serviceability_reason: input.serviceability_reason.trim(),
+            actor: &input.context.actor,
+            reason: &input.context.reason,
+            operation_id: &input.context.operation_id,
+            correlation_id: &input.context.correlation_id,
+            device_id: &input.context.device_id,
             timestamp: &now,
         },
     )?;
@@ -707,63 +720,40 @@ pub fn set_metrology_serviceability(
     validate_serviceability_status(&input.serviceability_status)?;
     require_non_empty(&input.serviceability_reason, "serviceability_reason")?;
 
-    let mut connection = open_metrology_connection_with_sync(storage_root)?;
-    let instrument = load_instrument(&connection, asset_id.as_str())?.ok_or_else(|| {
+    let connection = open_metrology_connection(storage_root)?;
+    load_instrument(&connection, asset_id.as_str())?.ok_or_else(|| {
         AgentError::new(
             "metrology_instrument_not_found",
             format!("instrument does not exist: {}", asset_id.as_str()),
         )
     })?;
-    let payload_json = serviceability_payload_json(&input);
-    if let Some(operation) = existing_metrology_operation(&connection, &input.context.operation_id)?
-    {
-        ensure_metrology_operation_replay(
-            &operation,
-            &input.context.operation_id,
-            MetrologyOperationFingerprintInput {
-                entity_type: "instrument",
-                entity_id: asset_id.as_str(),
-                operation_kind: "instrument_serviceability_changed",
-                base_revision: &instrument.revision,
-                actor_id: &input.context.actor,
-                device_id: &input.context.device_id,
-                correlation_id: &input.context.correlation_id,
-                payload_json: &payload_json,
-            },
+    drop(connection);
+    let asset: Value =
+        serde_json::from_str(&get_physical_asset_json(storage_root, asset_id.as_str())?).map_err(
+            |error| AgentError::new("physical_asset_response_invalid", error.to_string()),
         )?;
-        return get_metrology_instrument(storage_root, asset_id.as_str());
-    }
-
-    let now = utc_timestamp()?;
-    let resulting_revision = revision_for("instrument", asset_id.as_str(), &now);
-    let sequence = next_metrology_audit_sequence(&connection, "instrument", asset_id.as_str())?;
-    let transaction = connection
-        .transaction()
-        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
-    update_instrument_serviceability(
-        &transaction,
-        asset_id.as_str(),
-        input.serviceability_status.trim(),
-        input.serviceability_reason.trim(),
-        &now,
-    )?;
-    write_metrology_audit_and_outbox(
-        &transaction,
-        MetrologyAuditWrite {
-            entity_type: "instrument",
-            entity_id: asset_id.as_str(),
-            sequence,
-            action: "instrument_serviceability_changed",
-            base_revision: &instrument.revision,
-            resulting_revision: &resulting_revision,
-            context: &input.context,
-            payload_json: &payload_json,
-            timestamp: &now,
+    let expected_revision = asset["asset"]["revision"].as_u64().ok_or_else(|| {
+        AgentError::new(
+            "physical_asset_response_invalid",
+            "La revision de l'exemplaire du parc est absente.",
+        )
+    })?;
+    transition_physical_asset_service_state(
+        storage_root,
+        TransitionPhysicalAssetServiceStateInput {
+            asset_id: asset_id.as_str().to_owned(),
+            expected_revision,
+            service_state: input.serviceability_status,
+            service_state_reason: input.serviceability_reason,
+            context: FleetOperationContext {
+                actor: input.context.actor,
+                reason: input.context.reason,
+                operation_id: input.context.operation_id,
+                correlation_id: input.context.correlation_id,
+                device_id: input.context.device_id,
+            },
         },
     )?;
-    transaction
-        .commit()
-        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
     get_metrology_instrument(storage_root, asset_id.as_str())
 }
 
@@ -1284,14 +1274,6 @@ fn invalid_asset_characterization(
     )
 }
 
-fn serviceability_payload_json(input: &SetServiceabilityInput) -> String {
-    render_json(&serde_json::json!({
-        "asset_id": input.asset_id.trim(),
-        "serviceability_status": input.serviceability_status.trim(),
-        "serviceability_reason": input.serviceability_reason.trim(),
-    }))
-}
-
 pub(crate) fn write_metrology_audit_and_outbox(
     transaction: &rusqlite::Transaction<'_>,
     input: MetrologyAuditWrite<'_>,
@@ -1483,32 +1465,7 @@ fn safe_identifier(value: &str, field: &'static str) -> Result<String, AgentErro
 }
 
 fn parse_metrology_date(value: &str, field: &'static str) -> Result<MetrologyDate, AgentError> {
-    let parts = value.trim().split('-').collect::<Vec<_>>();
-    if parts.len() != 3 || parts[0].len() != 4 || parts[1].len() != 2 || parts[2].len() != 2 {
-        return Err(AgentError::new(
-            "invalid_metrology_date",
-            format!("{field} must use YYYY-MM-DD"),
-        ));
-    }
-    let year = parts[0].parse::<u16>().map_err(|_| {
-        AgentError::new(
-            "invalid_metrology_date",
-            format!("{field} must use YYYY-MM-DD"),
-        )
-    })?;
-    let month = parts[1].parse::<u8>().map_err(|_| {
-        AgentError::new(
-            "invalid_metrology_date",
-            format!("{field} must use YYYY-MM-DD"),
-        )
-    })?;
-    let day = parts[2].parse::<u8>().map_err(|_| {
-        AgentError::new(
-            "invalid_metrology_date",
-            format!("{field} must use YYYY-MM-DD"),
-        )
-    })?;
-    MetrologyDate::new(year, month, day).map_err(domain_error)
+    parse_checked_on(value, field)
 }
 
 fn computed_status(
@@ -1516,99 +1473,42 @@ fn computed_status(
     latest: Option<&StoredCalibrationEvent>,
     checked_on: MetrologyDate,
 ) -> Result<CalibrationStatusDto, AgentError> {
-    let mut reasons = Vec::new();
-    if instrument.calibration_requirement == "not_required" {
-        reasons.push("calibration_not_required".to_owned());
-        return Ok(status_dto(
-            instrument,
-            checked_on,
-            "not_required",
-            None,
-            None,
-            reasons,
-        ));
-    }
-
-    let Some(latest) = latest else {
-        reasons.push("calibration_missing".to_owned());
-        return Ok(status_dto(
-            instrument, checked_on, "missing", None, None, reasons,
-        ));
-    };
-
-    if latest.decision != "conforming" {
-        reasons.push(format!("calibration_decision_{}", latest.decision));
-        return Ok(status_dto(
-            instrument,
-            checked_on,
-            "nonconforming",
-            Some(latest),
-            Some(latest.due_at.clone()),
-            reasons,
-        ));
-    }
-
-    let due_at = parse_metrology_date(&latest.due_at, "due_at")?;
-    let days_until_due = checked_on.days_until(due_at);
-    if days_until_due < 0 {
-        reasons.push("calibration_expired".to_owned());
-        return Ok(status_dto(
-            instrument,
-            checked_on,
-            "expired",
-            Some(latest),
-            Some(latest.due_at.clone()),
-            reasons,
-        ));
-    }
-    if days_until_due <= instrument.calibration_due_warning_days as i32 {
-        reasons.push("calibration_due_soon".to_owned());
-        return Ok(status_dto(
-            instrument,
-            checked_on,
-            "due_soon",
-            Some(latest),
-            Some(latest.due_at.clone()),
-            reasons,
-        ));
-    }
-    reasons.push("calibration_valid".to_owned());
-    Ok(status_dto(
-        instrument,
+    let summary = assess_metrology_source(
         checked_on,
-        "valid",
-        Some(latest),
-        Some(latest.due_at.clone()),
-        reasons,
-    ))
-}
-
-fn status_dto(
-    instrument: &StoredInstrument,
-    checked_on: MetrologyDate,
-    calibration_status: &str,
-    latest: Option<&StoredCalibrationEvent>,
-    due_at: Option<String>,
-    reasons: Vec<String>,
-) -> CalibrationStatusDto {
-    CalibrationStatusDto {
+        MetrologyAssessmentSource {
+            calibration_requirement: instrument.calibration_requirement.clone(),
+            calibration_period_months: instrument.calibration_period_months,
+            calibration_due_warning_days: instrument.calibration_due_warning_days,
+            calibrated_at: latest.map(|event| event.calibrated_at.clone()),
+            due_at: latest.map(|event| event.due_at.clone()),
+            decision: latest.map(|event| event.decision.clone()),
+            latest_calibration_event_id: latest.map(|event| event.event_id.clone()),
+            latest_calibration_revision: latest.map(|event| event.revision.clone()),
+        },
+    );
+    Ok(CalibrationStatusDto {
         asset_id: instrument.asset_id.clone(),
-        checked_on: format_metrology_date(checked_on),
-        calibration_status: calibration_status.to_owned(),
+        checked_on: summary.assessment.checked_on.to_string(),
+        calibration_status: metrology_status_code(summary.assessment.status).to_owned(),
         serviceability_status: instrument.serviceability_status.clone(),
         calibration_requirement: instrument.calibration_requirement.clone(),
         calibration_due_warning_days: instrument.calibration_due_warning_days,
-        due_at,
+        due_at: summary.assessment.due_at.map(|value| value.to_string()),
         decision: latest.map(|event| event.decision.clone()),
         latest_calibration_event_id: latest.map(|event| event.event_id.clone()),
         latest_calibration_revision: latest.map(|event| event.revision.clone()),
         instrument_revision: instrument.revision.clone(),
-        reasons,
-    }
+        reasons: summary
+            .assessment
+            .reasons
+            .into_iter()
+            .map(|reason| metrology_reason_code(reason).to_owned())
+            .collect(),
+    })
 }
 
 fn format_metrology_date(date: MetrologyDate) -> String {
-    format!("{:04}-{:02}-{:02}", date.year(), date.month(), date.day())
+    date.to_string()
 }
 
 fn trimmed_optional(value: Option<&str>) -> Option<&str> {
@@ -1650,7 +1550,8 @@ fn domain_error(error: DomainError) -> AgentError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::{params, Connection};
+    use crate::{run_storage_action, StorageAction};
+    use rusqlite::params;
     use serde_json::Value;
     use std::{
         fs,
@@ -1671,7 +1572,7 @@ mod tests {
         assert_eq!(instruments.len(), 1);
         assert_eq!(instruments[0]["asset_id"], "SA-001");
         assert_eq!(instruments[0]["serviceability_status"], "usable");
-        assert_eq!(instruments[0]["legacy_availability"], "reserved");
+        assert_eq!(instruments[0]["legacy_availability"], Value::Null);
         assert_eq!(
             instruments[0]["latest_calibration"]["certificate_reference"],
             "CERT-SA-001"
@@ -1826,7 +1727,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(status["calibration_status"], "nonconforming");
-        assert_eq!(status["reasons"][0], "calibration_decision_nonconforming");
+        assert_eq!(status["reasons"][0], "calibration_nonconforming");
 
         remove_temporary_storage_root(&storage_root);
     }
@@ -1915,19 +1816,33 @@ mod tests {
     fn insert_instrument_with_calibration(connection: &rusqlite::Connection) {
         connection
             .execute(
-                concat!(
-                    "INSERT INTO instruments (asset_id, family, manufacturer, model, ",
-                    "serial_number, availability, calibration_requirement, capabilities_json, ",
-                    "category_code, part_number, calibration_period_months, metrology_notes, ",
-                    "serviceability_status, serviceability_reason, serviceability_updated_at, ",
-                    "legacy_availability, created_at, updated_at) ",
-                    "VALUES (?1, 'SpectrumAnalyzer', 'Rohde Schwarz', 'FSW', '100001', ",
-                    "'reserved', 'required', '{\"frequency_max_hz\":44000000000}', ",
-                    "'spectrum_analyzer', 'FSW44', 12, 'Field unit', 'usable', ",
-                    "'Migrated reservation', '2026-06-30T00:00:00Z', 'reserved', ",
-                    "'2026-06-30T00:00:00Z', '2026-06-30T00:00:00Z')"
-                ),
+                r#"INSERT INTO equipment_db.physical_assets (
+                    asset_id, inventory_code, serial_number, part_number,
+                    manufacturer_snapshot, model_name_snapshot, category_code_snapshot,
+                    category_path_json, ownership_source, service_state, availability_state,
+                    service_state_reason, notes, revision, model_link_state,
+                    migrated_from_metrology, created_at, updated_at, migration_evidence_json,
+                    administrative_availability, administrative_unavailability_reason,
+                    legacy_availability_evidence_json
+                 ) VALUES (?1, ?1, '100001', 'FSW44', 'Rohde Schwarz', 'FSW',
+                    'spectrum_analyzer', '[\"SpectrumAnalyzer\"]', 'laboratory_owned',
+                    'usable', 'available', 'Migrated reservation', '', 1,
+                    'migration_review_required', 0, '2026-06-30T00:00:00Z',
+                    '2026-06-30T00:00:00Z', '{}', 'available', '',
+                    '{"legacy_availability_state":"reserved"}')"#,
                 params!["SA-001"],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO metrology_asset_dossiers (
+                    asset_id, calibration_requirement, calibration_period_months,
+                    calibration_due_warning_days, metrology_notes, legacy_capabilities_json,
+                    revision, created_at, updated_at
+                 ) VALUES ('SA-001', 'required', 12, 30, 'Field unit',
+                    '{\"frequency_max_hz\":44000000000}', 1,
+                    '2026-06-30T00:00:00Z', '2026-06-30T00:00:00Z')",
+                [],
             )
             .unwrap();
         connection
@@ -1947,30 +1862,13 @@ mod tests {
 
     fn initialized_storage_root(name: &str) -> PathBuf {
         let storage_root = temporary_storage_root(name);
-        fs::create_dir_all(&storage_root).unwrap();
-        apply_migrations(
-            &storage_root.join("metrology.sqlite"),
-            &repo_root().join("storage/sqlite/metrology"),
-        );
-        apply_migrations(
-            &storage_root.join("sync.sqlite"),
-            &repo_root().join("storage/sqlite/sync"),
-        );
+        run_storage_action(
+            StorageAction::Init,
+            storage_root.clone(),
+            repo_root().join("storage/sqlite"),
+        )
+        .unwrap();
         storage_root
-    }
-
-    fn apply_migrations(database: &Path, migrations_root: &Path) {
-        let connection = Connection::open(database).unwrap();
-        let mut migrations = fs::read_dir(migrations_root)
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == "sql"))
-            .collect::<Vec<_>>();
-        migrations.sort();
-        for migration in migrations {
-            let sql = fs::read_to_string(migration).unwrap();
-            connection.execute_batch(&sql).unwrap();
-        }
     }
 
     fn repo_root() -> PathBuf {

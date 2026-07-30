@@ -290,7 +290,7 @@ export function ProjectWorkspace(props: { initialProjectCode?: string | null }) 
       (candidate) => candidate.laboratory_location_id === scheduleForm.laboratory_location_id
     );
     if (!location) {
-      setError("Choisissez un poste de laboratoire prêt à câbler.");
+      setError("Choisissez un lieu actif du laboratoire.");
       return;
     }
     setBusyAction("create-schedule");
@@ -1119,7 +1119,7 @@ function ScheduleDialog(props: {
               }
               required
             >
-              <option value="">Sélectionner un poste prêt à câbler</option>
+              <option value="">Sélectionner un lieu actif du laboratoire</option>
               {props.locations.map((location) => (
                 <option
                   key={location.laboratory_location_id}

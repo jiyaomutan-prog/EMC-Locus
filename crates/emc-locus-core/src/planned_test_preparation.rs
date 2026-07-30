@@ -1,3 +1,4 @@
+use crate::metrology::MetrologyAssessment;
 use crate::service_planning::ServiceScheduleStatus;
 use crate::station_setup::{
     StationCorrectionKind, StationReadinessDimension, StationReadinessSeverity,
@@ -141,6 +142,15 @@ pub struct PreparedStationAssetSnapshot {
     pub equipment_model_revision_id: String,
     pub equipment_model_checksum: String,
     pub category_code: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub category_path: Vec<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub laboratory_location_label: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub service_state: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub availability_state: String,
+    pub metrology: MetrologyAssessment,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub capabilities: Vec<PreparedEquipmentCapabilitySnapshot>,
 }
@@ -902,8 +912,8 @@ fn derive_static_readiness_issues(
         issues.push(blocking_issue(
             "planned_test_station_not_ready",
             PlannedTestPreparationDimension::StationSetup,
-            "Le montage choisi n'est pas prêt à câbler.",
-            "Choisissez un montage prêt ou terminez sa préparation dans Test Station.",
+            "Le montage choisi n’est pas déclaré prêt.",
+            "Choisissez un montage déclaré prêt ou terminez sa préparation dans Montages de mesure.",
             None,
             None,
             None,
@@ -1229,6 +1239,15 @@ fn normalize_definition(definition: &mut PlannedTestPreparationDefinition) {
         asset.manufacturer = asset.manufacturer.trim().to_owned();
         asset.model_name = asset.model_name.trim().to_owned();
         asset.category_code = asset.category_code.trim().to_owned();
+        asset.category_path = asset
+            .category_path
+            .iter()
+            .map(|segment| segment.trim().to_owned())
+            .filter(|segment| !segment.is_empty())
+            .collect();
+        asset.laboratory_location_label = asset.laboratory_location_label.trim().to_owned();
+        asset.service_state = asset.service_state.trim().to_owned();
+        asset.availability_state = asset.availability_state.trim().to_owned();
         asset.capabilities.sort_by(|left, right| {
             left.capability_id
                 .cmp(&right.capability_id)
@@ -1427,6 +1446,18 @@ mod tests {
                     equipment_model_revision_id: "MODEL-ESW-rev-0001".to_owned(),
                     equipment_model_checksum: checksum('c'),
                     category_code: "emi_receiver".to_owned(),
+                    category_path: vec!["Mesure RF".to_owned(), "Récepteurs EMI".to_owned()],
+                    laboratory_location_label: "Poste CEM 1".to_owned(),
+                    service_state: "usable".to_owned(),
+                    availability_state: "available".to_owned(),
+                    metrology: crate::metrology::assess_metrology(
+                        crate::metrology::MetrologyDate::parse_iso("2026-07-16").unwrap(),
+                        crate::metrology::CalibrationRequirement::Required,
+                        Some(crate::metrology::CalibrationDecision::Conforming),
+                        Some(crate::metrology::MetrologyDate::parse_iso("2026-06-30").unwrap()),
+                        Some(crate::metrology::MetrologyDate::parse_iso("2027-06-30").unwrap()),
+                        30,
+                    ),
                     capabilities: vec![PreparedEquipmentCapabilitySnapshot {
                         capability_id: "spectrum_measurement".to_owned(),
                         label: "Mesure spectrale".to_owned(),

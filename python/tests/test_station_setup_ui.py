@@ -62,6 +62,10 @@ class StationSetupUiTests(unittest.TestCase):
 
     def test_translates_readiness_dimensions_for_operator(self) -> None:
         self.assertEqual(
+            readiness_lines({"ready": True, "issues": []}),
+            ["Aucun blocage détecté. Le montage peut être déclaré prêt."],
+        )
+        self.assertEqual(
             readiness_lines(
                 {
                     "ready": False,

@@ -193,6 +193,11 @@ export interface PlannedStationAssetSnapshot {
   equipment_model_revision_id: string;
   equipment_model_checksum: string;
   category_code: string;
+  category_path?: string[];
+  laboratory_location_label?: string;
+  service_state?: string;
+  availability_state?: string;
+  metrology: import("./fleet").PhysicalAssetMetrologySummary;
   capabilities?: Array<{
     capability_id: string;
     label: string;
@@ -290,6 +295,10 @@ export interface PlannedTestPreparationOptions {
   methods: PlannedTestMethodSnapshot[];
   station_setups: Array<{
     station_setup: PlannedStationSetupSnapshot;
+    eligible: boolean;
+    blocking_reasons: import("./fleet").AssetSelectionReason[];
+    warnings: import("./fleet").AssetSelectionReason[];
+    asset_options: import("./fleet").ExecutablePhysicalAssetOption[];
     readiness: {
       ready: boolean;
       checked_on: string;

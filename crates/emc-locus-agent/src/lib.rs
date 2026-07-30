@@ -7,11 +7,17 @@ mod equipment_dto;
 mod equipment_repository;
 mod equipment_service;
 mod file_store;
+mod fleet_dto;
+mod fleet_migration;
+mod fleet_repository;
+mod fleet_service;
+mod fleet_usage;
 mod local_api;
 mod measurement_engineering_dto;
 mod measurement_engineering_repository;
 mod measurement_engineering_service;
 mod metrology_agent;
+mod metrology_assessment;
 mod metrology_dto;
 mod metrology_repository;
 mod metrology_service;
@@ -79,6 +85,20 @@ pub use equipment_service::{
     TransitionEquipmentModelRevisionInput, UpdateEquipmentCategoryInput,
     UpsertEquipmentFieldDefinitionInput,
 };
+pub use fleet_service::{
+    archive_laboratory_location_json, create_laboratory_location, create_physical_asset,
+    get_physical_asset_json, list_laboratory_location_audit_json, list_laboratory_locations_json,
+    list_model_reconciliation_candidates_json, list_physical_asset_audit_json,
+    list_physical_assets_json, list_physical_assets_json_at, list_physical_assets_json_for_context,
+    move_physical_asset, reconcile_physical_asset_model_json,
+    transition_physical_asset_administrative_availability, transition_physical_asset_service_state,
+    update_laboratory_location_json, update_physical_asset_identification,
+    ArchiveLaboratoryLocationInput, CreateLaboratoryLocationInput, CreatePhysicalAssetInput,
+    FleetOperationContext, MovePhysicalAssetInput, ReconcilePhysicalAssetModelInput,
+    TransitionPhysicalAssetAdministrativeAvailabilityInput,
+    TransitionPhysicalAssetServiceStateInput, UpdateLaboratoryLocationInput,
+    UpdatePhysicalAssetIdentificationInput,
+};
 pub use local_api::{run_local_api_server, ApiServerConfig};
 pub use measurement_engineering_service::{
     clone_measurement_engineering_definition, create_measurement_engineering_definition,
@@ -120,11 +140,11 @@ pub use service_schedule_service::{
 use sqlite_policy::{initialize_project_slice_journal_mode, journal_mode, AttachedDatabase};
 pub use station_setup_service::{
     assess_station_setup_revision_json, create_station_setup, derive_station_setup_revision,
-    get_station_setup, get_station_setup_revision_json, list_station_setup_audit_events_json,
-    list_station_setup_revisions_json, list_station_setups, mark_station_setup_revision_ready,
-    replace_station_setup_draft_definition, CreateStationSetupInput,
-    DeriveStationSetupRevisionInput, MarkStationSetupReadyInput, ReplaceStationSetupDraftInput,
-    StationOperationContext,
+    get_station_setup, get_station_setup_revision_json, list_station_setup_asset_options_json,
+    list_station_setup_audit_events_json, list_station_setup_revisions_json, list_station_setups,
+    mark_station_setup_revision_ready, replace_station_setup_draft_definition,
+    CreateStationSetupInput, DeriveStationSetupRevisionInput, ListStationSetupAssetOptionsInput,
+    MarkStationSetupReadyInput, ReplaceStationSetupDraftInput, StationOperationContext,
 };
 use std::{
     error::Error,
@@ -562,6 +582,9 @@ pub fn run_storage_action(
             &migrations_root,
         )?);
     }
+    if matches!(action, StorageAction::Init) {
+        fleet_migration::migrate_legacy_metrology_instruments(&storage_root)?;
+    }
 
     Ok(StorageReport {
         action,
@@ -955,7 +978,7 @@ mod tests {
                 .find(|domain| domain.domain == "metrology")
                 .unwrap()
                 .schema_version,
-            Some(10)
+            Some(11)
         );
         assert_eq!(
             second_report
@@ -964,7 +987,7 @@ mod tests {
                 .find(|domain| domain.domain == "equipment")
                 .unwrap()
                 .schema_version,
-            Some(6)
+            Some(9)
         );
         assert_eq!(
             second_report

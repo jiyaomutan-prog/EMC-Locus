@@ -2,9 +2,12 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { App } from "./App";
+import { FleetWorkspace } from "./features/equipment/FleetWorkspace";
+import { StationSetupWorkspace } from "./features/equipment/StationSetupWorkspace";
 import { retainCompatibleAssignments } from "./features/planning/LaboratoryPlanningWorkspace";
-import type { EquipmentModelDefinition } from "./models/equipment";
+import type { EquipmentModelAggregate, EquipmentModelDefinition } from "./models/equipment";
 import type { AssetCorrectionAssignment } from "./models/metrology";
+import type { PhysicalAsset, PhysicalAssetMetrologySummary } from "./models/fleet";
 import type {
   CompletedContractReviewItem,
   LaboratoryScheduleItem,
@@ -159,10 +162,10 @@ describe("LAB CONSOLE", () => {
     await user.click(screen.getByRole("button", { name: "Réduire la navigation" }));
     expect(screen.getByRole("button", { name: "Déployer la navigation" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Équipements" }));
-    expect(await screen.findByLabelText("Recherche equipement")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Catalogue des modèles" }));
+    expect(await screen.findByLabelText("Rechercher un modèle")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Administration du référentiel" }));
-    expect(screen.queryByLabelText("Recherche equipement")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Rechercher un modèle")).not.toBeInTheDocument();
   });
 
   test("moves a dossier from contract review to a confirmed laboratory slot", async () => {
@@ -468,6 +471,53 @@ describe("LAB CONSOLE", () => {
     );
   });
 
+  test("uses current operator wording when preparation choices are empty", async () => {
+    mockLaboratoryPlanningApi({ emptyPreparationOptions: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Immunité rayonnée, dossier CEM-LAB-002"
+      })
+    );
+    await user.click(await screen.findByRole("button", { name: "Préparer l'essai" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Préparer l'essai" });
+    expect(within(dialog).getByText("Préparation impossible pour le moment")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        "Il faut au moins une méthode approuvée et un montage déclaré prêt à être utilisé."
+      )
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText(/pré-vol/i)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/Prêt à câbler/i)).not.toBeInTheDocument();
+  });
+
+  test("keeps project and schedule context visible when preparation options fail", async () => {
+    mockLaboratoryPlanningApi({ preparationOptionsFailure: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Ouvrir Immunité rayonnée, dossier CEM-LAB-002"
+      })
+    );
+    await user.click(await screen.findByRole("button", { name: "Préparer l'essai" }));
+
+    expect(await screen.findByText("Choix de préparation temporairement indisponibles")).toBeInTheDocument();
+    expect(screen.getAllByText("CEM-LAB-002 · Mobilités Boréal").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Immunité rayonnée").length).toBeGreaterThan(0);
+    expect(screen.getByText("Objet soumis à l’essai")).toBeInTheDocument();
+    expect(screen.getByText("Calculateur de bord")).toBeInTheDocument();
+    expect(screen.queryByText("options de préparation indisponibles", { exact: true })).not.toBeInTheDocument();
+  });
+
   test("explains when a method role has no compatible material in the selected setup", async () => {
     mockLaboratoryPlanningApi({ noCompatibleMaterials: true });
     const user = userEvent.setup();
@@ -626,18 +676,20 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Équipements" }));
-    expect(await screen.findByRole("heading", { name: "Équipements" })).toBeInTheDocument();
-    const modelButton = await screen.findByRole("button", { name: /R&S\s+NRP6AN/ });
+    await user.click(await screen.findByRole("button", { name: "Catalogue des modèles" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Catalogue des modèles" })).toBeInTheDocument();
+    const modelButton = await screen.findByRole("treeitem", { name: /NRP6AN/ });
     await user.click(modelButton);
-    expect(await screen.findByText("Fiche modèle équipement")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Drivers et actions" }));
+    expect(await screen.findByText("Vous consultez un modèle générique.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Entrées et sorties" }));
+    expect(screen.getByText("Vous consultez un modèle générique.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Profils de pilotage" }));
     await user.click(await screen.findByRole("button", { name: /NRP6AN SCPI/ }));
-    expect(await screen.findByText(/No VISA implementation installed/)).toBeInTheDocument();
+    expect(await screen.findByText(/Aucune implémentation VISA n’est installée/)).toBeInTheDocument();
   });
 
   test("registers a physical asset from an approved equipment model", async () => {
-    const instruments: Array<Record<string, unknown>> = [];
+    const assets: Array<Record<string, unknown>> = [];
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === "/api/v1/health") return jsonResponse(healthFixture);
@@ -650,49 +702,649 @@ describe("LAB CONSOLE", () => {
       }
       if (path === "/api/v1/driver-profiles") return jsonResponse({ driver_profiles: [] });
       if (path === "/api/v1/equipment/communication-providers") return jsonResponse({ providers: [] });
-      if (path === "/api/v1/metrology/instruments" && init?.method === "POST") {
+      if (path === "/api/v1/fleet/assets" && init?.method === "POST") {
         const body = JSON.parse(String(init.body));
-        const instrument = {
-          ...body,
-          category_code: body.category_code ?? null,
+        if (body.inventory_code === "SA-REJECT") {
+          return jsonResponse({ error: { code: "physical_asset_inventory_code_conflict", message: "Code inventaire déjà utilisé" } }, 409);
+        }
+        const asset = {
+          asset_id: `ASSET-${body.inventory_code}`,
+          inventory_code: body.inventory_code,
+          serial_number: body.serial_number ?? null,
           part_number: body.part_number ?? null,
-          serviceability_reason: body.serviceability_reason ?? "",
-          metrology_notes: body.metrology_notes ?? "",
+          equipment_model_id: body.equipment_model_id,
+          equipment_model_revision_id: "EQM-NRP6AN-FWD-rev-0001",
+          equipment_model_checksum: equipmentModelFixture().current_approved_revision?.definition_checksum,
+          manufacturer: "R&S",
+          model_name: "NRP6AN",
+          variant: null,
+          category_code: "rf_power_sensor",
+          category_path: ["Mesure RF", "Wattmètres"],
+          laboratory_location_id: body.laboratory_location_id,
+          laboratory_location_label: body.laboratory_location_id ? "Labo CEM 1" : null,
+          laboratory_location_status: body.laboratory_location_id ? "active" : null,
+          ownership_source: body.ownership_source,
+          service_state: body.service_state,
+          administrative_availability: body.administrative_availability,
+          administrative_unavailability_reason: body.administrative_unavailability_reason ?? "",
+          operational_usage: {
+            state: body.administrative_availability,
+            assessed_at: "2026-07-14T00:00:00Z",
+            evidence: []
+          },
+          availability_state: body.administrative_availability,
+          service_state_reason: body.service_state_reason ?? "",
+          notes: body.notes ?? "",
+          revision: 1,
+          model_link_state: "controlled",
+          migrated_from_metrology: false,
+          metrology: metrologySummary({
+            status: body.calibration_requirement === "not_required" ? "not_required" : "missing",
+            calibration_requirement: body.calibration_requirement,
+            calibration_period_months: body.calibration_period_months
+          }),
           created_at: "2026-07-14T00:00:00Z",
-          updated_at: "2026-07-14T00:00:00Z",
-          revision: "rev-0001",
-          latest_calibration: null,
-          latest_calibration_event: null
+          updated_at: "2026-07-14T00:00:00Z"
         };
-        instruments.push(instrument);
-        return jsonResponse({ instrument });
+        assets.push(asset);
+        return jsonResponse({ asset, replayed: false });
       }
-      if (path === "/api/v1/metrology/instruments") return jsonResponse({ instruments });
+      if (path === "/api/v1/fleet/assets") return jsonResponse({ assets });
+      if (path === "/api/v1/metrology/instruments") return jsonResponse({ instruments: [] });
       return mockBaseApiResponse(path, init);
     });
     const user = userEvent.setup();
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Équipements" }));
-    await user.click(await screen.findByRole("button", { name: "Matériels réels" }));
-    await user.type(screen.getByLabelText(/Numéro d’inventaire/), "SA-LAB-001");
+    await user.click(await screen.findByRole("button", { name: "Parc matériel" }));
+    await user.click(await screen.findByRole("button", { name: "Ajouter un exemplaire" }));
+    await user.type(screen.getByLabelText(/Code inventaire/), "SA-LAB-001");
     await user.type(screen.getByLabelText(/Numéro de série/), "SN-7788");
-    await user.type(screen.getByLabelText(/Part number/), "PN-NRP6AN");
-    await user.click(screen.getByRole("button", { name: "Enregistrer le matériel" }));
+    await user.type(screen.getByLabelText(/Référence fabricant/), "PN-NRP6AN");
+    await user.selectOptions(screen.getByLabelText(/Emplacement/), "LAB-LOCATION-CEM-1");
+    await user.click(screen.getByRole("button", { name: "Enregistrer l'exemplaire" }));
 
-    await waitFor(() => expect(instruments).toHaveLength(1));
+    await waitFor(() => expect(assets).toHaveLength(1));
     const request = fetchMock.mock.calls.find(([path, options]) =>
-      String(path) === "/api/v1/metrology/instruments" && (options as RequestInit | undefined)?.method === "POST"
+      String(path) === "/api/v1/fleet/assets" && (options as RequestInit | undefined)?.method === "POST"
     );
     const body = JSON.parse(String((request?.[1] as RequestInit).body));
     expect(body.serial_number).toBe("SN-7788");
-    expect(body.manufacturer).toBe("R&S");
-    expect(body.model).toBe("NRP6AN");
-    expect(body.category_code).toBeUndefined();
     expect(body.equipment_model_id).toBe("EQM-NRP6AN-FWD");
-    expect(body.equipment_model_revision_id).toBe("EQM-NRP6AN-FWD-rev-0001");
-    expect(body.equipment_model_checksum).toBe(equipmentModelFixture().current_approved_revision?.definition_checksum);
+    expect(body.equipment_model_revision_id).toBeUndefined();
+    expect(body.equipment_model_checksum).toBeUndefined();
+    expect(body.administrative_availability).toBe("available");
+
+    expect(screen.getByText("Vous consultez un exemplaire du parc.")).toBeInTheDocument();
+    expect(screen.getByText("SN-7788")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Ajouter un exemplaire" }));
+    await user.type(screen.getByLabelText(/Code inventaire/), "SA-LAB-002");
+    await user.click(screen.getByRole("button", { name: "Enregistrer l'exemplaire" }));
+    expect(await screen.findByText("Sans numéro de série")).toBeInTheDocument();
+    expect(screen.getAllByText("Emplacement non défini").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Ajouter un exemplaire" }));
+    await user.type(screen.getByLabelText(/Code inventaire/), "SA-LAB-003");
+    await user.selectOptions(screen.getByLabelText(/État de service/), "in_maintenance");
+    const serviceReason = screen.getByLabelText(/Motif de l'état de service/);
+    const administrativeAvailability = screen.getByLabelText(/Disponibilité administrative/);
+    expect(administrativeAvailability).toHaveValue("unavailable");
+    expect(administrativeAvailability).toBeDisabled();
+    const saveUnavailable = screen.getByRole("button", { name: "Enregistrer l'exemplaire" });
+    expect(saveUnavailable).toHaveAttribute("aria-disabled", "true");
+    await user.click(saveUnavailable);
+    expect(serviceReason).toHaveFocus();
+    await user.type(serviceReason, "Maintenance préventive");
+    await user.click(saveUnavailable);
+    await waitFor(() => expect(assets).toHaveLength(3));
+    const createRequests = fetchMock.mock.calls.filter(([path, options]) =>
+      String(path) === "/api/v1/fleet/assets" && (options as RequestInit | undefined)?.method === "POST"
+    );
+    const unavailableBody = JSON.parse(String((createRequests.at(-1)?.[1] as RequestInit).body));
+    expect(unavailableBody.service_state).toBe("in_maintenance");
+    expect(unavailableBody.service_state_reason).toBe("Maintenance préventive");
+    expect(unavailableBody.administrative_availability).toBe("unavailable");
+    expect(unavailableBody.administrative_unavailability_reason).toBe("Maintenance préventive");
+    expect(unavailableBody.laboratory_location_id).toBeUndefined();
+
+    await user.click(screen.getByRole("button", { name: "Ajouter un exemplaire" }));
+    await user.type(screen.getByLabelText(/Code inventaire/), "SA-REJECT");
+    await user.type(screen.getByLabelText(/Numéro de série/), "SN-A-CONSERVER");
+    await user.click(screen.getByRole("button", { name: "Enregistrer l'exemplaire" }));
+    expect(await screen.findByText("Code inventaire déjà utilisé")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Code inventaire/)).toHaveValue("SA-REJECT");
+    expect(screen.getByLabelText(/Numéro de série/)).toHaveValue("SN-A-CONSERVER");
+    expect(assets).toHaveLength(3);
+  });
+
+  test("keeps catalogue and fleet identity visible when secondary services fail", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/equipment/registries") return jsonResponse(equipmentRegistriesFixture());
+      if (path === "/api/v1/equipment/classification-presets") return jsonResponse({ presets: [] });
+      if (path === "/api/v1/equipment-models" || path.startsWith("/api/v1/equipment-models?")) {
+        return jsonResponse({ equipment_models: [equipmentModelFixture()] });
+      }
+      if (path === "/api/v1/fleet/assets") return jsonResponse({ assets: [physicalAssetFixture()] });
+      if (path === "/api/v1/driver-profiles") {
+        return jsonResponse({ error: { code: "drivers_unavailable", message: "service de pilotage indisponible" } }, 503);
+      }
+      if (path === "/api/v1/metrology/instruments") {
+        return jsonResponse({ error: { code: "metrology_unavailable", message: "service métrologique indisponible" } }, 503);
+      }
+      if (path === "/api/v1/equipment/communication-providers") return jsonResponse({ providers: [] });
+      if (path === "/api/v1/equipment-models/EQM-NRP6AN-FWD") {
+        return jsonResponse({ equipment_model: equipmentModelFixture() });
+      }
+      if (path === "/api/v1/equipment-models/EQM-NRP6AN-FWD/revisions") {
+        return jsonResponse({ error: { code: "revisions_unavailable", message: "versions temporairement indisponibles" } }, 503);
+      }
+      if (path === "/api/v1/equipment-models/EQM-NRP6AN-FWD/audit-events") {
+        return jsonResponse({ error: { code: "audit_unavailable", message: "journal temporairement indisponible" } }, 503);
+      }
+      return mockBaseApiResponse(path, init);
+    });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Catalogue des modèles" }));
+    expect(await screen.findByText("Pilotage temporairement indisponible")).toBeInTheDocument();
+    expect(screen.getByRole("treeitem", { name: /NRP6AN/ })).toBeInTheDocument();
+    expect(screen.getByText(/Le catalogue reste consultable\./)).toBeInTheDocument();
+    await user.click(screen.getByRole("treeitem", { name: /NRP6AN/ }));
+    expect(await screen.findByText("Vous consultez un modèle générique.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "R&S NRP6AN" })).toBeInTheDocument();
+    expect(await screen.findByText("Historique des versions indisponible")).toBeInTheDocument();
+    expect(await screen.findByText("Historique des modifications indisponible")).toBeInTheDocument();
+    expect(screen.getByText(/La fiche du modèle reste consultable\./)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Parc matériel" }));
+    expect(await screen.findByText("Métrologie temporairement indisponible")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "INV-0042" })).toBeInTheDocument();
+    expect(screen.getByText(/L’identité et la disponibilité des exemplaires restent consultables\./)).toBeInTheDocument();
+  });
+
+  test("renders the fleet hierarchy and opens the exact pinned model revision", async () => {
+    const first = physicalAssetFixture();
+    const second = physicalAssetFixture({
+      asset_id: "ASSET-NRP6AN-002",
+      inventory_code: "INV-0043",
+      serial_number: null
+    });
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/v1/fleet/assets") return jsonResponse({ assets: [first, second] });
+      if (path === "/api/v1/laboratory-locations") return mockBaseApiResponse(path);
+      return jsonResponse({ error: { code: "unexpected", message: path } }, 500);
+    });
+    const openPinnedModel = vi.fn();
+    const user = userEvent.setup();
+
+    render(<FleetWorkspace
+      models={[equipmentModelFixture() as EquipmentModelAggregate]}
+      categories={equipmentCategoriesFixture()}
+      onOpenPinnedModel={openPinnedModel}
+      onOpenMetrology={vi.fn()}
+    />);
+
+    expect(await screen.findByRole("treeitem", { name: /Mesure RF/ })).toBeInTheDocument();
+    expect(screen.getByRole("treeitem", { name: /Wattmètres/ })).toBeInTheDocument();
+    expect(screen.getByRole("treeitem", { name: /R&S NRP6AN/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("treeitem", { name: /INV-0043/ }));
+    expect(screen.getAllByText("Sans numéro de série").length).toBeGreaterThan(0);
+    expect(screen.getByText("Vous consultez un exemplaire du parc.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Ouvrir le modèle constructeur" }));
+    expect(openPinnedModel).toHaveBeenCalledWith("EQM-NRP6AN-FWD", "EQM-NRP6AN-FWD-rev-0001");
+    await user.click(screen.getByRole("button", { name: "Par emplacement" }));
+    expect(screen.getAllByRole("treeitem", { name: /Labo CEM 1/ }).some((item) => item.classList.contains("fleetGroup"))).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Historique" }));
+    expect(await screen.findByText("Historique temporairement indisponible")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "INV-0043" })).toBeInTheDocument();
+  });
+
+  test("renders real fleet audit events without coupling asset identity to audit availability", async () => {
+    const asset = physicalAssetFixture();
+    const auditEvents = [
+      {
+        sequence: 1,
+        action: "physical_asset_identification_updated",
+        actor: "fleet.operator",
+        reason: "Alignement avec l'étiquette du laboratoire",
+        old_revision: 1,
+        new_revision: 2,
+        operation_id: "op-identification-1",
+        device_id: "lab-console",
+        correlation_id: "corr-identification-1",
+        payload: {
+          from: { inventory_code: "INV-0041", serial_number: "SN-0042" },
+          to: { inventory_code: "INV-0042", serial_number: "SN-0042" }
+        },
+        occurred_at: "2026-07-27T09:15:00Z"
+      },
+      {
+        sequence: 2,
+        action: "physical_asset_moved",
+        actor: "Opérateur CEM",
+        reason: "Affectation au poste conduit",
+        old_revision: 2,
+        new_revision: 3,
+        operation_id: "op-move-1",
+        device_id: "lab-console",
+        correlation_id: "corr-move-1",
+        payload: {
+          from: { laboratory_location_label: "Magasin métrologie" },
+          to: { laboratory_location_label: "Labo CEM 1" }
+        },
+        occurred_at: "2026-07-27T10:30:00Z"
+      }
+    ];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/v1/fleet/assets") return jsonResponse({ assets: [asset] });
+      if (path === `/api/v1/fleet/assets/${asset.asset_id}/audit-events`) {
+        return jsonResponse({ entity_id: asset.asset_id, audit_events: auditEvents });
+      }
+      return mockBaseApiResponse(path);
+    });
+    const user = userEvent.setup();
+
+    render(<FleetWorkspace
+      models={[equipmentModelFixture() as EquipmentModelAggregate]}
+      categories={equipmentCategoriesFixture()}
+      onOpenPinnedModel={vi.fn()}
+      onOpenMetrology={vi.fn()}
+    />);
+
+    expect(await screen.findByRole("heading", { name: "INV-0042" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Historique" }));
+    expect(await screen.findByRole("heading", { name: "Déplacement de l’exemplaire" })).toBeInTheDocument();
+    expect(screen.getByText("Affectation au poste conduit", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("Emplacement : Magasin métrologie → Labo CEM 1.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Modification du code inventaire et de l’identification" })).toBeInTheDocument();
+    expect(screen.getByText("Code inventaire : INV-0041 → INV-0042.")).toBeInTheDocument();
+    expect(screen.getByText("Opérateur du parc", { exact: false })).toBeInTheDocument();
+    expect(screen.getAllByText("Détails techniques").filter((element) => element.tagName === "SUMMARY")).toHaveLength(2);
+  });
+
+  test("separates administrative availability from computed operational usage", async () => {
+    let asset = physicalAssetFixture({
+      availability_state: "reserved",
+      operational_usage: {
+        state: "reserved",
+        assessed_at: "2026-07-27T10:00:00Z",
+        evidence: [{
+          source_kind: "planned_test_reservation",
+          source_identifier: "PLAN-CEM-042",
+          source_label: "Essai d'immunité conduit",
+          relevant_start_at: "2026-07-27T09:00:00Z",
+          relevant_end_at: "2026-07-27T12:00:00Z",
+          reason: "Réservé pour un essai planifié",
+          blocks_selection: true
+        }]
+      }
+    }) as PhysicalAsset;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/fleet/assets") return jsonResponse({ assets: [asset] });
+      if (path === "/api/v1/laboratory-locations") return mockBaseApiResponse(path);
+      if (path.endsWith("/transitions/administrative-availability") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        asset = {
+          ...asset,
+          administrative_availability: body.administrative_availability,
+          administrative_unavailability_reason: body.administrative_unavailability_reason,
+          availability_state: "unavailable",
+          operational_usage: {
+            state: "unavailable",
+            assessed_at: "2026-07-27T10:00:00Z",
+            evidence: [{
+              source_kind: "administrative_availability",
+              source_identifier: asset.asset_id,
+              source_label: "Disponibilité administrative",
+              relevant_start_at: null,
+              relevant_end_at: null,
+              reason: body.administrative_unavailability_reason,
+              blocks_selection: true
+            }]
+          },
+          revision: Number(asset.revision) + 1
+        };
+        return jsonResponse({ asset, replayed: false });
+      }
+      return jsonResponse({ error: { code: "unexpected", message: path } }, 500);
+    });
+    const user = userEvent.setup();
+
+    render(<FleetWorkspace
+      models={[equipmentModelFixture() as EquipmentModelAggregate]}
+      categories={equipmentCategoriesFixture()}
+      onOpenPinnedModel={vi.fn()}
+      onOpenMetrology={vi.fn()}
+    />);
+
+    expect(await screen.findByText("Essai d'immunité conduit")).toBeInTheDocument();
+    expect(screen.getByText("Réservé pour un essai planifié")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Emplacement et disponibilité" }));
+    const availabilitySelect = screen.getByLabelText(/Disponibilité administrative/);
+    expect(within(availabilitySelect).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Disponible",
+      "Indisponible"
+    ]);
+    expect(within(availabilitySelect).queryByRole("option", { name: "Réservé" })).not.toBeInTheDocument();
+    expect(within(availabilitySelect).queryByRole("option", { name: "Utilisé en essai" })).not.toBeInTheDocument();
+
+    await user.selectOptions(availabilitySelect, "unavailable");
+    const save = screen.getByRole("button", { name: "Enregistrer la disponibilité administrative" });
+    expect(save).toBeDisabled();
+    await user.type(screen.getByLabelText(/Motif d'indisponibilité/), "Prêt externe");
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([path]) =>
+      String(path).endsWith("/transitions/administrative-availability")
+    )).toBe(true));
+    expect(await screen.findByLabelText(/Motif d'indisponibilité/)).toHaveValue("Prêt externe");
+  });
+
+  test("edits identity at an archived location and moves through a dedicated command", async () => {
+    let asset = physicalAssetFixture({
+      laboratory_location_id: "LAB-LOCATION-ARCHIVED",
+      laboratory_location_label: "Ancien laboratoire",
+      laboratory_location_status: "archived"
+    }) as PhysicalAsset;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/fleet/assets") return jsonResponse({ assets: [asset] });
+      if (path === "/api/v1/laboratory-locations") return mockBaseApiResponse(path);
+      if (path.endsWith("/identification") && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body));
+        expect(body.laboratory_location_id).toBeUndefined();
+        asset = { ...asset, ...body, revision: asset.revision + 1 };
+        return jsonResponse({ asset, replayed: false });
+      }
+      if (path.endsWith("/transitions/move") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        asset = {
+          ...asset,
+          laboratory_location_id: body.destination_location_id,
+          laboratory_location_label: "Chambre semi-anéchoïque",
+          laboratory_location_status: "active",
+          revision: asset.revision + 1
+        };
+        return jsonResponse({ asset, replayed: false });
+      }
+      return jsonResponse({ error: { code: "unexpected", message: path } }, 500);
+    });
+    const user = userEvent.setup();
+
+    render(<FleetWorkspace
+      models={[equipmentModelFixture() as EquipmentModelAggregate]}
+      categories={equipmentCategoriesFixture()}
+      onOpenPinnedModel={vi.fn()}
+      onOpenMetrology={vi.fn()}
+    />);
+
+    expect((await screen.findAllByText("Ancien laboratoire (archivé)")).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "Identification" }));
+    const notes = screen.getByLabelText("Notes");
+    await user.clear(notes);
+    await user.type(notes, "Inventaire vérifié sur place");
+    await user.click(screen.getByRole("button", { name: "Enregistrer l'identification" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([path]) => String(path).endsWith("/identification"))).toBe(true));
+    expect(screen.getAllByText("Ancien laboratoire (archivé)").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Emplacement et disponibilité" }));
+    expect(await screen.findByText(/Emplacement actuel archivé/)).toBeInTheDocument();
+    const location = screen.getByLabelText("Nouvel emplacement");
+    expect(within(location).getByRole("option", { name: /Ancien laboratoire.*archivé/ })).toBeDisabled();
+    await user.selectOptions(location, "LAB-LOCATION-ANECHOIC");
+    await user.type(screen.getByLabelText(/Motif du déplacement/), "Transfert vers la chambre rayonnée");
+    await user.click(screen.getByRole("button", { name: "Enregistrer le déplacement" }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([path]) => String(path).endsWith("/transitions/move"))).toBe(true));
+    expect((await screen.findAllByText("Chambre semi-anéchoïque")).length).toBeGreaterThan(0);
+    const moveRequest = fetchMock.mock.calls.find(([path]) => String(path).endsWith("/transitions/move"));
+    const moveBody = JSON.parse(String((moveRequest?.[1] as RequestInit).body));
+    expect(moveBody.destination_location_id).toBe("LAB-LOCATION-ANECHOIC");
+    expect(moveBody.reason).toBe("Transfert vers la chambre rayonnée");
+  });
+
+  test("reconciles a migrated asset through a readable exact model revision", async () => {
+    const unresolved = physicalAssetFixture({
+      asset_id: "LEGACY-SCOPE-001",
+      inventory_code: "LEGACY-SCOPE-001",
+      equipment_model_id: null,
+      equipment_model_revision_id: null,
+      equipment_model_checksum: null,
+      manufacturer: "Ancien fabricant",
+      model_name: "Modèle à rapprocher",
+      variant: null,
+      category_code: "legacy_metrology",
+      category_path: ["Ancien registre"],
+      revision: 1,
+      model_link_state: "migration_review_required",
+      migrated_from_metrology: true
+    });
+    const candidate = {
+      equipment_model_id: "EQM-NRP6AN-FWD",
+      equipment_model_revision_id: "EQM-NRP6AN-FWD-rev-0001",
+      revision_number: 1,
+      lifecycle_status: "superseded",
+      approved_at: "2026-07-03T00:00:00Z",
+      manufacturer: "R&S",
+      model_name: "NRP6AN",
+      variant: "FWD",
+      category_path: ["Mesure RF", "Wattmètres"]
+    };
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/fleet/assets") return jsonResponse({ assets: [unresolved] });
+      if (path === "/api/v1/laboratory-locations") return mockBaseApiResponse(path);
+      if (path === "/api/v1/fleet/model-reconciliation-candidates") {
+        return jsonResponse({ candidates: [candidate] });
+      }
+      if (path.endsWith("/transitions/reconcile-model") && init?.method === "POST") {
+        return jsonResponse({
+          replayed: false,
+          asset: {
+            ...unresolved,
+            equipment_model_id: candidate.equipment_model_id,
+            equipment_model_revision_id: candidate.equipment_model_revision_id,
+            equipment_model_checksum: canonicalChecksum("a"),
+            manufacturer: candidate.manufacturer,
+            model_name: candidate.model_name,
+            variant: candidate.variant,
+            category_code: "power_meter",
+            category_path: candidate.category_path,
+            revision: 2,
+            model_link_state: "resolved"
+          }
+        });
+      }
+      return jsonResponse({ error: { code: "unexpected", message: path } }, 500);
+    });
+    const user = userEvent.setup();
+
+    render(<FleetWorkspace
+      models={[equipmentModelFixture() as EquipmentModelAggregate]}
+      categories={equipmentCategoriesFixture()}
+      onOpenPinnedModel={vi.fn()}
+      onOpenMetrology={vi.fn()}
+    />);
+
+    expect(await screen.findByRole("heading", { name: "Modèle constructeur à rapprocher" })).toBeInTheDocument();
+    expect(screen.getByText(/provient de l’ancien registre métrologique/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Rapprocher avec un modèle constructeur" }));
+    expect(await screen.findByRole("option", { name: /R&S NRP6AN FWD.*Mesure RF > Wattmètres.*Version 1.*Remplacée/ })).toBeInTheDocument();
+    expect(screen.queryByText(candidate.equipment_model_id)).not.toBeInTheDocument();
+    expect(screen.queryByText(candidate.equipment_model_revision_id)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Rapprocher cette version" }));
+
+    expect(await screen.findByRole("button", { name: "Ouvrir le modèle constructeur" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Modèle constructeur à rapprocher" })).not.toBeInTheDocument();
+    const request = fetchMock.mock.calls.find(([path]) => String(path).endsWith("/transitions/reconcile-model"));
+    const body = JSON.parse(String((request?.[1] as RequestInit).body));
+    expect(body.expected_revision).toBe(1);
+    expect(body.equipment_model_id).toBe(candidate.equipment_model_id);
+    expect(body.equipment_model_revision_id).toBe(candidate.equipment_model_revision_id);
+    expect(body.equipment_model_checksum).toBeUndefined();
+  });
+
+  test("uses only physical fleet assets in a station setup and isolates fleet failure", async () => {
+    const setup = stationSetupFixture();
+    let failFleet = false;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/v1/station-setups") return jsonResponse({ station_setups: [setup] });
+      if (path.startsWith("/api/v1/station-setups/asset-options?")) {
+        return failFleet
+          ? jsonResponse({ error: { code: "fleet_unavailable", message: "parc indisponible" } }, 503)
+          : jsonResponse({
+            assessed_at: "2026-07-30T12:00:00Z",
+            checked_on: "2026-07-30",
+            execution_mode: "accredited",
+            laboratory_location_id: "LAB-LOCATION-CEM-1",
+            assets: [
+              { asset: physicalAssetFixture(), eligible: true, blocking_reasons: [], warnings: [] },
+              {
+                asset: physicalAssetFixture({
+                  asset_id: "ASSET-RESTRICTED-001",
+                  inventory_code: "INV-RESTRICTED",
+                  serial_number: null,
+                  service_state: "restricted"
+                }),
+                eligible: true,
+                blocking_reasons: [],
+                warnings: [{
+                  code: "service_restricted",
+                  message: "Cet exemplaire comporte une restriction d'utilisation.",
+                  next_action: "Consultez son dossier avant de confirmer son utilisation."
+                }]
+              },
+              {
+                asset: physicalAssetFixture({
+                  asset_id: "ASSET-OOS-001",
+                  inventory_code: "INV-OOS",
+                  serial_number: null,
+                  service_state: "out_of_service",
+                  availability_state: "unavailable"
+                }),
+                eligible: false,
+                blocking_reasons: [{
+                  code: "service_out_of_service",
+                  message: "Cet exemplaire est hors service.",
+                  next_action: "Faites rétablir son état de service ou choisissez un autre exemplaire."
+                }],
+                warnings: []
+              }
+            ]
+          });
+      }
+      if (path === "/api/v1/laboratory-locations") return mockBaseApiResponse(path);
+      return jsonResponse({ error: { code: "unexpected", message: path } }, 500);
+    });
+    const user = userEvent.setup();
+    const view = render(<StationSetupWorkspace />);
+
+    expect(await screen.findByRole("heading", { name: "Chaîne d'émissions conduites" })).toBeInTheDocument();
+    expect(screen.queryByText(/pré-vol/i)).not.toBeInTheDocument();
+    const selector = screen.getByLabelText(/Exemplaire du parc/);
+    const assetOption = await within(selector).findByRole("option", { name: /INV-0042.*SN 103456.*Labo CEM 1.*Utilisable.*Disponible.*Étalonnage valide/ });
+    expect(assetOption).toBeInTheDocument();
+    expect(within(selector).getByRole("option", { name: /INV-OOS.*hors service/ })).toBeDisabled();
+    expect(screen.getByText("Matériels non disponibles (1)")).toBeInTheDocument();
+    await user.selectOptions(selector, "ASSET-RESTRICTED-001");
+    expect(screen.getByText("Cet exemplaire comporte une restriction d'utilisation.")).toBeInTheDocument();
+    expect(screen.queryByText("EQM-NRP6AN-FWD-rev-0001")).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText(/Rôle dans le montage/), "Récepteur EMI");
+    await user.selectOptions(selector, "ASSET-NRP6AN-001");
+    await user.click(screen.getByRole("button", { name: "Affecter au montage" }));
+    expect(screen.getByText(/INV-0042.*SN 103456/)).toBeInTheDocument();
+
+    failFleet = true;
+    view.unmount();
+    render(<StationSetupWorkspace />);
+    expect(await screen.findByRole("heading", { name: "Chaîne d'émissions conduites" })).toBeInTheDocument();
+    expect(await screen.findByText("Aptitude du parc temporairement indisponible")).toBeInTheDocument();
+    expect(screen.getByText(/Labo CEM 1.*utilisation prévue/)).toBeInTheDocument();
+  });
+
+  test("invalidates stale station asset options when the use context changes", async () => {
+    const setup = stationSetupFixture();
+    const locationAAsset = physicalAssetFixture({
+      asset_id: "ASSET-LOCATION-A",
+      inventory_code: "INV-LOCATION-A"
+    });
+    const locationBAsset = physicalAssetFixture({
+      asset_id: "ASSET-LOCATION-B",
+      inventory_code: "INV-LOCATION-B",
+      laboratory_location_id: "LAB-LOCATION-ANECHOIC",
+      laboratory_location_label: "Chambre semi-anéchoïque"
+    });
+    let resolveLocationA!: (response: Response) => void;
+    let resolveLocationB!: (response: Response) => void;
+    const locationAResponse = new Promise<Response>((resolve) => { resolveLocationA = resolve; });
+    const locationBResponse = new Promise<Response>((resolve) => { resolveLocationB = resolve; });
+    let locationBRequests = 0;
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/v1/station-setups") return jsonResponse({ station_setups: [setup] });
+      if (path === "/api/v1/laboratory-locations") return mockBaseApiResponse(path);
+      if (path.startsWith("/api/v1/station-setups/asset-options?")) {
+        const query = new URL(path, "http://localhost").searchParams;
+        if (query.get("laboratory_location_id") === "LAB-LOCATION-CEM-1") {
+          return locationAResponse;
+        }
+        locationBRequests += 1;
+        if (locationBRequests === 1) return locationBResponse;
+        return jsonResponse({ error: { code: "fleet_unavailable", message: "parc indisponible" } }, 503);
+      }
+      return jsonResponse({ error: { code: "unexpected", message: path } }, 500);
+    });
+    const user = userEvent.setup();
+    render(<StationSetupWorkspace />);
+
+    expect(await screen.findByRole("heading", { name: "Chaîne d'émissions conduites" })).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent(/Actualisation des exemplaires/);
+    const locationSelector = screen.getByLabelText(/Lieu du laboratoire/);
+    const assetSelector = screen.getByLabelText(/Exemplaire du parc/);
+    const assignButton = screen.getByRole("button", { name: "Affecter au montage" });
+
+    await user.selectOptions(locationSelector, "LAB-LOCATION-ANECHOIC");
+    expect(assetSelector).toBeDisabled();
+    expect(assignButton).toBeDisabled();
+    expect(within(assetSelector).queryByRole("option", { name: /INV-LOCATION-A/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(fetchMock.mock.calls.some(([request]) =>
+      String(request).includes("laboratory_location_id=LAB-LOCATION-ANECHOIC")
+    )).toBe(true));
+
+    resolveLocationA(stationAssetOptionsResponse("LAB-LOCATION-CEM-1", locationAAsset));
+    await waitFor(() => expect(within(assetSelector).queryByRole("option", { name: /INV-LOCATION-A/ })).not.toBeInTheDocument());
+    expect(assetSelector).toBeDisabled();
+
+    resolveLocationB(stationAssetOptionsResponse("LAB-LOCATION-ANECHOIC", locationBAsset));
+    const locationBOption = await within(assetSelector).findByRole("option", { name: /INV-LOCATION-B/ });
+    expect(locationBOption).toBeEnabled();
+    await user.type(screen.getByLabelText(/Rôle dans le montage/), "Récepteur EMI");
+    await user.selectOptions(assetSelector, "ASSET-LOCATION-B");
+    expect(assignButton).toBeEnabled();
+    await user.click(assignButton);
+    expect(screen.getByText(/INV-LOCATION-B.*Chambre semi-anéchoïque/)).toBeInTheDocument();
+
+    await user.selectOptions(locationSelector, "");
+    expect(assetSelector).toBeDisabled();
+    expect(within(assetSelector).queryByRole("option", { name: /INV-LOCATION-B/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Renseignez le lieu et la date d'utilisation/)).toBeInTheDocument();
+    expect(screen.getByText(/INV-LOCATION-B.*Chambre semi-anéchoïque/)).toBeInTheDocument();
+
+    await user.selectOptions(locationSelector, "LAB-LOCATION-ANECHOIC");
+    expect(await screen.findByText("Aptitude du parc temporairement indisponible")).toBeInTheDocument();
+    expect(assignButton).toBeDisabled();
+    expect(screen.getByRole("heading", { name: "Chaîne d'émissions conduites" })).toBeInTheDocument();
+    expect(screen.getByText(/INV-LOCATION-B.*Chambre semi-anéchoïque/)).toBeInTheDocument();
   });
 
   test("records and displays a frequency response for a physical asset", async () => {
@@ -771,9 +1423,8 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Équipements" }));
-    await user.click(await screen.findByRole("button", { name: "Matériels réels" }));
-    expect(await screen.findByRole("heading", { name: instrument.asset_id })).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Métrologie du parc" }));
+    expect(await screen.findByRole("heading", { name: instrument.inventory_code })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Ajouter une caractérisation" }));
     expect(await screen.findByRole("heading", { name: "Ajouter une caractérisation" })).toBeInTheDocument();
     await user.type(screen.getByLabelText(/Laboratoire ou prestataire/), "Laboratoire interne");
@@ -844,9 +1495,9 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Équipements" }));
-    await screen.findByRole("heading", { name: "Équipements" });
-    await user.selectOptions(screen.getByLabelText("Filtre categorie racine"), "rf_equipment");
+    await user.click(await screen.findByRole("button", { name: "Catalogue des modèles" }));
+    await screen.findByRole("heading", { level: 1, name: "Catalogue des modèles" });
+    await user.selectOptions(screen.getByLabelText("Filtrer par famille"), "rf_equipment");
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("root_category_id=rf_equipment"),
@@ -855,7 +1506,7 @@ describe("LAB CONSOLE", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /Nouveau modèle/ }));
-    const creationPanel = (await screen.findByText("Nouveau modèle équipement")).closest(".creationPanel");
+    const creationPanel = (await screen.findByText("Nouveau modèle constructeur")).closest(".creationPanel");
     expect(creationPanel).not.toBeNull();
     const wizard = within(creationPanel as HTMLElement);
     expect(wizard.queryByRole("button", { name: /radiofr/i })).not.toBeInTheDocument();
@@ -869,8 +1520,8 @@ describe("LAB CONSOLE", () => {
     await user.type(wizard.getByLabelText(/Connecteur A/), "N");
     await user.type(wizard.getByLabelText(/Connecteur B/), "N");
     await user.click(wizard.getByRole("button", { name: "Continuer" }));
-    await user.type(wizard.getByLabelText(/ID modele optionnel/), "EQM-RF-CABLE-DEMO");
-    await user.click(wizard.getByRole("button", { name: /Creer brouillon/ }));
+    expect(wizard.queryByLabelText(/identifiant interne/i)).not.toBeInTheDocument();
+    await user.click(wizard.getByRole("button", { name: /Créer le brouillon/ }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/v1/equipment-models/from-category-template",
@@ -878,14 +1529,14 @@ describe("LAB CONSOLE", () => {
       )
     );
 
-    expect(await screen.findByText("Fiche modèle équipement")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Categorie et formulaire" }));
-    expect(screen.getByText("Formulaire utilise")).toBeInTheDocument();
+    expect(await screen.findByText("Vous consultez un modèle générique.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Catégorie et champs" }));
+    expect(screen.getByText("Formulaire utilisé")).toBeInTheDocument();
     expect(screen.queryByText("Template checksum")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Entrées et sorties" }));
     expect(screen.getByDisplayValue("RF_A")).toBeInTheDocument();
     expect(screen.getByDisplayValue("RF_B")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Valider/ }));
+    await user.click(screen.getByRole("button", { name: /Vérifier la fiche/ }));
     expect(await screen.findByText("Définition prête à être soumise")).toBeInTheDocument();
   });
 
@@ -1043,7 +1694,7 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Équipements" }));
+    await user.click(await screen.findByRole("button", { name: "Catalogue des modèles" }));
     await user.click(await screen.findByRole("button", { name: "Administration du référentiel" }));
     const rfActions = await screen.findByRole("button", { name: /Actions .*radiofr/i });
     const rfActionMenu = within(rfActions.closest(".treeMenuWrap") as HTMLElement);
@@ -1053,10 +1704,10 @@ describe("LAB CONSOLE", () => {
     expect(screen.getByRole("button", { name: "Formulaire" })).toHaveClass("active");
 
     await user.click(screen.getByText("Amplificateurs"));
-    await user.click(screen.getByRole("button", { name: "Sous-categories" }));
-    await user.type(screen.getByLabelText(/Nom de la sous-categorie/), "Amplificateurs faible bruit");
+    await user.click(screen.getByRole("button", { name: "Sous-catégories" }));
+    await user.type(screen.getByLabelText(/Nom de la sous-catégorie/), "Amplificateurs faible bruit");
     expect(screen.getByLabelText(/Identifiant interne/)).not.toBeVisible();
-    await user.click(screen.getByRole("button", { name: /Creer la sous-categorie/ }));
+    await user.click(screen.getByRole("button", { name: /Créer la sous-catégorie/ }));
     await waitFor(() => expect(document.querySelector('[data-category-id="amplificateurs_faible_bruit"]')).not.toBeNull());
 
     await user.click(document.querySelector('[data-category-id="amplificateurs_faible_bruit"]') as HTMLElement);
@@ -1066,7 +1717,7 @@ describe("LAB CONSOLE", () => {
     await user.type(screen.getByPlaceholderText("Nouvelle valeur"), "Surveillance");
     await user.click(screen.getByRole("button", { name: "Ajouter une valeur" }));
     expect(screen.getByText("Surveillance")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Creer le champ/ }));
+    await user.click(screen.getByRole("button", { name: /Créer le champ/ }));
     await waitFor(() => expect(fields.some((field) => field.field_code === "criticite_terrain")).toBe(true));
     await user.click(screen.getByRole("button", { name: "Modifier Criticite terrain" }));
     await user.clear(screen.getByLabelText("Nom du champ"));
@@ -1075,7 +1726,7 @@ describe("LAB CONSOLE", () => {
     await waitFor(() => expect(fields.some((field) => field.label === "Criticite mission")).toBe(true));
     await user.click(screen.getByRole("button", { name: /Ajouter au formulaire/ }));
 
-    await user.click(screen.getByRole("button", { name: "Apercu" }));
+    await user.click(screen.getByRole("button", { name: "Aperçu" }));
     expect(await screen.findByText("Criticite mission")).toBeInTheDocument();
     expect(screen.getByText(canonicalChecksum("9"))).not.toBeVisible();
     await user.click(screen.getByText("Informations techniques"));
@@ -1110,8 +1761,8 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Équipements" }));
-    await user.click(await screen.findByRole("button", { name: "Signaux et corrections" }));
+    await user.click(await screen.findByRole("button", { name: "Catalogue des modèles" }));
+    await user.click(await screen.findByTitle("Signaux et corrections"));
     expect(await screen.findByRole("heading", { name: "Comment le signal est-il exploité ?" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /échantillons temporels/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /spectre en fréquence/ })).toBeInTheDocument();
@@ -1161,8 +1812,7 @@ describe("LAB CONSOLE", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Équipements" }));
-    await user.click(await screen.findByRole("button", { name: "Signaux et corrections" }));
+    await user.click(await screen.findByTitle("Signaux et corrections"));
     await user.click(await screen.findByRole("button", { name: "Capteurs / transducteurs" }));
     await user.click(await screen.findByRole("button", { name: /Demo Current Probe/ }));
     expect(await screen.findByRole("combobox", { name: "Famille de capteur" })).toHaveValue("current_probe");
@@ -1351,10 +2001,9 @@ describe("LAB CONSOLE", () => {
 
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Équipements" }));
-    await user.click(await screen.findByRole("button", { name: "Matériels réels" }));
+    await user.click(await screen.findByRole("button", { name: "Métrologie du parc" }));
     expect(await screen.findByText("Correction manquante")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Lier cette preuve" }));
+    await user.click(await screen.findByRole("button", { name: "Lier cette preuve" }));
     await user.click(await screen.findByRole("button", { name: "Soumettre pour revue" }));
     expect(await screen.findByText(/attend une décision/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Approuver et activer" }));
@@ -1475,6 +2124,124 @@ function equipmentModelFixture() {
     latest_revision: revision,
     active_draft_revision: null
   };
+}
+
+function metrologySummary(
+  overrides: Partial<PhysicalAssetMetrologySummary> = {}
+): PhysicalAssetMetrologySummary {
+  return {
+    status: "valid",
+    checked_on: "2026-07-27",
+    calibration_requirement: "required",
+    calibration_period_months: 12,
+    latest_calibration_decision: "conforming",
+    calibrated_at: "2026-04-30",
+    due_at: "2027-04-30",
+    warning_threshold_days: 30,
+    blocking: false,
+    explanation: "Étalonnage valide jusqu’au 2027-04-30.",
+    reasons: ["calibration_valid"],
+    latest_calibration_event_id: "CAL-EVENT-001",
+    latest_calibration_revision: "rev-0001",
+    ...overrides
+  };
+}
+
+function physicalAssetFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    asset_id: "ASSET-NRP6AN-001",
+    inventory_code: "INV-0042",
+    serial_number: "SN 103456",
+    part_number: "NRP6AN",
+    equipment_model_id: "EQM-NRP6AN-FWD",
+    equipment_model_revision_id: "EQM-NRP6AN-FWD-rev-0001",
+    equipment_model_checksum: canonicalChecksum("a"),
+    manufacturer: "R&S",
+    model_name: "NRP6AN",
+    variant: "FWD",
+    category_code: "power_meter",
+    category_path: ["Mesure RF", "Wattmètres"],
+    laboratory_location_id: "LAB-LOCATION-CEM-1",
+    laboratory_location_label: "Labo CEM 1",
+    laboratory_location_status: "active",
+    ownership_source: "laboratory_owned",
+    service_state: "usable",
+    administrative_availability: "available",
+    administrative_unavailability_reason: "",
+    operational_usage: {
+      state: "available",
+      assessed_at: "2026-07-27T08:00:00Z",
+      evidence: []
+    },
+    availability_state: "available",
+    service_state_reason: "Contrôle avant utilisation",
+    notes: "Capteur de puissance RF",
+    revision: 3,
+    model_link_state: "controlled",
+    migrated_from_metrology: false,
+    metrology: metrologySummary(),
+    created_at: "2026-07-14T08:00:00Z",
+    updated_at: "2026-07-15T08:00:00Z",
+    ...overrides
+  };
+}
+
+function stationSetupFixture() {
+  const definition = {
+    definition_schema_version: "emc-locus.station-measurement-setup-definition.v2",
+    setup_id: "SETUP-CONDUCTED-001",
+    label: "Chaîne d'émissions conduites",
+    laboratory_location_id: "LAB-LOCATION-CEM-1",
+    laboratory_location_label: "Labo CEM 1",
+    planned_use_on: "2026-07-30",
+    execution_mode: "accredited" as const,
+    asset_bindings: [],
+    connections: [],
+    correction_selections: [],
+    notes: {}
+  };
+  const revision = {
+    revision_id: "SETUP-CONDUCTED-001-rev-0001",
+    setup_id: definition.setup_id,
+    revision_number: 1,
+    parent_revision_id: null,
+    status: "draft" as const,
+    definition_schema_version: definition.definition_schema_version,
+    definition,
+    definition_checksum: canonicalChecksum("b"),
+    readiness: {
+      ready: false,
+      checked_on: "2026-07-26",
+      issues: [{ code: "station_setup_requires_two_materials", severity: "blocking" as const, dimension: "structure", message: "Ajoutez les matériels de la chaîne." }]
+    },
+    created_by: "station.technician",
+    created_at: "2026-07-26T08:00:00Z",
+    updated_at: "2026-07-26T08:00:00Z",
+    ready_at: null
+  };
+  return {
+    identity: {
+      setup_id: definition.setup_id,
+      label: definition.label,
+      current_ready_revision_id: null,
+      created_by: "station.technician",
+      created_at: "2026-07-26T08:00:00Z",
+      updated_at: "2026-07-26T08:00:00Z"
+    },
+    active_draft_revision: revision,
+    current_ready_revision: null,
+    latest_revision: revision
+  };
+}
+
+function stationAssetOptionsResponse(laboratoryLocationId: string, asset: ReturnType<typeof physicalAssetFixture>) {
+  return jsonResponse({
+    assessed_at: "2026-07-30T12:00:00Z",
+    checked_on: "2026-07-30",
+    execution_mode: "accredited",
+    laboratory_location_id: laboratoryLocationId,
+    assets: [{ asset, eligible: true, blocking_reasons: [], warnings: [] }]
+  });
 }
 
 function rfCableModelFixture() {
@@ -1923,6 +2690,7 @@ function driverProfileFixture() {
 function metrologyInstrumentFixture() {
   return {
     asset_id: "RF-CABLE-001",
+    inventory_code: "INV-RF-CABLE-001",
     family: "passive_rf_component",
     category_code: "rf_cable",
     equipment_model_id: "EQM-RF-CABLE-DEMO",
@@ -1932,11 +2700,15 @@ function metrologyInstrumentFixture() {
     model: "Sucoflex 104",
     serial_number: "RF-24017",
     part_number: "22510146",
+    availability: "available",
+    legacy_availability: null,
     serviceability_status: "usable",
     serviceability_reason: "Contrôle visuel conforme",
+    serviceability_updated_at: "2026-07-14T00:00:00Z",
     calibration_requirement: "required",
     calibration_period_months: 12,
     calibration_due_warning_days: 45,
+    capabilities_json: "{}",
     metrology_notes: "Câble de référence",
     created_at: "2026-07-14T00:00:00Z",
     updated_at: "2026-07-14T00:00:00Z",
@@ -2135,9 +2907,9 @@ function mockProjectWorkflowApi(settings: {
     if (path === `/api/v1/projects/${project.code}/audit-events` && method === "GET") {
       return jsonResponse({ project_code: project.code, audit_events: audit });
     }
-    if (path === "/api/v1/station-setups" && settings.locationFailure) {
+    if (path === "/api/v1/laboratory-locations" && settings.locationFailure) {
       return jsonResponse(
-        { error: { code: "station_setup_unavailable", message: "location source unavailable" } },
+          { error: { code: "laboratory_location_unavailable", message: "location source unavailable" } },
         503
       );
     }
@@ -2151,6 +2923,8 @@ function mockLaboratoryPlanningApi(settings: {
   identificationConcurrency?: boolean;
   legacyConflict?: boolean;
   locationFailure?: boolean;
+  preparationOptionsFailure?: boolean;
+  emptyPreparationOptions?: boolean;
 } = {}) {
   let rescheduleAttempts = 0;
   const first: LaboratoryScheduleItem = {
@@ -2245,6 +3019,7 @@ function mockLaboratoryPlanningApi(settings: {
         equipment_model_revision_id: "MODEL-ESW-rev-0002",
         equipment_model_checksum: canonicalChecksum("c"),
         category_code: "emi_receiver",
+        metrology: metrologySummary(),
         capabilities: []
       },
       {
@@ -2260,6 +3035,7 @@ function mockLaboratoryPlanningApi(settings: {
         equipment_model_revision_id: "MODEL-SMW200A-rev-0001",
         equipment_model_checksum: canonicalChecksum("f"),
         category_code: "rf_signal_generator",
+        metrology: metrologySummary(),
         capabilities: []
       }
     ],
@@ -2272,6 +3048,30 @@ function mockLaboratoryPlanningApi(settings: {
     station_setups: [
       {
         station_setup: station,
+        eligible: true,
+        blocking_reasons: [],
+        warnings: [],
+        asset_options: station.assets.map((asset) => ({
+          asset: physicalAssetFixture({
+            asset_id: asset.asset_id,
+            inventory_code: asset.inventory_code,
+            serial_number: asset.serial_number,
+            equipment_model_id: asset.equipment_model_id,
+            equipment_model_revision_id: asset.equipment_model_revision_id,
+            equipment_model_checksum: asset.equipment_model_checksum,
+            manufacturer: asset.manufacturer,
+            model_name: asset.model_name,
+            category_code: asset.category_code,
+            category_path: [],
+            laboratory_location_label: "Labo CEM 1",
+            service_state: "usable",
+            availability_state: "available",
+            metrology: asset.metrology
+          }) as PhysicalAsset,
+          eligible: true,
+          blocking_reasons: [],
+          warnings: []
+        })),
         readiness: { ready: true, checked_on: "2026-07-16", issues: [] }
       }
     ],
@@ -2341,6 +3141,17 @@ function mockLaboratoryPlanningApi(settings: {
       });
     }
     if (path === `${preparationBase}/options`) {
+      if (settings.preparationOptionsFailure) {
+        return jsonResponse({ error: { code: "preparation_options_unavailable", message: "options de préparation indisponibles" } }, 503);
+      }
+      if (settings.emptyPreparationOptions) {
+        return jsonResponse({
+          ...preparationOptions,
+          methods: [],
+          station_setups: [],
+          material_compatibility: []
+        });
+      }
       return jsonResponse(preparationOptions);
     }
     if (path === `${preparationBase}/revisions`) {
@@ -2550,9 +3361,9 @@ function mockLaboratoryPlanningApi(settings: {
         schedule_item: first
       });
     }
-    if (path === "/api/v1/station-setups" && settings.locationFailure) {
+    if (path === "/api/v1/laboratory-locations" && settings.locationFailure) {
       return jsonResponse(
-        { error: { code: "station_setup_unavailable", message: "location source unavailable" } },
+          { error: { code: "laboratory_location_unavailable", message: "location source unavailable" } },
         503
       );
     }
@@ -2563,24 +3374,26 @@ function mockLaboratoryPlanningApi(settings: {
 function mockBaseApiResponse(path: string, init?: RequestInit) {
   if (path === "/api/v1/health") return jsonResponse(healthFixture);
   if (path === "/api/v1/storage/status") return jsonResponse(storageFixture);
-  if (path === "/api/v1/station-setups") {
+  if (path === "/api/v1/laboratory-locations") {
     return jsonResponse({
-      station_setups: [
+      locations: [
         {
-          current_ready_revision: {
-            definition: {
-              laboratory_location_id: "LAB-LOCATION-CEM-1",
-              laboratory_location_label: "Labo CEM 1"
-            }
-          }
+          location_id: "LAB-LOCATION-CEM-1",
+          label: "Labo CEM 1",
+          description: "Poste conduit",
+          status: "active",
+          revision: 1,
+          created_at: "2026-07-14T08:00:00Z",
+          updated_at: "2026-07-14T08:00:00Z"
         },
         {
-          current_ready_revision: {
-            definition: {
-              laboratory_location_id: "LAB-LOCATION-ANECHOIC",
-              laboratory_location_label: "Chambre semi-anéchoïque"
-            }
-          }
+          location_id: "LAB-LOCATION-ANECHOIC",
+          label: "Chambre semi-anéchoïque",
+          description: "Site rayonné",
+          status: "active",
+          revision: 1,
+          created_at: "2026-07-14T08:00:00Z",
+          updated_at: "2026-07-14T08:00:00Z"
         }
       ]
     });
@@ -2591,6 +3404,9 @@ function mockBaseApiResponse(path: string, init?: RequestInit) {
   if (path.startsWith("/api/v1/equipment/categories/rf_cable/field-rules")) return jsonResponse({ category_id: "rf_cable", rules: [] });
   if (path.startsWith("/api/v1/equipment/categories")) return jsonResponse({ categories: equipmentCategoriesFixture() });
   if (path.startsWith("/api/v1/equipment/field-definitions")) return jsonResponse({ field_definitions: equipmentFieldDefinitionsFixture() });
+  if (path.includes("/api/v1/fleet/assets/") && path.endsWith("/audit-events")) {
+    return jsonResponse({ entity_id: path.split("/")[5], audit_events: [] });
+  }
   if (path === "/api/v1/metrology/instruments") return jsonResponse({ instruments: [] });
   if (path.includes("/api/v1/metrology/instruments/") && path.endsWith("/audit-events")) {
     return jsonResponse({ audit_events: [] });

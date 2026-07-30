@@ -456,7 +456,7 @@ def build_operator_form_specs(
         OperatorFormSpec(
             action_id="run_simulated_emc_test",
             title="Essai CEM simule",
-            submit_label="Pre-vol et lancer",
+            submit_label="Contrôler l’aptitude et lancer",
             enabled=has_test_execution_agent and bool(projects) and bool(instruments),
             disabled_reason=_disabled_reason(
                 has_test_execution_agent,
@@ -789,7 +789,7 @@ def _action_intents(bootstrap: dict[str, Any]) -> tuple[OperatorActionIntent, ..
             target_table="test_executions",
             enabled=simulated_test_enabled,
             reason=(
-                "Pre-vol metrologique puis execution simulee"
+                "Contrôle d’aptitude métrologique puis exécution simulée"
                 if simulated_test_enabled
                 else "Projet et instrument requis"
             ),

@@ -9,6 +9,7 @@ export interface CalibrationRecordSummary {
 
 export interface MetrologyInstrument {
   asset_id: string;
+  inventory_code: string;
   family: string;
   category_code: string | null;
   equipment_model_id: string | null;

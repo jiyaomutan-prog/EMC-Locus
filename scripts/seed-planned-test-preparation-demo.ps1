@@ -18,8 +18,9 @@ function Invoke-EmcApi {
         TimeoutSec = 20
     }
     if ($null -ne $Body) {
-        $parameters.ContentType = "application/json"
-        $parameters.Body = ($Body | ConvertTo-Json -Depth 50)
+        $json = $Body | ConvertTo-Json -Depth 50
+        $parameters.ContentType = "application/json; charset=utf-8"
+        $parameters.Body = [System.Text.Encoding]::UTF8.GetBytes($json)
     }
 
     try {
@@ -43,6 +44,23 @@ function Get-ApprovedEquipmentModel {
         throw "Approved equipment model is required: $ModelId. Run seed-equipment-demo.ps1 first."
     }
     return $model
+}
+
+function Ensure-LaboratoryLocation {
+    param([string]$Label)
+
+    $locations = (Invoke-EmcApi -Method GET -Path "/api/v1/laboratory-locations?include_archived=true").locations
+    $location = $locations | Where-Object { $_.label -eq $Label -and $_.status -eq "active" } | Select-Object -First 1
+    if ($location) {
+        return $location
+    }
+    return (Invoke-EmcApi -Method POST -Path "/api/v1/laboratory-locations" -Body ([ordered]@{
+        label = $Label
+        description = "Lieu de demonstration pour la preparation des essais"
+        actor = "demo.laboratory.manager"
+        reason = "Creer le lieu stable de la demonstration"
+        operation_id = "seed-planned-preparation-location-create"
+    })).location
 }
 
 function Ensure-ApprovedMethod {
@@ -140,37 +158,48 @@ function Ensure-Instrument {
         [string]$Family,
         [string]$CategoryCode,
         [string]$SerialNumber,
-        [object]$Model
+        [object]$Model,
+        [object]$Location
     )
 
     $instruments = (Invoke-EmcApi -Method GET -Path "/api/v1/metrology/instruments").instruments
     $instrument = $instruments | Where-Object { $_.asset_id -eq $AssetId } | Select-Object -First 1
-    if ($instrument) {
-        return $instrument
+    if (-not $instrument) {
+        $revision = $Model.current_approved_revision
+        Invoke-EmcApi -Method POST -Path "/api/v1/metrology/instruments" -Body ([ordered]@{
+            asset_id = $AssetId
+            family = $Family
+            category_code = $CategoryCode
+            equipment_model_id = $Model.identity.equipment_model_id
+            equipment_model_revision_id = $revision.revision_id
+            equipment_model_checksum = $revision.definition_checksum
+            manufacturer = $revision.definition.manufacturer
+            model = $revision.definition.model_name
+            serial_number = $SerialNumber
+            part_number = $revision.definition.model_name
+            calibration_requirement = "not_required"
+            serviceability_status = "usable"
+            serviceability_reason = "Materiel de demonstration verifie"
+            capabilities = [ordered]@{}
+            metrology_notes = "Jeu de demonstration du controle de preparation planifiee."
+            actor = "demo.metrology"
+            reason = "Enregistrer le materiel de demonstration"
+            operation_id = "seed-planned-preparation-register-$AssetId"
+        }) | Out-Null
     }
 
-    $revision = $Model.current_approved_revision
-    $registered = Invoke-EmcApi -Method POST -Path "/api/v1/metrology/instruments" -Body ([ordered]@{
-        asset_id = $AssetId
-        family = $Family
-        category_code = $CategoryCode
-        equipment_model_id = $Model.identity.equipment_model_id
-        equipment_model_revision_id = $revision.revision_id
-        equipment_model_checksum = $revision.definition_checksum
-        manufacturer = $revision.definition.manufacturer
-        model = $revision.definition.model_name
-        serial_number = $SerialNumber
-        part_number = $revision.definition.model_name
-        calibration_requirement = "not_required"
-        serviceability_status = "usable"
-        serviceability_reason = "Materiel de demonstration verifie"
-        capabilities = [ordered]@{}
-        metrology_notes = "Jeu de demonstration du controle de preparation planifiee."
-        actor = "demo.metrology"
-        reason = "Enregistrer le materiel de demonstration"
-        operation_id = "seed-planned-preparation-register-$AssetId"
-    })
-    return $registered.instrument
+    $asset = (Invoke-EmcApi -Method GET -Path "/api/v1/fleet/assets/$AssetId").asset
+    if ($asset.laboratory_location_id -ne $Location.location_id) {
+        $moved = Invoke-EmcApi -Method POST -Path "/api/v1/fleet/assets/$AssetId/transitions/move" -Body ([ordered]@{
+            expected_revision = $asset.revision
+            destination_location_id = $Location.location_id
+            actor = "demo.metrology"
+            reason = "Affecter le materiel de demonstration au poste CEM"
+            operation_id = "seed-planned-preparation-move-$AssetId"
+        })
+        $asset = $moved.asset
+    }
+    return $asset
 }
 
 function New-StationBinding {
@@ -185,7 +214,7 @@ function New-StationBinding {
         binding_id = $BindingId
         role_label = $RoleLabel
         asset_id = $Instrument.asset_id
-        asset_revision = $Instrument.revision
+        asset_revision = [string]$Instrument.revision
         equipment_model_id = $Model.identity.equipment_model_id
         equipment_model_revision_id = $Model.current_approved_revision.revision_id
         equipment_model_checksum = $Model.current_approved_revision.definition_checksum
@@ -197,7 +226,8 @@ function Ensure-ReadyStation {
         [object]$Generator,
         [object]$PowerMeter,
         [object]$GeneratorModel,
-        [object]$PowerMeterModel
+        [object]$PowerMeterModel,
+        [object]$Location
     )
 
     $setupId = "SETUP-DEMO-RF-PREP"
@@ -207,8 +237,8 @@ function Ensure-ReadyStation {
         $created = Invoke-EmcApi -Method POST -Path "/api/v1/station-setups" -Body ([ordered]@{
             setup_id = $setupId
             label = "Chaine RF de verification"
-            laboratory_location_id = "LAB-LOCATION-DEMO-CEM-1"
-            laboratory_location_label = "Poste CEM 1"
+            laboratory_location_id = $Location.location_id
+            laboratory_location_label = $Location.label
             planned_use_on = "2026-07-16"
             execution_mode = "investigation"
             actor = "demo.technician"
@@ -229,8 +259,8 @@ function Ensure-ReadyStation {
         definition_schema_version = "emc-locus.station-measurement-setup-definition.v2"
         setup_id = $setupId
         label = "Chaine RF de verification"
-        laboratory_location_id = "LAB-LOCATION-DEMO-CEM-1"
-        laboratory_location_label = "Poste CEM 1"
+        laboratory_location_id = $Location.location_id
+        laboratory_location_label = $Location.label
         planned_use_on = "2026-07-16"
         execution_mode = "investigation"
         asset_bindings = @(
@@ -246,7 +276,7 @@ function Ensure-ReadyStation {
             }
         )
         correction_selections = @()
-        notes = [ordered]@{ purpose = "Demonstration du pre-vol operateur" }
+        notes = [ordered]@{ purpose = "Démonstration du contrôle d’aptitude du montage" }
     }
     $saved = Invoke-EmcApi -Method PUT -Path "/api/v1/station-setups/$setupId/revisions/$($draft.revision_id)/definition" -Body ([ordered]@{
         expected_definition_checksum = $draft.definition_checksum
@@ -270,6 +300,7 @@ function Ensure-ReadyStation {
 }
 
 function Ensure-ProjectAndSchedule {
+    param([object]$Location)
     $projectCode = "CEM-DEMO-PREP-001"
     $itemCode = "PLAN-DEMO-PREP-001"
     $projects = (Invoke-EmcApi -Method GET -Path "/api/v1/projects").projects
@@ -312,8 +343,8 @@ function Ensure-ProjectAndSchedule {
             planned_start_at = "2026-07-16T09:00"
             planned_end_at = "2026-07-16T12:00"
             assigned_operator = "Alice Martin"
-            laboratory_location_id = "LAB-LOCATION-DEMO-CEM-1"
-            laboratory_location_label = "Poste CEM 1"
+            laboratory_location_id = $Location.location_id
+            laboratory_location_label = $Location.label
             equipment_under_test = "Convertisseur Horizon HCU-4"
             notes = "Preparation metrologique requise avant demarrage."
             actor = "demo.project.lead"
@@ -336,10 +367,11 @@ Invoke-EmcApi -Method GET -Path "/api/v1/health" | Out-Null
 $method = Ensure-ApprovedMethod
 $generatorModel = Get-ApprovedEquipmentModel -ModelId "EQM-PRESET-RF-GENERATOR"
 $powerMeterModel = Get-ApprovedEquipmentModel -ModelId "EQM-DEMO-NRP6AN-FWD"
-$generator = Ensure-Instrument -AssetId "GEN-DEMO-RF-001" -Family "Generateur RF" -CategoryCode "rf_signal_generator" -SerialNumber "GEN-RF-2026-001" -Model $generatorModel
-$powerMeter = Ensure-Instrument -AssetId "PM-DEMO-RF-001" -Family "Wattmetre RF" -CategoryCode "rf_power_meter" -SerialNumber "PM-RF-2026-001" -Model $powerMeterModel
-$station = Ensure-ReadyStation -Generator $generator -PowerMeter $powerMeter -GeneratorModel $generatorModel -PowerMeterModel $powerMeterModel
-Ensure-ProjectAndSchedule
+$location = Ensure-LaboratoryLocation -Label "Poste CEM 1"
+$generator = Ensure-Instrument -AssetId "GEN-DEMO-RF-001" -Family "Generateur RF" -CategoryCode "rf_signal_generator" -SerialNumber "GEN-RF-2026-001" -Model $generatorModel -Location $location
+$powerMeter = Ensure-Instrument -AssetId "PM-DEMO-RF-001" -Family "Wattmetre RF" -CategoryCode "rf_power_meter" -SerialNumber "PM-RF-2026-001" -Model $powerMeterModel -Location $location
+$station = Ensure-ReadyStation -Generator $generator -PowerMeter $powerMeter -GeneratorModel $generatorModel -PowerMeterModel $powerMeterModel -Location $location
+Ensure-ProjectAndSchedule -Location $location
 $schedule = (Invoke-EmcApi -Method GET -Path "/api/v1/projects/CEM-DEMO-PREP-001/schedule-items").schedule_items |
     Where-Object { $_.item_code -eq "PLAN-DEMO-PREP-001" } |
     Select-Object -First 1

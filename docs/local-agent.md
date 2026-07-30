@@ -1,8 +1,9 @@
 # Local Agent
 
-`emc-locus-agent` is the future local runtime boundary for EMC Locus. It should
-eventually own local SQLite lifecycle, offline synchronization, health checks,
-local API hosting, and object-cache coordination.
+`emc-locus-agent` is the local runtime boundary for the delivered EMC Locus
+vertical slices. It owns local SQLite lifecycle, loopback APIs, health checks,
+transactional audit/outbox writes and the current offline-first repositories.
+Network synchronization and distributed coordination remain future work.
 
 The first committed health command is read-only:
 
@@ -18,9 +19,9 @@ It returns JSON with:
 - whether the storage root exists;
 - repository domains known by the Rust core.
 
-This command is not the final service API. It is the first executable boundary
-that lets the project move Python and Qt workflows behind local Rust services
-one capability at a time.
+This command is a diagnostic surface rather than the operator API. LAB CONSOLE,
+Python and Qt integrations use the versioned loopback routes owned by the same
+process.
 
 ## Agent Storage Commands
 
@@ -254,6 +255,7 @@ GET  /api/v1/projects/{code}/test-executions
 GET  /api/v1/sync/outbox
 GET  /api/v1/station-setups
 POST /api/v1/station-setups
+GET  /api/v1/station-setups/asset-options?planned_use_on=YYYY-MM-DD&execution_mode=...&laboratory_location_id=...
 GET  /api/v1/station-setups/{setup_id}
 GET  /api/v1/station-setups/{setup_id}/revisions
 POST /api/v1/station-setups/{setup_id}/revisions
@@ -387,6 +389,25 @@ makes the revision immutable and writes station audit plus sync outbox evidence
 atomically. `station.sqlite` is a separate local domain; it does not duplicate
 the equipment catalog or metrology record.
 
+From `0.22.0`, every station write that assigns or confirms a laboratory
+location runs under one `BEGIN IMMEDIATE` transaction on `station.sqlite` with
+`equipment.sqlite` and `sync.sqlite` attached. The agent validates the active
+location and derives its current label inside that boundary for creation,
+draft replacement, derived revisions and the `ready` transition. Station
+creation no longer accepts a client-owned location label. A concurrent archive
+is refused without station, audit, operation or outbox residue; a successful
+operation can still be replayed after a later archive. Existing revision JSON
+remains an immutable readable snapshot when the registry label is renamed.
+
+The station asset-option route and planned-test preparation options share one
+dated eligibility projection. It combines exact model linkage, current
+location, service state, administrative availability, real usage evidence and
+the authoritative metrology assessment. Planned preparation evaluates the
+exact schedule instant and excludes only its own schedule reservation; an
+active test or another overlapping reservation remains blocking. Stored civil
+laboratory times without an offset are normalized deterministically rather
+than interpreted through the workstation timezone.
+
 Version `0.18.0` adds the reviewed correction link between one physical asset,
 one requirement from its pinned approved model and one immutable calibration or
 characterization event. The agent owns draft/review/activation transitions,
@@ -438,7 +459,7 @@ With `--agent-url`, the console becomes Locus Test Station and opens the focused
 `Préparation du poste` workflow. It reads and writes only through the local
 agent: selecting real materials, connecting typed ports, choosing a
 serial-specific correction, checking readiness, saving a draft and declaring
-the revision `Prêt à câbler`.
+the revision `ready` (`Montage déclaré prêt`).
 
 Version `0.6.6` also routes the temporary Qt/Python metrology surface through
 the agent when `agent_url` is configured:
@@ -459,10 +480,18 @@ layer: legacy calibration rows are backfilled into calibration events, and a
 real loopback HTTP test verifies readiness, serviceability, idempotence,
 restart persistence, audit, and outbox for the migrated metrology slice.
 
-Version `0.7.0` promotes that metrology path to the current vertical-slice
-baseline. The remaining direct-SQLite Qt forms are outside this baseline and are
-tracked as future slices, starting with standalone metrology documents and
-richer execution/method evidence.
+Release `0.22.0` closes the remaining direct identity ambiguity. After
+metrology migration `0011`, Python/Qt direct-SQLite identity reads and writes
+fail explicitly with guidance to configure `agent_url` and use the equipment
+fleet API. The bootstrap can still expose legacy category definitions and the
+other local repository domains, but it never reads
+`legacy_instruments_0_21_1` as a runtime fleet fallback. This prevents a
+second writable identity path beside `equipment.sqlite/physical_assets`.
+
+Version `0.7.0` promoted the agent metrology path to the vertical-slice
+baseline. Standalone metrology documents and richer execution/method evidence
+remain future agent-owned slices; they do not authorize direct instrument
+identity access.
 
 Version `0.8.0` adds that first simulated EMC execution workflow. `POST
 /api/v1/test-executions/simulated-emc` persists the operator launch attempt,

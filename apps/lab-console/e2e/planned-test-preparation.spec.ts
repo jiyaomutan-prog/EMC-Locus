@@ -127,7 +127,7 @@ test("an operator resolves a blocked preparation before starting the planned tes
     requiredCategory: "emi_receiver",
     operationPrefix: `prep-no-material-method-${suffix}`
   });
-  await createReadyStation(request, {
+  const stationLocation = await createReadyStation(request, {
     setupId,
     label: setupLabel,
     plannedDate,
@@ -144,6 +144,7 @@ test("an operator resolves a blocked preparation before starting the planned tes
     title: `Vérification RF du convertisseur ${suffix}`,
     operator: `Alice ${suffix}`,
     operationPrefix: `prep-project-${suffix}`,
+    locationId: stationLocation.location_id,
     locationLabel: `Poste CEM ${suffix} renommé`
   });
 
@@ -222,9 +223,7 @@ test("an operator resolves a blocked preparation before starting the planned tes
 
   await preparationDialog
     .getByRole("combobox", { name: "Matériel pour Wattmètre RF" })
-    .selectOption({
-      label: `Wattmètre RF · Locus Demo Wattmeter ${suffix} · n° série PM-${suffix}`
-    });
+    .selectOption("power_meter");
   const readyResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith(
@@ -445,6 +444,16 @@ test("a matching label cannot replace a different laboratory location identity",
     requiredCategory: "rf_power_meter",
     operationPrefix: `location-method-${suffix}`
   });
+  const stationLocation = await createLaboratoryLocation(
+    request,
+    `Poste technique ${suffix}`,
+    `location-station-registry-${suffix}`
+  );
+  const scheduleLocation = await createLaboratoryLocation(
+    request,
+    locationLabel,
+    `location-schedule-${suffix}`
+  );
   await createReadyStation(request, {
     setupId,
     label: `Chaîne identité lieu ${suffix}`,
@@ -453,7 +462,9 @@ test("a matching label cannot replace a different laboratory location identity",
     meter,
     generatorModel,
     meterModel,
-    operationPrefix: `location-station-${suffix}`
+    operationPrefix: `location-station-${suffix}`,
+    location: stationLocation,
+    locationSnapshotLabel: locationLabel
   });
   await createSchedule(request, {
     projectCode,
@@ -462,7 +473,7 @@ test("a matching label cannot replace a different laboratory location identity",
     title: `Essai identité lieu ${suffix}`,
     operator: `Bob ${suffix}`,
     operationPrefix: `location-project-${suffix}`,
-    locationId: `LAB-LOCATION-DIFFERENT-${suffix}`,
+    locationId: scheduleLocation.location_id,
     locationLabel
   });
 
@@ -525,7 +536,7 @@ async function createApprovedPresetModel(
       manufacturer: input.manufacturer,
       model_name: input.modelName,
       actor: "E2E catalogue",
-      reason: "Préparer le matériel du scénario de pré-vol",
+      reason: "Préparer le matériel du scénario de contrôle d’aptitude",
       is_demo: true,
       operation_id: `op-${input.operationPrefix}-create`
     }
@@ -542,7 +553,7 @@ async function createApprovedPresetModel(
       {
         data: {
           actor,
-          reason: "Valider le modèle du scénario de pré-vol",
+          reason: "Valider le modèle du scénario de contrôle d’aptitude",
           operation_id: `op-${input.operationPrefix}-${transition}`
         }
       }
@@ -589,7 +600,7 @@ async function registerInstrument(
       serviceability_reason: "Matériel E2E contrôlé",
       capabilities: {},
       actor: "E2E métrologie",
-      reason: "Enregistrer le matériel du scénario de pré-vol",
+      reason: "Enregistrer le matériel du scénario de contrôle d’aptitude",
       operation_id: input.operationId
     }
   });
@@ -663,7 +674,7 @@ async function createApprovedMethod(
         method_parameters: {}
       },
       actor: "E2E méthodiste",
-      reason: "Créer la méthode du scénario de pré-vol",
+      reason: "Créer la méthode du scénario de contrôle d’aptitude",
       operation_id: `op-${input.operationPrefix}-create`
     }
   });
@@ -678,7 +689,7 @@ async function createApprovedMethod(
       {
         data: {
           actor,
-          reason: "Valider la méthode du scénario de pré-vol",
+          reason: "Valider la méthode du scénario de contrôle d’aptitude",
           operation_id: `op-${input.operationPrefix}-${transition}`
         }
       }
@@ -698,20 +709,37 @@ async function createReadyStation(
     generatorModel: ApprovedModel;
     meterModel: ApprovedModel;
     operationPrefix: string;
+    location?: { location_id: string; label: string };
+    locationSnapshotLabel?: string;
   }
 ) {
-  const locationId = `LAB-LOCATION-${input.setupId.replace("SETUP-PREP-", "")}`;
   const locationLabel = `Poste CEM ${input.setupId.replace("SETUP-PREP-", "")}`;
+  const location = input.location
+    ?? await createLaboratoryLocation(request, locationLabel, input.operationPrefix);
+  const locationId = location.location_id;
+  const locationSnapshotLabel = input.locationSnapshotLabel ?? location.label;
+  await moveInstrumentToStationLocation(
+    request,
+    input.generator,
+    location,
+    `${input.operationPrefix}-generator-location`
+  );
+  await moveInstrumentToStationLocation(
+    request,
+    input.meter,
+    location,
+    `${input.operationPrefix}-meter-location`
+  );
   const created = await request.post("/api/v1/station-setups", {
     data: {
       setup_id: input.setupId,
       label: input.label,
       laboratory_location_id: locationId,
-      laboratory_location_label: locationLabel,
+      laboratory_location_label: locationSnapshotLabel,
       planned_use_on: input.plannedDate,
       execution_mode: "investigation",
       actor: "E2E technicien",
-      reason: "Créer le montage du scénario de pré-vol",
+      reason: "Créer le montage du scénario de contrôle d’aptitude",
       operation_id: `op-${input.operationPrefix}-create`
     }
   });
@@ -723,7 +751,7 @@ async function createReadyStation(
     setup_id: input.setupId,
     label: input.label,
     laboratory_location_id: locationId,
-    laboratory_location_label: locationLabel,
+    laboratory_location_label: locationSnapshotLabel,
     planned_use_on: input.plannedDate,
     execution_mode: "investigation",
     asset_bindings: [
@@ -739,7 +767,7 @@ async function createReadyStation(
       }
     ],
     correction_selections: [],
-    notes: { purpose: "Pré-vol E2E" }
+    notes: { purpose: "Contrôle d’aptitude E2E" }
   };
   const saved = await request.put(
     `/api/v1/station-setups/${input.setupId}/revisions/${draft.revision_id}/definition`,
@@ -748,7 +776,7 @@ async function createReadyStation(
         expected_definition_checksum: draft.definition_checksum,
         definition,
         actor: "E2E technicien",
-        reason: "Affecter et raccorder les matériels du scénario de pré-vol",
+        reason: "Affecter et raccorder les matériels du scénario de contrôle d’aptitude",
         operation_id: `op-${input.operationPrefix}-save`
       }
     }
@@ -759,19 +787,53 @@ async function createReadyStation(
     `/api/v1/station-setups/${input.setupId}/revisions/${draft.revision_id}/readiness`
   );
   expect(readiness.ok(), await readiness.text()).toBeTruthy();
-  expect((await readiness.json()).readiness.ready).toBe(true);
+  const readinessBody = await readiness.json();
+  expect(readinessBody.readiness.ready, JSON.stringify(readinessBody.readiness)).toBe(true);
   const ready = await request.post(
     `/api/v1/station-setups/${input.setupId}/revisions/${draft.revision_id}/transitions/ready`,
     {
       data: {
         expected_definition_checksum: savedDraft.definition_checksum,
         actor: "E2E technicien",
-        reason: "Valider le montage du scénario de pré-vol",
+        reason: "Valider le montage du scénario de contrôle d’aptitude",
         operation_id: `op-${input.operationPrefix}-ready`
       }
     }
   );
   expect(ready.ok(), await ready.text()).toBeTruthy();
+  return location;
+}
+
+async function moveInstrumentToStationLocation(
+  request: APIRequestContext,
+  instrument: RegisteredInstrument,
+  location: { location_id: string; label: string },
+  operationSuffix: string
+) {
+  const currentResponse = await request.get(`/api/v1/fleet/assets/${instrument.asset_id}`);
+  expect(currentResponse.ok(), await currentResponse.text()).toBeTruthy();
+  const current = (await currentResponse.json()).asset;
+  if (current.laboratory_location_id === location.location_id) {
+    instrument.revision = String(current.revision);
+    return;
+  }
+
+  const movedResponse = await request.post(
+    `/api/v1/fleet/assets/${instrument.asset_id}/transitions/move`,
+    {
+      data: {
+        expected_revision: current.revision,
+        destination_location_id: location.location_id,
+        actor: "E2E technicien",
+        reason: "Affecter le matériel au lieu réel du montage",
+        operation_id: `op-${operationSuffix}`,
+        device_id: "playwright-api",
+        correlation_id: `corr-${operationSuffix}`
+      }
+    }
+  );
+  expect(movedResponse.ok(), await movedResponse.text()).toBeTruthy();
+  instrument.revision = String((await movedResponse.json()).asset.revision);
 }
 
 function stationBinding(
@@ -805,13 +867,17 @@ async function createSchedule(
     locationLabel?: string;
   }
 ) {
+  const locationLabel = input.locationLabel ?? `Poste CEM ${input.projectCode.replace("CEM-PREP-", "")}`;
+  const location = input.locationId
+    ? { location_id: input.locationId, label: locationLabel }
+    : await createLaboratoryLocation(request, locationLabel, input.operationPrefix);
   const created = await request.post("/api/v1/projects", {
     data: {
       code: input.projectCode,
       customer_name: "Industries Horizon",
       execution_mode: "investigation",
       actor: "E2E responsable laboratoire",
-      reason: "Créer le dossier du scénario de pré-vol",
+      reason: "Créer le dossier du scénario de contrôle d’aptitude",
       operation_id: `op-${input.operationPrefix}-create`
     }
   });
@@ -827,7 +893,7 @@ async function createSchedule(
       {
         data: {
           actor: "E2E responsable laboratoire",
-          comment: "Vérifié pour le scénario de pré-vol",
+          comment: "Vérifié pour le scénario de contrôle d’aptitude",
           operation_id: `op-${input.operationPrefix}-review-${index}`
         }
       }
@@ -839,7 +905,7 @@ async function createSchedule(
     {
       data: {
         actor: "E2E responsable laboratoire",
-        reason: "Revue terminée pour le scénario de pré-vol",
+        reason: "Revue terminée pour le scénario de contrôle d’aptitude",
         operation_id: `op-${input.operationPrefix}-plan`
       }
     }
@@ -854,15 +920,11 @@ async function createSchedule(
         planned_start_at: `${input.plannedDate}T09:00`,
         planned_end_at: `${input.plannedDate}T12:00`,
         assigned_operator: input.operator,
-        laboratory_location_id:
-          input.locationId
-          ?? `LAB-LOCATION-${input.projectCode.replace("CEM-PREP-", "")}`,
-        laboratory_location_label:
-          input.locationLabel
-          ?? `Poste CEM ${input.projectCode.replace("CEM-PREP-", "")}`,
+        laboratory_location_id: location.location_id,
+        laboratory_location_label: location.label,
         equipment_under_test: "Convertisseur Horizon HCU-4",
         actor: "E2E responsable laboratoire",
-        reason: "Planifier le scénario de pré-vol",
+        reason: "Planifier le scénario de contrôle d’aptitude",
         operation_id: `op-${input.operationPrefix}-schedule`
       }
     }
@@ -876,13 +938,31 @@ async function createSchedule(
       data: {
         expected_revision: scheduleItem.revision,
         actor: "E2E responsable laboratoire",
-        reason: "Confirmer le créneau du scénario de pré-vol",
+        reason: "Confirmer le créneau du scénario de contrôle d’aptitude",
         operation_id: `op-${input.operationPrefix}-confirm`
       }
     }
   );
   expect(confirmed.ok(), await confirmed.text()).toBeTruthy();
   return (await confirmed.json()).schedule_item;
+}
+
+async function createLaboratoryLocation(
+  request: APIRequestContext,
+  label: string,
+  operationPrefix: string
+) {
+  const response = await request.post("/api/v1/laboratory-locations", {
+    data: {
+      label,
+      description: "Lieu du scénario E2E de préparation",
+      actor: "E2E responsable laboratoire",
+      reason: "Créer un lieu stable pour le scénario",
+      operation_id: `op-${operationPrefix}-location`
+    }
+  });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  return (await response.json()).location as { location_id: string; label: string };
 }
 
 function mondayFor(date: Date): string {

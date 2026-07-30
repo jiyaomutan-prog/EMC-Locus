@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, projectApi } from "../../api";
+import { metrologyStatusLabel } from "../../metrologyStatus";
+import { operatorCategoryPath, operatorModelName, operatorRequirementLabel } from "../../operatorEquipmentLabels";
 import type {
   LaboratoryLocationOption,
   LaboratoryScheduleItem,
@@ -476,7 +478,7 @@ function ScheduleDetailDialog(props: {
       (candidate) => candidate.laboratory_location_id === form.laboratory_location_id
     );
     if (!location) {
-      setError("Choisissez un poste de laboratoire prêt à câbler.");
+      setError("Choisissez un lieu actif du laboratoire.");
       return;
     }
     setBusy(true);
@@ -746,7 +748,7 @@ function ScheduleDetailDialog(props: {
                   setForm({ ...form, laboratory_location_id: event.target.value })
                 }
               >
-                <option value="">Sélectionner un poste prêt à câbler</option>
+                <option value="">Sélectionner un lieu actif du laboratoire</option>
                 {props.locations.map((location) => (
                   <option
                     key={location.laboratory_location_id}
@@ -933,7 +935,6 @@ function PreparationWorkspace(props: {
 }) {
   const projectCode = props.item.project_code;
   const itemCode = props.item.item_code;
-  const reportError = props.onError;
   const [options, setOptions] = useState<PlannedTestPreparationOptions | null>(null);
   const [history, setHistory] = useState<PlannedTestPreparationRevision[]>([]);
   const [methodRevisionId, setMethodRevisionId] = useState(
@@ -953,27 +954,35 @@ function PreparationWorkspace(props: {
   const [reason, setReason] = useState("Vérification avant essai");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    reportError(null);
-    try {
-      const [available, revisions] = await Promise.all([
-        projectApi.plannedTestPreparationOptions(projectCode, itemCode),
-        projectApi.plannedTestPreparationRevisions(projectCode, itemCode)
-      ]);
-      setOptions(available);
-      setHistory(revisions.revisions);
-      setMethodRevisionId((current) => current || available.methods[0]?.revision_id || "");
-      setSetupRevisionId(
-        (current) => current || available.station_setups[0]?.station_setup.revision_id || ""
-      );
-    } catch (caught) {
-      reportError(planningErrorMessage(caught));
-    } finally {
-      setLoading(false);
-    }
-  }, [itemCode, projectCode, reportError]);
+    setOptionsError(null);
+    setHistoryError(null);
+    const optionsLoad = projectApi.plannedTestPreparationOptions(projectCode, itemCode)
+      .then((available) => {
+        setOptions(available);
+        setOptionsError(null);
+        setMethodRevisionId((current) => current || available.methods[0]?.revision_id || "");
+        setSetupRevisionId(
+          (current) => current
+            || available.station_setups.find((candidate) => candidate.eligible)?.station_setup.revision_id
+            || available.station_setups[0]?.station_setup.revision_id
+            || ""
+        );
+      })
+      .catch((caught: unknown) => setOptionsError(planningErrorMessage(caught)))
+      .finally(() => setLoading(false));
+    const historyLoad = projectApi.plannedTestPreparationRevisions(projectCode, itemCode)
+      .then((revisions) => {
+        setHistory(revisions.revisions);
+        setHistoryError(null);
+      })
+      .catch((caught: unknown) => setHistoryError(planningErrorMessage(caught)));
+    await Promise.allSettled([optionsLoad, historyLoad]);
+  }, [itemCode, projectCode]);
 
   useEffect(() => {
     void load();
@@ -1019,11 +1028,16 @@ function PreparationWorkspace(props: {
         reason
       });
       props.onPreparation(result.preparation);
-      const revisions = await projectApi.plannedTestPreparationRevisions(
-        props.item.project_code,
-        props.item.item_code
-      );
-      setHistory(revisions.revisions);
+      try {
+        const revisions = await projectApi.plannedTestPreparationRevisions(
+          props.item.project_code,
+          props.item.item_code
+        );
+        setHistory(revisions.revisions);
+        setHistoryError(null);
+      } catch (caught) {
+        setHistoryError(planningErrorMessage(caught));
+      }
     } catch (caught) {
       props.onError(planningErrorMessage(caught));
     } finally {
@@ -1031,18 +1045,34 @@ function PreparationWorkspace(props: {
     }
   }
 
-  if (loading) {
-    return <div className="wizardBody preparationLoading"><RefreshCw size={20} /> Chargement de la préparation…</div>;
+  if (loading && !options) {
+    return <div className="wizardBody preparationWorkspace"><PreparationScheduleContext item={props.item} /><div className="preparationLoading"><RefreshCw size={20} /> Chargement de la préparation…</div></div>;
+  }
+  if (!options && optionsError) {
+    return (
+      <div className="wizardBody preparationWorkspace">
+        <PreparationScheduleContext item={props.item} />
+        <PreparationSourceError
+          title="Choix de préparation temporairement indisponibles"
+          detail={`Le projet et le créneau restent consultables. ${optionsError}`}
+        />
+        {historyError && <PreparationSourceError title="Historique de préparation indisponible" detail={historyError} />}
+        {history.length > 0 && <PreparationHistory revisions={history} />}
+      </div>
+    );
   }
   if (!options || options.methods.length === 0 || options.station_setups.length === 0) {
     return (
-      <div className="wizardBody preparationEmpty">
-        <ShieldAlert size={24} />
-        <div>
-          <strong>Préparation impossible pour le moment</strong>
-          <p>
-            Il faut au moins une méthode approuvée et un montage marqué « Prêt à câbler ».
-          </p>
+      <div className="wizardBody preparationWorkspace">
+        <PreparationScheduleContext item={props.item} />
+        <div className="preparationEmpty">
+          <ShieldAlert size={24} />
+          <div>
+            <strong>Préparation impossible pour le moment</strong>
+            <p>
+              Il faut au moins une méthode approuvée et un montage déclaré prêt à être utilisé.
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -1050,7 +1080,9 @@ function PreparationWorkspace(props: {
 
   return (
     <div className="wizardBody preparationWorkspace">
+      <PreparationScheduleContext item={props.item} />
       <PreparationVerdict preparation={props.preparation} />
+      {optionsError && <PreparationSourceError title="Actualisation des choix indisponible" detail={`Les choix déjà chargés restent affichés. ${optionsError}`} />}
 
       <section className="preparationSection">
         <div className="preparationSectionTitle">
@@ -1081,11 +1113,7 @@ function PreparationWorkspace(props: {
         <label>
           Montage
           <select value={setupRevisionId} onChange={(event) => setSetupRevisionId(event.target.value)}>
-            {options.station_setups.map((candidate) => (
-              <option key={candidate.station_setup.revision_id} value={candidate.station_setup.revision_id}>
-                {candidate.station_setup.label} · {candidate.station_setup.laboratory_location_label}
-              </option>
-            ))}
+            {plannedStationOptionGroups(options.station_setups)}
           </select>
         </label>
         {stationOption && (
@@ -1098,6 +1126,8 @@ function PreparationWorkspace(props: {
             </span>
           </div>
         )}
+        {stationOption && stationOption.blocking_reasons.length > 0 && <div className="materialCompatibilityEmpty" role="status"><strong>Montage non disponible pour ce créneau.</strong>{stationOption.blocking_reasons.map((reason) => <span key={reason.code}>{reason.message} {reason.next_action}</span>)}</div>}
+        {stationOption && stationOption.warnings.length > 0 && <div className="selectionReasonPanel"><strong>Points d'attention</strong><ul>{stationOption.warnings.map((reason) => <li key={reason.code}>{reason.message} <span>{reason.next_action}</span></li>)}</ul></div>}
       </section>
 
       {method && stationOption && (
@@ -1114,7 +1144,11 @@ function PreparationWorkspace(props: {
                 slotCompatibility.some(
                   (candidate) => candidate.binding_id === asset.binding_id && candidate.compatible
                 )
+                && stationOption.asset_options.find((option) => option.asset.asset_id === asset.asset_id)?.eligible
               );
+              const firstIneligible = stationOption.station_setup.assets
+                .map((asset) => stationOption.asset_options.find((option) => option.asset.asset_id === asset.asset_id))
+                .find((option) => option && !option.eligible);
               const firstRejection = slotCompatibility.find((candidate) => !candidate.compatible);
               return (
                 <div className="instrumentAssignmentRow" key={slot.slot_id}>
@@ -1132,15 +1166,17 @@ function PreparationWorkspace(props: {
                       }
                     >
                       <option value="">Non affecté</option>
-                      {compatibleAssets.map((asset) => (
-                        <option key={asset.binding_id} value={asset.binding_id}>
-                          {assetOptionLabel(asset)}
-                        </option>
-                      ))}
+                      {plannedAssetOptionGroups(compatibleAssets)}
                     </select>
+                    {compatibleAssets.length > 0 && (
+                      <small className="compatibilityExplanation">
+                        Exemplaires du parc compatibles avec {operatorRequirementLabel(slot.required_category || slot.required_capability || "le rôle demandé")}.
+                      </small>
+                    )}
                     {compatibleAssets.length === 0 && (
                       <div className="materialCompatibilityEmpty" role="status">
                         <strong>Aucun matériel compatible dans ce montage.</strong>
+                        {firstIneligible?.blocking_reasons[0] && <span>{firstIneligible.blocking_reasons[0].message}</span>}
                         {firstRejection?.reason && <span>{firstRejection.reason}</span>}
                         {firstRejection?.next_action && <small>{firstRejection.next_action}</small>}
                       </div>
@@ -1158,12 +1194,33 @@ function PreparationWorkspace(props: {
           Motif du contrôle
           <input value={reason} onChange={(event) => setReason(event.target.value)} />
         </label>
-        <button disabled={busy || !method || !stationOption || !reason.trim()} onClick={() => void assess()}>
+        <button disabled={busy || !method || !stationOption?.eligible || !reason.trim()} onClick={() => void assess()}>
           <ClipboardCheck size={16} /> Vérifier la préparation
         </button>
       </section>
 
+      {historyError && <PreparationSourceError title="Historique de préparation indisponible" detail={`La préparation courante reste consultable. ${historyError}`} />}
       {history.length > 0 && <PreparationHistory revisions={history} />}
+    </div>
+  );
+}
+
+function PreparationScheduleContext(props: { item: LaboratoryScheduleItem }) {
+  return (
+    <section className="preparationScheduleContext" aria-label="Créneau préparé">
+      <div><span>Essai planifié</span><strong>{props.item.title}</strong></div>
+      <div><span>Créneau</span><strong>{formatFullDateTime(props.item)}</strong></div>
+      <div><span>Lieu</span><strong>{props.item.laboratory_location_label || "Lieu à identifier"}</strong></div>
+      <div><span>Objet soumis à l’essai</span><strong>{props.item.equipment_under_test || "Non renseigné"}</strong></div>
+    </section>
+  );
+}
+
+function PreparationSourceError(props: { title: string; detail: string }) {
+  return (
+    <div className="targetedError" role="alert">
+      <AlertCircle size={17} />
+      <div><strong>{props.title}</strong><p>{props.detail}</p></div>
     </div>
   );
 }
@@ -1249,8 +1306,44 @@ function methodOptionLabel(method: PlannedTestMethodSnapshot) {
   return `${method.title}${reference} · version ${method.revision_number}`;
 }
 
+function plannedStationOptionGroups(options: PlannedTestPreparationOptions["station_setups"]) {
+  const eligible = options.filter((option) => option.eligible);
+  const unavailable = options.filter((option) => !option.eligible);
+  return <>
+    {eligible.length > 0 && <optgroup label="Montages disponibles">{eligible.map((candidate) => <option key={candidate.station_setup.revision_id} value={candidate.station_setup.revision_id}>{candidate.station_setup.label} · {candidate.station_setup.laboratory_location_label}</option>)}</optgroup>}
+    {unavailable.length > 0 && <optgroup label="Matériels non disponibles">{unavailable.map((candidate) => <option key={candidate.station_setup.revision_id} value={candidate.station_setup.revision_id} disabled>{candidate.station_setup.label} · {candidate.blocking_reasons[0]?.message ?? "Montage non disponible"}</option>)}</optgroup>}
+  </>;
+}
+
 function assetOptionLabel(asset: PlannedStationSetupSnapshot["assets"][number]) {
-  return `${asset.role_label} · ${asset.manufacturer} ${asset.model_name} · n° série ${asset.serial_number}`;
+  const serial = asset.serial_number || "Sans numéro de série";
+  return `${asset.inventory_code} · ${serial} · ${asset.laboratory_location_label || "Sans emplacement"} · ${plannedServiceLabel(asset.service_state)} · ${plannedAvailabilityLabel(asset.availability_state)} · ${plannedMetrologyLabel(asset)}`;
+}
+
+function plannedAssetOptionGroups(assets: PlannedStationSetupSnapshot["assets"]) {
+  const groups = new Map<string, PlannedStationSetupSnapshot["assets"]>();
+  for (const asset of assets) {
+    const category = operatorCategoryPath(asset.category_code, asset.category_path ?? []).join(" > ");
+    const label = `${category} · ${asset.manufacturer} ${operatorModelName(asset.category_code, asset.model_name, asset.manufacturer === "Demo")}`;
+    groups.set(label, [...(groups.get(label) ?? []), asset]);
+  }
+  return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, "fr")).map(([label, rows]) => (
+    <optgroup key={label} label={label}>
+      {rows.map((asset) => <option key={asset.binding_id} value={asset.binding_id}>{assetOptionLabel(asset)}</option>)}
+    </optgroup>
+  ));
+}
+
+function plannedServiceLabel(value?: string) {
+  return ({ usable: "Utilisable", restricted: "Utilisation restreinte", in_maintenance: "En maintenance", out_of_service: "Hors service", retired: "Retiré du parc", unavailable: "Indisponible" } as Record<string, string>)[value ?? ""] ?? "État de service inconnu";
+}
+
+function plannedAvailabilityLabel(value?: string) {
+  return ({ available: "Disponible", reserved: "Réservé", assigned_to_setup: "Affecté à un montage", in_test: "Utilisé en essai", unavailable: "Indisponible" } as Record<string, string>)[value ?? ""] ?? "Disponibilité inconnue";
+}
+
+function plannedMetrologyLabel(asset: PlannedStationSetupSnapshot["assets"][number]) {
+  return metrologyStatusLabel(asset.metrology);
 }
 
 function measurementAxisLabel(axis: string) {
@@ -1353,7 +1446,7 @@ function planningErrorMessage(caught: unknown): string {
     planned_test_method_not_approved:
       "La méthode choisie n'est plus approuvée. Sélectionnez une méthode disponible.",
     planned_test_station_setup_not_ready:
-      "Le montage choisi n'est plus marqué « Prêt à câbler ». Sélectionnez un autre montage.",
+      "Le montage choisi n’est plus déclaré prêt. Sélectionnez un autre montage.",
     storage_not_initialized: "Le stockage local doit être initialisé avant d'ouvrir le planning."
   };
   return messages[caught.code] ?? caught.message;

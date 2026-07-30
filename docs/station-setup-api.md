@@ -9,6 +9,7 @@ physical chain; it does not control instruments or process measurement data.
 ```text
 POST /api/v1/station-setups
 GET  /api/v1/station-setups
+GET  /api/v1/station-setups/asset-options
 GET  /api/v1/station-setups/{setup_id}
 
 GET  /api/v1/station-setups/{setup_id}/revisions
@@ -39,15 +40,15 @@ The agent canonicalizes the complete definition and returns a prefixed SHA-256
 checksum. Collection order does not change the checksum.
 
 New definitions use
-`emc-locus.station-measurement-setup-definition.v2`. Creation requires both
-location fields:
+`emc-locus.station-measurement-setup-definition.v2`. Creation requires the
+stable location identity; the agent derives the readable label from the
+laboratory registry:
 
 ```json
 {
   "setup_id": "SETUP-RF-001",
   "label": "Chaîne de mesure RF",
   "laboratory_location_id": "LAB-LOCATION-CEM-1",
-  "laboratory_location_label": "Poste CEM 1",
   "planned_use_on": "2026-07-16",
   "execution_mode": "accredited",
   "actor": "test.technician",
@@ -56,9 +57,41 @@ location fields:
 ```
 
 The location ID is compared with the planned slot's location ID. Labels are
-display snapshots only: renaming a location does not break compatibility, and
-two locations with the same label remain distinct. Normal application users
-select a location by label and never type the ID.
+server-owned display snapshots: renaming a location does not break
+compatibility, and two locations with the same label remain distinct. A client
+label is ignored during draft replacement and cannot override the registry.
+Normal application users select a location by label and never type the ID.
+
+## Executable asset options
+
+`GET /api/v1/station-setups/asset-options` requires:
+
+```text
+planned_use_on=YYYY-MM-DD
+execution_mode=accredited|non_accredited|investigation
+laboratory_location_id=<stable location id>
+```
+
+Every returned option embeds the readable physical asset, its exact model pin,
+current registry location, administrative availability, computed operational
+usage, and authoritative metrology assessment for the requested civil date.
+`eligible`, `blocking_reasons` and `warnings` are computed by the agent. Each
+reason has a stable code, human message and next action.
+
+LAB CONSOLE keys each option request by `planned_use_on`, `execution_mode` and
+`laboratory_location_id`. A context change immediately clears the pending
+selection and disables assignment until the matching response arrives. Late
+responses for an older context are ignored, while bindings already stored in
+the draft remain readable. This client guard prevents stale choices; backend
+readiness and write validation remain authoritative.
+
+Unresolved migrated assets, invalid model pins, non-usable or administratively
+unavailable assets, active tests, conflicting reservations, missing or
+incompatible locations, and blocking metrology states are explained rather
+than silently hidden. A restricted asset remains selectable with an explicit
+warning. `not_required` metrology is accepted; an expired required calibration
+blocks accredited use. Catalogue model identities are never returned by this
+physical-asset endpoint.
 
 Historical v1 definitions remain readable with their original checksum. Their
 missing stable identity is explicit and blocks their use in a new ready
@@ -98,7 +131,9 @@ quality mode. It reports `ready` and a structured issue list. Dimensions are:
 
 Issues identify affected material bindings or physical connections. Known
 incompatibilities are blocking; absent optional physical information may be a
-warning.
+warning. Readiness consumes the same backend eligibility rules as the option
+endpoint, so a forged draft cannot bypass location, usage, service,
+availability, model-link or metrology blocks.
 
 ## Ready Revision
 
@@ -116,6 +151,11 @@ Create, draft replacement, ready transition and derivation persist atomically:
 - an explicit station audit event;
 - an operation replay record;
 - a pending `station_configurations` outbox operation in `sync.sqlite`.
+
+These writes use one `BEGIN IMMEDIATE` transaction with `equipment.sqlite` and
+`sync.sqlite` attached. Active-location validation and label derivation happen
+inside that boundary. A concurrent archive leaves no partial station, audit,
+operation or outbox evidence.
 
 Authenticated identity, RBAC, electronic signatures, central synchronization,
 real acquisition and correction application are outside this release.

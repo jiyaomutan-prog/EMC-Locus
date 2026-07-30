@@ -84,7 +84,18 @@ This repository is in active pre-production development. The current focus is
 closing complete laboratory workflows across the Rust agent, local storage and
 operator interfaces while keeping each domain traceable and offline-capable.
 
-Current software version: `0.21.1`.
+Current software version: `0.22.0`.
+
+Version `0.22.0` establishes the equipment-owned physical fleet as the source
+of truth for every real laboratory material. A concrete asset is pinned to one
+exact immutable manufacturer-model revision, has its own inventory identity,
+service state, administrative availability and laboratory location, while its
+calibration and correction evidence remains in the metrology domain. Migrated
+assets without a trusted pin remain readable and can be reconciled explicitly.
+Station and planned-test selectors now use backend-computed eligibility,
+dated metrology status and real reservation/test usage. This release manages
+and qualifies laboratory resources; it does not control instruments or acquire
+scientific data.
 
 Version `0.21.1` closes the planned-test preparation workflow. A slot must be
 confirmed before preparation, laboratory locations use stable identities, and

@@ -38,6 +38,6 @@ traduit ces preuves en francais et masque les codes techniques hors diagnostic.
 
 ## Limite 0.18.0
 
-La resolution est une previsualisation d'aptitude. Elle ne cable pas une station,
-n'applique pas numeriquement la correction a des echantillons ou a un spectre et
-ne remplace pas le pre-vol complet d'une campagne.
+La résolution est une prévisualisation d'aptitude. Elle ne câble pas une station,
+n'applique pas numériquement la correction à des échantillons ou à un spectre et
+ne remplace pas le contrôle d'aptitude complet d'une campagne.

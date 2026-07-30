@@ -10,43 +10,39 @@ const viewports = [
 test("an investigation dossier reaches a confirmed laboratory slot", async ({ page, request }) => {
   const suffix = Date.now().toString(36).toUpperCase();
   const projectCode = `CEM-E2E-${suffix}`;
-  await page.route("**/api/v1/station-setups", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        station_setups: [
-          {
-            current_ready_revision: {
-              definition: {
-                laboratory_location_id: "LAB-LOCATION-CEM-1",
-                laboratory_location_label: "Labo CEM 1"
-              }
-            }
-          }
-        ]
-      })
-    });
-  });
+  const locationLabel = `Labo CEM ${suffix}`;
+  const operatorName = `Claire ${suffix}`;
+  await createLaboratoryLocation(request, locationLabel, suffix);
 
   await page.setViewportSize(viewports[0]);
   await page.goto("/lab/");
   await page.getByRole("button", { name: "Dossiers d'essai" }).click();
-  await expect(page.getByText("Aucun dossier d'essai.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dossiers d'essai" })).toBeVisible();
 
   await page.getByRole("button", { name: "Nouveau dossier" }).first().click();
-  await page.getByLabel("Référence du dossier").fill(projectCode);
-  await page.getByLabel("Client").fill("Industries Atlas");
-  await page.getByRole("radio", { name: /Investigation/ }).check();
-  await page.getByLabel("Responsable du dossier").fill("Claire Martin");
+  const projectDialog = page.getByRole("dialog");
+  await projectDialog.getByLabel("Référence du dossier").fill(projectCode);
+  await projectDialog.getByRole("textbox", { name: "Client", exact: true }).fill("Industries Atlas");
+  await projectDialog.getByRole("radio", { name: /Investigation/ }).check();
+  await projectDialog.getByLabel("Responsable du dossier").fill(operatorName);
   const createResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/v1/projects") &&
       response.request().method() === "POST"
   );
-  await page.getByRole("button", { name: "Ouvrir le dossier" }).click();
+  const createdProjectScheduleResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/v1/projects/${projectCode}/schedule-items`) &&
+      response.request().method() === "GET",
+    { timeout: 30_000 }
+  );
+  await projectDialog.getByRole("button", { name: "Ouvrir le dossier" }).click();
   expect((await createResponse).ok()).toBeTruthy();
+  expect((await createdProjectScheduleResponse).ok()).toBeTruthy();
 
-  await expect(page.getByRole("heading", { name: projectCode })).toBeVisible();
+  await expect(page.getByRole("heading", { name: projectCode })).toBeVisible({
+    timeout: 30_000
+  });
   await expect(page.getByText("Investigation", { exact: true })).toBeVisible();
   await completeReviewItem(page, "La demande du client est définie");
   await completeReviewItem(page, "Les écarts et adaptations sont consignés");
@@ -61,7 +57,7 @@ test("an investigation dossier reaches a confirmed laboratory slot", async ({ pa
 
   await page.getByRole("button", { name: "Planifier un essai" }).first().click();
   await page.getByLabel("Essai prévu").fill("Émission conduite");
-  await page.getByLabel("Lieu").selectOption({ label: "Labo CEM 1" });
+  await page.getByLabel("Lieu").selectOption({ label: locationLabel });
   await page.getByLabel("Objet soumis à l’essai").fill("Convertisseur prototype");
   const scheduleResponse = page.waitForResponse(
     (response) =>
@@ -76,7 +72,7 @@ test("an investigation dossier reaches a confirmed laboratory slot", async ({ pa
 
   await page.getByRole("button", { name: "Planifier un essai" }).click();
   await page.getByLabel("Essai prévu").fill("Essai en conflit");
-  await page.getByLabel("Lieu").selectOption({ label: "Labo CEM 1" });
+  await page.getByLabel("Lieu").selectOption({ label: locationLabel });
   await page.getByLabel("Objet soumis à l’essai").fill("Second prototype");
   const conflictResponse = page.waitForResponse(
     (response) =>
@@ -86,7 +82,7 @@ test("an investigation dossier reaches a confirmed laboratory slot", async ({ pa
   await page.getByRole("button", { name: "Réserver le créneau" }).click();
   expect((await conflictResponse).status()).toBe(409);
   await expect(page.getByRole("alert")).toContainText(
-    "Claire Martin est déjà affecté au créneau « Émission conduite »"
+    `${operatorName} est déjà affecté au créneau « Émission conduite »`
   );
   await page.getByRole("button", { name: "Fermer", exact: true }).click();
   await expect(page.getByText("Essai en conflit")).toHaveCount(0);
@@ -139,7 +135,22 @@ test("an investigation dossier reaches a confirmed laboratory slot", async ({ pa
     await page.setViewportSize(viewport);
     await page.goto("/lab/");
     await page.getByRole("button", { name: "Dossiers d'essai" }).click();
-    await expect(page.getByRole("heading", { name: projectCode })).toBeVisible();
+    await expect(page.getByText("Ouverture du dossier…", { exact: true })).toHaveCount(0, {
+      timeout: 30_000
+    });
+    await page.getByLabel("Rechercher un dossier").fill(projectCode);
+    const projectHeading = page.getByRole("heading", { name: projectCode });
+    if (!(await projectHeading.isVisible())) {
+      const projectScheduleResponse = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(`/api/v1/projects/${projectCode}/schedule-items`) &&
+          response.request().method() === "GET",
+        { timeout: 30_000 }
+      );
+      await page.getByRole("button", { name: new RegExp(projectCode) }).click();
+      expect((await projectScheduleResponse).ok()).toBeTruthy();
+    }
+    await expect(projectHeading).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText("Planning à jour")).toBeVisible();
     await assertNoHorizontalOverflow(page);
     await captureReleaseScreenshot(page, `dossier-planifie-${viewport.width}x${viewport.height}.png`);
@@ -157,6 +168,23 @@ async function completeReviewItem(page: import("@playwright/test").Page, label: 
   await checkbox.click();
   expect((await response).ok()).toBeTruthy();
   await expect(page.getByRole("checkbox", { name: label })).toBeChecked();
+}
+
+async function createLaboratoryLocation(
+  request: import("@playwright/test").APIRequestContext,
+  label: string,
+  suffix: string
+) {
+  const response = await request.post("/api/v1/laboratory-locations", {
+    data: {
+      label,
+      description: "Lieu du scénario de planification",
+      actor: "Responsable laboratoire",
+      reason: "Créer le lieu stable du scénario",
+      operation_id: `op-planning-location-${suffix}`
+    }
+  });
+  expect(response.ok(), await response.text()).toBeTruthy();
 }
 
 async function assertNoHorizontalOverflow(page: import("@playwright/test").Page) {

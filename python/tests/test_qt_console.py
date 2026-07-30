@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from emc_locus import (
+    DirectMetrologyIdentityAccessError,
     MetrologyRepository,
     ProjectRepository,
     TestDefinitionRepository,
@@ -415,8 +416,12 @@ class QtConsoleTests(unittest.TestCase):
             execution_by_id["run_simulated_emc_test"].fields[2].default,
             "SIM-EMC-CONDUCTED",
         )
+        self.assertEqual(
+            execution_by_id["run_simulated_emc_test"].submit_label,
+            "Contrôler l’aptitude et lancer",
+        )
 
-    def test_qt_form_action_registers_instrument_and_document_without_pyside(self) -> None:
+    def test_qt_direct_metrology_form_requires_agent_without_pyside(self) -> None:
         module = load_qt_console_module()
         with tempfile.TemporaryDirectory() as temporary_directory:
             metrology_db = Path(temporary_directory) / "metrology.sqlite"
@@ -427,54 +432,35 @@ class QtConsoleTests(unittest.TestCase):
                 migrations_root=Path("storage/sqlite"),
             )
 
-            module._execute_form_action(
-                args,
-                "register_instrument",
-                {
-                    "asset_id": "DAQ-QT-FORM",
-                    "family": "DAQ",
-                    "manufacturer": "openDAQ",
-                    "model": "Reference",
-                    "serial_number": "QT001",
-                    "category_code": "daq_chassis",
-                    "serviceability_status": "usable",
-                    "serviceability_reason": "",
-                    "part_number": "ODAQ-QT",
-                    "calibration_period_months": "12",
-                    "certificate_reference": "CERT-QT-001",
-                    "calibrated_at": "2026-06-28",
-                    "provider": "cal.lab",
-                    "file_reference": "certs/CERT-QT-001.pdf",
-                    "capabilities_json": '["time_series"]',
-                    "metrology_notes": "Qt form smoke test",
-                },
-            )
-            module._execute_form_action(
-                args,
-                "attach_instrument_document",
-                {
-                    "asset_id": "DAQ-QT-FORM",
-                    "document_kind": "script",
-                    "title": "Setup script",
-                    "file_reference": "scripts/daq_setup.py",
-                    "uploaded_by": "operator.one",
-                    "checksum": "",
-                    "revision": "A",
-                    "applies_to_function": "setup",
-                },
-            )
-
+            with self.assertRaisesRegex(
+                DirectMetrologyIdentityAccessError,
+                "configure agent_url and use the equipment fleet API",
+            ):
+                module._execute_form_action(
+                    args,
+                    "register_instrument",
+                    {
+                        "asset_id": "DAQ-QT-FORM",
+                        "family": "DAQ",
+                        "manufacturer": "openDAQ",
+                        "model": "Reference",
+                        "serial_number": "QT001",
+                        "category_code": "daq_chassis",
+                        "serviceability_status": "usable",
+                        "serviceability_reason": "",
+                        "part_number": "ODAQ-QT",
+                        "calibration_period_months": "12",
+                        "certificate_reference": "CERT-QT-001",
+                        "calibrated_at": "2026-06-28",
+                        "provider": "cal.lab",
+                        "file_reference": "certs/CERT-QT-001.pdf",
+                        "capabilities_json": '["time_series"]',
+                        "metrology_notes": "Qt form smoke test",
+                    },
+                )
             repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
-            repository.initialize()
-            instrument = repository.get_instrument("DAQ-QT-FORM")
-            calibration = repository.latest_calibration_record("DAQ-QT-FORM")
-            documents = repository.list_instrument_documents("DAQ-QT-FORM")
-
-        self.assertEqual(instrument["part_number"], "ODAQ-QT")
-        self.assertEqual(instrument["serviceability_status"], "usable")
-        self.assertEqual(instrument["calibration_period_months"], 12)
-        self.assertEqual(calibration["due_at"], "2027-06-28")
-        self.assertEqual(documents[0]["document_kind"], "script")
+            self.assertEqual(repository.calibration_count(), 0)
+            self.assertEqual(repository.document_count(), 0)
 
     def test_qt_form_action_advances_project_through_agent_without_pyside(self) -> None:
         module = load_qt_console_module()
@@ -548,7 +534,7 @@ class QtConsoleTests(unittest.TestCase):
 
         with patch.object(module, "run_simulated_emc_test_action") as run_test:
             run_test.return_value = {
-                "message": "Essai refuse RUN-QT: SA-QT/missing_evidence/calibration_missing"
+                "message": "Essai refusé RUN-QT : SA-QT/missing_evidence/calibration_missing"
             }
             message = module._execute_form_action(
                 args,
@@ -570,7 +556,7 @@ class QtConsoleTests(unittest.TestCase):
             run_test.call_args.kwargs["agent_url"],
             "http://127.0.0.1:8765",
         )
-        self.assertIn("Essai refuse RUN-QT", message)
+        self.assertIn("Essai refusé RUN-QT", message)
 
     def test_qt_agent_status_maps_storage_state_without_pyside(self) -> None:
         module = load_qt_console_module()

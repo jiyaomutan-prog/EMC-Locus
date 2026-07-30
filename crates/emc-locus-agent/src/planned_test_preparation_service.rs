@@ -1,5 +1,11 @@
 use crate::equipment_repository::{load_equipment_model_revision, open_equipment_connection};
-use crate::metrology_repository::{load_instrument, open_metrology_connection};
+use crate::fleet_dto::AssetSelectionReasonDto;
+use crate::fleet_repository::{load_physical_asset, open_fleet_connection};
+use crate::fleet_service::{
+    category_path, executable_physical_asset_options, PhysicalAssetSelectionContext,
+};
+use crate::fleet_usage::parse_laboratory_instant;
+use crate::metrology_assessment::{parse_checked_on, MetrologyStatusSummaryDto};
 use crate::planned_test_preparation_dto::{
     PlannedTestPreparationAggregateDto, PlannedTestPreparationEnvelopeDto,
     PlannedTestPreparationMaterialCompatibilityDto, PlannedTestPreparationOperationResultDto,
@@ -27,7 +33,7 @@ use crate::station_setup_repository::{
     list_station_setup_identities, load_station_setup_revision, open_station_connection,
     sha256_text, StoredStationSetupRevision,
 };
-use crate::station_setup_service::assess_station_setup_readiness;
+use crate::station_setup_service::assess_station_setup_readiness_for_context;
 use crate::test_template_repository::{
     list_test_template_identities, load_current_approved_test_template_revision,
     load_test_template_revision, open_test_template_connection, StoredTestTemplateRevision,
@@ -42,7 +48,8 @@ use emc_locus_core::{
     PlannedTestPreparationDefinition, PlannedTestPreparationState, PlannedTestScheduleSnapshot,
     PreparedEquipmentCapabilitySnapshot, PreparedStationAssetSnapshot,
     PreparedStationCorrectionSnapshot, PreparedStationSetupSnapshot, PreparedTestMethodSnapshot,
-    ServiceScheduleStatus, StableId, StationMeasurementSetupDefinition, StationSetupReadiness,
+    ServiceScheduleStatus, StableId, StationMeasurementSetupDefinition, StationReadinessDimension,
+    StationReadinessIssue, StationReadinessSeverity, StationSetupReadiness,
     StationSetupRevisionStatus,
 };
 use serde::Serialize;
@@ -217,10 +224,29 @@ pub fn list_planned_test_preparation_options(
             storage_root,
             &revision,
             true,
-            &schedule.planned_start_at,
+            &schedule,
             &project.execution_mode,
         )?;
+        let blocking_reasons = loaded
+            .readiness
+            .issues
+            .iter()
+            .filter(|issue| issue.severity == emc_locus_core::StationReadinessSeverity::Blocking)
+            .map(station_option_reason)
+            .collect::<Vec<_>>();
+        let warnings = loaded
+            .readiness
+            .issues
+            .iter()
+            .filter(|issue| issue.severity == emc_locus_core::StationReadinessSeverity::Warning)
+            .map(station_option_reason)
+            .collect::<Vec<_>>();
         station_setups.push(PlannedTestPreparationStationOptionDto {
+            eligible: loaded.readiness.ready
+                && loaded.asset_options.iter().all(|option| option.eligible),
+            blocking_reasons,
+            warnings,
+            asset_options: loaded.asset_options,
             station_setup: loaded.snapshot,
             readiness: loaded.readiness,
         });
@@ -372,7 +398,7 @@ pub fn assess_planned_test_preparation_for_schedule(
         storage_root,
         &station_revision,
         true,
-        &schedule.planned_start_at,
+        &schedule,
         &project.execution_mode,
     )?;
     let material_compatibility =
@@ -617,7 +643,7 @@ pub(crate) fn require_planned_test_preparation_for_start(
         storage_root,
         &station_revision,
         false,
-        &schedule.planned_start_at,
+        &schedule,
         &project.execution_mode,
     )?;
     if station.snapshot.definition_checksum != definition.station_setup.definition_checksum {
@@ -653,6 +679,16 @@ pub(crate) fn require_planned_test_preparation_for_start(
 struct LoadedStationSnapshot {
     snapshot: PreparedStationSetupSnapshot,
     readiness: StationSetupReadiness,
+    asset_options: Vec<crate::fleet_dto::ExecutablePhysicalAssetOptionDto>,
+}
+
+fn station_option_reason(issue: &StationReadinessIssue) -> AssetSelectionReasonDto {
+    AssetSelectionReasonDto {
+        code: issue.code.clone(),
+        message: issue.message.clone(),
+        next_action: "Corrigez le montage ou choisissez une autre révision avant de poursuivre."
+            .to_owned(),
+    }
 }
 
 fn load_selected_method(
@@ -750,7 +786,7 @@ fn station_snapshot(
     storage_root: &Path,
     revision: &StoredStationSetupRevision,
     require_ready: bool,
-    scheduled_start_at: &str,
+    schedule: &StoredServiceScheduleItem,
     execution_mode: &str,
 ) -> Result<LoadedStationSnapshot, AgentError> {
     let status = parse_station_status(&revision.status)?;
@@ -793,11 +829,35 @@ fn station_snapshot(
         ));
     }
 
-    let metrology = open_metrology_connection(storage_root)?;
+    let assessed_at = parse_laboratory_instant(&schedule.planned_start_at).map_err(|error| {
+        AgentError::with_details(
+            "planned_test_schedule_storage_invalid",
+            "the stored planned start time is not a valid RFC 3339 instant",
+            json!({ "planned_start_at": schedule.planned_start_at, "error": error.to_string() }),
+        )
+    })?;
+    let metrology_checked_on = parse_checked_on(
+        scheduled_date(&schedule.planned_start_at)?,
+        "planned_start_at",
+    )?;
+    let asset_options = executable_physical_asset_options(
+        storage_root,
+        &PhysicalAssetSelectionContext {
+            assessed_at,
+            checked_on: metrology_checked_on,
+            execution_mode: execution_mode.to_owned(),
+            laboratory_location_id: schedule.laboratory_location_id.clone(),
+            excluded_schedule_item_code: Some(schedule.item_code.clone()),
+        },
+    )?;
+    let fleet = open_fleet_connection(storage_root)?;
     let equipment = open_equipment_connection(storage_root)?;
     let mut assets = Vec::new();
     for binding in &definition.asset_bindings {
-        let instrument = load_instrument(&metrology, &binding.asset_id)?;
+        let asset = load_physical_asset(&fleet, &binding.asset_id)?;
+        let selection = asset_options
+            .iter()
+            .find(|option| option.asset.asset_id == binding.asset_id);
         let model_revision = load_equipment_model_revision(
             &equipment,
             &binding.equipment_model_id,
@@ -831,23 +891,25 @@ fn station_snapshot(
                     .collect()
             })
             .unwrap_or_default();
+        let metrology = selection
+            .map(|option| option.asset.metrology.clone())
+            .unwrap_or_else(|| MetrologyStatusSummaryDto::unavailable(metrology_checked_on));
         assets.push(PreparedStationAssetSnapshot {
             binding_id: binding.binding_id.clone(),
             role_label: binding.role_label.clone(),
             asset_id: binding.asset_id.clone(),
             asset_revision: binding.asset_revision.clone(),
-            inventory_code: binding.asset_id.clone(),
-            serial_number: instrument
-                .as_ref()
-                .map(|instrument| instrument.serial_number.clone())
+            inventory_code: selection
+                .map(|option| option.asset.inventory_code.clone())
                 .unwrap_or_else(|| "Non disponible".to_owned()),
-            manufacturer: instrument
-                .as_ref()
-                .map(|instrument| instrument.manufacturer.clone())
+            serial_number: selection
+                .and_then(|option| option.asset.serial_number.clone())
+                .unwrap_or_else(|| "Sans numéro de série".to_owned()),
+            manufacturer: selection
+                .map(|option| option.asset.manufacturer.clone())
                 .unwrap_or_else(|| "Non disponible".to_owned()),
-            model_name: instrument
-                .as_ref()
-                .map(|instrument| instrument.model.clone())
+            model_name: selection
+                .map(|option| option.asset.model_name.clone())
                 .unwrap_or_else(|| "Non disponible".to_owned()),
             equipment_model_id: binding.equipment_model_id.clone(),
             equipment_model_revision_id: binding.equipment_model_revision_id.clone(),
@@ -856,6 +918,20 @@ fn station_snapshot(
                 .as_ref()
                 .map(|model| model.category_code.clone())
                 .unwrap_or_else(|| "indisponible".to_owned()),
+            category_path: selection
+                .map(|option| option.asset.category_path.clone())
+                .or_else(|| asset.as_ref().map(category_path))
+                .unwrap_or_default(),
+            laboratory_location_label: selection
+                .and_then(|option| option.asset.laboratory_location_label.clone())
+                .unwrap_or_else(|| "Emplacement non défini".to_owned()),
+            service_state: selection
+                .map(|option| option.asset.service_state.clone())
+                .unwrap_or_else(|| "unavailable".to_owned()),
+            availability_state: selection
+                .map(|option| option.asset.operational_usage.state.clone())
+                .unwrap_or_else(|| "unavailable".to_owned()),
+            metrology: metrology.assessment,
             capabilities,
         });
     }
@@ -886,12 +962,40 @@ fn station_snapshot(
         corrections,
     };
     let mut contextual_definition = definition;
-    contextual_definition.planned_use_on = scheduled_date(scheduled_start_at)?.to_owned();
+    contextual_definition.planned_use_on = scheduled_date(&schedule.planned_start_at)?.to_owned();
     contextual_definition.execution_mode = execution_mode.to_owned();
-    let readiness = assess_station_setup_readiness(storage_root, &contextual_definition)?;
+    let mut readiness = assess_station_setup_readiness_for_context(
+        storage_root,
+        &contextual_definition,
+        assessed_at,
+        Some(&schedule.item_code),
+    )?;
+    if contextual_definition.laboratory_location_id != schedule.laboratory_location_id {
+        readiness.issues.push(StationReadinessIssue {
+            code: "planned_test_station_location_mismatch".to_owned(),
+            severity: StationReadinessSeverity::Blocking,
+            dimension: StationReadinessDimension::AssetIdentity,
+            message: "Ce montage est défini pour un autre lieu que le créneau planifié. Préparez une révision du montage dans le lieu prévu.".to_owned(),
+            binding_ids: Vec::new(),
+            connection_ids: Vec::new(),
+        });
+        readiness = StationSetupReadiness::from_issues(
+            contextual_definition.planned_use_on.clone(),
+            readiness.issues,
+        );
+    }
     Ok(LoadedStationSnapshot {
         snapshot,
         readiness,
+        asset_options: asset_options
+            .into_iter()
+            .filter(|option| {
+                contextual_definition
+                    .asset_bindings
+                    .iter()
+                    .any(|binding| binding.asset_id == option.asset.asset_id)
+            })
+            .collect(),
     })
 }
 
@@ -1234,6 +1338,9 @@ fn utc_timestamp() -> Result<String, AgentError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fleet_service::{
+        move_physical_asset, FleetOperationContext, MovePhysicalAssetInput,
+    };
     use crate::metrology_service::{
         register_metrology_instrument, MetrologyOperationContext, RegisterInstrumentInput,
     };
@@ -1579,6 +1686,18 @@ mod tests {
             )
             .unwrap();
         drop(projects);
+        let equipment = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        equipment
+            .execute(
+                "INSERT INTO laboratory_locations (location_id, label, description, status, revision, created_at, updated_at) VALUES (?1, ?2, '', 'active', 1, ?3, ?3)",
+                params![
+                    "LAB-PREP-STABLE",
+                    "Poste CEM préparation",
+                    "2026-07-15T08:00:00Z"
+                ],
+            )
+            .unwrap();
+        drop(equipment);
 
         identify_service_schedule_location(
             &storage_root,
@@ -1714,6 +1833,17 @@ mod tests {
         let options =
             list_planned_test_preparation_options(&storage_root, PROJECT_CODE, ITEM_CODE).unwrap();
         let options: Value = serde_json::from_str(&options).unwrap();
+        let station_option = &options["station_setups"][0];
+        assert_eq!(station_option["eligible"], true);
+        assert_eq!(station_option["asset_options"].as_array().unwrap().len(), 2);
+        assert!(station_option["asset_options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|option| option["eligible"] == true
+                && option["asset"]["laboratory_location_id"] == "LAB-LOCATION-CEM-1"
+                && option["asset"]["operational_usage"]["state"] == "assigned_to_setup"
+                && option["asset"]["metrology"]["checked_on"] == "2026-07-16"));
         let matrix = options["material_compatibility"]
             .as_array()
             .unwrap()
@@ -1862,15 +1992,44 @@ mod tests {
             "SN-SOURCE-001",
             "op-register-prep-source",
         );
-        let metrology = open_metrology_connection(&storage_root).unwrap();
-        let asset_revision = load_instrument(&metrology, ASSET_ID)
+        let equipment = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        equipment
+            .execute(
+                "INSERT INTO laboratory_locations (
+                    location_id, label, description, status, revision, created_at, updated_at
+                 ) VALUES ('LAB-LOCATION-CEM-1', 'Poste CEM 1',
+                    'Lieu de la préparation de test', 'active', 1,
+                    '2026-07-15T08:00:00Z', '2026-07-15T08:00:00Z')",
+                [],
+            )
+            .unwrap();
+        drop(equipment);
+        for (asset_id, operation_id) in [
+            (ASSET_ID, "op-prep-move-receiver"),
+            (SOURCE_ASSET_ID, "op-prep-move-source"),
+        ] {
+            move_physical_asset(
+                &storage_root,
+                MovePhysicalAssetInput {
+                    asset_id: asset_id.to_owned(),
+                    expected_revision: 1,
+                    destination_location_id: Some("LAB-LOCATION-CEM-1".to_owned()),
+                    context: fleet_context(operation_id),
+                },
+            )
+            .unwrap();
+        }
+        let fleet = open_fleet_connection(&storage_root).unwrap();
+        let asset_revision = load_physical_asset(&fleet, ASSET_ID)
             .unwrap()
             .unwrap()
-            .revision;
-        let source_revision = load_instrument(&metrology, SOURCE_ASSET_ID)
+            .revision
+            .to_string();
+        let source_revision = load_physical_asset(&fleet, SOURCE_ASSET_ID)
             .unwrap()
             .unwrap()
-            .revision;
+            .revision
+            .to_string();
         seed_station(
             &storage_root,
             &model_checksum,
@@ -1878,6 +2037,16 @@ mod tests {
             &source_revision,
         );
         storage_root
+    }
+
+    fn fleet_context(operation_id: &str) -> FleetOperationContext {
+        FleetOperationContext {
+            actor: "fixture.preparation".to_owned(),
+            reason: "Préparation de la fixture planifiée".to_owned(),
+            operation_id: operation_id.to_owned(),
+            correlation_id: format!("corr-{operation_id}"),
+            device_id: "fixture-device".to_owned(),
+        }
     }
 
     fn seed_project_and_schedule(storage_root: &Path) {

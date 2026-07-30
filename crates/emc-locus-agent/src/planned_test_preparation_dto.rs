@@ -1,3 +1,4 @@
+use crate::fleet_dto::{AssetSelectionReasonDto, ExecutablePhysicalAssetOptionDto};
 use emc_locus_core::{
     PlannedTestMaterialCompatibility, PlannedTestPreparationDefinition,
     PreparedStationSetupSnapshot, PreparedTestMethodSnapshot, StationSetupReadiness,
@@ -61,6 +62,10 @@ pub(crate) struct PlannedTestPreparationOperationResultDto {
 pub(crate) struct PlannedTestPreparationStationOptionDto {
     pub(crate) station_setup: PreparedStationSetupSnapshot,
     pub(crate) readiness: StationSetupReadiness,
+    pub(crate) eligible: bool,
+    pub(crate) blocking_reasons: Vec<AssetSelectionReasonDto>,
+    pub(crate) warnings: Vec<AssetSelectionReasonDto>,
+    pub(crate) asset_options: Vec<ExecutablePhysicalAssetOptionDto>,
 }
 
 #[derive(Clone, Debug, Serialize)]

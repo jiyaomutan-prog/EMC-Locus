@@ -1,6 +1,7 @@
 import {
   Activity,
   AlertTriangle,
+  ArrowLeft,
   Boxes,
   ChevronDown,
   ChevronRight,
@@ -24,15 +25,17 @@ import {
   ShieldCheck,
   Trash2
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ApiError,
   equipmentApi,
+  fleetApi,
   measurementEngineeringApi,
   metrologyApi,
   type MeasurementEngineeringConfig,
   type OperationContext
 } from "../../api";
+import { operatorCategoryLabel, operatorCategoryPath, operatorModelName, operatorModelVariant } from "../../operatorEquipmentLabels";
 import type {
   CommunicationProviderStatus,
   CorrectionRequirementDefinition,
@@ -63,13 +66,20 @@ import type {
   TechnologyTag
 } from "../../models/equipment";
 import type { MetrologyInstrument, RegisterMetrologyInstrumentInput } from "../../models/metrology";
+import type { PhysicalAsset } from "../../models/fleet";
 import { MeasurementEngineeringPanel } from "./MeasurementEngineeringPanel";
 import { PhysicalAssetMetrologyPanel } from "./PhysicalAssetMetrologyPanel";
+import { FleetWorkspace } from "./FleetWorkspace";
+import { LaboratoryLocationsPanel } from "./LaboratoryLocationsPanel";
+import { StationSetupWorkspace } from "./StationSetupWorkspace";
 
-type EquipmentSpace =
+export type EquipmentSpace =
   | "admin"
   | "catalog"
   | "assets"
+  | "metrology"
+  | "setups"
+  | "locations"
   | "drivers"
   | "signals"
   | "sensors"
@@ -108,26 +118,26 @@ const measurementSpaces: Array<[EquipmentSpace, string]> = [
 ];
 
 const modelSections: Array<[ModelSection, string]> = [
-  ["summary", "Synthese"],
+  ["summary", "Synthèse"],
   ["identification", "Identification"],
-  ["category_template", "Categorie et formulaire"],
-  ["characteristics", "Caracteristiques"],
+  ["category_template", "Catégorie et champs"],
+  ["characteristics", "Caractéristiques"],
   ["ports_connections", "Entrées et sorties"],
   ["measurement_corrections", "Entrées, sorties et corrections"],
-  ["control_drivers", "Pilotage / drivers"],
+  ["control_drivers", "Pilotage et profils"],
   ["documents", "Documents"],
-  ["revisions_audit", "Revisions et audit"],
-  ["advanced_diagnostics", "Diagnostic avance"]
+  ["revisions_audit", "Révisions et historique"],
+  ["advanced_diagnostics", "Détails techniques"]
 ];
 
 const driverSections: Array<[DriverSection, string]> = [
-  ["general", "General"],
+  ["general", "Général"],
   ["actions", "Actions"],
   ["script", "Script"],
   ["simulation", "Simulation"],
-  ["revisions", "Revisions"],
-  ["audit", "Audit"],
-  ["json", "Diagnostic avance"]
+  ["revisions", "Révisions"],
+  ["audit", "Historique"],
+  ["json", "Détails techniques"]
 ];
 
 const equipmentClasses: EquipmentClass[] = [
@@ -185,8 +195,9 @@ interface SignalTransformationOption {
   label: string;
 }
 
-export function EquipmentWorkspace() {
-  const [space, setSpace] = useState<EquipmentSpace>("catalog");
+export function EquipmentWorkspace(props: { initialSpace?: EquipmentSpace; onSpaceChange?: (space: EquipmentSpace) => void }) {
+  const [space, setSpace] = useState<EquipmentSpace>(props.initialSpace ?? "catalog");
+  const onSpaceChange = props.onSpaceChange;
   const [models, setModels] = useState<EquipmentModelAggregate[]>([]);
   const [drivers, setDrivers] = useState<DriverProfileAggregate[]>([]);
   const [providers, setProviders] = useState<CommunicationProviderStatus[]>([]);
@@ -208,6 +219,9 @@ export function EquipmentWorkspace() {
   const [manufacturerFilter, setManufacturerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+  const [modelLoadError, setModelLoadError] = useState<string | null>(null);
+  const [driverLoadError, setDriverLoadError] = useState<string | null>(null);
+  const [metrologyLoadError, setMetrologyLoadError] = useState<string | null>(null);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [creationOpen, setCreationOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<EquipmentModelAggregate | null>(null);
@@ -218,7 +232,13 @@ export function EquipmentWorkspace() {
   const [modelValidation, setModelValidation] = useState<EquipmentValidationResult | null>(null);
   const [modelRevisions, setModelRevisions] = useState<EquipmentModelRevision[]>([]);
   const [modelAudit, setModelAudit] = useState<EquipmentAuditEvent[]>([]);
+  const [modelRevisionsError, setModelRevisionsError] = useState<string | null>(null);
+  const [modelAuditError, setModelAuditError] = useState<string | null>(null);
   const [modelJsonDraft, setModelJsonDraft] = useState("");
+  const [assetCreationModelId, setAssetCreationModelId] = useState<string | null>(null);
+  const [fleetViewModelId, setFleetViewModelId] = useState<string | null>(null);
+  const [metrologyAssetId, setMetrologyAssetId] = useState<string | null>(null);
+  const modelOpenSequence = useRef(0);
 
   const [selectedDriver, setSelectedDriver] = useState<DriverProfileAggregate | null>(null);
   const [selectedDriverRevision, setSelectedDriverRevision] = useState<DriverProfileRevision | null>(null);
@@ -234,54 +254,46 @@ export function EquipmentWorkspace() {
   const refresh = useCallback(async () => {
     setLoadState((current) => current === "ready" ? "ready" : "loading");
     setOperationError(null);
+
+    equipmentApi.listDrivers()
+      .then((response) => { setDrivers(response.driver_profiles); setDriverLoadError(null); })
+      .catch((error) => setDriverLoadError(errorMessage(error)));
+    equipmentApi.providers()
+      .then((response) => setProviders(response.providers))
+      .catch((error) => setDriverLoadError(errorMessage(error)));
+    metrologyApi.listInstruments()
+      .then((response) => { setInstruments(response.instruments); setMetrologyLoadError(null); })
+      .catch((error) => setMetrologyLoadError(errorMessage(error)));
+    measurementEngineeringApi.list(sampleConversionConfig)
+      .then((response) => setSampleConversions(response.items))
+      .catch(() => undefined);
+    measurementEngineeringApi.list(frequencyResponseConfig)
+      .then((response) => setFrequencyResponses(response.items))
+      .catch(() => undefined);
+    equipmentApi.registries().then(setRegistries).catch(() => undefined);
+    equipmentApi.listCategories(true).then((response) => setCategories(response.categories)).catch(() => undefined);
+    equipmentApi.categoryTree(true).then((response) => setCategoryTree(response.categories)).catch(() => undefined);
+    equipmentApi.listFieldDefinitions("equipment_model", true).then((response) => setFieldDefinitions(response.field_definitions)).catch(() => undefined);
+
     try {
-      const [
-        modelList,
-        driverList,
-        providerList,
-        categoryList,
-        treeList,
-        fieldsList,
-        instrumentList,
-        sampleConversionList,
-        frequencyResponseList
-      ] = await Promise.all([
-        equipmentApi.listModels({
-          q: query.trim(),
-          manufacturer: manufacturerFilter.trim(),
-          root_category_id: rootFilter,
-          category_code: categoryFilter,
-          demo_mode: demoMode,
-          equipment_class: classFilter,
-          functional_role: roleFilter,
-          signal_domain: domainFilter,
-          technology_tag: tagFilter,
-          status: statusFilter
-        }),
-        equipmentApi.listDrivers(),
-        equipmentApi.providers(),
-        equipmentApi.listCategories(true),
-        equipmentApi.categoryTree(true),
-        equipmentApi.listFieldDefinitions("equipment_model", true),
-        metrologyApi.listInstruments(),
-        measurementEngineeringApi.list(sampleConversionConfig),
-        measurementEngineeringApi.list(frequencyResponseConfig)
-      ]);
-      const registryList = await equipmentApi.registries();
+      const modelList = await equipmentApi.listModels({
+        q: query.trim(),
+        manufacturer: manufacturerFilter.trim(),
+        root_category_id: rootFilter,
+        category_code: categoryFilter,
+        demo_mode: demoMode,
+        equipment_class: classFilter,
+        functional_role: roleFilter,
+        signal_domain: domainFilter,
+        technology_tag: tagFilter,
+        status: statusFilter
+      });
       setModels(modelList.equipment_models);
-      setDrivers(driverList.driver_profiles);
-      setProviders(providerList.providers);
-      setCategories(categoryList.categories);
-      setCategoryTree(treeList.categories);
-      setFieldDefinitions(fieldsList.field_definitions);
-      setInstruments(instrumentList.instruments);
-      setSampleConversions(sampleConversionList.items);
-      setFrequencyResponses(frequencyResponseList.items);
-      setRegistries(registryList);
+      setModelLoadError(null);
       setLoadState("ready");
     } catch (error) {
       setLoadState("error");
-      setOperationError(errorMessage(error));
+      setModelLoadError(errorMessage(error));
     }
   }, [
     query,
@@ -299,6 +311,14 @@ export function EquipmentWorkspace() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (props.initialSpace) setSpace(props.initialSpace);
+  }, [props.initialSpace]);
+
+  useEffect(() => {
+    onSpaceChange?.(space);
+  }, [onSpaceChange, space]);
 
   const approvedModels = models.filter((model) => model.current_approved_revision);
   const signalTransformationOptions = [
@@ -340,25 +360,54 @@ export function EquipmentWorkspace() {
     setOperationError(null);
     const target = revision ?? model.active_draft_revision ?? model.current_approved_revision ?? model.latest_revision;
     if (!target) return;
+    const modelId = model.identity.equipment_model_id;
+    const sameModel = selectedModel?.identity.equipment_model_id === modelId;
+    const requestSequence = ++modelOpenSequence.current;
     try {
-      const [detail, revisions, audit] = await Promise.all([
-        equipmentApi.getModel(model.identity.equipment_model_id),
-        equipmentApi.listModelRevisions(model.identity.equipment_model_id),
-        equipmentApi.listModelAudit(model.identity.equipment_model_id)
-      ]);
-      const freshRevision =
-        revisions.revisions.find((item) => item.revision_id === target.revision_id) ?? target;
+      const detail = await equipmentApi.getModel(modelId);
+      if (requestSequence !== modelOpenSequence.current) return;
       setSelectedModel(detail.equipment_model);
-      setSelectedModelRevision(freshRevision);
-      setModelDefinition(freshRevision.definition);
-      setModelChecksum(freshRevision.definition_checksum);
-      setModelJsonDraft(JSON.stringify(freshRevision.definition, null, 2));
-      setModelRevisions(revisions.revisions);
-      setModelAudit(audit.audit_events);
+      setSelectedModelRevision(target);
+      setModelDefinition(target.definition);
+      setModelChecksum(target.definition_checksum);
+      setModelJsonDraft(JSON.stringify(target.definition, null, 2));
+      if (!sameModel) {
+        setModelRevisions([]);
+        setModelAudit([]);
+      }
+      setModelRevisionsError(null);
+      setModelAuditError(null);
       setModelValidation(null);
       setModelSection("summary");
+
+      const revisionsLoad = equipmentApi.listModelRevisions(modelId)
+        .then((response) => {
+          if (requestSequence !== modelOpenSequence.current) return;
+          setModelRevisions(response.revisions);
+          setModelRevisionsError(null);
+          const freshRevision = response.revisions.find((item) => item.revision_id === target.revision_id);
+          if (freshRevision) {
+            setSelectedModelRevision(freshRevision);
+            setModelDefinition(freshRevision.definition);
+            setModelChecksum(freshRevision.definition_checksum);
+            setModelJsonDraft(JSON.stringify(freshRevision.definition, null, 2));
+          }
+        })
+        .catch((error: unknown) => {
+          if (requestSequence === modelOpenSequence.current) setModelRevisionsError(errorMessage(error));
+        });
+      const auditLoad = equipmentApi.listModelAudit(modelId)
+        .then((response) => {
+          if (requestSequence !== modelOpenSequence.current) return;
+          setModelAudit(response.audit_events);
+          setModelAuditError(null);
+        })
+        .catch((error: unknown) => {
+          if (requestSequence === modelOpenSequence.current) setModelAuditError(errorMessage(error));
+        });
+      await Promise.allSettled([revisionsLoad, auditLoad]);
     } catch (error) {
-      setOperationError(errorMessage(error));
+      if (requestSequence === modelOpenSequence.current) setOperationError(errorMessage(error));
     }
   }
 
@@ -648,51 +697,14 @@ export function EquipmentWorkspace() {
     try {
       updateDriver(JSON.parse(driverJsonDraft) as DriverProfileDefinition);
     } catch {
-      setOperationError("JSON driver invalide.");
+      setOperationError("Le JSON du profil de pilotage est invalide.");
     }
   }
 
   return (
     <section className="equipmentWorkspace">
-      <div className="equipmentNavigation">
-        <nav className="equipmentTabs" aria-label="Navigation equipements">
-          <button
-            className={space === "catalog" ? "active" : ""}
-            aria-current={space === "catalog" ? "page" : undefined}
-            onClick={() => setSpace("catalog")}
-          >
-            <Boxes size={17} /> Catalogue équipements
-          </button>
-          <button
-            className={space === "assets" ? "active" : ""}
-            aria-current={space === "assets" ? "page" : undefined}
-            onClick={() => setSpace("assets")}
-          >
-            <PackagePlus size={17} /> Matériels réels
-          </button>
-          <button
-            className={measurementSpaceActive ? "active" : ""}
-            aria-current={measurementSpaceActive ? "page" : undefined}
-            onClick={() => setSpace("signals")}
-          >
-            <Cpu size={17} /> Signaux et corrections
-          </button>
-          <button
-            className={space === "drivers" ? "active" : ""}
-            aria-current={space === "drivers" ? "page" : undefined}
-            onClick={() => setSpace("drivers")}
-          >
-            <GitBranch size={17} /> Drivers et actions
-          </button>
-          <button
-            className={"equipmentAdminTab" + (space === "admin" ? " active" : "")}
-            aria-current={space === "admin" ? "page" : undefined}
-            onClick={() => setSpace("admin")}
-          >
-            <Settings size={17} /> Administration du référentiel
-          </button>
-        </nav>
-        {measurementSpaceActive && (
+      {measurementSpaceActive && (
+        <div className="equipmentNavigation">
           <nav className="equipmentSubnav" aria-label="Définitions des signaux et corrections">
             <button className={space === "signals" ? "active" : ""} onClick={() => setSpace("signals")}>
               Choisir
@@ -703,27 +715,35 @@ export function EquipmentWorkspace() {
               </button>
             ))}
           </nav>
-        )}
-      </div>
+        </div>
+      )}
 
       {space === "catalog" && (
+        <>
+        <header className="resourcePageHeader">
+          <div>
+            <p className="contextBanner">Vous consultez un modèle générique.</p>
+            <h2>Catalogue des modèles</h2>
+            <p>Définitions génériques des fabricants. Aucun numéro de série ni emplacement n'est géré ici.</p>
+          </div>
+        </header>
         <div className="catalogCommandBar">
           <label className="searchBox catalogSearch">
             <Search size={16} />
             <input
-              aria-label="Recherche equipement"
+              aria-label="Rechercher un modèle"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Modèle, fabricant ou catégorie"
             />
           </label>
-          <select aria-label="Filtre categorie racine" value={rootFilter} onChange={(event) => setRootFilter(event.target.value)}>
+          <select aria-label="Filtrer par famille" value={rootFilter} onChange={(event) => setRootFilter(event.target.value)}>
             <option value="all">Toutes les familles</option>
             {familyCategoryTree.map((category) => (
               <option key={category.category_id} value={category.category_id}>{category.label}</option>
             ))}
           </select>
-          <select aria-label="Filtre statut" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+          <select aria-label="Filtrer par statut" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
             <option value="all">Tous les statuts</option>
             <option value="draft">{humanStatus("draft")}</option>
             <option value="under_review">{humanStatus("under_review")}</option>
@@ -746,41 +766,41 @@ export function EquipmentWorkspace() {
                 />
               </label>
               <label>
-                Sous-categorie
-                <select aria-label="Filtre sous categorie" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
-                  <option value="all">Toutes les sous-categories</option>
+                Sous-catégorie
+                <select aria-label="Filtrer par sous-catégorie" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+                  <option value="all">Toutes les sous-catégories</option>
                   {categories.filter((category) => category.parent_category_id && category.parent_category_id !== "general_equipment").map((category) => (
                     <option key={category.category_id} value={category.category_id}>{categoryPathLabel(categories, category.category_id)}</option>
                   ))}
                 </select>
               </label>
               <label>
-                Donnees de demonstration
-                <select aria-label="Filtre donnees demo" value={demoMode} onChange={(event) => setDemoMode(event.target.value as typeof demoMode)}>
+                Données de démonstration
+                <select aria-label="Filtrer les données de démonstration" value={demoMode} onChange={(event) => setDemoMode(event.target.value as typeof demoMode)}>
                   <option value="hide">Masquer</option>
                   <option value="show">Afficher</option>
-                  <option value="only">Demonstration uniquement</option>
+                  <option value="only">Démonstration uniquement</option>
                 </select>
               </label>
               <label>
-                Classe d'equipement
-                <select aria-label="Filtre classe equipement" value={classFilter} onChange={(event) => setClassFilter(event.target.value)}>
+                Type d'équipement
+                <select aria-label="Filtrer par type d'équipement" value={classFilter} onChange={(event) => setClassFilter(event.target.value)}>
                   <option value="all">Toutes les classes</option>
                   {equipmentClasses.map((item) => <option value={item} key={item}>{humanLabel(item)}</option>)}
                 </select>
               </label>
               <label>
-                Role physique
-                <select aria-label="Filtre role physique" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
-                  <option value="all">Tous les roles</option>
+                Rôle dans la chaîne de mesure
+                <select aria-label="Filtrer par rôle dans la chaîne de mesure" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
+                  <option value="all">Tous les rôles</option>
                   {(registries?.functional_roles ?? functionalRoles.map((code) => ({ code, label: humanLabel(code) }))).map((item) => (
                     <option value={item.code} key={item.code}>{item.label || humanLabel(item.code)}</option>
                   ))}
                 </select>
               </label>
               <label>
-                Domaine de signal
-                <select aria-label="Filtre domaine signal" value={domainFilter} onChange={(event) => setDomainFilter(event.target.value)}>
+                Nature du signal
+                <select aria-label="Filtrer par nature du signal" value={domainFilter} onChange={(event) => setDomainFilter(event.target.value)}>
                   <option value="all">Tous les domaines</option>
                   {(registries?.signal_domains ?? []).map((item) => (
                     <option value={item.code} key={item.code}>{item.label || humanLabel(item.code)}</option>
@@ -802,24 +822,28 @@ export function EquipmentWorkspace() {
             <button className="textButton" type="button" onClick={resetCatalogFilters}>Effacer les filtres</button>
           )}
           <span className="commandBarSpacer" />
-          <button className="iconButton secondary" onClick={() => void refresh()} title="Rafraichir le catalogue" aria-label="Rafraichir le catalogue">
+          <button className="iconButton secondary" onClick={() => void refresh()} title="Rafraîchir le catalogue" aria-label="Rafraîchir le catalogue">
             <RefreshCw size={16} />
           </button>
           <button onClick={() => setCreationOpen(true)}>
             <Plus size={16} /> Nouveau modèle
           </button>
+          <button className="secondary" onClick={() => setSpace("admin")}>
+            <Settings size={16} /> Administration du référentiel
+          </button>
         </div>
+        </>
       )}
 
       {space === "drivers" && (
         <div className="contextCommandBar">
           <strong>Profils de pilotage</strong>
           <span className="commandBarSpacer" />
-          <button className="iconButton secondary" onClick={() => void refresh()} title="Rafraichir les drivers" aria-label="Rafraichir les drivers">
+          <button className="iconButton secondary" onClick={() => void refresh()} title="Rafraîchir les profils de pilotage" aria-label="Rafraîchir les profils de pilotage">
             <RefreshCw size={16} />
           </button>
           <button onClick={() => void createDriver()} disabled={approvedModels.length === 0}>
-            <Plus size={16} /> Nouveau driver
+            <Plus size={16} /> Nouveau profil de pilotage
           </button>
         </div>
       )}
@@ -828,7 +852,7 @@ export function EquipmentWorkspace() {
         <div className="conflictBox">
           <AlertTriangle size={18} />
           <div>
-            <strong>Operation refusee</strong>
+            <strong>Opération refusée</strong>
             <p>{operationError}</p>
           </div>
         </div>
@@ -845,17 +869,31 @@ export function EquipmentWorkspace() {
         </div>
       )}
 
-      {loadState === "loading" && <StateBlock title="Chargement" detail="Lecture du catalogue equipement." />}
-      {loadState === "error" && <StateBlock title="Erreur" detail={operationError ?? "Catalogue indisponible."} />}
+      {space === "catalog" && loadState === "loading" && <StateBlock title="Chargement" detail="Lecture du catalogue des modèles." />}
+      {space === "catalog" && loadState === "error" && <StateBlock title="Catalogue indisponible" detail={modelLoadError ?? "Le catalogue ne peut pas être chargé."} />}
+      {space === "catalog" && loadState === "ready" && driverLoadError && (
+        <StateBlock
+          title="Pilotage temporairement indisponible"
+          detail="Le catalogue reste consultable. Les profils de pilotage pourront être ouverts lorsque le service de pilotage sera revenu."
+        />
+      )}
+      {space === "drivers" && driverLoadError && <StateBlock title="Pilotage temporairement indisponible" detail={driverLoadError} />}
 
       {space === "admin" && loadState === "ready" && (
-        <EquipmentRepositoryAdmin
-          categories={categories}
-          categoryTree={categoryTree}
-          fieldDefinitions={fieldDefinitions}
-          onRefresh={() => void refresh()}
-          onError={setOperationError}
-        />
+        <>
+          <div className="contextCommandBar">
+            <button className="secondary" type="button" onClick={() => setSpace("catalog")}>
+              <ArrowLeft size={16} /> Retour au catalogue
+            </button>
+          </div>
+          <EquipmentRepositoryAdmin
+            categories={categories}
+            categoryTree={categoryTree}
+            fieldDefinitions={fieldDefinitions}
+            onRefresh={() => void refresh()}
+            onError={setOperationError}
+          />
+        </>
       )}
 
       {space === "catalog" && loadState === "ready" && (
@@ -886,6 +924,8 @@ export function EquipmentWorkspace() {
             section={modelSection}
             revisions={modelRevisions}
             audit={modelAudit}
+            revisionsError={modelRevisionsError}
+            auditError={modelAuditError}
             validation={modelValidation}
             signalTransformationOptions={signalTransformationOptions}
             jsonDraft={modelJsonDraft}
@@ -899,6 +939,14 @@ export function EquipmentWorkspace() {
             onApprove={() => void approveModel()}
             onDerive={() => void deriveModel()}
             onClone={() => void cloneSelectedModel()}
+            onCreateAsset={() => {
+              setAssetCreationModelId(selectedModel?.identity.equipment_model_id ?? null);
+              setSpace("assets");
+            }}
+            onViewAssets={() => {
+              setFleetViewModelId(selectedModel?.identity.equipment_model_id ?? null);
+              setSpace("assets");
+            }}
             onOpenRevision={(revision) => void openModel(selectedModel!, revision)}
           />
         </div>
@@ -939,7 +987,46 @@ export function EquipmentWorkspace() {
         </div>
       )}
 
-      {space === "assets" && loadState === "ready" && (
+      {space === "assets" && (
+        <>
+          {metrologyLoadError && (
+            <StateBlock
+              title="Métrologie temporairement indisponible"
+              detail="L’identité et la disponibilité des exemplaires restent consultables. Les étalonnages et caractérisations détaillés seront accessibles au retour du service métrologique."
+            />
+          )}
+          <FleetWorkspace
+            models={models}
+            categories={categories}
+            modelLoadError={modelLoadError}
+            initialModelId={assetCreationModelId}
+            initialViewModelId={fleetViewModelId}
+            onInitialModelHandled={() => setAssetCreationModelId(null)}
+            onInitialViewModelHandled={() => setFleetViewModelId(null)}
+            onOpenPinnedModel={(modelId, revisionId) => {
+              void (async () => {
+                setOperationError(null);
+                try {
+                  const [detail, exactRevision] = await Promise.all([
+                    equipmentApi.getModel(modelId),
+                    equipmentApi.getModelRevision(modelId, revisionId)
+                  ]);
+                  setSpace("catalog");
+                  await openModel(detail.equipment_model, exactRevision.revision);
+                } catch (error) {
+                  setOperationError(errorMessage(error));
+                }
+              })();
+            }}
+            onOpenMetrology={(assetId) => {
+              setMetrologyAssetId(assetId);
+              setSpace("metrology");
+            }}
+          />
+        </>
+      )}
+
+      {space === "metrology" && (
         <PhysicalAssetMetrologyPanel
           instruments={instruments}
           approvedModels={approvedModels}
@@ -947,8 +1034,14 @@ export function EquipmentWorkspace() {
           categories={categories}
           onRegister={registerPhysicalAsset}
           onOpenCatalog={() => setSpace("catalog")}
+          initialSelectedAssetId={metrologyAssetId}
+          allowRegistration={false}
         />
       )}
+
+      {space === "metrology" && metrologyLoadError && <StateBlock title="Métrologie temporairement indisponible" detail={metrologyLoadError} />}
+      {space === "setups" && <StationSetupWorkspace />}
+      {space === "locations" && <LaboratoryLocationsPanel />}
 
       {space === "signals" && loadState === "ready" && (
         <SignalCorrectionOverview onSelect={setSpace} />
@@ -1284,12 +1377,12 @@ function EquipmentRepositoryAdmin(props: {
           selectedId={selectedCategoryId}
           onSelect={selectCategory}
           actions={[
-            ["add_child", "Ajouter une sous-categorie"],
+            ["add_child", "Ajouter une sous-catégorie"],
             ["rename", "Renommer"],
-            ["move", "Deplacer"],
+            ["move", "Déplacer"],
             ["archive", "Archiver"],
             ["edit_form", "Modifier le formulaire"],
-            ["preview", "Apercu du formulaire"]
+            ["preview", "Aperçu du formulaire"]
           ]}
           onAction={(categoryId, action) => handleCategoryAction(categoryId, action as CategoryAction)}
         />
@@ -1298,11 +1391,11 @@ function EquipmentRepositoryAdmin(props: {
         <div className="studioHeader">
           <div>
             <p className="eyebrow">Administration du référentiel</p>
-            <h2>{selectedCategory ? categoryPathLabel(props.categories, selectedCategory.category_id) : "Categorie"}</h2>
+            <h2>{selectedCategory ? categoryPathLabel(props.categories, selectedCategory.category_id) : "Catégorie"}</h2>
           </div>
           {selectedCategory && (
             <div className="headerActions">
-              <button onClick={() => setAdminTab("children")}><Plus size={16} /> Ajouter une sous-categorie</button>
+              <button onClick={() => setAdminTab("children")}><Plus size={16} /> Ajouter une sous-catégorie</button>
               <button onClick={() => setAdminTab("form")}><Settings size={16} /> Modifier le formulaire</button>
             </div>
           )}
@@ -1310,9 +1403,9 @@ function EquipmentRepositoryAdmin(props: {
         <nav className="adminTabs" aria-label="Administration de la categorie">
           {[
             ["information", "Informations"],
-            ["children", "Sous-categories"],
+            ["children", "Sous-catégories"],
             ["form", "Formulaire"],
-            ["preview", "Apercu"]
+            ["preview", "Aperçu"]
           ].map(([key, label]) => (
             <button key={key} className={adminTab === key ? "active" : ""} onClick={() => setAdminTab(key as AdminTab)}>
               {label}
@@ -1322,26 +1415,26 @@ function EquipmentRepositoryAdmin(props: {
 
         {adminTab === "information" && selectedCategory && (
           <EditorCard title="Informations">
-            <Field label="Nom de la categorie" value={editCategoryLabel} onChange={setEditCategoryLabel} />
+            <Field label="Nom de la catégorie" value={editCategoryLabel} onChange={setEditCategoryLabel} />
             <Field label="Description" value={editCategoryDescription} onChange={setEditCategoryDescription} />
             <dl className="businessSummary">
-              <dt>Categorie parente</dt><dd>{selectedCategory.parent_category_id ? categoryPathLabel(props.categories, selectedCategory.parent_category_id) : "Categorie racine systeme"}</dd>
-              <dt>Etat</dt><dd>{selectedCategory.active ? "Active" : "Archivee"}</dd>
-              <dt>Sous-categories</dt><dd>{selectedChildren.length}</dd>
+              <dt>Catégorie parente</dt><dd>{selectedCategory.parent_category_id ? categoryPathLabel(props.categories, selectedCategory.parent_category_id) : "Catégorie racine système"}</dd>
+              <dt>État</dt><dd>{selectedCategory.active ? "Active" : "Archivée"}</dd>
+              <dt>Sous-catégories</dt><dd>{selectedChildren.length}</dd>
             </dl>
             <div className="buttonRow">
               <button onClick={() => void updateSelectedCategory()}><Save size={16} /> Sauvegarder</button>
               {!selectedCategory.system_defined && (
                 <>
-                  <label>Nouvelle categorie parente
+                  <label>Nouvelle catégorie parente
                     <select value={moveParentId} onChange={(event) => setMoveParentId(event.target.value)}>
-                      <option value="">Choisir une categorie</option>
+                      <option value="">Choisir une catégorie</option>
                       {movableParents.map((category) => (
                         <option key={category.category_id} value={category.category_id}>{categoryPathLabel(props.categories, category.category_id)}</option>
                       ))}
                     </select>
                   </label>
-                  <button onClick={() => void moveSelectedCategory()}>Deplacer</button>
+                  <button onClick={() => void moveSelectedCategory()}>Déplacer</button>
                   <button onClick={() => void archiveSelectedCategory()}>Archiver</button>
                 </>
               )}
@@ -1350,9 +1443,9 @@ function EquipmentRepositoryAdmin(props: {
         )}
 
         {adminTab === "children" && selectedCategory && (
-          <EditorCard title="Sous-categories">
+          <EditorCard title="Sous-catégories">
             <div className="childList">
-              {selectedChildren.length === 0 && <p>Aucune sous-categorie directe.</p>}
+              {selectedChildren.length === 0 && <p>Aucune sous-catégorie directe.</p>}
               {selectedChildren.map((category) => (
                 <button key={category.category_id} onClick={() => selectCategory(category.category_id)}>
                   <Folder size={16} /> <span>{category.label}</span>
@@ -1360,22 +1453,22 @@ function EquipmentRepositoryAdmin(props: {
               ))}
             </div>
             <div className="formGrid">
-              <label><FieldCaption label="Nom de la sous-categorie" required /><input value={newCategoryLabel} onChange={(event) => setNewCategoryLabel(event.target.value)} /></label>
+              <label><FieldCaption label="Nom de la sous-catégorie" required /><input value={newCategoryLabel} onChange={(event) => setNewCategoryLabel(event.target.value)} /></label>
               <label><FieldCaption label="Description" /><input value={newCategoryDescription} onChange={(event) => setNewCategoryDescription(event.target.value)} /></label>
             </div>
             <details className="advancedOptions">
-              <summary>Options avancees</summary>
+              <summary>Options avancées</summary>
               <label><FieldCaption label="Identifiant interne" /><input value={categoryCodeOverride || generatedCategoryId} onChange={(event) => setCategoryCodeOverride(event.target.value)} /></label>
             </details>
             <button onClick={() => void createSubcategory()} disabled={!newCategoryLabel.trim()}>
-              <Plus size={16} /> Creer la sous-categorie
+              <Plus size={16} /> Créer la sous-catégorie
             </button>
           </EditorCard>
         )}
 
         {adminTab === "form" && selectedCategory && (
           <>
-            <EditorCard title={editingFieldId ? "Modifier le champ" : "Creer un champ"}>
+            <EditorCard title={editingFieldId ? "Modifier le champ" : "Créer un champ"}>
               <div className="formGrid">
                 <Field label="Nom du champ" value={newFieldLabel} onChange={setNewFieldLabel} />
                 <Field label="Description / aide" value={newFieldDescription} onChange={setNewFieldDescription} />
@@ -1388,7 +1481,7 @@ function EquipmentRepositoryAdmin(props: {
               </div>
               {(newFieldType === "choice" || newFieldType === "multi_choice") && (
                 <ChoiceListEditor
-                  title="Valeurs proposees"
+                  title="Valeurs proposées"
                   values={newFieldChoices}
                   draft={newChoiceValue}
                   onDraft={setNewChoiceValue}
@@ -1398,7 +1491,7 @@ function EquipmentRepositoryAdmin(props: {
               )}
               {newFieldType === "number_with_unit" && (
                 <ChoiceListEditor
-                  title="Unites autorisees"
+                  title="Unités autorisées"
                   values={newFieldUnits}
                   draft={newUnitValue}
                   onDraft={setNewUnitValue}
@@ -1407,12 +1500,12 @@ function EquipmentRepositoryAdmin(props: {
                 />
               )}
               <details className="advancedOptions">
-                <summary>Options avancees</summary>
+                <summary>Options avancées</summary>
                 <Field label="Nom technique" value={fieldCodeOverride || generatedFieldCode} disabled={Boolean(editingFieldId)} onChange={setFieldCodeOverride} />
-                <p className="hint">Le nom technique reste reserve au diagnostic, aux exports et aux API.</p>
+                <p className="hint">Le nom technique reste réservé au diagnostic, aux exports et aux API.</p>
               </details>
               <div className="buttonRow">
-                <button onClick={() => void saveField()} disabled={!newFieldLabel.trim()}>{editingFieldId ? <Save size={16} /> : <Plus size={16} />}{editingFieldId ? "Enregistrer" : "Creer le champ"}</button>
+                <button onClick={() => void saveField()} disabled={!newFieldLabel.trim()}>{editingFieldId ? <Save size={16} /> : <Plus size={16} />}{editingFieldId ? "Enregistrer" : "Créer le champ"}</button>
                 {editingFieldId && <button className="secondary" type="button" onClick={resetFieldEditor}>Annuler</button>}
               </div>
               <StructuredTable columns={["Champ", "Type", "Groupe", "Etat", "Actions"]}>
@@ -1431,8 +1524,8 @@ function EquipmentRepositoryAdmin(props: {
                 ))}
               </StructuredTable>
             </EditorCard>
-            <EditorCard title="Formulaire de la categorie">
-              <div className="fieldRequirementLegend"><span className="requirementBadge required">Obligatoire</span><span>requis a la creation du modele</span><span className="requirementBadge optional">Optionnel</span><span>peut etre complete plus tard</span></div>
+            <EditorCard title="Formulaire de la catégorie">
+              <div className="fieldRequirementLegend"><span className="requirementBadge required">Obligatoire</span><span>requis à la création du modèle</span><span className="requirementBadge optional">Optionnel</span><span>peut être complété plus tard</span></div>
               <div className="formGrid">
                 <label>Champ du formulaire
                   <select value={selectedFieldId} onChange={(event) => setSelectedFieldId(event.target.value)}>
@@ -1459,7 +1552,7 @@ function EquipmentRepositoryAdmin(props: {
                       <td><span className={`requirementBadge ${field.required ? "required" : "optional"}`}>{field.required ? "Obligatoire" : "Optionnel"}</span></td>
                       <td>{field.visible ? "Oui" : "Non"}</td>
                       <td>{field.display_group}</td>
-                      <td>{direct ? "Cette categorie" : inheritedFieldOrigin(field, props.categories)}</td>
+                      <td>{direct ? "Cette catégorie" : inheritedFieldOrigin(field, props.categories)}</td>
                       <td>{direct && <button onClick={() => void removeFieldFromTemplate(field.field.field_id)}>Retirer</button>}</td>
                     </tr>
                   );
@@ -1470,8 +1563,8 @@ function EquipmentRepositoryAdmin(props: {
         )}
 
         {adminTab === "preview" && (
-          <EditorCard title="Apercu du formulaire">
-            <p>Voici le formulaire que verra un technicien pour cette categorie.</p>
+          <EditorCard title="Aperçu du formulaire">
+            <p>Voici le formulaire que verra un technicien pour cette catégorie.</p>
             <TemplatePreview template={template} />
             {selectedCategory && (
               <details className="advancedOptions diagnosticDetails">
@@ -1480,7 +1573,7 @@ function EquipmentRepositoryAdmin(props: {
                   <dt>Identifiant interne</dt><dd className="mono">{selectedCategory.category_id}</dd>
                   <dt>Famille de classement</dt><dd className="mono">{selectedCategory.root_category_id}</dd>
                   <dt>Descendants</dt><dd>{selectedCategoryDescendants.size}</dd>
-                  <dt>Checksum du formulaire</dt><dd className="mono">{template?.template_checksum ?? "-"}</dd>
+                  <dt>Empreinte du formulaire</dt><dd className="mono">{template?.template_checksum ?? "-"}</dd>
                 </dl>
               </details>
             )}
@@ -1503,7 +1596,6 @@ function EquipmentModelWizard(props: {
   const [categoryId, setCategoryId] = useState("");
   const [template, setTemplate] = useState<EquipmentEffectiveTemplate | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
-  const [modelId, setModelId] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1541,23 +1633,23 @@ function EquipmentModelWizard(props: {
       setError(`Le champ "${missing.field.label}" est obligatoire pour cette categorie.`);
       return;
     }
-    props.onCreate(categoryId, values, optionalString(modelId));
+    props.onCreate(categoryId, values);
   }
 
   function continueFromStep() {
     setError(null);
     if (step === 1 && !rootId) {
-      setError("Choisissez une famille d'equipement.");
+      setError("Choisissez une famille d'équipement.");
       return;
     }
     if (step === 2 && !categoryId) {
-      setError("Choisissez une sous-categorie.");
+      setError("Choisissez une sous-catégorie.");
       return;
     }
     if (step === 3) {
       const missing = template?.fields.find((field) => field.visible && field.required && isEmptyField(values[field.field.field_code]));
       if (missing) {
-        setError(`Le champ "${missing.field.label}" est obligatoire pour cette categorie.`);
+        setError(`Le champ "${missing.field.label}" est obligatoire pour cette catégorie.`);
         return;
       }
     }
@@ -1573,13 +1665,14 @@ function EquipmentModelWizard(props: {
     <div className="creationPanel wizardPanel" role="dialog" aria-modal="true" aria-labelledby="equipment-wizard-title">
       <div className="creationHeader">
         <div>
-          <p className="eyebrow">Assistant de creation</p>
-          <h2 id="equipment-wizard-title">Nouveau modèle équipement</h2>
+          <p className="eyebrow">Assistant de création</p>
+          <h2 id="equipment-wizard-title">Nouveau modèle constructeur</h2>
+          <p className="contextBanner">Vous créez une définition générique. Aucun exemplaire ne sera ajouté au parc.</p>
         </div>
         <button className="secondary" onClick={props.onCancel}>Annuler</button>
       </div>
       <ol className="wizardStepper">
-        {["Categorie", "Sous-categorie", "Identification", "Verification"].map((label, index) => {
+        {["Catégorie", "Sous-catégorie", "Identification", "Vérification"].map((label, index) => {
           const number = index + 1;
           return <li key={label} className={step === number ? "active" : step > number ? "done" : ""}>Etape {number} - {label}</li>;
         })}
@@ -1587,8 +1680,8 @@ function EquipmentModelWizard(props: {
       {error && <p className="errorText">{error}</p>}
       <div className="wizardBody">
         {step === 1 && (
-          <EditorCard title="Famille d'equipement">
-            <div className="choiceList" role="radiogroup" aria-label="Famille d'equipement">
+          <EditorCard title="Famille d'équipement">
+            <div className="choiceList" role="radiogroup" aria-label="Famille d'équipement">
               {props.roots.map((category) => (
                 <label key={category.category_id} className={rootId === category.category_id ? "choiceRow selected" : "choiceRow"}>
                   <input
@@ -1609,17 +1702,17 @@ function EquipmentModelWizard(props: {
           </EditorCard>
         )}
         {step === 2 && (
-          <EditorCard title="Sous-categorie">
-            <p>{root ? root.label : "Choisissez d'abord une famille d'equipement."}</p>
-            {!categoryId && <p className="hint">Choisissez une sous-categorie.</p>}
+          <EditorCard title="Sous-catégorie">
+            <p>{root ? root.label : "Choisissez d'abord une famille d'équipement."}</p>
+            {!categoryId && <p className="hint">Choisissez une sous-catégorie.</p>}
             <CategoryTree categories={rootSubtree} selectedId={categoryId} onSelect={(id) => setCategoryId(id)} />
-            {categoryId && <p className="selectedPath">Categorie : {categoryPathLabel(props.categories, categoryId)}</p>}
+            {categoryId && <p className="selectedPath">Catégorie : {categoryPathLabel(props.categories, categoryId)}</p>}
           </EditorCard>
         )}
         {step === 3 && (
           <EditorCard title="Identification">
             <p className="selectedPath">{categoryId ? categoryPathLabel(props.categories, categoryId) : ""}</p>
-            <div className="fieldRequirementLegend"><span className="requirementBadge required">Obligatoire</span><span>a renseigner pour creer le modele</span><span className="requirementBadge optional">Optionnel</span><span>peut rester vide</span></div>
+            <div className="fieldRequirementLegend"><span className="requirementBadge required">Obligatoire</span><span>à renseigner pour créer le modèle</span><span className="requirementBadge optional">Optionnel</span><span>peut rester vide</span></div>
           {template?.fields.filter((field) => field.visible).map((field) => (
             <TemplateFieldInput
               key={field.field.field_id}
@@ -1631,12 +1724,11 @@ function EquipmentModelWizard(props: {
           </EditorCard>
         )}
         {step === 4 && (
-          <EditorCard title="Verification">
-            <Field label="ID modele optionnel" value={modelId} onChange={setModelId} />
+          <EditorCard title="Vérification">
             <dl className="businessSummary">
-              <dt>Categorie</dt><dd>{categoryId ? categoryPathLabel(props.categories, categoryId) : "-"}</dd>
+              <dt>Catégorie</dt><dd>{categoryId ? categoryPathLabel(props.categories, categoryId) : "-"}</dd>
               <dt>Champs obligatoires</dt><dd>{requiredComplete ? "Complets" : "Incomplets"}</dd>
-              <dt>Champs optionnels renseignes</dt><dd>{optionalFilled}</dd>
+              <dt>Champs optionnels renseignés</dt><dd>{optionalFilled}</dd>
             </dl>
             <TemplatePreview template={template} values={values} />
           </EditorCard>
@@ -1645,7 +1737,7 @@ function EquipmentModelWizard(props: {
       <div className="buttonRow wizardFooter">
         <button className="secondary" onClick={() => setStep((current) => Math.max(1, current - 1))} disabled={step === 1}>Retour</button>
         {step < 4 && <button onClick={continueFromStep}>Continuer</button>}
-        {step === 4 && <button onClick={create}><Cpu size={16} /> Creer brouillon</button>}
+        {step === 4 && <button onClick={create}><Cpu size={16} /> Créer le brouillon</button>}
       </div>
     </div>
   );
@@ -1665,7 +1757,7 @@ function TemplateFieldInput(props: {
   async function uploadFile(file: File | undefined) {
     if (!file) return;
     if (file.size > 20 * 1024 * 1024) {
-      setUploadError("Le fichier depasse la limite de 20 Mio.");
+      setUploadError("Le fichier dépasse la limite de 20 Mio.");
       return;
     }
     setUploading(true);
@@ -1688,7 +1780,7 @@ function TemplateFieldInput(props: {
       <label className="templateField fileReferenceField">
         {caption}
         <input type="file" disabled={props.disabled} onChange={(event) => void uploadFile(event.target.files?.[0])} />
-        {uploading && <small>Depot du fichier...</small>}
+        {uploading && <small>Dépôt du fichier...</small>}
         {current?.original_filename && (
           <span className="uploadedFile">
             <strong>{current.original_filename}</strong>
@@ -1866,47 +1958,139 @@ function ModelCatalog(props: {
   onCategory: (categoryId: string) => void;
   onOpen: (model: EquipmentModelAggregate) => void;
 }) {
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem("emc-locus.catalog-expanded") ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
   const demoCount = props.models.filter((model) => model.identity.is_demo || model.latest_revision?.definition.is_demo).length;
+  const hierarchy = buildModelHierarchy(props.models, props.categories);
+
+  function toggle(key: string) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      localStorage.setItem("emc-locus.catalog-expanded", JSON.stringify(Array.from(next)));
+      return next;
+    });
+  }
+
   return (
     <aside className="equipmentList">
       <div className="listHeader">
-        <h2>Modèles</h2>
+        <h2>Familles et modèles</h2>
         <span>{props.models.length}</span>
       </div>
-      <details className="catalogTreeFilter">
-        <summary>Par catégorie</summary>
-        <CategoryTree categories={props.categoryTree} selectedId="" onSelect={props.onCategory} />
-      </details>
-      {demoCount > 0 && <div className="demoBanner">Donnees de demonstration visibles ({props.demoMode})</div>}
+      {demoCount > 0 && <div className="demoBanner">{props.demoMode === "only" ? "Affichage limité aux données de démonstration" : "Données de démonstration incluses"}</div>}
       {props.models.length === 0 && (
         <div className="compactEmpty">
-          <strong>Aucun modele trouve</strong>
-          <span>Modifiez les filtres ou creez un nouveau modele.</span>
+          <strong>Aucun modèle trouvé</strong>
+          <span>Modifiez les filtres ou créez un nouveau modèle.</span>
         </div>
       )}
-      {props.models.map((model) => {
-        const revision = model.latest_revision ?? model.current_approved_revision;
-        const definition = revision?.definition;
-        const categoryLabel = categoryPathLabel(props.categories, model.identity.category_code);
-        const isDemo = model.identity.is_demo || definition?.is_demo;
-        return (
-          <button
-            key={model.identity.equipment_model_id}
-            className={props.selected?.identity.equipment_model_id === model.identity.equipment_model_id ? "active" : ""}
-            onClick={() => props.onOpen(model)}
-          >
-            <strong>{model.identity.manufacturer} {model.identity.model_name}</strong>
-            <span>{isDemo ? "[DEMO] " : ""}{categoryLabel}</span>
-            <small>{categoryLabel || humanLabel(model.identity.root_category_id ?? model.identity.category_code)}</small>
-            <span className="listItemMeta">
-              <span className={"status " + (revision?.status ?? "")}>{humanStatus(revision?.status)}</span>
-              <small>Révision {revision?.revision_number ?? "-"}</small>
-            </span>
-          </button>
-        );
-      })}
+      <div className="modelHierarchy" role="tree" aria-label="Catalogue hiérarchique des modèles">
+        {hierarchy.map((branch) => renderModelCategoryBranch(branch, hierarchy.length === 1, expanded, toggle, props.selected, props.onOpen))}
+      </div>
     </aside>
   );
+}
+
+interface ModelCategoryBranch {
+  key: string;
+  label: string;
+  path: string[];
+  models: EquipmentModelAggregate[];
+  children: ModelCategoryBranch[];
+}
+
+function buildModelHierarchy(models: EquipmentModelAggregate[], categories: EquipmentCategory[]): ModelCategoryBranch[] {
+  interface MutableBranch {
+    key: string;
+    label: string;
+    path: string[];
+    models: EquipmentModelAggregate[];
+    children: Map<string, MutableBranch>;
+  }
+  const roots = new Map<string, MutableBranch>();
+  for (const model of models) {
+    const snapshotPath = model.latest_revision?.definition.template_snapshot?.category_path
+      ?? model.current_approved_revision?.definition.template_snapshot?.category_path
+      ?? [];
+    const fallbackPath = (categoryPathLabel(categories, model.identity.category_code) || humanLabel(model.identity.category_code)).split(" > ");
+    const segments = operatorCategoryPath(
+      model.identity.category_code,
+      snapshotPath.length > 0 ? snapshotPath : fallbackPath
+    ).filter((segment) => segment && segment !== "Général");
+    let siblings = roots;
+    let branch: MutableBranch | null = null;
+    const path: string[] = [];
+    for (const segment of segments.length > 0 ? segments : ["Sans catégorie"]) {
+      path.push(segment);
+      branch = siblings.get(segment) ?? { key: `category:${path.join("/")}`, label: segment, path: [...path], models: [], children: new Map() };
+      siblings.set(segment, branch);
+      siblings = branch.children;
+    }
+    if (branch) branch.models.push(model);
+  }
+
+  function materialize(map: Map<string, MutableBranch>): ModelCategoryBranch[] {
+    return Array.from(map.values()).sort((left, right) => left.label.localeCompare(right.label, "fr")).map((branch) => {
+      return { key: branch.key, label: branch.label, path: branch.path, models: branch.models, children: materialize(branch.children) };
+    });
+  }
+  return materialize(roots);
+}
+
+function renderModelCategoryBranch(
+  branch: ModelCategoryBranch,
+  onlySibling: boolean,
+  expanded: Set<string>,
+  toggle: (key: string) => void,
+  selected: EquipmentModelAggregate | null,
+  onOpen: (model: EquipmentModelAggregate) => void
+): ReactNode {
+  const open = expanded.has(branch.key) || onlySibling;
+  const count = branch.models.length + branch.children.reduce((total, child) => total + modelBranchCount(child), 0);
+  const manufacturers = groupModelsByManufacturer(branch.models);
+  return <div key={branch.key}>
+    <button type="button" className="catalogHierarchyNode category" role="treeitem" aria-expanded={open} onClick={() => toggle(branch.key)}>
+      {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}<Folder size={15} /><span>{branch.label}</span><small>{count}</small>
+    </button>
+    {open && <div role="group">
+      {branch.children.map((child) => renderModelCategoryBranch(child, branch.children.length === 1 && branch.models.length === 0, expanded, toggle, selected, onOpen))}
+      {Array.from(manufacturers.entries()).sort(([left], [right]) => left.localeCompare(right, "fr")).map(([manufacturer, manufacturerModels]) => {
+        const manufacturerKey = `${branch.key}:manufacturer:${manufacturer}`;
+        const manufacturerOpen = expanded.has(manufacturerKey) || manufacturers.size === 1;
+        return <div key={manufacturerKey}>
+          <button type="button" className="catalogHierarchyNode manufacturer" role="treeitem" aria-expanded={manufacturerOpen} onClick={() => toggle(manufacturerKey)}>
+            {manufacturerOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}<span>{manufacturer}</span><small>{manufacturerModels.length}</small>
+          </button>
+          {manufacturerOpen && <div role="group">{manufacturerModels.map((model) => {
+            const revision = model.latest_revision ?? model.current_approved_revision;
+            const isDemo = model.identity.is_demo || revision?.definition.is_demo;
+            const archived = revision?.status === "superseded";
+            return <button key={model.identity.equipment_model_id} type="button" role="treeitem" className={`catalogModelNode ${selected?.identity.equipment_model_id === model.identity.equipment_model_id ? "active" : ""} ${archived ? "archived" : ""}`} onClick={() => onOpen(model)}>
+              <span><strong>{operatorModelName(model.identity.category_code, model.identity.model_name, Boolean(isDemo))}</strong>{model.identity.variant ? ` · ${operatorModelVariant(model.identity.variant, Boolean(isDemo))}` : ""}</span>
+              <small>{branch.path.join(" > ")}</small>
+              <span className="listItemMeta"><span className={`status ${revision?.status ?? ""}`}>{humanStatus(revision?.status)}</span>{isDemo && <span className="demoTag">Démonstration</span>}</span>
+            </button>;
+          })}</div>}
+        </div>;
+      })}
+    </div>}
+  </div>;
+}
+
+function modelBranchCount(branch: ModelCategoryBranch): number {
+  return branch.models.length + branch.children.reduce((total, child) => total + modelBranchCount(child), 0);
+}
+
+function groupModelsByManufacturer(models: EquipmentModelAggregate[]) {
+  const manufacturers = new Map<string, EquipmentModelAggregate[]>();
+  for (const model of models) manufacturers.set(model.identity.manufacturer, [...(manufacturers.get(model.identity.manufacturer) ?? []), model]);
+  return manufacturers;
 }
 
 function ModelStudio(props: {
@@ -1918,6 +2102,8 @@ function ModelStudio(props: {
   section: ModelSection;
   revisions: EquipmentModelRevision[];
   audit: EquipmentAuditEvent[];
+  revisionsError: string | null;
+  auditError: string | null;
   validation: EquipmentValidationResult | null;
   signalTransformationOptions: SignalTransformationOption[];
   jsonDraft: string;
@@ -1931,17 +2117,19 @@ function ModelStudio(props: {
   onApprove: () => void;
   onDerive: () => void;
   onClone: () => void;
+  onCreateAsset: () => void;
+  onViewAssets: () => void;
   onOpenRevision: (revision: EquipmentModelRevision) => void;
 }) {
   if (!props.model || !props.revision || !props.definition) {
-    return <StateBlock title="Aucun modele ouvert" detail="Selectionnez ou creez un modele equipement." />;
+    return <StateBlock title="Aucun modèle ouvert" detail="Sélectionnez ou créez un modèle constructeur." />;
   }
   const definition = props.definition;
   return (
     <section className="equipmentStudio">
       <div className="studioHeader">
         <div>
-          <p className="eyebrow">Fiche modèle équipement</p>
+          <p className="eyebrow">Modèle constructeur</p>
           <h2>{props.model.identity.manufacturer} {props.model.identity.model_name}</h2>
           <div className="studioTitleMeta">
             <span className={"status " + props.revision.status}>{humanStatus(props.revision.status)}</span>
@@ -1949,19 +2137,21 @@ function ModelStudio(props: {
           </div>
         </div>
         <div className="headerActions">
-          <button className="secondary" onClick={props.onValidate}><CheckCircle2 size={16} /> Valider</button>
+          <button className="secondary" onClick={props.onValidate}><CheckCircle2 size={16} /> Vérifier la fiche</button>
           {props.revision.status === "draft" && (
             <>
               <button onClick={props.onSave}><Save size={16} /> Sauvegarder</button>
-              <button className="secondary" onClick={props.onSubmit}><Send size={16} /> Soumettre</button>
+              <button className="secondary" onClick={props.onSubmit}><Send size={16} /> Soumettre pour approbation</button>
             </>
           )}
           {props.revision.status === "under_review" && (
-            <button onClick={props.onApprove}><ShieldCheck size={16} /> Approuver</button>
+            <button onClick={props.onApprove}><ShieldCheck size={16} /> Approuver la version</button>
           )}
           {props.revision.status === "approved" && props.model.current_approved_revision && (
-            <button onClick={props.onDerive}><GitBranch size={16} /> Nouvelle revision</button>
+            <button onClick={props.onDerive}><GitBranch size={16} /> Créer une nouvelle version</button>
           )}
+          {props.model.current_approved_revision && <button onClick={props.onCreateAsset}><PackagePlus size={16} /> Créer un exemplaire dans le parc</button>}
+          <button className="secondary" onClick={props.onViewAssets}><Boxes size={16} /> Voir les exemplaires du parc</button>
           <button className="secondary" onClick={props.onClone}><Copy size={16} /> Cloner</button>
         </div>
       </div>
@@ -1975,18 +2165,23 @@ function ModelStudio(props: {
           ))}
         </nav>
         <div className="editorPane">
+          {props.revisionsError && <SecondaryPanelError title="Historique des versions indisponible" detail={`La version ouverte reste consultable. ${props.revisionsError}`} />}
+          {props.auditError && <SecondaryPanelError title="Historique des modifications indisponible" detail={`La fiche du modèle reste consultable. ${props.auditError}`} />}
           {props.section === "summary" && (
-            <EditorCard title="Synthese">
-              <Field label="Fabricant" value={definition.manufacturer} disabled={props.readOnly} onChange={(manufacturer) => props.onDefinition({ ...definition, manufacturer })} />
-              <Field label="Modele" value={definition.model_name} disabled={props.readOnly} onChange={(model_name) => props.onDefinition({ ...definition, model_name })} />
-              <dl>
-                <dt>Categorie</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || humanLabel(definition.category_code)}</dd>
-                <dt>Statut</dt><dd>{humanStatus(props.revision.status)}</dd>
-                <dt>Champs renseignes</dt><dd>{Object.keys(definition.custom_field_values ?? {}).length}</dd>
-                <dt>Ports</dt><dd>{props.revision.signal_port_count}</dd>
-                <dt>Interfaces</dt><dd>{props.revision.interface_count}</dd>
-              </dl>
-            </EditorCard>
+            <>
+              <EditorCard title="Synthèse">
+                <Field label="Fabricant" value={definition.manufacturer} disabled={props.readOnly} onChange={(manufacturer) => props.onDefinition({ ...definition, manufacturer })} />
+                <Field label="Modèle" value={definition.model_name} disabled={props.readOnly} onChange={(model_name) => props.onDefinition({ ...definition, model_name })} />
+                <dl>
+                  <dt>Catégorie</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || operatorCategoryLabel(definition.category_code, humanLabel(definition.category_code))}</dd>
+                  <dt>Statut</dt><dd>{humanStatus(props.revision.status)}</dd>
+                  <dt>Champs renseignés</dt><dd>{Object.keys(definition.custom_field_values ?? {}).length}</dd>
+                  <dt>Ports</dt><dd>{props.revision.signal_port_count}</dd>
+                  <dt>Interfaces</dt><dd>{props.revision.interface_count}</dd>
+                </dl>
+              </EditorCard>
+              <LinkedFleetAssets modelId={props.model.identity.equipment_model_id} onViewAll={props.onViewAssets} />
+            </>
           )}
           {props.section === "identification" && (
             <EditorCard title="Identification">
@@ -1999,39 +2194,39 @@ function ModelStudio(props: {
                   onChange={(value) => props.onDefinition({ ...definition, custom_field_values: { ...(definition.custom_field_values ?? {}), [field.field.field_code]: value } })}
                 />
               ))}
-              {!definition.template_snapshot && <p>Ce modele n'a pas encore ete cree depuis un template de categorie.</p>}
+              {!definition.template_snapshot && <p>Ce modèle n’a pas encore été créé depuis un formulaire de catégorie.</p>}
             </EditorCard>
           )}
           {props.section === "category_template" && (
-            <EditorCard title="Categorie et formulaire">
+            <EditorCard title="Catégorie et champs">
               <dl>
                 <dt>Famille</dt><dd>{humanLabel(definition.template_snapshot?.root_category_id ?? props.model.identity.root_category_id ?? "")}</dd>
-                <dt>Categorie</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || humanLabel(definition.category_code)}</dd>
-                <dt>Formulaire utilise</dt><dd>{(definition.template_snapshot?.fields ?? []).filter((field) => field.visible).length} champs visibles</dd>
+                <dt>Catégorie</dt><dd>{definition.template_snapshot?.category_path?.join(" > ") || operatorCategoryLabel(definition.category_code, humanLabel(definition.category_code))}</dd>
+                <dt>Formulaire utilisé</dt><dd>{(definition.template_snapshot?.fields ?? []).filter((field) => field.visible).length} champs visibles</dd>
               </dl>
             </EditorCard>
           )}
           {props.section === "advanced_diagnostics" && (
-            <EditorCard title="Diagnostic classification">
+            <EditorCard title="Détails techniques de classification">
               <label>
-                Functional role
+                Rôle fonctionnel
                 <select disabled={props.readOnly} value={definition.functional_role} onChange={(event) => props.onDefinition({ ...definition, functional_role: event.target.value as FunctionalRole })}>
                   {(props.registries?.functional_roles ?? functionalRoles.map((code) => ({ code, label: code }))).map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
                 </select>
               </label>
-              <Field label="Signal domains" value={definition.signal_domains.join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, signal_domains: splitTokens(value) as SignalDomain[] })} />
-              <Field label="Technology tags" value={(definition.technology_tags ?? []).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, technology_tags: splitTokens(value) as TechnologyTag[] })} />
-              <Field label="Preset reference" value={String(definition.metadata?.classification_preset_id ?? "")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, metadata: { ...(definition.metadata ?? {}), classification_preset_id: optionalString(value) } })} />
-              <Field label="Classification notes" value={String(definition.metadata?.classification_notes ?? "")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, metadata: { ...(definition.metadata ?? {}), classification_notes: value } })} />
+              <Field label="Domaines du signal" value={definition.signal_domains.join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, signal_domains: splitTokens(value) as SignalDomain[] })} />
+              <Field label="Technologies" value={(definition.technology_tags ?? []).join(", ")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, technology_tags: splitTokens(value) as TechnologyTag[] })} />
+              <Field label="Référence de classification" value={String(definition.metadata?.classification_preset_id ?? "")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, metadata: { ...(definition.metadata ?? {}), classification_preset_id: optionalString(value) } })} />
+              <Field label="Notes de classification" value={String(definition.metadata?.classification_notes ?? "")} disabled={props.readOnly} onChange={(value) => props.onDefinition({ ...definition, metadata: { ...(definition.metadata ?? {}), classification_notes: value } })} />
               <dl className="businessSummary">
-                <dt>Checksum du formulaire</dt><dd className="mono">{definition.template_snapshot?.template_checksum ?? "-"}</dd>
-                <dt>Categorie interne</dt><dd className="mono">{definition.category_code}</dd>
+                <dt>Empreinte du formulaire</dt><dd className="mono">{definition.template_snapshot?.template_checksum ?? "-"}</dd>
+                <dt>Catégorie interne</dt><dd className="mono">{definition.category_code}</dd>
               </dl>
             </EditorCard>
           )}
           {props.section === "characteristics" && (
-            <EditorCard title="Specifications typées">
-              <StructuredTable columns={["ID", "Label", "Quantity", "Unit", "Min", "Max"]}>
+            <EditorCard title="Caractéristiques du modèle">
+              <StructuredTable columns={["Référence", "Nom", "Grandeur", "Unité", "Minimum", "Maximum"]}>
                 {definition.specifications.map((spec, index) => (
                   <tr key={spec.specification_id}>
                     <td>{spec.specification_id}</td>
@@ -2043,7 +2238,7 @@ function ModelStudio(props: {
                   </tr>
                 ))}
               </StructuredTable>
-              <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, specifications: [...definition.specifications, defaultSpecification(definition.specifications.length + 1)] })}>Ajouter une specification</button>
+              <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, specifications: [...definition.specifications, defaultSpecification(definition.specifications.length + 1)] })}>Ajouter une caractéristique</button>
             </EditorCard>
           )}
           {props.section === "ports_connections" && (
@@ -2056,7 +2251,7 @@ function ModelStudio(props: {
               />
               <details className="technicalDisclosure">
                 <summary>Paramètres électriques avancés</summary>
-              <StructuredTable columns={["ID", "Label", "Direction", "Flow", "Domain", "Tags", "Req.", "Connector", "Quantity", "Unit", "Impedance", "Fmin", "Fmax", "Vmax", "Imax", "Pmax", "Comment"]}>
+              <StructuredTable columns={["ID", "Libellé", "Direction", "Rôle", "Domaine", "Technologies", "Obligatoire", "Connecteur", "Grandeur", "Unité", "Impédance", "Fmin", "Fmax", "Vmax", "Imax", "Pmax", "Commentaire"]}>
                 {definition.signal_ports.map((port, index) => (
                   <tr key={port.port_id}>
                     <td><input disabled={props.readOnly} value={port.port_id} onChange={(event) => props.onDefinition({ ...definition, signal_ports: replaceAt(definition.signal_ports, index, { ...port, port_id: event.target.value }) })} /></td>
@@ -2111,24 +2306,24 @@ function ModelStudio(props: {
             </EditorCard>
           )}
           {props.section === "control_drivers" && (
-            <EditorCard title="Communication Interfaces">
-              <StructuredTable columns={["ID", "Transport", "Provider", "Protocol", "Default"]}>
+            <EditorCard title="Interfaces de communication">
+              <StructuredTable columns={["Référence", "Transport", "Fournisseur d'accès", "Protocole", "Interface par défaut"]}>
                 {definition.communication_interfaces.map((item) => (
                   <tr key={item.interface_id}><td>{item.interface_id}</td><td>{item.transport_kind}</td><td>{item.access_provider_kind}</td><td>{item.protocol_kind}</td><td>{item.default_interface ? "oui" : "non"}</td></tr>
                 ))}
               </StructuredTable>
               <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, communication_interfaces: [...definition.communication_interfaces, defaultTcpInterface(definition.communication_interfaces.length + 1)] })}>Ajouter TCP SCPI</button>
-              <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, communication_interfaces: [...definition.communication_interfaces, defaultCanInterface(definition.communication_interfaces.length + 1)] })}>Ajouter CAN bus simule</button>
+              <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, communication_interfaces: [...definition.communication_interfaces, defaultCanInterface(definition.communication_interfaces.length + 1)] })}>Ajouter un bus CAN simulé</button>
             </EditorCard>
           )}
           {props.section === "control_drivers" && (
-            <EditorCard title="Capabilities">
-              <StructuredTable columns={["ID", "Kind", "Safety", "Inputs", "Outputs"]}>
+            <EditorCard title="Capacités de pilotage">
+              <StructuredTable columns={["ID", "Type", "Sécurité", "Entrées", "Sorties"]}>
                 {definition.capabilities.map((capability) => (
                   <tr key={capability.capability_id}><td>{capability.capability_id}</td><td>{capability.capability_kind}</td><td>{capability.safety_class}</td><td>{capability.inputs.length}</td><td>{capability.outputs.length}</td></tr>
                 ))}
               </StructuredTable>
-              <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, capabilities: [...definition.capabilities, defaultCapability(definition.capabilities.length + 1)] })}>Ajouter capability mesure</button>
+              <button disabled={props.readOnly} onClick={() => props.onDefinition({ ...definition, capabilities: [...definition.capabilities, defaultCapability(definition.capabilities.length + 1)] })}>Ajouter une capacité de mesure</button>
             </EditorCard>
           )}
           {props.section === "measurement_corrections" && (
@@ -2142,7 +2337,7 @@ function ModelStudio(props: {
           )}
           {props.section === "documents" && (
             <EditorCard title="Documents">
-              <p>Les certificats, datasheets et scripts lies au modele seront attaches via le domaine documents. Cette release prepare l'emplacement sans upload fichier.</p>
+              <p>Les certificats, fiches techniques et scripts liés au modèle seront joints depuis le domaine documentaire. Cette version prépare leur emplacement sans ajouter encore le dépôt de fichiers.</p>
             </EditorCard>
           )}
           {props.section === "revisions_audit" && <RevisionTable revisions={props.revisions} onOpen={props.onOpenRevision} />}
@@ -2160,6 +2355,43 @@ function ModelStudio(props: {
   );
 }
 
+function LinkedFleetAssets(props: { modelId: string; onViewAll: () => void }) {
+  const [assets, setAssets] = useState<PhysicalAsset[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fleetApi.listAssets()
+      .then((response) => {
+        if (cancelled) return;
+        setAssets(response.assets.filter((asset) => asset.equipment_model_id === props.modelId));
+        setError(null);
+      })
+      .catch((reason) => {
+        if (!cancelled) setError(errorMessage(reason));
+      });
+    return () => { cancelled = true; };
+  }, [props.modelId]);
+
+  return (
+    <section className="editorCard linkedFleetAssets">
+      <div className="sectionTitleRow">
+        <div><h2>Exemplaires du parc</h2><p>Matériels réellement enregistrés à partir de ce modèle constructeur.</p></div>
+        <button className="secondary" type="button" onClick={props.onViewAll}>Voir dans le parc</button>
+      </div>
+      {error && <div className="targetedError"><AlertTriangle size={17} /><div><strong>Parc temporairement indisponible</strong><p>La fiche du modèle reste consultable. {error}</p></div></div>}
+      {!error && assets.length === 0 && <p className="muted">Aucun exemplaire n'est encore lié à ce modèle.</p>}
+      {assets.length > 0 && <div className="linkedAssetRows">{assets.map((asset) => (
+        <div key={asset.asset_id}>
+          <strong>{asset.inventory_code}</strong>
+          <span>{asset.serial_number ? `N° de série ${asset.serial_number}` : "Sans numéro de série"}</span>
+          <span>{asset.laboratory_location_label || "Emplacement non défini"}</span>
+        </div>
+      ))}</div>}
+    </section>
+  );
+}
+
 function DriverTree(props: {
   models: EquipmentModelAggregate[];
   drivers: DriverProfileAggregate[];
@@ -2168,17 +2400,17 @@ function DriverTree(props: {
 }) {
   return (
     <aside className="equipmentList">
-      <h2>Drivers et actions</h2>
+      <h2>Profils de pilotage</h2>
       {props.models.map((model) => {
         const modelDrivers = props.drivers.filter((driver) => driver.identity.equipment_model_id === model.identity.equipment_model_id);
         return (
           <div className="driverGroup" key={model.identity.equipment_model_id}>
-            <strong>{model.identity.category_code}</strong>
+            <strong>{operatorCategoryLabel(model.identity.category_code, humanLabel(model.identity.category_code))}</strong>
             <span>{model.identity.manufacturer} {model.identity.model_name}</span>
             {modelDrivers.map((driver) => (
               <button key={driver.identity.driver_profile_id} className={props.selected?.identity.driver_profile_id === driver.identity.driver_profile_id ? "active" : ""} onClick={() => props.onOpen(driver)}>
                 <span>{driver.identity.label}</span>
-                <small>{driver.latest_revision?.status ?? "no_revision"} | {driver.latest_revision?.action_count ?? 0} actions</small>
+                <small>{driver.latest_revision ? humanStatus(driver.latest_revision.status) : "Aucune version"} · {driver.latest_revision?.action_count ?? 0} actions</small>
               </button>
             ))}
           </div>
@@ -2529,7 +2761,7 @@ function DriverStudio(props: {
   onOpenRevision: (revision: DriverProfileRevision) => void;
 }) {
   if (!props.driver || !props.revision || !props.definition) {
-    return <StateBlock title="Aucun driver ouvert" detail="Creez un driver depuis un modele approuve ou selectionnez un driver existant." />;
+    return <StateBlock title="Aucun profil de pilotage ouvert" detail="Créez un profil depuis un modèle approuvé ou sélectionnez un profil existant." />;
   }
   const definition = props.definition;
   const firstAction = definition.actions[0] ?? null;
@@ -2537,16 +2769,16 @@ function DriverStudio(props: {
     <section className="equipmentStudio">
       <div className="studioHeader">
         <div>
-          <p className="eyebrow">Driver Profile</p>
+          <p className="eyebrow">Profil de pilotage</p>
           <h2>{props.driver.identity.label}</h2>
-          <p className="mono">{props.revision.revision_id} | {props.revision.status}</p>
+          <p>{humanStatus(props.revision.status)} · Version {props.revision.revision_number}</p>
         </div>
         <div className="headerActions">
-          <button onClick={props.onValidate}><CheckCircle2 size={16} /> Valider</button>
+          <button onClick={props.onValidate}><CheckCircle2 size={16} /> Vérifier le profil</button>
           <button onClick={props.onSave} disabled={props.readOnly}><Save size={16} /> Sauvegarder</button>
           <button onClick={props.onSubmit} disabled={props.readOnly || props.revision.status !== "draft"}><Send size={16} /> Soumettre</button>
           <button onClick={props.onApprove} disabled={props.revision.status !== "under_review"}><ShieldCheck size={16} /> Approuver</button>
-          <button onClick={props.onDerive} disabled={!props.driver.current_approved_revision}><GitBranch size={16} /> Nouvelle revision</button>
+          <button onClick={props.onDerive} disabled={!props.driver.current_approved_revision}><GitBranch size={16} /> Créer une nouvelle version</button>
           <button onClick={() => firstAction && props.onSimulate(firstAction)} disabled={!firstAction}><Play size={16} /> Simuler</button>
         </div>
       </div>
@@ -2558,19 +2790,23 @@ function DriverStudio(props: {
         </nav>
         <div className="editorPane">
           {props.section === "general" && (
-            <EditorCard title="Compatibility">
-              <dl>
-                <dt>Model</dt><dd>{definition.equipment_model_id}</dd>
-                <dt>Model revision</dt><dd>{definition.supported_model_revision_id}</dd>
-                <dt>Checksum</dt><dd><code>{definition.supported_model_definition_checksum}</code></dd>
-                <dt>Interfaces</dt><dd>{definition.communication_profiles.join(", ") || "-"}</dd>
-              </dl>
+            <EditorCard title="Compatibilité avec le modèle constructeur">
+              <p>Ce profil est rattaché à une version exacte et immuable du modèle constructeur.</p>
+              <details className="technicalDisclosure">
+                <summary>Identifiants et preuve de version</summary>
+                <dl>
+                  <dt>Modèle</dt><dd>{definition.equipment_model_id}</dd>
+                  <dt>Version du modèle</dt><dd>{definition.supported_model_revision_id}</dd>
+                  <dt>Empreinte du modèle</dt><dd><code>{definition.supported_model_definition_checksum}</code></dd>
+                  <dt>Interfaces déclarées</dt><dd>{definition.communication_profiles.join(", ") || "Aucune"}</dd>
+                </dl>
+              </details>
               <ProviderList providers={props.providers} />
             </EditorCard>
           )}
           {props.section === "actions" && (
             <EditorCard title="Actions">
-              <StructuredTable columns={["ID", "Capability", "Safety", "Inputs", "Outputs", ""]}>
+              <StructuredTable columns={["ID", "Capacité", "Sécurité", "Entrées", "Sorties", ""]}>
                 {definition.actions.map((action) => (
                   <tr key={action.action_id}>
                     <td>{action.action_id}</td><td>{action.implements_capability_id}</td><td>{action.safety_class}</td><td>{action.inputs.length}</td><td>{action.outputs.length}</td>
@@ -2582,7 +2818,7 @@ function DriverStudio(props: {
             </EditorCard>
           )}
           {props.section === "script" && firstAction && (
-            <EditorCard title={`Script AST - ${firstAction.action_id}`}>
+            <EditorCard title={`Script de pilotage · ${firstAction.action_id}`}>
               <ScriptSteps steps={firstAction.script.steps} />
               <div className="buttonRow">
                 <button disabled={props.readOnly} onClick={() => props.onDefinition(replaceFirstAction(definition, { ...firstAction, script: { steps: [...firstAction.script.steps, defaultIoQueryStep(firstAction.script.steps.length + 1, definition.communication_profiles[0] ?? "tcp")] } }))}>Ajouter QUERY</button>
@@ -2593,12 +2829,12 @@ function DriverStudio(props: {
             </EditorCard>
           )}
           {props.section === "simulation" && (
-            <EditorCard title="Driver Test Console">
-              {!props.simulation && <p>Aucune simulation executee.</p>}
+            <EditorCard title="Console de simulation du pilotage">
+              {!props.simulation && <p>Aucune simulation exécutée.</p>}
               {props.simulation && (
                 <>
-                  <dl><dt>Status</dt><dd>{props.simulation.status}</dd><dt>Duree virtuelle</dt><dd>{props.simulation.virtual_duration_ms} ms</dd></dl>
-                  <StructuredTable columns={["Step", "Type", "Operation", "Request", "Response", "Status"]}>
+                  <dl><dt>Résultat</dt><dd>{simulationStatusLabel(props.simulation.status)}</dd><dt>Durée virtuelle</dt><dd>{props.simulation.virtual_duration_ms} ms</dd></dl>
+                  <StructuredTable columns={["Étape", "Type", "Opération", "Requête", "Réponse", "Résultat"]}>
                     {props.simulation.trace.map((trace, index) => (
                       <tr key={index}><td>{String(trace.step_index ?? index)}</td><td>{String(trace.step_type ?? "-")}</td><td>{String(trace.operation ?? "-")}</td><td>{JSON.stringify(trace.request ?? "")}</td><td>{JSON.stringify(trace.response ?? "")}</td><td>{String(trace.status ?? "-")}</td></tr>
                     ))}
@@ -2628,7 +2864,7 @@ function ProviderList(props: { providers: CommunicationProviderStatus[] }) {
     <div className="providerGrid">
       {props.providers.map((provider) => (
         <span key={provider.provider} className={provider.available ? "provider ok" : "provider unavailable"}>
-          {provider.provider}: {provider.available ? "available" : provider.reason ?? "not installed"}
+          {communicationProviderLabel(provider.provider)} : {provider.available ? "Disponible" : communicationProviderReason(provider.reason)}
         </span>
       ))}
     </div>
@@ -2683,7 +2919,7 @@ export function AuditTable(props: { audit: EquipmentAuditEvent[] }) {
 
 function ScriptSteps(props: { steps: DriverScriptStep[] }) {
   return (
-    <StructuredTable columns={["ID", "Type", "Interface", "Payload", "Binding", "Expression"]}>
+    <StructuredTable columns={["ID", "Type", "Interface", "Commande", "Variable de réponse", "Expression"]}>
       {props.steps.map((step) => (
         <tr key={step.step_id}><td>{step.step_id}</td><td>{step.step_type}</td><td>{step.interface_id ?? "-"}</td><td>{step.payload ?? "-"}</td><td>{step.response_binding ?? step.variable ?? "-"}</td><td>{step.expression ?? "-"}</td></tr>
       ))}
@@ -2711,6 +2947,10 @@ function FieldCaption(props: { label: string; required?: boolean }) {
 
 export function StateBlock(props: { title: string; detail: string }) {
   return <div className="stateBlock"><h2>{props.title}</h2><p>{props.detail}</p></div>;
+}
+
+function SecondaryPanelError(props: { title: string; detail: string }) {
+  return <div className="targetedError" role="alert"><AlertTriangle size={17} /><div><strong>{props.title}</strong><p>{props.detail}</p></div></div>;
 }
 
 function defaultDriverProfileDefinition(model: EquipmentModelAggregate): DriverProfileDefinition {
@@ -2799,6 +3039,28 @@ function humanLabel(value: string | null | undefined) {
 
 function humanStatus(value: string | undefined) {
   return humanLabel(value ?? "no_revision");
+}
+
+function simulationStatusLabel(value: string) {
+  return ({ success: "Réussie", passed: "Réussie", failed: "Échec", error: "Erreur" } as Record<string, string>)[value]
+    ?? humanLabel(value);
+}
+
+function communicationProviderLabel(value: string) {
+  return ({
+    native_tcp: "TCP natif",
+    ni_visa: "NI-VISA",
+    pyvisa: "PyVISA",
+    socketcan: "SocketCAN",
+    simulation: "Simulation"
+  } as Record<string, string>)[value] ?? humanLabel(value);
+}
+
+function communicationProviderReason(reason: string | null | undefined) {
+  if (!reason) return "Non installé";
+  if (/no visa implementation installed/i.test(reason)) return "Aucune implémentation VISA n’est installée.";
+  if (/not installed/i.test(reason)) return "Non installé";
+  return reason;
 }
 
 function validationIssueMessage(code: string, message: string) {

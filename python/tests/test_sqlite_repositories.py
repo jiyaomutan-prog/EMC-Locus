@@ -8,6 +8,7 @@ from contextlib import closing
 from pathlib import Path
 
 from emc_locus import (
+    DirectMetrologyIdentityAccessError,
     MeasurementDataRepository,
     MetrologyRepository,
     ProjectRepository,
@@ -641,7 +642,7 @@ class MeasurementDataRepositoryTests(unittest.TestCase):
 
 
 class MetrologyRepositoryTests(unittest.TestCase):
-    def test_lists_instrument_categories_and_links_assets(self) -> None:
+    def test_lists_categories_and_refuses_retired_direct_identity_access(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = MetrologyRepository(
                 Path(temporary_directory) / "metrology.sqlite",
@@ -664,34 +665,23 @@ class MetrologyRepositoryTests(unittest.TestCase):
             self.assertIn("oscilloscope", {row["code"] for row in electronics})
             self.assertTrue(any("NI" in str(source["source_name"]) for source in daq_sources))
 
-            repository.add_instrument(
-                asset_id="DAQ-001",
-                family="DAQ",
-                manufacturer="Open",
-                model="DAQ",
-                serial_number="001",
-                calibration_requirement="required",
-                category_code="daq_chassis",
-            )
-
-            instrument = repository.get_instrument("DAQ-001")
-            by_category = repository.instruments_by_category("daq_chassis")
-            by_domain = repository.instruments_by_category_domain("data_monitoring")
-
-            self.assertEqual(instrument["category_code"], "daq_chassis")
-            self.assertEqual(by_category[0]["asset_id"], "DAQ-001")
-            self.assertEqual(by_domain[0]["category_label"], "DAQ chassis and modules")
-
-            with self.assertRaises(sqlite3.IntegrityError):
+            with self.assertRaisesRegex(
+                DirectMetrologyIdentityAccessError,
+                "configure agent_url and use the equipment fleet API",
+            ):
                 repository.add_instrument(
-                    asset_id="BAD-001",
-                    family="Unknown",
-                    manufacturer="Unknown",
-                    model="Unknown",
-                    serial_number="BAD",
+                    asset_id="DAQ-001",
+                    family="DAQ",
+                    manufacturer="Open",
+                    model="DAQ",
+                    serial_number="001",
                     calibration_requirement="required",
-                    category_code="missing_category",
+                    category_code="daq_chassis",
                 )
+            with self.assertRaises(DirectMetrologyIdentityAccessError):
+                repository.list_instruments()
+            with self.assertRaises(DirectMetrologyIdentityAccessError):
+                repository.get_instrument("DAQ-001")
 
     def test_applies_category_migration_to_existing_metrology_database(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -799,9 +789,15 @@ class MetrologyRepositoryTests(unittest.TestCase):
                 version_rows = connection.execute(
                     "SELECT version FROM schema_migrations ORDER BY version"
                 ).fetchall()
-                instrument_columns = connection.execute(
-                    "PRAGMA table_info(instruments)"
+                legacy_instrument_columns = connection.execute(
+                    "PRAGMA table_info(legacy_instruments_0_21_1)"
                 ).fetchall()
+                legacy_instruments = connection.execute(
+                    "SELECT * FROM legacy_instruments_0_21_1 ORDER BY asset_id"
+                ).fetchall()
+                dossier_count = connection.execute(
+                    "SELECT COUNT(*) FROM metrology_asset_dossiers"
+                ).fetchone()[0]
                 calibration_events_exists = (
                     connection.execute(
                         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'calibration_events'"
@@ -826,9 +822,9 @@ class MetrologyRepositoryTests(unittest.TestCase):
 
             self.assertEqual(
                 [row["version"] for row in version_rows],
-                [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
             )
-            column_names = {row["name"] for row in instrument_columns}
+            column_names = {row["name"] for row in legacy_instrument_columns}
             self.assertIn("category_code", column_names)
             self.assertIn("part_number", column_names)
             self.assertIn("calibration_period_months", column_names)
@@ -844,27 +840,28 @@ class MetrologyRepositoryTests(unittest.TestCase):
             self.assertTrue(calibration_events_exists)
             self.assertTrue(metrology_audit_events_exists)
             self.assertEqual(repository.category_count(), 34)
-            self.assertIsNone(repository.get_instrument("LEGACY-001")["category_code"])
-            self.assertEqual(
-                repository.get_instrument("LEGACY-001")["serviceability_status"],
-                "usable",
-            )
-            self.assertEqual(
-                repository.get_instrument("LEGACY-RES")["legacy_availability"],
-                "reserved",
-            )
-            self.assertEqual(
-                repository.get_instrument("LEGACY-RES")["serviceability_status"],
-                "usable",
-            )
+            self.assertEqual(dossier_count, 3)
+            legacy_by_id = {row["asset_id"]: row for row in legacy_instruments}
+            self.assertIsNone(legacy_by_id["LEGACY-001"]["category_code"])
+            self.assertEqual(legacy_by_id["LEGACY-001"]["serviceability_status"], "usable")
+            self.assertEqual(legacy_by_id["LEGACY-RES"]["legacy_availability"], "reserved")
+            self.assertEqual(legacy_by_id["LEGACY-RES"]["serviceability_status"], "usable")
             self.assertIn(
                 "legacy reservation",
-                repository.get_instrument("LEGACY-RES")["serviceability_reason"],
+                legacy_by_id["LEGACY-RES"]["serviceability_reason"],
             )
             self.assertEqual(
-                repository.get_instrument("LEGACY-OOS")["serviceability_status"],
+                legacy_by_id["LEGACY-OOS"]["serviceability_status"],
                 "out_of_service",
             )
+            with self.assertRaises(DirectMetrologyIdentityAccessError):
+                repository.get_instrument("LEGACY-001")
+            with closing(repository.connect()) as connection:
+                with self.assertRaisesRegex(sqlite3.IntegrityError, "read-only"):
+                    connection.execute(
+                        "UPDATE legacy_instruments_0_21_1 SET model = ? WHERE asset_id = ?",
+                        ("forbidden", "LEGACY-001"),
+                    )
             self.assertEqual(len(calibration_event_rows), 1)
             self.assertEqual(calibration_event_rows[0]["event_id"], "legacy-calibration-0001")
             self.assertEqual(calibration_event_rows[0]["decision"], "conforming")
@@ -897,39 +894,26 @@ class MetrologyRepositoryTests(unittest.TestCase):
                     provider="cal.lab",
                     checksum="A" * 64,
                 )
-            self.assertIsNone(repository.get_instrument("BAD-CHECKSUM-REG"))
-
-            repository.register_instrument(
-                asset_id="DOC-CHECKSUM-001",
-                family="Receiver",
-                manufacturer="Example",
-                model="RX",
-                serial_number="DOC-001",
-                calibration_requirement="required",
-                category_code="emi_receiver",
-            )
-
             with self.assertRaises(ValueError):
                 repository.add_calibration_record(
-                    asset_id="DOC-CHECKSUM-001",
+                    asset_id="MISSING-ASSET",
                     certificate_reference="CERT-UPPER",
                     calibrated_at="2026-06-01",
                     due_at="2027-06-01",
                     provider="cal.lab",
                     checksum="B" * 64,
                 )
-            self.assertIsNone(repository.latest_calibration_record("DOC-CHECKSUM-001"))
-
             with self.assertRaises(ValueError):
                 repository.add_instrument_document(
-                    asset_id="DOC-CHECKSUM-001",
+                    asset_id="MISSING-ASSET",
                     document_kind="datasheet",
                     title="Uppercase datasheet checksum",
                     file_reference="docs/datasheet.pdf",
                     uploaded_by="metrology.admin",
                     checksum="C" * 64,
                 )
-            self.assertEqual(repository.list_instrument_documents("DOC-CHECKSUM-001"), [])
+            self.assertEqual(repository.calibration_count(), 0)
+            self.assertEqual(repository.document_count(), 0)
 
 
 class ProjectRepositoryScheduleTests(unittest.TestCase):
@@ -4265,32 +4249,6 @@ class GuiBootstrapTests(unittest.TestCase):
                 actor="operator.boot",
                 reason="Fixture project already entered measurement",
             )
-            metrology.add_instrument(
-                asset_id="DAQ-001",
-                family="DAQ",
-                manufacturer="Open",
-                model="DAQ",
-                serial_number="001",
-                calibration_requirement="required",
-                capabilities_json='{"channels": 8}',
-                category_code="daq_chassis",
-                part_number="ODAQ-8",
-                calibration_period_months=12,
-            )
-            metrology.add_calibration_record(
-                asset_id="DAQ-001",
-                certificate_reference="CERT-001",
-                calibrated_at="2026-01-01",
-                due_at="2027-01-01",
-                provider="Metrology Lab",
-            )
-            metrology.add_instrument_document(
-                asset_id="DAQ-001",
-                document_kind="script",
-                title="DAQ setup script",
-                file_reference="scripts/daq/setup.py",
-                uploaded_by="operator.boot",
-            )
             test_definitions.add_test_method(
                 code="INRUSH-001",
                 standard_code=None,
@@ -4349,17 +4307,8 @@ class GuiBootstrapTests(unittest.TestCase):
             self.assertEqual(payload["contract_review_items"][0][0], "CEM-BOOT-001")
             self.assertEqual(payload["contract_review_items"][0][1], "requirements_reviewed")
             self.assertEqual(payload["contract_review_items"][0][2], "yes")
-            self.assertEqual(payload["instruments"][0][0], "DAQ-001")
-            self.assertEqual(payload["instruments"][0][2], "Usable")
-            self.assertEqual(payload["instruments"][0][3], "Available")
-            self.assertEqual(payload["instruments"][0][6], "ok")
-            self.assertEqual(payload["instruments"][0][7], "DAQ chassis and modules")
-            self.assertEqual(payload["instruments"][0][8], "channels=8")
-            self.assertEqual(payload["instruments"][0][12], "ODAQ-8")
-            self.assertEqual(payload["instruments"][0][13], "2026-01-01")
-            self.assertEqual(payload["instruments"][0][14], "12")
-            self.assertEqual(payload["instruments"][0][15], "1")
-            self.assertEqual(payload["instrument_documents"][0][2], "DAQ setup script")
+            self.assertEqual(payload["instruments"], [])
+            self.assertEqual(payload["instrument_documents"], [])
             self.assertEqual(payload["schedule"][0][0], "PLAN-BOOT-001")
             self.assertIn(
                 "daq_chassis",
@@ -4874,67 +4823,40 @@ class GuiActionTests(unittest.TestCase):
             self.assertEqual(schedule[0]["status"], "confirmed")
             self.assertEqual(payload["new_status"], "confirmed")
 
-    def test_register_metrology_instrument_records_asset_certificate_and_bootstrap(self) -> None:
+    def test_register_metrology_instrument_requires_agent_after_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path("storage/sqlite")
             base = Path(temporary_directory)
             metrology_db = base / "metrology.sqlite"
             bootstrap_output = base / "bootstrap.js"
 
-            result = register_metrology_instrument(
-                metrology_db=metrology_db,
-                asset_id="RX-ACT-001",
-                family="Receiver",
-                manufacturer="Rohde Schwarz",
-                model="ESW",
-                serial_number="100001",
-                category_code="emi_receiver",
-                part_number="ESW44",
-                calibration_period_months=12,
-                capabilities_json='{"frequency_max_hz": 44000000000}',
-                certificate_reference="CERT-RX-001",
-                calibrated_at="2026-06-01",
-                provider="Accredited Lab",
-                uncertainty_json='{"level_db": 0.6}',
-                bootstrap_output=bootstrap_output,
-            )
-
-            repository = MetrologyRepository(metrology_db, root)
-            instrument = repository.get_instrument("RX-ACT-001")
-            calibration = repository.latest_calibration_record("RX-ACT-001")
-            bootstrap_text = bootstrap_output.read_text()
-
-            self.assertEqual(result["category_code"], "emi_receiver")
-            self.assertEqual(result["category_label"], "EMI test receiver")
-            self.assertEqual(result["part_number"], "ESW44")
-            self.assertEqual(result["calibration_period_months"], 12)
-            self.assertEqual(result["calibration_requirement"], "required")
-            self.assertEqual(result["serviceability_status"], "usable")
-            self.assertTrue(result["calibration_recorded"])
-            self.assertEqual(instrument["category_code"], "emi_receiver")
-            self.assertEqual(instrument["part_number"], "ESW44")
-            self.assertEqual(instrument["serviceability_status"], "usable")
-            self.assertEqual(instrument["calibration_period_months"], 12)
-            self.assertEqual(calibration["certificate_reference"], "CERT-RX-001")
-            self.assertEqual(calibration["due_at"], "2027-06-01")
-            self.assertIn("RX-ACT-001", bootstrap_text)
-            self.assertIn("EMI test receiver", bootstrap_text)
-
-            document = attach_metrology_document(
-                metrology_db=metrology_db,
-                asset_id="RX-ACT-001",
-                document_kind="datasheet",
-                title="ESW datasheet",
-                file_reference="metrology/RX-ACT-001/datasheet.pdf",
-                uploaded_by="metrology.admin",
-                applies_to_function="receiver limits",
-                bootstrap_output=bootstrap_output,
-            )
-            documents = repository.list_instrument_documents("RX-ACT-001")
-
-            self.assertEqual(document["document_kind"], "datasheet")
-            self.assertEqual(documents[0]["title"], "ESW datasheet")
-            self.assertIn("ESW datasheet", bootstrap_output.read_text())
+            with self.assertRaisesRegex(
+                DirectMetrologyIdentityAccessError,
+                "configure agent_url and use the equipment fleet API",
+            ):
+                register_metrology_instrument(
+                    metrology_db=metrology_db,
+                    asset_id="RX-ACT-001",
+                    family="Receiver",
+                    manufacturer="Rohde Schwarz",
+                    model="ESW",
+                    serial_number="100001",
+                    category_code="emi_receiver",
+                    part_number="ESW44",
+                    calibration_period_months=12,
+                    capabilities_json='{"frequency_max_hz": 44000000000}',
+                    certificate_reference="CERT-RX-001",
+                    calibrated_at="2026-06-01",
+                    provider="Accredited Lab",
+                    uncertainty_json='{"level_db": 0.6}',
+                    bootstrap_output=bootstrap_output,
+                )
+            self.assertFalse(bootstrap_output.exists())
+            with closing(sqlite3.connect(metrology_db)) as connection:
+                self.assertEqual(
+                    connection.execute("SELECT COUNT(*) FROM metrology_asset_dossiers").fetchone()[0],
+                    0,
+                )
 
     def test_register_metrology_instrument_rejects_unknown_or_incomplete_data(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -4963,8 +4885,11 @@ class GuiActionTests(unittest.TestCase):
                     certificate_reference="CERT-INCOMPLETE",
                 )
 
-            repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
-            self.assertIsNone(repository.get_instrument("BAD-CERT"))
+            with closing(sqlite3.connect(metrology_db)) as connection:
+                self.assertEqual(
+                    connection.execute("SELECT COUNT(*) FROM metrology_asset_dossiers").fetchone()[0],
+                    0,
+                )
 
     def test_metrology_actions_reject_noncanonical_document_checksums(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -4987,17 +4912,17 @@ class GuiActionTests(unittest.TestCase):
 
             repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
             repository.initialize()
-            self.assertIsNone(repository.get_instrument("BAD-ACTION-CHECKSUM"))
 
-            register_metrology_instrument(
-                metrology_db=metrology_db,
-                asset_id="ACTION-CHECKSUM-001",
-                family="Receiver",
-                manufacturer="Example",
-                model="RX",
-                serial_number="ACTION-001",
-                category_code="emi_receiver",
-            )
+            with self.assertRaises(DirectMetrologyIdentityAccessError):
+                register_metrology_instrument(
+                    metrology_db=metrology_db,
+                    asset_id="ACTION-CHECKSUM-001",
+                    family="Receiver",
+                    manufacturer="Example",
+                    model="RX",
+                    serial_number="ACTION-001",
+                    category_code="emi_receiver",
+                )
 
             with self.assertRaises(ValueError):
                 record_metrology_calibration(
@@ -5022,44 +4947,28 @@ class GuiActionTests(unittest.TestCase):
                 )
             self.assertEqual(repository.list_instrument_documents("ACTION-CHECKSUM-001"), [])
 
-    def test_record_metrology_calibration_updates_existing_asset_and_bootstrap(self) -> None:
+    def test_record_metrology_calibration_requires_agent_owned_asset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path("storage/sqlite")
             base = Path(temporary_directory)
             metrology_db = base / "metrology.sqlite"
             bootstrap_output = base / "bootstrap.js"
 
-            register_metrology_instrument(
-                metrology_db=metrology_db,
-                asset_id="DAQ-CAL-001",
-                family="DAQ",
-                manufacturer="Open",
-                model="DAQ",
-                serial_number="CAL-001",
-                category_code="daq_chassis",
-            )
-
-            result = record_metrology_calibration(
-                metrology_db=metrology_db,
-                asset_id="DAQ-CAL-001",
-                certificate_reference="CERT-CAL-001",
-                calibrated_at="2026-06-15",
-                due_at="2027-06-15",
-                provider="Metrology Lab",
-                uncertainty_json='{"voltage": 0.02}',
-                bootstrap_output=bootstrap_output,
-            )
-
             repository = MetrologyRepository(metrology_db, root)
-            calibration = repository.latest_calibration_record("DAQ-CAL-001")
-            bootstrap_text = bootstrap_output.read_text()
-
-            self.assertEqual(result["certificate_reference"], "CERT-CAL-001")
-            self.assertEqual(result["due_at"], "2027-06-15")
-            self.assertEqual(calibration["certificate_reference"], "CERT-CAL-001")
-            self.assertEqual(calibration["uncertainty_json"], '{"voltage": 0.02}')
-            self.assertIn("CERT-CAL-001", bootstrap_text)
-            self.assertIn("2027-06-15", bootstrap_text)
+            repository.initialize()
+            with self.assertRaises(DirectMetrologyIdentityAccessError):
+                record_metrology_calibration(
+                    metrology_db=metrology_db,
+                    asset_id="DAQ-CAL-001",
+                    certificate_reference="CERT-CAL-001",
+                    calibrated_at="2026-06-15",
+                    due_at="2027-06-15",
+                    provider="Metrology Lab",
+                    uncertainty_json='{"voltage": 0.02}',
+                    bootstrap_output=bootstrap_output,
+                )
+            self.assertEqual(repository.calibration_count(), 0)
+            self.assertFalse(bootstrap_output.exists())
 
     def test_record_metrology_calibration_rejects_missing_asset_or_bad_json(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -5075,15 +4984,16 @@ class GuiActionTests(unittest.TestCase):
                     provider="Metrology Lab",
                 )
 
-            register_metrology_instrument(
-                metrology_db=metrology_db,
-                asset_id="DAQ-CAL-002",
-                family="DAQ",
-                manufacturer="Open",
-                model="DAQ",
-                serial_number="CAL-002",
-                category_code="daq_chassis",
-            )
+            with self.assertRaises(DirectMetrologyIdentityAccessError):
+                register_metrology_instrument(
+                    metrology_db=metrology_db,
+                    asset_id="DAQ-CAL-002",
+                    family="DAQ",
+                    manufacturer="Open",
+                    model="DAQ",
+                    serial_number="CAL-002",
+                    category_code="daq_chassis",
+                )
 
             with self.assertRaises(ValueError):
                 record_metrology_calibration(
@@ -5099,86 +5009,40 @@ class GuiActionTests(unittest.TestCase):
             repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
             self.assertIsNone(repository.latest_calibration_record("DAQ-CAL-002"))
 
-    def test_set_metrology_instrument_availability_updates_bootstrap(self) -> None:
+    def test_set_metrology_instrument_availability_requires_agent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             base = Path(temporary_directory)
             metrology_db = base / "metrology.sqlite"
             bootstrap_output = base / "bootstrap.js"
 
-            register_metrology_instrument(
-                metrology_db=metrology_db,
-                asset_id="AMP-STATUS-001",
-                family="Amplifier",
-                manufacturer="RF Lab",
-                model="AMP",
-                serial_number="STATUS-001",
-                category_code="rf_power_amplifier",
-            )
-
-            result = set_metrology_instrument_availability(
-                metrology_db=metrology_db,
-                asset_id="AMP-STATUS-001",
-                availability="out_of_service",
-                bootstrap_output=bootstrap_output,
-            )
-
             repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
-            instrument = repository.get_instrument("AMP-STATUS-001")
-            bootstrap_text = bootstrap_output.read_text()
+            repository.initialize()
+            with self.assertRaises(DirectMetrologyIdentityAccessError):
+                set_metrology_instrument_availability(
+                    metrology_db=metrology_db,
+                    asset_id="AMP-STATUS-001",
+                    availability="out_of_service",
+                    bootstrap_output=bootstrap_output,
+                )
+            self.assertFalse(bootstrap_output.exists())
 
-            self.assertEqual(result["previous_availability"], "available")
-            self.assertEqual(result["previous_serviceability_status"], "usable")
-            self.assertEqual(result["new_availability"], "out_of_service")
-            self.assertEqual(result["new_serviceability_status"], "out_of_service")
-            self.assertEqual(instrument["availability"], "out_of_service")
-            self.assertEqual(instrument["serviceability_status"], "out_of_service")
-            self.assertIn("AMP-STATUS-001", bootstrap_text)
-            self.assertIn("Out of service", bootstrap_text)
-            self.assertIn("danger", bootstrap_text)
-
-    def test_set_metrology_instrument_serviceability_updates_bootstrap(self) -> None:
+    def test_set_metrology_instrument_serviceability_requires_agent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             base = Path(temporary_directory)
             metrology_db = base / "metrology.sqlite"
             bootstrap_output = base / "bootstrap.js"
 
-            register_metrology_instrument(
-                metrology_db=metrology_db,
-                asset_id="SA-SERVICE-001",
-                family="Spectrum analyzer",
-                manufacturer="RF Bench",
-                model="SA",
-                serial_number="SERVICE-001",
-                category_code="spectrum_analyzer",
-                calibration_period_months=12,
-                certificate_reference="CERT-SA-SERVICE-001",
-                calibrated_at="2026-06-30",
-                provider="Metrology Lab",
-            )
-
-            result = set_metrology_instrument_serviceability(
-                metrology_db=metrology_db,
-                asset_id="SA-SERVICE-001",
-                serviceability_status="restricted",
-                serviceability_reason="Input attenuator under investigation",
-                bootstrap_output=bootstrap_output,
-            )
-
             repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
-            instrument = repository.get_instrument("SA-SERVICE-001")
-            bootstrap_text = bootstrap_output.read_text()
-
-            self.assertEqual(result["previous_serviceability_status"], "usable")
-            self.assertEqual(result["new_serviceability_status"], "restricted")
-            self.assertEqual(instrument["availability"], "available")
-            self.assertEqual(instrument["serviceability_status"], "restricted")
-            self.assertEqual(
-                instrument["serviceability_reason"],
-                "Input attenuator under investigation",
-            )
-            self.assertIn("SA-SERVICE-001", bootstrap_text)
-            self.assertIn("Restricted", bootstrap_text)
-            self.assertIn("warn", bootstrap_text)
+            repository.initialize()
+            with self.assertRaises(DirectMetrologyIdentityAccessError):
+                set_metrology_instrument_serviceability(
+                    metrology_db=metrology_db,
+                    asset_id="SA-SERVICE-001",
+                    serviceability_status="restricted",
+                    serviceability_reason="Input attenuator under investigation",
+                    bootstrap_output=bootstrap_output,
+                )
+            self.assertFalse(bootstrap_output.exists())
 
     def test_set_metrology_instrument_availability_rejects_invalid_requests(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -5191,15 +5055,16 @@ class GuiActionTests(unittest.TestCase):
                     availability="available",
                 )
 
-            register_metrology_instrument(
-                metrology_db=metrology_db,
-                asset_id="DMM-STATUS-001",
-                family="DMM",
-                manufacturer="Bench",
-                model="DMM",
-                serial_number="STATUS-001",
-                category_code="digital_multimeter",
-            )
+            with self.assertRaises(DirectMetrologyIdentityAccessError):
+                register_metrology_instrument(
+                    metrology_db=metrology_db,
+                    asset_id="DMM-STATUS-001",
+                    family="DMM",
+                    manufacturer="Bench",
+                    model="DMM",
+                    serial_number="STATUS-001",
+                    category_code="digital_multimeter",
+                )
 
             with self.assertRaises(ValueError):
                 set_metrology_instrument_availability(
@@ -5208,47 +5073,27 @@ class GuiActionTests(unittest.TestCase):
                     availability="unknown",
                 )
 
-            repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
-            self.assertEqual(
-                repository.get_instrument("DMM-STATUS-001")["availability"],
-                "available",
-            )
+            with closing(sqlite3.connect(metrology_db)) as connection:
+                self.assertEqual(
+                    connection.execute("SELECT COUNT(*) FROM metrology_asset_dossiers").fetchone()[0],
+                    0,
+                )
 
-    def test_set_metrology_instrument_capabilities_updates_existing_asset(self) -> None:
+    def test_set_metrology_instrument_capabilities_requires_agent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             metrology_db = Path(temporary_directory) / "metrology.sqlite"
             bootstrap_output = Path(temporary_directory) / "bootstrap.js"
 
-            register_metrology_instrument(
-                metrology_db=metrology_db,
-                asset_id="DAQ-CAP-001",
-                family="DAQ",
-                manufacturer="Open",
-                model="DAQ",
-                serial_number="CAP-001",
-                category_code="daq_chassis",
-            )
-
-            result = set_metrology_instrument_capabilities(
-                metrology_db=metrology_db,
-                asset_id="DAQ-CAP-001",
-                capabilities_json='{"channels": 8, "transports": ["opendaq", "ethernet"]}',
-                bootstrap_output=bootstrap_output,
-            )
-
             repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
-            instrument = repository.get_instrument("DAQ-CAP-001")
-
-            self.assertEqual(result["previous_capabilities_json"], "[]")
-            self.assertEqual(
-                result["new_capabilities_json"],
-                '{"channels": 8, "transports": ["opendaq", "ethernet"]}',
-            )
-            self.assertEqual(
-                instrument["capabilities_json"],
-                '{"channels": 8, "transports": ["opendaq", "ethernet"]}',
-            )
-            self.assertIn("DAQ-CAP-001", bootstrap_output.read_text())
+            repository.initialize()
+            with self.assertRaises(DirectMetrologyIdentityAccessError):
+                set_metrology_instrument_capabilities(
+                    metrology_db=metrology_db,
+                    asset_id="DAQ-CAP-001",
+                    capabilities_json='{"channels": 8, "transports": ["opendaq", "ethernet"]}',
+                    bootstrap_output=bootstrap_output,
+                )
+            self.assertFalse(bootstrap_output.exists())
 
     def test_set_metrology_instrument_capabilities_rejects_missing_asset_or_bad_json(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -5261,16 +5106,17 @@ class GuiActionTests(unittest.TestCase):
                     capabilities_json="{}",
                 )
 
-            register_metrology_instrument(
-                metrology_db=metrology_db,
-                asset_id="DMM-CAP-001",
-                family="DMM",
-                manufacturer="Bench",
-                model="DMM",
-                serial_number="CAP-001",
-                category_code="digital_multimeter",
-                capabilities_json='{"digits": 6.5}',
-            )
+            with self.assertRaises(DirectMetrologyIdentityAccessError):
+                register_metrology_instrument(
+                    metrology_db=metrology_db,
+                    asset_id="DMM-CAP-001",
+                    family="DMM",
+                    manufacturer="Bench",
+                    model="DMM",
+                    serial_number="CAP-001",
+                    category_code="digital_multimeter",
+                    capabilities_json='{"digits": 6.5}',
+                )
 
             with self.assertRaises(ValueError):
                 set_metrology_instrument_capabilities(
@@ -5279,11 +5125,11 @@ class GuiActionTests(unittest.TestCase):
                     capabilities_json="{bad-json",
                 )
 
-            repository = MetrologyRepository(metrology_db, Path("storage/sqlite"))
-            self.assertEqual(
-                repository.get_instrument("DMM-CAP-001")["capabilities_json"],
-                '{"digits": 6.5}',
-            )
+            with closing(sqlite3.connect(metrology_db)) as connection:
+                self.assertEqual(
+                    connection.execute("SELECT COUNT(*) FROM metrology_asset_dossiers").fetchone()[0],
+                    0,
+                )
 
     def test_dataset_retention_action_records_event_and_refreshes_bootstrap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

@@ -54,7 +54,8 @@ test("a historical location is identified before the physical resource can be bo
     api = await playwrightRequest.newContext({ baseURL });
 
     seedLaboratoryLocations(baseURL);
-    await createAlternativeLocation(api, bookingDate);
+    const primaryLocation = await findLaboratoryLocation(api, "Poste CEM 1");
+    const alternativeLocation = await createAlternativeLocation(api, bookingDate);
     await preparePlanningProject(api, legacyProject, "Laboratoire historique", `${suffix}-legacy`);
     await preparePlanningProject(api, candidateProject, "Industries candidate", `${suffix}-candidate`);
     await preparePlanningProject(api, reservedProject, "Laboratoire réservation", `${suffix}-reserved`);
@@ -66,7 +67,7 @@ test("a historical location is identified before the physical resource can be bo
           plannedStart,
           plannedEnd,
           operator: "Claire Robert",
-          locationId: "LAB-LOCATION-DEMO-CEM-1",
+          locationId: primaryLocation.location_id,
           locationLabel: "Poste CEM 1",
           operationId: `op-e2e-reserved-location-${suffix}`
         })
@@ -88,9 +89,26 @@ test("a historical location is identified before the physical resource can be bo
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto(`${baseURL}/lab/`);
     await page.getByRole("button", { name: "Dossiers d'essai" }).click();
+    await expect(page.getByText("Ouverture du dossier…", { exact: true })).toHaveCount(0, {
+      timeout: 30_000
+    });
+    await page.getByLabel("Rechercher un dossier").fill(legacyProject);
+    await page.getByRole("button", { name: new RegExp(legacyProject) }).click();
+    await expect(page.getByRole("heading", { name: legacyProject })).toBeVisible({
+      timeout: 30_000
+    });
     await page.getByLabel("Rechercher un dossier").fill(candidateProject);
+    const candidateScheduleResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/api/v1/projects/${candidateProject}/schedule-items`)
+        && response.request().method() === "GET",
+      { timeout: 30_000 }
+    );
     await page.getByRole("button", { name: new RegExp(candidateProject) }).click();
-    await expect(page.getByRole("heading", { name: candidateProject })).toBeVisible();
+    expect((await candidateScheduleResponse).ok()).toBeTruthy();
+    await expect(page.getByRole("heading", { name: candidateProject })).toBeVisible({
+      timeout: 30_000
+    });
     await page.getByRole("button", { name: "Planifier un essai" }).first().click();
     const bookingDialog = page.getByRole("dialog");
     const reserveButton = bookingDialog.getByRole("button", { name: "Réserver le créneau" });
@@ -137,7 +155,7 @@ test("a historical location is identified before the physical resource can be bo
     await expect(planningDialog.getByText("Lieu à identifier", { exact: true })).toBeVisible();
     await expect(planningDialog.getByText(`Libellé historique : ${historicalLabel}`)).toBeVisible();
     await expect(planningDialog.getByRole("button", { name: "Identifier le lieu" })).toBeVisible();
-    await expect(planningDialog).not.toContainText("LAB-LOCATION-DEMO-CEM-1");
+    await expect(planningDialog).not.toContainText(primaryLocation.location_id);
     await captureReleaseScreenshot(page, "creneau-lieu-a-identifier-1440x900.png");
 
     await planningDialog.getByRole("button", { name: "Identifier le lieu" }).click();
@@ -187,14 +205,14 @@ test("a historical location is identified before the physical resource can be bo
     expect(identified).toMatchObject({
       item_code: legacyItem,
       revision: 2,
-      laboratory_location_id: "LAB-LOCATION-E2E-ALT",
+      laboratory_location_id: alternativeLocation.location_id,
       laboratory_location_label: "Poste CEM 2",
       status: "planned"
     });
     const legacyAudit = await projectAudit(api, legacyProject);
     expect(JSON.stringify(legacyAudit)).toContain("service_schedule_item_location_identified");
     expect(JSON.stringify(legacyAudit)).toContain(historicalLabel);
-    expect(JSON.stringify(legacyAudit)).toContain("LAB-LOCATION-E2E-ALT");
+    expect(JSON.stringify(legacyAudit)).toContain(alternativeLocation.location_id);
     expect(JSON.stringify(await outboxOperations(api))).toContain(
       "service_schedule_item_location_identified"
     );
@@ -208,7 +226,7 @@ test("a historical location is identified before the physical resource can be bo
           plannedStart: `${bookingDate}T13:30`,
           plannedEnd: `${bookingDate}T14:30`,
           operator: "Bob Durand",
-          locationId: "LAB-LOCATION-E2E-ALT",
+          locationId: alternativeLocation.location_id,
           locationLabel: "Libellé actuel différent",
           operationId: `op-e2e-same-location-${suffix}`
         })
@@ -243,7 +261,7 @@ test("a historical location is identified before the physical resource can be bo
           plannedStart: `${bookingDate}T13:30`,
           plannedEnd: `${bookingDate}T14:30`,
           operator: "Bob Durand",
-          locationId: "LAB-LOCATION-DEMO-CEM-1",
+          locationId: primaryLocation.location_id,
           locationLabel: "Poste CEM 1",
           operationId: `op-e2e-different-location-${suffix}`
         })
@@ -261,12 +279,12 @@ test("a historical location is identified before the physical resource can be bo
     expect((await projectSchedule(api, legacyProject))[0]).toMatchObject({
       item_code: legacyItem,
       revision: 2,
-      laboratory_location_id: "LAB-LOCATION-E2E-ALT",
+      laboratory_location_id: alternativeLocation.location_id,
       laboratory_location_label: "Poste CEM 2"
     });
     expect((await projectSchedule(api, candidateProject))[0]).toMatchObject({
       item_code: candidateItem,
-      laboratory_location_id: "LAB-LOCATION-DEMO-CEM-1",
+      laboratory_location_id: primaryLocation.location_id,
       laboratory_location_label: "Poste CEM 1"
     });
     expect(JSON.stringify(await projectAudit(api, legacyProject))).toContain(
@@ -309,67 +327,35 @@ function seedLaboratoryLocations(baseURL: string) {
 }
 
 async function createAlternativeLocation(api: APIRequestContext, plannedUseOn: string) {
-  const source = await responseJson<StationSetupResponse>(
-    await api.get("/api/v1/station-setups/SETUP-DEMO-RF-PREP")
-  );
-  const sourceRevision = source.station_setup.current_ready_revision;
-  expect(sourceRevision).toBeTruthy();
-  const created = await responseJson<StationSetupResponse>(
-    await api.post("/api/v1/station-setups", {
+  expect(plannedUseOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  return createLaboratoryLocation(api, "Poste CEM 2", "op-e2e-alt-location");
+}
+
+async function createLaboratoryLocation(
+  api: APIRequestContext,
+  label: string,
+  operationId: string
+) {
+  return responseJson<{ location: { location_id: string; label: string } }>(
+    await api.post("/api/v1/laboratory-locations", {
       data: {
-        setup_id: "SETUP-E2E-ALT",
-        label: "Chaîne RF alternative",
-        laboratory_location_id: "LAB-LOCATION-E2E-ALT",
-        laboratory_location_label: "Poste CEM 2",
-        planned_use_on: plannedUseOn,
-        execution_mode: "investigation",
+        label,
+        description: "Lieu du scénario historique E2E",
         actor: "e2e.technician",
-        reason: "Créer le second poste stable du scénario historique",
-        operation_id: "op-e2e-alt-setup-create"
+        reason: "Créer un lieu stable pour le scénario",
+        operation_id: operationId
       }
     })
+  ).then((body) => body.location);
+}
+
+async function findLaboratoryLocation(api: APIRequestContext, label: string) {
+  const body = await responseJson<{ locations: Array<{ location_id: string; label: string }> }>(
+    await api.get("/api/v1/laboratory-locations")
   );
-  const draft = created.station_setup.active_draft_revision;
-  expect(draft).toBeTruthy();
-  const definition = structuredClone(sourceRevision!.definition);
-  Object.assign(definition, {
-    setup_id: "SETUP-E2E-ALT",
-    label: "Chaîne RF alternative",
-    laboratory_location_id: "LAB-LOCATION-E2E-ALT",
-    laboratory_location_label: "Poste CEM 2",
-    planned_use_on: plannedUseOn
-  });
-  const saved = await responseJson<StationSetupResponse>(
-    await api.put(`/api/v1/station-setups/SETUP-E2E-ALT/revisions/${draft!.revision_id}/definition`, {
-      data: {
-        expected_definition_checksum: draft!.definition_checksum,
-        definition,
-        actor: "e2e.technician",
-        reason: "Affecter la chaîne vérifiée au second poste",
-        operation_id: "op-e2e-alt-setup-save"
-      }
-    })
-  );
-  const savedDraft = saved.station_setup.active_draft_revision;
-  const readiness = await responseJson<{ readiness: { ready: boolean } }>(
-    await api.get(
-      `/api/v1/station-setups/SETUP-E2E-ALT/revisions/${savedDraft!.revision_id}/readiness`
-    )
-  );
-  expect(readiness.readiness.ready).toBe(true);
-  await expectApiOk(
-    await api.post(
-      `/api/v1/station-setups/SETUP-E2E-ALT/revisions/${savedDraft!.revision_id}/transitions/ready`,
-      {
-        data: {
-          expected_definition_checksum: savedDraft!.definition_checksum,
-          actor: "e2e.technician",
-          reason: "Valider le second poste stable",
-          operation_id: "op-e2e-alt-setup-ready"
-        }
-      }
-    )
-  );
+  const location = body.locations.find((candidate) => candidate.label === label);
+  expect(location).toBeTruthy();
+  return location!;
 }
 
 async function preparePlanningProject(
@@ -522,19 +508,6 @@ async function responseJson<T>(response: APIResponse): Promise<T> {
   const body = await response.text();
   expect(response.ok(), body).toBeTruthy();
   return JSON.parse(body) as T;
-}
-
-interface StationSetupRevision {
-  revision_id: string;
-  definition_checksum: string;
-  definition: Record<string, unknown>;
-}
-
-interface StationSetupResponse {
-  station_setup: {
-    current_ready_revision: StationSetupRevision | null;
-    active_draft_revision: StationSetupRevision | null;
-  };
 }
 
 interface RunningAgent {

@@ -36,6 +36,8 @@ interface PhysicalAssetMetrologyPanelProps {
   categories: EquipmentCategory[];
   onRegister: (input: RegisterMetrologyInstrumentInput) => Promise<void>;
   onOpenCatalog: () => void;
+  initialSelectedAssetId?: string | null;
+  allowRegistration?: boolean;
 }
 
 type CharacterizationKind = "time_conversion" | "frequency_response";
@@ -67,11 +69,16 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (props.initialSelectedAssetId && props.instruments.some((instrument) => instrument.asset_id === props.initialSelectedAssetId)) {
+      setSelectedAssetId(props.initialSelectedAssetId);
+      setRegistering(false);
+      return;
+    }
     if (!selectedAssetId && props.instruments.length > 0) {
       setSelectedAssetId(props.instruments[0].asset_id);
       setRegistering(false);
     }
-  }, [props.instruments, selectedAssetId]);
+  }, [props.initialSelectedAssetId, props.instruments, selectedAssetId]);
 
   useEffect(() => {
     if (!selectedAssetId) {
@@ -231,10 +238,10 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
     <div className="equipmentLayout physicalAssetsLayout">
       <aside className="equipmentList physicalAssetList">
         <div className="listHeader">
-          <h2>Matériels</h2>
+          <h2>Exemplaires du parc</h2>
           <span>{props.instruments.length}</span>
         </div>
-        <button
+        {props.allowRegistration !== false && <button
           type="button"
           className="secondary fullWidthAction"
           onClick={() => {
@@ -243,7 +250,7 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
           }}
         >
           <PackagePlus size={16} /> Enregistrer un matériel
-        </button>
+        </button>}
         {props.instruments.length === 0 && (
           <div className="compactEmpty">
             <strong>Aucun matériel enregistré</strong>
@@ -263,7 +270,7 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
                 setCreatingCharacterization(false);
               }}
             >
-              <strong>{instrument.asset_id}</strong>
+              <strong>{instrument.inventory_code}</strong>
               <span>{instrument.manufacturer} {instrument.model}</span>
               <small>N° de série {instrument.serial_number}</small>
               <span className="listItemMeta">
@@ -279,7 +286,7 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
 
       <section className="equipmentStudio">
         {error && <p className="operationError"><AlertTriangle size={16} /> {error}</p>}
-        {registering || !selectedAsset ? (
+        {props.allowRegistration !== false && (registering || !selectedAsset) ? (
           <RegisterPhysicalAssetForm
             {...props}
             onRegistered={(assetId) => {
@@ -287,13 +294,13 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
               setRegistering(false);
             }}
           />
-        ) : (
+        ) : selectedAsset ? (
           <>
             <header className="studioHeader assetRecordHeader">
               <div>
                 <p className="eyebrow">Dossier métrologique</p>
-                <h2>{selectedAsset.asset_id}</h2>
-                <p>{selectedAsset.manufacturer} {selectedAsset.model} · N° de série {selectedAsset.serial_number}</p>
+                <h2>{selectedAsset.inventory_code}</h2>
+                <p>{selectedAsset.manufacturer} {selectedAsset.model} · {selectedAsset.serial_number ? `N° de série ${selectedAsset.serial_number}` : "Sans numéro de série"}</p>
               </div>
               {!creatingCharacterization && (
                 <button type="button" onClick={() => { setCreatingForRequirement(null); setCreatingCharacterization(true); }}>
@@ -377,6 +384,11 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
               </section>
             )}
           </>
+        ) : (
+          <div className="compactEmpty">
+            <strong>Aucun exemplaire avec dossier métrologique</strong>
+            <span>Créez d'abord un exemplaire dans le Parc matériel.</span>
+          </div>
         )}
       </section>
     </div>
@@ -1066,10 +1078,10 @@ function RegisterPhysicalAssetForm(props: PhysicalAssetMetrologyPanelProps & { o
         <section className="editorCard">
           <h2>Modèle et identification</h2>
           <div className="formGrid">
-            <label><FieldCaption label="Modèle d’équipement" required /><select value={modelId} onChange={(event) => setModelId(event.target.value)}><option value="">Choisir un modèle approuvé</option>{props.approvedModels.map((model) => <option key={model.identity.equipment_model_id} value={model.identity.equipment_model_id}>{model.identity.manufacturer} {model.identity.model_name} · {categoryLabel(props.categories, model.identity.category_code)}</option>)}</select></label>
-            <label><FieldCaption label="Numéro d’inventaire" required /><input value={assetId} onChange={(event) => setAssetId(event.target.value)} placeholder="ex. SA-001" /></label>
-            <label><FieldCaption label="Numéro de série" required /><input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} /></label>
-            <label>Part number<input value={partNumber} onChange={(event) => setPartNumber(event.target.value)} /></label>
+            <label><FieldCaption label="Modèle constructeur" required /><select value={modelId} onChange={(event) => setModelId(event.target.value)}><option value="">Choisir un modèle approuvé</option>{props.approvedModels.map((model) => <option key={model.identity.equipment_model_id} value={model.identity.equipment_model_id}>{model.identity.manufacturer} {model.identity.model_name} · {categoryLabel(props.categories, model.identity.category_code)}</option>)}</select></label>
+            <label><FieldCaption label="Code inventaire" required /><input value={assetId} onChange={(event) => setAssetId(event.target.value)} placeholder="ex. SA-001" /></label>
+            <label>Numéro de série <span className="fieldHint">Facultatif</span><input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} /></label>
+            <label>Référence fabricant <span className="fieldHint">Facultatif</span><input value={partNumber} onChange={(event) => setPartNumber(event.target.value)} /></label>
           </div>
         </section>
         <section className="editorCard">

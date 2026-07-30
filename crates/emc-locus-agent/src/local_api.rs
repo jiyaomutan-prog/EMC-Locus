@@ -45,6 +45,20 @@ use crate::equipment_service::{
     TransitionEquipmentModelRevisionInput, UpdateEquipmentCategoryInput,
     UpsertEquipmentFieldDefinitionInput,
 };
+use crate::fleet_service::{
+    archive_laboratory_location_json, create_laboratory_location, create_physical_asset,
+    get_physical_asset_json, list_laboratory_location_audit_json, list_laboratory_locations_json,
+    list_model_reconciliation_candidates_json, list_physical_asset_audit_json,
+    list_physical_assets_json_for_context, move_physical_asset,
+    reconcile_physical_asset_model_json, transition_physical_asset_administrative_availability,
+    transition_physical_asset_service_state, update_laboratory_location_json,
+    update_physical_asset_identification, ArchiveLaboratoryLocationInput,
+    CreateLaboratoryLocationInput, CreatePhysicalAssetInput, FleetOperationContext,
+    MovePhysicalAssetInput, ReconcilePhysicalAssetModelInput,
+    TransitionPhysicalAssetAdministrativeAvailabilityInput,
+    TransitionPhysicalAssetServiceStateInput, UpdateLaboratoryLocationInput,
+    UpdatePhysicalAssetIdentificationInput,
+};
 use crate::measurement_engineering_service::{
     clone_measurement_engineering_definition, create_measurement_engineering_definition,
     create_measurement_engineering_revision, evaluate_engineering_curve_revision,
@@ -80,11 +94,11 @@ use crate::service_schedule_service::{
 };
 use crate::station_setup_service::{
     assess_station_setup_revision_json, create_station_setup, derive_station_setup_revision,
-    get_station_setup, get_station_setup_revision_json, list_station_setup_audit_events_json,
-    list_station_setup_revisions_json, list_station_setups, mark_station_setup_revision_ready,
-    replace_station_setup_draft_definition, CreateStationSetupInput,
-    DeriveStationSetupRevisionInput, MarkStationSetupReadyInput, ReplaceStationSetupDraftInput,
-    StationOperationContext,
+    get_station_setup, get_station_setup_revision_json, list_station_setup_asset_options_json,
+    list_station_setup_audit_events_json, list_station_setup_revisions_json, list_station_setups,
+    mark_station_setup_revision_ready, replace_station_setup_draft_definition,
+    CreateStationSetupInput, DeriveStationSetupRevisionInput, ListStationSetupAssetOptionsInput,
+    MarkStationSetupReadyInput, ReplaceStationSetupDraftInput, StationOperationContext,
 };
 use crate::test_execution_service::{
     get_simulated_test_execution, list_project_simulated_test_executions, run_simulated_emc_test,
@@ -489,6 +503,130 @@ fn route_api_request(
             },
         );
     }
+    if parts.as_slice() == ["api", "v1", "fleet", "assets"] && method == "GET" {
+        return list_physical_assets_json_for_context(
+            &config.storage_root,
+            optional_query_value(query, "at").as_deref(),
+            optional_query_value(query, "checked_on").as_deref(),
+        );
+    }
+    if parts.as_slice() == ["api", "v1", "fleet", "assets"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return create_physical_asset(&config.storage_root, create_physical_asset_input(&payload)?);
+    }
+    if parts.as_slice() == ["api", "v1", "fleet", "model-reconciliation-candidates"]
+        && method == "GET"
+    {
+        return list_model_reconciliation_candidates_json(&config.storage_root);
+    }
+    if parts.len() == 5
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "fleet"
+        && parts[3] == "assets"
+        && method == "GET"
+    {
+        return get_physical_asset_json(&config.storage_root, parts[4]);
+    }
+    if parts.len() == 6
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "fleet"
+        && parts[3] == "assets"
+        && parts[5] == "identification"
+        && method == "PUT"
+    {
+        let payload = parse_json_body(body)?;
+        return update_physical_asset_identification(
+            &config.storage_root,
+            update_physical_asset_identification_input(parts[4], &payload)?,
+        );
+    }
+    if parts.len() == 6
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "fleet"
+        && parts[3] == "assets"
+        && parts[5] == "audit-events"
+        && method == "GET"
+    {
+        return list_physical_asset_audit_json(&config.storage_root, parts[4]);
+    }
+    if parts.len() == 7
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "fleet"
+        && parts[3] == "assets"
+        && parts[5] == "transitions"
+        && method == "POST"
+    {
+        let payload = parse_json_body(body)?;
+        if parts[6] == "service-state" {
+            return transition_physical_asset_service_state(
+                &config.storage_root,
+                transition_physical_asset_service_state_input(parts[4], &payload)?,
+            );
+        }
+        if matches!(parts[6], "administrative-availability" | "availability") {
+            return transition_physical_asset_administrative_availability(
+                &config.storage_root,
+                transition_physical_asset_administrative_availability_input(parts[4], &payload)?,
+            );
+        }
+        if parts[6] == "move" {
+            return move_physical_asset(
+                &config.storage_root,
+                move_physical_asset_input(parts[4], &payload)?,
+            );
+        }
+        if parts[6] == "reconcile-model" {
+            return reconcile_physical_asset_model_json(
+                &config.storage_root,
+                reconcile_physical_asset_model_input(parts[4], &payload)?,
+            );
+        }
+    }
+    if parts.as_slice() == ["api", "v1", "laboratory-locations"] && method == "GET" {
+        return list_laboratory_locations_json(
+            &config.storage_root,
+            query_flag(query, "include_archived"),
+        );
+    }
+    if parts.as_slice() == ["api", "v1", "laboratory-locations"] && method == "POST" {
+        let payload = parse_json_body(body)?;
+        return create_laboratory_location(
+            &config.storage_root,
+            create_laboratory_location_input(&payload)?,
+        );
+    }
+    if parts.len() == 4
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "laboratory-locations"
+        && method == "PUT"
+    {
+        let payload = parse_json_body(body)?;
+        return update_laboratory_location_json(
+            &config.storage_root,
+            update_laboratory_location_input(parts[3], &payload)?,
+        );
+    }
+    if parts.len() == 5
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "laboratory-locations"
+    {
+        if parts[4] == "archive" && method == "POST" {
+            let payload = parse_json_body(body)?;
+            return archive_laboratory_location_json(
+                &config.storage_root,
+                archive_laboratory_location_input(parts[3], &payload)?,
+            );
+        }
+        if parts[4] == "audit-events" && method == "GET" {
+            return list_laboratory_location_audit_json(&config.storage_root, parts[3]);
+        }
+    }
     if parts.as_slice() == ["api", "v1", "sync", "outbox"] && method == "GET" {
         return run_sync_command(AgentCommand::Sync {
             action: SyncAction::Outbox,
@@ -501,6 +639,16 @@ fn route_api_request(
     if parts.as_slice() == ["api", "v1", "station-setups"] && method == "POST" {
         let payload = parse_json_body(body)?;
         return create_station_setup(&config.storage_root, create_station_setup_input(&payload)?);
+    }
+    if parts.as_slice() == ["api", "v1", "station-setups", "asset-options"] && method == "GET" {
+        return list_station_setup_asset_options_json(
+            &config.storage_root,
+            ListStationSetupAssetOptionsInput {
+                planned_use_on: required_query_value(query, "planned_use_on")?,
+                execution_mode: required_query_value(query, "execution_mode")?,
+                laboratory_location_id: required_query_value(query, "laboratory_location_id")?,
+            },
+        );
     }
     if parts.len() == 4
         && parts[0] == "api"
@@ -1966,7 +2114,6 @@ fn create_station_setup_input(payload: &Value) -> Result<CreateStationSetupInput
         setup_id: required_string(payload, "setup_id")?,
         label: required_string(payload, "label")?,
         laboratory_location_id: required_string(payload, "laboratory_location_id")?,
-        laboratory_location_label: required_string(payload, "laboratory_location_label")?,
         planned_use_on: required_string(payload, "planned_use_on")?,
         execution_mode: required_string(payload, "execution_mode")?,
         context: station_operation_context(payload)?,
@@ -2048,6 +2195,175 @@ fn list_documents_input(query: &str) -> ListAttachedDocumentsInput {
         owner_entity_type: optional_query_value(query, "owner_entity_type"),
         owner_entity_id: optional_query_value(query, "owner_entity_id"),
     }
+}
+
+fn fleet_operation_context(payload: &Value) -> Result<FleetOperationContext, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(FleetOperationContext {
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "lab-console-local".to_owned()),
+        operation_id,
+    })
+}
+
+fn create_physical_asset_input(payload: &Value) -> Result<CreatePhysicalAssetInput, AgentError> {
+    let explicit_administrative_availability =
+        optional_string(payload, "administrative_availability");
+    let legacy_availability_state = optional_string(payload, "availability_state");
+    let administrative_availability = explicit_administrative_availability
+        .clone()
+        .or_else(|| legacy_availability_state.clone())
+        .ok_or_else(|| {
+            AgentError::new(
+                "missing_json_field",
+                "administrative_availability is required",
+            )
+        })?;
+    let administrative_unavailability_reason =
+        optional_string(payload, "administrative_unavailability_reason")
+            .or_else(|| {
+                (explicit_administrative_availability.is_none()
+                    && legacy_availability_state.as_deref() == Some("unavailable"))
+                .then(|| optional_string(payload, "service_state_reason"))
+                .flatten()
+            })
+            .unwrap_or_default();
+    Ok(CreatePhysicalAssetInput {
+        inventory_code: required_string(payload, "inventory_code")?,
+        serial_number: optional_string(payload, "serial_number"),
+        part_number: optional_string(payload, "part_number"),
+        equipment_model_id: required_string(payload, "equipment_model_id")?,
+        laboratory_location_id: optional_string(payload, "laboratory_location_id"),
+        ownership_source: required_string(payload, "ownership_source")?,
+        service_state: required_string(payload, "service_state")?,
+        administrative_availability,
+        administrative_unavailability_reason,
+        service_state_reason: optional_string(payload, "service_state_reason").unwrap_or_default(),
+        notes: optional_string(payload, "notes").unwrap_or_default(),
+        calibration_requirement: required_string(payload, "calibration_requirement")?,
+        calibration_period_months: optional_u32(payload, "calibration_period_months")?,
+        calibration_due_warning_days: optional_u32(payload, "calibration_due_warning_days")?
+            .unwrap_or(30),
+        metrology_notes: optional_string(payload, "metrology_notes").unwrap_or_default(),
+        context: fleet_operation_context(payload)?,
+    })
+}
+
+fn update_physical_asset_identification_input(
+    asset_id: &str,
+    payload: &Value,
+) -> Result<UpdatePhysicalAssetIdentificationInput, AgentError> {
+    Ok(UpdatePhysicalAssetIdentificationInput {
+        asset_id: asset_id.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        inventory_code: required_string(payload, "inventory_code")?,
+        serial_number: optional_string(payload, "serial_number"),
+        part_number: optional_string(payload, "part_number"),
+        ownership_source: required_string(payload, "ownership_source")?,
+        notes: optional_string(payload, "notes").unwrap_or_default(),
+        context: fleet_operation_context(payload)?,
+    })
+}
+
+fn move_physical_asset_input(
+    asset_id: &str,
+    payload: &Value,
+) -> Result<MovePhysicalAssetInput, AgentError> {
+    Ok(MovePhysicalAssetInput {
+        asset_id: asset_id.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        destination_location_id: optional_string(payload, "destination_location_id"),
+        context: fleet_operation_context(payload)?,
+    })
+}
+
+fn transition_physical_asset_service_state_input(
+    asset_id: &str,
+    payload: &Value,
+) -> Result<TransitionPhysicalAssetServiceStateInput, AgentError> {
+    Ok(TransitionPhysicalAssetServiceStateInput {
+        asset_id: asset_id.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        service_state: required_string(payload, "service_state")?,
+        service_state_reason: optional_string(payload, "service_state_reason").unwrap_or_default(),
+        context: fleet_operation_context(payload)?,
+    })
+}
+
+fn transition_physical_asset_administrative_availability_input(
+    asset_id: &str,
+    payload: &Value,
+) -> Result<TransitionPhysicalAssetAdministrativeAvailabilityInput, AgentError> {
+    let administrative_availability = optional_string(payload, "administrative_availability")
+        .or_else(|| optional_string(payload, "availability_state"))
+        .ok_or_else(|| {
+            AgentError::new(
+                "missing_json_field",
+                "administrative_availability is required",
+            )
+        })?;
+    Ok(TransitionPhysicalAssetAdministrativeAvailabilityInput {
+        asset_id: asset_id.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        administrative_availability,
+        administrative_unavailability_reason: optional_string(
+            payload,
+            "administrative_unavailability_reason",
+        )
+        .unwrap_or_default(),
+        context: fleet_operation_context(payload)?,
+    })
+}
+
+fn reconcile_physical_asset_model_input(
+    asset_id: &str,
+    payload: &Value,
+) -> Result<ReconcilePhysicalAssetModelInput, AgentError> {
+    Ok(ReconcilePhysicalAssetModelInput {
+        asset_id: asset_id.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        equipment_model_id: required_string(payload, "equipment_model_id")?,
+        equipment_model_revision_id: required_string(payload, "equipment_model_revision_id")?,
+        context: fleet_operation_context(payload)?,
+    })
+}
+
+fn create_laboratory_location_input(
+    payload: &Value,
+) -> Result<CreateLaboratoryLocationInput, AgentError> {
+    Ok(CreateLaboratoryLocationInput {
+        label: required_string(payload, "label")?,
+        description: optional_string(payload, "description").unwrap_or_default(),
+        context: fleet_operation_context(payload)?,
+    })
+}
+
+fn update_laboratory_location_input(
+    location_id: &str,
+    payload: &Value,
+) -> Result<UpdateLaboratoryLocationInput, AgentError> {
+    Ok(UpdateLaboratoryLocationInput {
+        location_id: location_id.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        label: required_string(payload, "label")?,
+        description: optional_string(payload, "description").unwrap_or_default(),
+        context: fleet_operation_context(payload)?,
+    })
+}
+
+fn archive_laboratory_location_input(
+    location_id: &str,
+    payload: &Value,
+) -> Result<ArchiveLaboratoryLocationInput, AgentError> {
+    Ok(ArchiveLaboratoryLocationInput {
+        location_id: location_id.to_owned(),
+        expected_revision: required_u64(payload, "expected_revision")?,
+        context: fleet_operation_context(payload)?,
+    })
 }
 
 fn create_equipment_model_input(payload: &Value) -> Result<CreateEquipmentModelInput, AgentError> {
@@ -2756,11 +3072,8 @@ fn required_file_string(
 }
 
 fn required_query_value(query: &str, key: &'static str) -> Result<String, AgentError> {
-    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
-        let (candidate, value) = pair.split_once('=').unwrap_or((pair, ""));
-        if candidate == key && !value.trim().is_empty() {
-            return Ok(value.to_owned());
-        }
+    if let Some(value) = optional_query_value(query, key) {
+        return Ok(value);
     }
     Err(AgentError::with_details(
         "missing_query_field",
@@ -2770,13 +3083,17 @@ fn required_query_value(query: &str, key: &'static str) -> Result<String, AgentE
 }
 
 fn optional_query_value(query: &str, key: &'static str) -> Option<String> {
-    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
-        let (candidate, value) = pair.split_once('=').unwrap_or((pair, ""));
-        if candidate == key && !value.trim().is_empty() {
-            return Some(value.to_owned());
-        }
-    }
-    None
+    form_urlencoded::parse(query.as_bytes())
+        .find(|(candidate, _)| candidate == key)
+        .map(|(_, value)| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+fn query_flag(query: &str, key: &'static str) -> bool {
+    optional_query_value(query, key)
+        .as_deref()
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
 }
 
 fn optional_string(payload: &Value, key: &str) -> Option<String> {
@@ -2906,6 +3223,8 @@ fn status_for_error(code: &str) -> u16 {
         | "test_template_method_revision_not_found"
         | "equipment_model_not_found"
         | "equipment_model_revision_not_found"
+        | "physical_asset_not_found"
+        | "laboratory_location_not_found"
         | "equipment_model_class_not_found"
         | "equipment_category_not_found"
         | "equipment_field_not_found"
@@ -2921,6 +3240,7 @@ fn status_for_error(code: &str) -> u16 {
         | "asset_correction_model_not_found"
         | "asset_correction_requirement_not_found"
         | "station_setup_not_found"
+        | "station_setup_location_not_found"
         | "station_setup_revision_not_found"
         | "planned_test_preparation_revision_not_found"
         | "planned_test_method_not_found"
@@ -2949,6 +3269,24 @@ fn status_for_error(code: &str) -> u16 {
         | "test_template_revision_transition_conflict"
         | "test_template_revision_transition_not_allowed"
         | "equipment_model_already_exists"
+        | "equipment_model_not_approved"
+        | "equipment_model_revision_not_immutable"
+        | "equipment_model_revision_checksum_mismatch"
+        | "physical_asset_inventory_code_conflict"
+        | "physical_asset_model_already_resolved"
+        | "physical_asset_revision_conflict"
+        | "fleet_revision_conflict"
+        | "laboratory_location_label_conflict"
+        | "laboratory_location_revision_conflict"
+        | "laboratory_location_archived"
+        | "laboratory_location_already_archived"
+        | "service_state_unchanged"
+        | "administrative_availability_unchanged"
+        | "operational_usage_cannot_be_set_manually"
+        | "administrative_unavailability_reason_required"
+        | "unexpected_administrative_unavailability_reason"
+        | "retired_asset_service_state_is_terminal"
+        | "unserviceable_asset_cannot_be_available"
         | "equipment_category_already_exists"
         | "equipment_field_already_exists"
         | "equipment_structural_field_immutable"
@@ -2991,6 +3329,7 @@ fn status_for_error(code: &str) -> u16 {
         | "asset_correction_model_pin_mismatch"
         | "asset_correction_source_pin_mismatch"
         | "station_setup_exists"
+        | "station_setup_location_archived"
         | "station_setup_concurrent_update"
         | "station_setup_revision_not_editable"
         | "station_setup_active_draft_exists"
@@ -3036,6 +3375,7 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_equipment_registry_value"
         | "invalid_manufacturer"
         | "invalid_model_name"
+        | "invalid_physical_asset"
         | "equipment_template_required_field_missing"
         | "equipment_general_category_not_instantiable"
         | "equipment_template_value_invalid"
@@ -3067,6 +3407,7 @@ fn status_for_error(code: &str) -> u16 {
         | "invalid_metrology_file"
         | "invalid_metrology_instrument"
         | "invalid_metrology_readiness"
+        | "service_state_reason_required"
         | "invalid_station_setup_request"
         | "invalid_station_setup_definition"
         | "invalid_planned_test_preparation_request"
@@ -3138,6 +3479,61 @@ mod tests {
         assert_eq!(
             status_for_error("planned_test_preparation_changed_before_start"),
             409
+        );
+    }
+
+    #[test]
+    fn query_values_decode_form_urlencoded_spaces_and_accents() {
+        assert_eq!(
+            optional_query_value("q=E2E+Cable+1+m", "q").as_deref(),
+            Some("E2E Cable 1 m")
+        );
+        assert_eq!(
+            optional_query_value("search=R%C3%A9cepteur+EMI", "search").as_deref(),
+            Some("Récepteur EMI")
+        );
+    }
+
+    #[test]
+    fn physical_asset_input_keeps_service_and_administrative_reasons_separate() {
+        assert_eq!(status_for_error("invalid_physical_asset"), 400);
+        assert_eq!(status_for_error("service_state_reason_required"), 400);
+        let explicit = create_physical_asset_input(&json!({
+            "inventory_code": "INV-REASON-EXPLICIT",
+            "equipment_model_id": "EQM-REASON",
+            "ownership_source": "laboratory_owned",
+            "service_state": "restricted_use",
+            "service_state_reason": "Utilisation limitée au banc A",
+            "administrative_availability": "available",
+            "calibration_requirement": "not_required",
+            "actor": "api.test",
+            "reason": "vérifier la séparation des motifs",
+            "operation_id": "op-reason-explicit"
+        }))
+        .unwrap();
+        assert_eq!(
+            explicit.service_state_reason,
+            "Utilisation limitée au banc A"
+        );
+        assert!(explicit.administrative_unavailability_reason.is_empty());
+
+        let legacy = create_physical_asset_input(&json!({
+            "inventory_code": "INV-REASON-LEGACY",
+            "equipment_model_id": "EQM-REASON",
+            "ownership_source": "laboratory_owned",
+            "service_state": "out_of_service",
+            "service_state_reason": "Panne confirmée",
+            "availability_state": "unavailable",
+            "calibration_requirement": "not_required",
+            "actor": "api.test",
+            "reason": "vérifier la traduction legacy",
+            "operation_id": "op-reason-legacy"
+        }))
+        .unwrap();
+        assert_eq!(legacy.service_state_reason, "Panne confirmée");
+        assert_eq!(
+            legacy.administrative_unavailability_reason,
+            "Panne confirmée"
         );
     }
 
@@ -3449,7 +3845,6 @@ mod tests {
             handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
             200
         );
-
         let initial_scaling_definition = scaling_definition("demo-current-probe-10mv-a", 100.0);
         let scaling_validation = handle_api_request(
             "POST",
@@ -4893,6 +5288,11 @@ mod tests {
             handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
             200
         );
+        let laboratory_location_id = create_test_laboratory_location(
+            &config,
+            "Poste CEM mobile",
+            "op-station-location-create",
+        );
 
         let (cable_model_revision, cable_model_checksum) = create_and_approve_equipment_model(
             &config,
@@ -4949,6 +5349,20 @@ mod tests {
                 &config,
             );
             assert_eq!(registered.status, 200, "{}", registered.body);
+            let moved = handle_api_request(
+                "POST",
+                &format!("/api/v1/fleet/assets/{asset_id}/transitions/move"),
+                &json!({
+                    "expected_revision": 1,
+                    "destination_location_id": laboratory_location_id.clone(),
+                    "actor": "fleet.fixture",
+                    "reason": "place station fixture material in its laboratory location",
+                    "operation_id": format!("op-fixture-move-{asset_id}")
+                })
+                .to_string(),
+                &config,
+            );
+            assert_eq!(moved.status, 200, "{}", moved.body);
         }
 
         let cable_characterization = handle_api_request(
@@ -4978,7 +5392,7 @@ mod tests {
             &json!({
                 "setup_id": "SETUP-RF-STATION-001",
                 "label": "Mesure RF câble vers récepteur",
-                "laboratory_location_id": "LAB-LOCATION-MOBILE",
+                "laboratory_location_id": laboratory_location_id,
                 "laboratory_location_label": "Poste CEM mobile",
                 "planned_use_on": "2026-07-15",
                 "execution_mode": "accredited",
@@ -5030,7 +5444,7 @@ mod tests {
             "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-RF-STATION-001",
             "label": "Mesure RF câble vers récepteur",
-            "laboratory_location_id": "LAB-LOCATION-MOBILE",
+            "laboratory_location_id": laboratory_location_id,
             "laboratory_location_label": "Poste CEM mobile",
             "planned_use_on": "2026-07-15",
             "execution_mode": "accredited",
@@ -5233,6 +5647,8 @@ mod tests {
         };
         let initialized = handle_api_request("POST", "/api/v1/storage/initialize", "", &config);
         assert_eq!(initialized.status, 200);
+        insert_test_laboratory_location(&storage_root, "LAB-LOCATION-CEM-1", "Labo CEM 1");
+        insert_test_laboratory_location(&storage_root, "LAB-LOCATION-CEM-2", "Labo CEM 2");
         let storage_status = handle_api_request("GET", "/api/v1/storage/status", "", &config);
         assert_eq!(storage_status.status, 200);
         assert!(storage_status.body.contains("\"action\":\"status\""));
@@ -6519,7 +6935,7 @@ mod tests {
     }
 
     #[test]
-    fn local_api_registers_instrument_from_equipment_model_without_taxonomy_collision() {
+    fn legacy_metrology_registration_does_not_trust_unresolved_model_references() {
         let storage_root = temporary_storage_root("agent-api-metrology-equipment-link");
         let config = ApiServerConfig {
             bind: "127.0.0.1:0".to_owned(),
@@ -6555,16 +6971,10 @@ mod tests {
         );
         assert_eq!(created.status, 200, "{}", created.body);
         let body: Value = serde_json::from_str(&created.body).expect("instrument response JSON");
-        assert!(body["instrument"]["category_code"].is_null());
-        assert_eq!(body["instrument"]["equipment_model_id"], "EM-RF-LNA-001");
-        assert_eq!(
-            body["instrument"]["equipment_model_revision_id"],
-            "EM-RF-LNA-001-rev-0003"
-        );
-        assert_eq!(
-            body["instrument"]["equipment_model_checksum"],
-            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        );
+        assert_eq!(body["instrument"]["category_code"], "rf_equipment");
+        assert!(body["instrument"]["equipment_model_id"].is_null());
+        assert!(body["instrument"]["equipment_model_revision_id"].is_null());
+        assert!(body["instrument"]["equipment_model_checksum"].is_null());
 
         remove_temporary_storage_root(&storage_root);
     }
@@ -6763,20 +7173,25 @@ mod tests {
 
         let audit = handle_api_request(
             "GET",
-            "/api/v1/metrology/instruments/SA-API-CAL-001/audit-events",
+            "/api/v1/fleet/assets/SA-API-CAL-001/audit-events",
             "",
             &config,
         );
         assert_eq!(audit.status, 200);
-        assert!(audit.body.contains("\"instrument_registered\""));
-        assert!(audit.body.contains("\"instrument_serviceability_changed\""));
+        assert!(audit
+            .body
+            .contains("\"physical_asset_created_via_legacy_adapter\""));
+        assert!(audit
+            .body
+            .contains("\"physical_asset_service_state_changed\""));
 
         let outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
         assert_eq!(outbox.status, 200);
         assert!(outbox.body.contains("\"domain\":\"metrology\""));
+        assert!(outbox.body.contains("\"domain\":\"equipment\""));
         assert!(outbox
             .body
-            .contains("\"operation_kind\":\"instrument_serviceability_changed\""));
+            .contains("\"operation_kind\":\"physical_asset_service_state_changed\""));
 
         remove_temporary_storage_root(&storage_root);
     }
@@ -6953,6 +7368,8 @@ mod tests {
             http_request("POST", &first_address, "/api/v1/storage/initialize", "").0,
             200
         );
+        insert_test_laboratory_location(&storage_root, "LAB-LOCATION-CEM-1", "Labo CEM 1");
+        insert_test_laboratory_location(&storage_root, "LAB-LOCATION-CEM-2", "Labo CEM 2");
         assert_eq!(
             http_request(
                 "POST",
@@ -7473,14 +7890,16 @@ mod tests {
         let audit = http_request(
             "GET",
             &first_address,
-            "/api/v1/metrology/instruments/SA-E2E-001/audit-events",
+            "/api/v1/fleet/assets/SA-E2E-001/audit-events",
             "",
         );
         let outbox = http_request("GET", &first_address, "/api/v1/sync/outbox", "");
         assert_eq!(audit.0, 200);
         assert_eq!(outbox.0, 200);
-        assert!(audit.1.contains("\"instrument_registered\""));
-        assert!(audit.1.contains("\"instrument_serviceability_changed\""));
+        assert!(audit
+            .1
+            .contains("\"physical_asset_created_via_legacy_adapter\""));
+        assert!(audit.1.contains("\"physical_asset_service_state_changed\""));
         assert_eq!(audit.1.matches("\"sequence\"").count(), 3);
         assert!(outbox.1.contains("\"domain\":\"metrology\""));
         assert!(outbox
@@ -7489,7 +7908,7 @@ mod tests {
         assert!(outbox
             .1
             .contains("\"operation_kind\":\"asset_characterization_recorded\""));
-        assert_eq!(outbox.1.matches("\"operation_id\"").count(), 5);
+        assert!(outbox.1.matches("\"operation_id\"").count() >= 6);
         first_server
             .join()
             .expect("server thread panicked")
@@ -7833,9 +8252,22 @@ mod tests {
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
             lab_console_dist: repo_root().join("apps/lab-console/dist"),
-            max_requests: Some(7),
+            max_requests: Some(9),
         });
         assert_eq!(wait_for_http(&first_address, "/api/v1/health").0, 200);
+
+        let asset_options = http_request(
+            "GET",
+            &first_address,
+            &format!(
+                "/api/v1/station-setups/asset-options?planned_use_on=2026-07-15&execution_mode=accredited&laboratory_location_id={}",
+                fixture.laboratory_location_id
+            ),
+            "",
+        );
+        assert_eq!(asset_options.0, 200, "{}", asset_options.1);
+        assert!(asset_options.1.contains("SA-CABLE-STATION-001"));
+        assert!(asset_options.1.contains("\"eligible\":true"));
 
         let created = http_request(
             "POST",
@@ -7844,8 +8276,8 @@ mod tests {
             &json!({
                 "setup_id": "SETUP-RF-HTTP-001",
                 "label": "Mesure RF câble vers récepteur",
-                "laboratory_location_id": "LAB-LOCATION-MOBILE",
-                "laboratory_location_label": "Poste CEM mobile",
+                "laboratory_location_id": fixture.laboratory_location_id,
+                "laboratory_location_label": "Libellé client non autoritatif",
                 "planned_use_on": "2026-07-15",
                 "execution_mode": "accredited",
                 "actor": "test.technician",
@@ -7859,12 +8291,16 @@ mod tests {
         let draft = &created_json["station_setup"]["active_draft_revision"];
         let revision_id = draft["revision_id"].as_str().unwrap();
         let initial_checksum = draft["definition_checksum"].as_str().unwrap();
+        assert_eq!(
+            draft["definition"]["laboratory_location_label"],
+            "Poste CEM mobile"
+        );
         let definition = json!({
             "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-RF-HTTP-001",
             "label": "Mesure RF câble vers récepteur",
-            "laboratory_location_id": "LAB-LOCATION-MOBILE",
-            "laboratory_location_label": "Poste CEM mobile",
+            "laboratory_location_id": fixture.laboratory_location_id,
+            "laboratory_location_label": "Autre libellé client non autoritatif",
             "planned_use_on": "2026-07-15",
             "execution_mode": "accredited",
             "asset_bindings": [
@@ -7915,6 +8351,11 @@ mod tests {
         );
         assert_eq!(saved.0, 200, "{}", saved.1);
         let saved_json: Value = serde_json::from_str(&saved.1).unwrap();
+        assert_eq!(
+            saved_json["station_setup"]["active_draft_revision"]["definition"]
+                ["laboratory_location_label"],
+            "Poste CEM mobile"
+        );
         let ready_checksum = saved_json["station_setup"]["active_draft_revision"]
             ["definition_checksum"]
             .as_str()
@@ -7928,6 +8369,38 @@ mod tests {
         );
         assert_eq!(readiness.0, 200, "{}", readiness.1);
         assert!(readiness.1.contains("\"ready\":true"));
+        let equipment = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        equipment
+            .execute(
+                "UPDATE laboratory_locations SET status = 'archived', revision = revision + 1
+                 WHERE location_id = ?1",
+                rusqlite::params![fixture.laboratory_location_id],
+            )
+            .unwrap();
+        let archived_ready = http_request(
+            "POST",
+            &first_address,
+            &format!(
+                "/api/v1/station-setups/SETUP-RF-HTTP-001/revisions/{revision_id}/transitions/ready"
+            ),
+            &json!({
+                "expected_definition_checksum": ready_checksum,
+                "actor": "test.technician",
+                "reason": "reject archived HTTP station location",
+                "operation_id": "op-http-station-ready-archived"
+            })
+            .to_string(),
+        );
+        assert_eq!(archived_ready.0, 409, "{}", archived_ready.1);
+        assert!(archived_ready.1.contains("station_setup_location_archived"));
+        equipment
+            .execute(
+                "UPDATE laboratory_locations SET status = 'active', revision = revision + 1
+                 WHERE location_id = ?1",
+                rusqlite::params![fixture.laboratory_location_id],
+            )
+            .unwrap();
+        drop(equipment);
         let marked_ready = http_request(
             "POST",
             &first_address,
@@ -7954,8 +8427,10 @@ mod tests {
         let outbox = http_request("GET", &first_address, "/api/v1/sync/outbox", "");
         assert_eq!(audit.0, 200, "{}", audit.1);
         assert!(audit.1.contains("station_setup_marked_ready"));
+        assert!(!audit.1.contains("op-http-station-ready-archived"));
         assert_eq!(outbox.0, 200, "{}", outbox.1);
         assert!(outbox.1.contains("\"domain\":\"station_configurations\""));
+        assert!(!outbox.1.contains("op-http-station-ready-archived"));
         first_server
             .join()
             .expect("server thread panicked")
@@ -8594,6 +9069,7 @@ mod tests {
     }
 
     struct StationSetupFixture {
+        laboratory_location_id: String,
         cable_model_revision: String,
         cable_model_checksum: String,
         receiver_model_revision: String,
@@ -8696,8 +9172,8 @@ mod tests {
             &json!({
                 "setup_id": "SETUP-PREP-HTTP",
                 "label": "HTTP RF preparation chain",
-                "laboratory_location_id": "LAB-LOCATION-HTTP-EMC",
-                "laboratory_location_label": "HTTP EMC station",
+                "laboratory_location_id": fixture.laboratory_location_id,
+                "laboratory_location_label": "Poste CEM mobile",
                 "planned_use_on": "2026-07-15",
                 "execution_mode": "investigation",
                 "actor": "station.technician",
@@ -8722,8 +9198,8 @@ mod tests {
             "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-PREP-HTTP",
             "label": "HTTP RF preparation chain",
-            "laboratory_location_id": "LAB-LOCATION-HTTP-EMC",
-            "laboratory_location_label": "HTTP EMC station",
+            "laboratory_location_id": fixture.laboratory_location_id,
+            "laboratory_location_label": "Poste CEM mobile",
             "planned_use_on": "2026-07-15",
             "execution_mode": "investigation",
             "asset_bindings": [
@@ -8846,8 +9322,8 @@ mod tests {
                 "planned_start_at": "2026-07-15T09:00",
                 "planned_end_at": "2026-07-15T12:00",
                 "assigned_operator": "HTTP Operator",
-                "laboratory_location_id": "LAB-LOCATION-HTTP-EMC",
-                "laboratory_location_label": "HTTP EMC station",
+                "laboratory_location_id": fixture.laboratory_location_id,
+                "laboratory_location_label": "Poste CEM mobile",
                 "equipment_under_test": "HTTP EUT",
                 "actor": "project.lead",
                 "reason": "schedule HTTP preparation test",
@@ -8873,6 +9349,11 @@ mod tests {
     }
 
     fn seed_station_setup_fixture(config: &ApiServerConfig) -> StationSetupFixture {
+        let laboratory_location_id = create_test_laboratory_location(
+            config,
+            "Poste CEM mobile",
+            "op-fixture-station-location-create",
+        );
         let (cable_model_revision, cable_model_checksum) = create_and_approve_equipment_model(
             config,
             "EQM-RF-CABLE-STATION",
@@ -8928,6 +9409,20 @@ mod tests {
                 config,
             );
             assert_eq!(registered.status, 200, "{}", registered.body);
+            let moved = handle_api_request(
+                "POST",
+                &format!("/api/v1/fleet/assets/{asset_id}/transitions/move"),
+                &json!({
+                    "expected_revision": 1,
+                    "destination_location_id": laboratory_location_id.clone(),
+                    "actor": "fleet.fixture",
+                    "reason": "place station fixture material in its laboratory location",
+                    "operation_id": format!("op-fixture-move-{asset_id}")
+                })
+                .to_string(),
+                config,
+            );
+            assert_eq!(moved.status, 200, "{}", moved.body);
         }
 
         let characterization = handle_api_request(
@@ -8943,6 +9438,7 @@ mod tests {
         let characterization_json: Value = serde_json::from_str(&characterization.body).unwrap();
 
         StationSetupFixture {
+            laboratory_location_id,
             cable_model_revision,
             cable_model_checksum,
             receiver_model_revision,
@@ -8955,6 +9451,44 @@ mod tests {
             cable_asset: station_instrument(config, "SA-CABLE-STATION-001"),
             receiver_asset: station_instrument(config, "SA-RECEIVER-STATION-001"),
         }
+    }
+
+    fn create_test_laboratory_location(
+        config: &ApiServerConfig,
+        label: &str,
+        operation_id: &str,
+    ) -> String {
+        let created = handle_api_request(
+            "POST",
+            "/api/v1/laboratory-locations",
+            &json!({
+                "label": label,
+                "description": "Lieu créé pour une fixture de test",
+                "actor": "laboratory.admin",
+                "reason": "prepare test fixture location",
+                "operation_id": operation_id
+            })
+            .to_string(),
+            config,
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        serde_json::from_str::<Value>(&created.body).unwrap()["location"]["location_id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    }
+
+    fn insert_test_laboratory_location(storage_root: &Path, location_id: &str, label: &str) {
+        let connection = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        connection
+            .execute(
+                "INSERT INTO laboratory_locations
+                 (location_id, label, description, status, revision, created_at, updated_at)
+                 VALUES (?1, ?2, 'Lieu de test', 'active', 1,
+                         '2026-07-14T08:00:00Z', '2026-07-14T08:00:00Z')",
+                rusqlite::params![location_id, label],
+            )
+            .unwrap();
     }
 
     fn create_and_approve_equipment_model(

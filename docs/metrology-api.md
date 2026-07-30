@@ -1,6 +1,9 @@
 # Metrology API
 
-The first local metrology API is served by `emc-locus-agent` on loopback only.
+The local metrology API is served by `emc-locus-agent` on loopback only. Since
+`0.22.0`, it owns metrology dossiers and evidence for an `asset_id`; physical
+identity, model pin, service state and location are owned by the fleet routes
+documented in `docs/equipment-api.md`.
 
 ```text
 cargo run -q -p emc-locus-agent -- serve --storage-root data\agent --migrations-root storage\sqlite --bind 127.0.0.1:8765
@@ -35,7 +38,14 @@ POST /api/v1/metrology/readiness
 GET  /api/v1/metrology/instruments/{asset_id}/audit-events
 ```
 
-## Register Instrument
+## Legacy Registration Adapter
+
+`POST /api/v1/metrology/instruments` is a temporary compatibility adapter for
+0.21.x clients. New clients create the physical or software instance through
+`POST /api/v1/fleet/assets`, then use metrology routes only for its dossier and
+evidence. The adapter coordinates fleet identity and metrology-dossier creation
+under one attached-SQLite transaction; it does not restore a second writable
+identity in `metrology.sqlite`.
 
 ```json
 {
@@ -64,7 +74,7 @@ GET  /api/v1/metrology/instruments/{asset_id}/audit-events
 }
 ```
 
-Required fields are `asset_id`, `family`, `manufacturer`, `model`,
+For the compatibility request, required fields are `asset_id`, `family`, `manufacturer`, `model`,
 `serial_number`, `calibration_requirement`, `actor`, `reason`, and
 `operation_id`. A direct metrology registration also requires `category_code`.
 An asset created from Equipment Repository instead supplies the complete typed
@@ -83,10 +93,10 @@ These three values are indivisible. The checksum is the canonical
 Equipment Repository hierarchy deliberately remain separate: no equipment
 category identifier is inserted into the `instrument_categories` foreign key.
 
-Since `0.14.0`, LAB CONSOLE exposes this registration through `Matériels réels`
-and pre-fills model identity, family, capabilities, and the immutable approved
-revision reference. The serial number and part number remain properties of the
-physical metrology asset, not of the reusable model.
+LAB CONSOLE no longer uses this registration contract. Its **Parc matériel**
+workflow creates an exemplaire from an approved manufacturer-model revision;
+the serial number and manufacturer part number remain properties of that
+physical asset, not of the reusable model or metrology dossier.
 
 Accepted calibration requirements are:
 
@@ -318,10 +328,14 @@ runtime signal-processing operation.
 
 ## Current Boundary
 
-Version `0.18.0` keeps Rust as the source of truth for the migrated metrology
-vertical slice. LAB CONSOLE and the Python client use the local agent for
-instrument registration, calibration events, serviceability, readiness, and
-serial-specific time or frequency characterizations.
+Version `0.22.0` keeps Rust as the source of truth while separating the fleet
+identity in `equipment.sqlite` from `metrology_asset_dossiers` and metrology
+evidence in `metrology.sqlite`. `legacy_instruments_0_21_1` is a
+trigger-protected migration archive and is never used to compose current
+identity. Calibration events, readiness and serial-specific time or frequency
+characterizations remain agent-owned metrology operations. The old
+serviceability and registration routes adapt to fleet commands only for the
+0.21.x client-removal window.
 
 Migration `0010_asset_correction_assignments.sql` extends source evidence and
 adds the reviewed assignment lifecycle used by material readiness and
@@ -333,10 +347,23 @@ Migration `0007_legacy_calibration_events.sql` backfills legacy
 visible to the agent-backed computed-status and readiness paths while preserving
 the original rows.
 
-Migration `0008_equipment_model_traceability.sql` adds the optional typed
+Migration `0008_equipment_model_traceability.sql` added the optional typed
 Equipment Repository identity, revision, and checksum link to each physical
 instrument. The Rust service requires either a metrology category or this
 complete model reference when registering an instrument.
+
+Migration `0011_physical_asset_boundary.sql` creates metrology dossiers,
+rebuilds evidence foreign keys against those dossiers, renames the old identity
+table to `legacy_instruments_0_21_1` and prevents updates or deletes on that
+archive. The coordinated equipment migration preserves existing IDs and
+proofs, and either pins an exact verified model revision or marks the asset for
+explicit reconciliation.
+
+The Python/Qt direct-SQLite adapter also refuses identity reads and writes once
+this boundary is present. Operators and integrations must configure the Local
+Agent and use the fleet/metrology HTTP routes; the archive is migration
+evidence, never a runtime identity fallback. Category reads remain available
+to legacy bootstrap tooling without exposing archived instruments.
 
 Migration `0009_asset_characterizations.sql` adds immutable characterization
 events with canonical typed definitions, checksums, validity, uncertainty,

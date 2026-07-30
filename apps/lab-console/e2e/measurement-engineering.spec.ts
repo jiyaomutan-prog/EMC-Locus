@@ -47,7 +47,6 @@ test("measurement engineering workflow creates approved channel recipe", async (
   const recipeLabel = `E2E chaîne courant ${suffix}`;
 
   await page.goto("/lab/");
-  await page.getByRole("button", { name: "Équipements" }).click();
   await page.getByRole("button", { name: "Signaux et corrections" }).click();
 
   const scalingId = await createMeasurementDraft(page, spaces.scaling, scalingLabel);

@@ -1072,6 +1072,10 @@ fn validate_equipment_model_template_fields(
             field_code,
             &format!("custom_field_values.{field_code}"),
         );
+        reject_asset_only_model_field(issues, field_code, "custom_field_values");
+    }
+    for metadata_key in definition.metadata.keys() {
+        reject_asset_only_model_field(issues, metadata_key, "metadata");
     }
     let Some(snapshot) = definition.template_snapshot.as_ref() else {
         return;
@@ -1166,6 +1170,43 @@ fn validate_equipment_model_template_fields(
                 Some("Vérifiez la catégorie ou archivez la valeur si elle n'est plus utilisée."),
             ));
         }
+    }
+}
+
+fn reject_asset_only_model_field(
+    issues: &mut Vec<DefinitionValidationIssue>,
+    field_code: &str,
+    container: &str,
+) {
+    const ASSET_ONLY_FIELDS: &[&str] = &[
+        "asset_id",
+        "inventory_code",
+        "serial_number",
+        "part_number",
+        "current_location",
+        "location_id",
+        "laboratory_location_id",
+        "availability",
+        "availability_state",
+        "service_state",
+        "serviceability_status",
+        "serviceability_reason",
+        "ownership",
+        "ownership_source",
+        "owner_laboratory",
+        "calibration_certificate",
+        "calibration_due_at",
+    ];
+    if ASSET_ONLY_FIELDS.contains(&field_code) {
+        issues.push(issue(
+            "error",
+            "equipment_model_contains_asset_only_field",
+            format!("{container}.{field_code}"),
+            format!(
+                "Le champ \"{field_code}\" appartient à un exemplaire du parc, pas à un modèle constructeur."
+            ),
+            Some("Déplacez cette information dans la fiche de l'exemplaire du parc."),
+        ));
     }
 }
 

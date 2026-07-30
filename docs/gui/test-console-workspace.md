@@ -29,7 +29,7 @@ than a dashboard:
 - select the applicable conversion or frequency response measured for that
   serial number;
 - inspect the structured readiness verdict;
-- freeze an immutable revision as `Prêt à câbler`.
+- freeze an immutable `ready` revision, shown as `Montage déclaré prêt`.
 
 This slice does not yet open a campaign package, control hardware, acquire
 samples, calculate an FFT, apply a correction, or publish a result.

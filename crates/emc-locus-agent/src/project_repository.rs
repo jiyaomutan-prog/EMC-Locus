@@ -97,6 +97,45 @@ pub(crate) fn open_project_connection(storage_root: &Path) -> Result<Connection,
     Ok(connection)
 }
 
+pub(crate) fn open_project_connection_with_equipment(
+    storage_root: &Path,
+) -> Result<Connection, AgentError> {
+    let connection = open_project_connection(storage_root)?;
+    let equipment_database = storage_root.join("equipment.sqlite");
+    if !equipment_database.exists() {
+        return Err(AgentError::new(
+            "storage_not_initialized",
+            "planning requires initialized equipment.sqlite",
+        ));
+    }
+    connection
+        .execute(
+            "ATTACH DATABASE ?1 AS equipment_db",
+            params![equipment_database.to_string_lossy().to_string()],
+        )
+        .map_err(|error| AgentError::new("database_attach_error", error.to_string()))?;
+    enforce_project_slice_journal_mode(
+        &connection,
+        AttachedDatabase::EquipmentDb,
+        "equipment.sqlite",
+    )?;
+    let location_table: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM equipment_db.sqlite_master
+             WHERE type = 'table' AND name = 'laboratory_locations'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| AgentError::new("database_invalid", error.to_string()))?;
+    if location_table != 1 {
+        return Err(AgentError::new(
+            "storage_not_initialized",
+            "missing required table equipment_db.laboratory_locations",
+        ));
+    }
+    Ok(connection)
+}
+
 pub(crate) fn open_start_consistency_connection(
     storage_root: &Path,
 ) -> Result<Connection, AgentError> {

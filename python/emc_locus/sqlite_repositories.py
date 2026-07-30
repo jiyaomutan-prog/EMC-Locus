@@ -74,6 +74,16 @@ _PROJECT_STAGE_FLOW = (
 _SERVICE_SCHEDULE_MIN_PROJECT_STAGE = "test_planning"
 
 
+class DirectMetrologyIdentityAccessError(ValueError):
+    """Refuse the retired direct-SQLite instrument identity path."""
+
+
+_DIRECT_METROLOGY_IDENTITY_MESSAGE = (
+    "Direct metrology instrument identity access is unavailable after migration 0011; "
+    "configure agent_url and use the equipment fleet API."
+)
+
+
 def utc_timestamp() -> str:
     """Return a compact UTC timestamp for deterministic storage columns."""
 
@@ -264,10 +274,23 @@ class SQLiteDomainRepository:
 
 
 class MetrologyRepository(SQLiteDomainRepository):
-    """SQLite adapter for instrument and calibration records."""
+    """SQLite adapter for metrology evidence and legacy category reads.
+
+    Physical identity moved to the equipment fleet in 0.22.0. Methods that
+    depended on the former writable ``instruments`` table fail explicitly once
+    migration 0011 has archived that table.
+    """
 
     def __init__(self, database_path: Path | str, migrations_root: Path | str) -> None:
         super().__init__(Path(database_path), Path(migrations_root), "metrology")
+
+    @staticmethod
+    def _require_direct_identity_access(connection: sqlite3.Connection) -> None:
+        row = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'instruments'"
+        ).fetchone()
+        if row is None:
+            raise DirectMetrologyIdentityAccessError(_DIRECT_METROLOGY_IDENTITY_MESSAGE)
 
     def add_instrument(
         self,
@@ -292,6 +315,7 @@ class MetrologyRepository(SQLiteDomainRepository):
             availability
         )
         with closing(self.connect()) as connection:
+            self._require_direct_identity_access(connection)
             with connection:
                 connection.execute(
                     """
@@ -373,6 +397,7 @@ class MetrologyRepository(SQLiteDomainRepository):
             availability
         )
         with closing(self.connect()) as connection:
+            self._require_direct_identity_access(connection)
             with connection:
                 connection.execute(
                     """
@@ -543,6 +568,7 @@ class MetrologyRepository(SQLiteDomainRepository):
 
     def instrument_count(self) -> int:
         with closing(self.connect()) as connection:
+            self._require_direct_identity_access(connection)
             row = connection.execute("SELECT COUNT(*) AS count FROM instruments").fetchone()
         return int(row["count"])
 
@@ -618,6 +644,7 @@ class MetrologyRepository(SQLiteDomainRepository):
 
     def get_instrument(self, asset_id: str) -> dict[str, object] | None:
         with closing(self.connect()) as connection:
+            self._require_direct_identity_access(connection)
             row = connection.execute(
                 "SELECT * FROM instruments WHERE asset_id = ?",
                 (asset_id,),
@@ -626,6 +653,7 @@ class MetrologyRepository(SQLiteDomainRepository):
 
     def list_instruments(self) -> list[dict[str, object]]:
         with closing(self.connect()) as connection:
+            self._require_direct_identity_access(connection)
             rows = connection.execute(
                 "SELECT * FROM instruments ORDER BY asset_id"
             ).fetchall()
@@ -633,6 +661,7 @@ class MetrologyRepository(SQLiteDomainRepository):
 
     def instruments_by_category(self, category_code: str) -> list[dict[str, object]]:
         with closing(self.connect()) as connection:
+            self._require_direct_identity_access(connection)
             rows = connection.execute(
                 """
                 SELECT instruments.*
@@ -646,6 +675,7 @@ class MetrologyRepository(SQLiteDomainRepository):
 
     def instruments_by_category_domain(self, domain: str) -> list[dict[str, object]]:
         with closing(self.connect()) as connection:
+            self._require_direct_identity_access(connection)
             rows = connection.execute(
                 """
                 SELECT instruments.*,
@@ -713,6 +743,7 @@ class MetrologyRepository(SQLiteDomainRepository):
             else ""
         )
         with closing(self.connect()) as connection:
+            self._require_direct_identity_access(connection)
             with connection:
                 cursor = connection.execute(
                     """
@@ -746,6 +777,7 @@ class MetrologyRepository(SQLiteDomainRepository):
     ) -> bool:
         now = utc_timestamp()
         with closing(self.connect()) as connection:
+            self._require_direct_identity_access(connection)
             with connection:
                 cursor = connection.execute(
                     """
@@ -774,6 +806,7 @@ class MetrologyRepository(SQLiteDomainRepository):
     ) -> bool:
         now = utc_timestamp()
         with closing(self.connect()) as connection:
+            self._require_direct_identity_access(connection)
             with connection:
                 cursor = connection.execute(
                     """

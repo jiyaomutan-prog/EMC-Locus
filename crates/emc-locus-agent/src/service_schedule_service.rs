@@ -1,8 +1,9 @@
 use crate::planned_test_preparation_service::require_planned_test_preparation_for_start;
 use crate::project_repository::{
     ensure_operation_replay, existing_operation, insert_audit_event, insert_sync_operation,
-    load_project, next_audit_sequence, open_project_connection, open_start_consistency_connection,
-    AuditEventInput, OperationFingerprintInput, SyncOperationInput,
+    load_project, next_audit_sequence, open_project_connection,
+    open_project_connection_with_equipment, open_start_consistency_connection, AuditEventInput,
+    OperationFingerprintInput, SyncOperationInput,
 };
 use crate::service_schedule_dto::{
     LaboratoryScheduleItemDto, LaboratoryWeekScheduleDto, ServiceScheduleItemDto,
@@ -22,7 +23,7 @@ use emc_locus_core::{
     ServiceScheduleItem, ServiceScheduleItemInput, ServiceScheduleLocationIdentificationInput,
     ServiceScheduleRescheduleInput, ServiceScheduleStatus, ServiceScheduleWeek, StableId,
 };
-use rusqlite::TransactionBehavior;
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use serde_json::json;
 use std::path::Path;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
@@ -147,7 +148,7 @@ pub fn create_service_schedule_item(
     .map_err(planning_error)?;
     let payload_json = create_command_payload(&item, &input.reason);
 
-    let mut connection = open_project_connection(storage_root)?;
+    let mut connection = open_project_connection_with_equipment(storage_root)?;
     ensure_service_schedule_table(&connection)?;
     if let Some(operation) = existing_operation(&connection, &input.operation_id)? {
         ensure_operation_replay(
@@ -180,7 +181,32 @@ pub fn create_service_schedule_item(
         );
     }
 
-    let project = load_project(&connection, project_code.as_str())?
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    let location_label = require_active_laboratory_location(
+        &transaction,
+        item.laboratory_location_id()
+            .expect("new schedule has a location ID"),
+        "planifier cet essai",
+    )?;
+    let item = ServiceScheduleItem::create(ServiceScheduleItemInput {
+        item_code: input.item_code.clone(),
+        project_code: project_code.clone(),
+        title: input.title.clone(),
+        planned_start_at: input.planned_start_at.clone(),
+        planned_end_at: input.planned_end_at.clone(),
+        assigned_operator: input.assigned_operator.clone(),
+        laboratory_location_id: Some(input.laboratory_location_id.clone()),
+        laboratory_location_label: location_label,
+        equipment_under_test: input.equipment_under_test.clone(),
+        test_category_code: input.test_category_code.clone(),
+        test_method_code: input.test_method_code.clone(),
+        status: ServiceScheduleStatus::Planned,
+        notes: input.notes.clone(),
+    })
+    .map_err(planning_error)?;
+    let project = load_project(&transaction, project_code.as_str())?
         .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
     if project.stage != "test_planning" {
         return Err(AgentError::with_details(
@@ -189,23 +215,20 @@ pub fn create_service_schedule_item(
             json!({ "project_code": project.code, "current_stage": project.stage }),
         ));
     }
-    if load_service_schedule_item(&connection, item.item_code())?.is_some() {
+    if load_service_schedule_item(&transaction, item.item_code())?.is_some() {
         return Err(AgentError::with_details(
             "service_schedule_item_already_exists",
             "a service schedule item already uses this reference",
             json!({ "item_code": item.item_code() }),
         ));
     }
-    if let Some(conflict) = find_service_schedule_conflict(&connection, &item, None)? {
+    if let Some(conflict) = find_service_schedule_conflict(&transaction, &item, None)? {
         return Err(schedule_conflict_error(conflict));
     }
 
     let timestamp = utc_timestamp()?;
-    let audit_sequence = next_audit_sequence(&connection, project_code.as_str())?;
+    let audit_sequence = next_audit_sequence(&transaction, project_code.as_str())?;
     let audit_payload = schedule_snapshot_payload(&item);
-    let transaction = connection
-        .transaction()
-        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
     insert_service_schedule_item(&transaction, &item, actor.as_str(), &timestamp)?;
     insert_audit_event(
         &transaction,
@@ -313,7 +336,7 @@ pub fn reschedule_service_schedule_item(
     }
     let payload_json = reschedule_command_payload(&input);
 
-    let mut connection = open_project_connection(storage_root)?;
+    let mut connection = open_project_connection_with_equipment(storage_root)?;
     ensure_service_schedule_table(&connection)?;
     if let Some(operation) = existing_operation(&connection, &input.operation_id)? {
         ensure_operation_replay(
@@ -346,9 +369,17 @@ pub fn reschedule_service_schedule_item(
         );
     }
 
-    load_project(&connection, project_code.as_str())?
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    let location_label = require_active_laboratory_location(
+        &transaction,
+        &input.laboratory_location_id,
+        "replanifier cet essai",
+    )?;
+    load_project(&transaction, project_code.as_str())?
         .ok_or_else(|| AgentError::new("project_not_found", "project does not exist"))?;
-    let stored = load_service_schedule_item(&connection, &input.item_code)?.ok_or_else(|| {
+    let stored = load_service_schedule_item(&transaction, &input.item_code)?.ok_or_else(|| {
         AgentError::new("service_schedule_item_not_found", "schedule item not found")
     })?;
     if stored.project_code != project_code.as_str() {
@@ -375,15 +406,15 @@ pub fn reschedule_service_schedule_item(
             planned_end_at: input.planned_end_at.clone(),
             assigned_operator: input.assigned_operator.clone(),
             laboratory_location_id: input.laboratory_location_id.clone(),
-            laboratory_location_label: input.laboratory_location_label.clone(),
+            laboratory_location_label: location_label,
         })
         .map_err(|issue| reschedule_error(issue, current.status()))?;
-    if let Some(conflict) = find_service_schedule_conflict(&connection, &moved, Some(stored.id))? {
+    if let Some(conflict) = find_service_schedule_conflict(&transaction, &moved, Some(stored.id))? {
         return Err(schedule_conflict_error(conflict));
     }
 
     let timestamp = utc_timestamp()?;
-    let audit_sequence = next_audit_sequence(&connection, project_code.as_str())?;
+    let audit_sequence = next_audit_sequence(&transaction, project_code.as_str())?;
     let audit_payload = render_json(&json!({
         "item_code": moved.item_code(),
         "previous": schedule_assignment_snapshot(&current),
@@ -392,9 +423,6 @@ pub fn reschedule_service_schedule_item(
     }));
     let base_revision = revision_text(stored.revision);
     let resulting_revision = revision_text(stored.revision + 1);
-    let transaction = connection
-        .transaction()
-        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
     update_service_schedule_assignment(
         &transaction,
         stored.id,
@@ -469,7 +497,7 @@ pub fn identify_service_schedule_location(
     }
     let payload_json = location_identification_command_payload(&input);
 
-    let mut connection = open_project_connection(storage_root)?;
+    let mut connection = open_project_connection_with_equipment(storage_root)?;
     ensure_service_schedule_table(&connection)?;
     if let Some(operation) = existing_operation(&connection, &input.operation_id)? {
         ensure_operation_replay(
@@ -527,11 +555,16 @@ pub fn identify_service_schedule_location(
             }),
         ));
     }
+    let location_label = require_active_laboratory_location(
+        &transaction,
+        &input.laboratory_location_id,
+        "identifier le lieu de cet essai",
+    )?;
     let current = stored.to_domain()?;
     let identified = current
         .identified_location(ServiceScheduleLocationIdentificationInput {
             laboratory_location_id: input.laboratory_location_id.clone(),
-            laboratory_location_label: input.laboratory_location_label.clone(),
+            laboratory_location_label: location_label,
         })
         .map_err(location_identification_error)?;
     if let Some(conflict) =
@@ -1218,6 +1251,45 @@ fn location_identification_command_payload(input: &IdentifyServiceScheduleLocati
         "expected_revision": input.expected_revision,
         "reason": input.reason,
     }))
+}
+
+fn require_active_laboratory_location(
+    connection: &Connection,
+    location_id: &str,
+    intended_action: &str,
+) -> Result<String, AgentError> {
+    let location = connection
+        .query_row(
+            "SELECT label, status FROM equipment_db.laboratory_locations WHERE location_id = ?1",
+            [location_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(|error| AgentError::new("laboratory_location_query_failed", error.to_string()))?;
+    let Some((label, status)) = location else {
+        return Err(AgentError::with_details(
+            "service_schedule_location_not_found",
+            "Le lieu sélectionné n'existe pas dans le registre du laboratoire.",
+            json!({
+                "laboratory_location_id": location_id,
+                "intended_action": intended_action,
+                "next_action": "Sélectionnez un lieu actif dans le registre du laboratoire."
+            }),
+        ));
+    };
+    if status != "active" {
+        return Err(AgentError::with_details(
+            "service_schedule_location_archived",
+            "Le lieu sélectionné est archivé et ne peut pas être affecté à un nouvel essai.",
+            json!({
+                "laboratory_location_id": location_id,
+                "laboratory_location_label": label,
+                "intended_action": intended_action,
+                "next_action": "Sélectionnez un lieu actif dans le registre du laboratoire."
+            }),
+        ));
+    }
+    Ok(label)
 }
 
 fn schedule_assignment_snapshot(item: &ServiceScheduleItem) -> serde_json::Value {
@@ -2158,6 +2230,7 @@ mod tests {
             repo_root().join("storage/sqlite"),
         )
         .unwrap();
+        seed_test_locations(storage_root);
     }
 
     fn initialize_storage_with_legacy_schedule(
@@ -2215,6 +2288,7 @@ mod tests {
             migrations_root,
         )
         .unwrap();
+        seed_test_locations(storage_root);
         let connection = Connection::open(projects_database).unwrap();
         let migrated: (u64, Option<String>, String) = connection
             .query_row(
@@ -2228,6 +2302,29 @@ mod tests {
             )
             .unwrap();
         assert_eq!(migrated, (8, None, "Ancien poste CEM".to_owned()));
+    }
+
+    fn seed_test_locations(storage_root: &Path) {
+        let connection = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        for (location_id, label) in [
+            ("LAB-LOCATION-LABO-1", "Labo 1"),
+            ("LAB-LOCATION-LABO-2", "Labo 2"),
+            ("LAB-LOCATION-LABO-3", "Labo 3"),
+            ("LAB-LOCATION-AUTRE-POSTE", "Autre poste"),
+            ("LAB-LOCATION-POSTE-CEM-MODERNE", "Poste CEM moderne"),
+            ("LAB-STABLE-001", "Poste CEM 1"),
+            ("LAB-STABLE-002", "Poste CEM 2"),
+        ] {
+            connection
+                .execute(
+                    "INSERT OR IGNORE INTO laboratory_locations
+                     (location_id, label, description, status, revision, created_at, updated_at)
+                     VALUES (?1, ?2, 'Lieu de test', 'active', 1,
+                             '2026-07-14T08:00:00Z', '2026-07-14T08:00:00Z')",
+                    params![location_id, label],
+                )
+                .unwrap();
+        }
     }
 
     fn insert_stable_schedule_item(
@@ -2246,9 +2343,9 @@ mod tests {
                     "assigned_operator, location, laboratory_location_id, ",
                     "laboratory_location_label, equipment_under_test, status, notes, ",
                     "created_at, updated_at, revision, created_by, updated_by) VALUES (",
-                    "?1, 'CEM-LEGACY-001', 'CrÃ©neau rÃ©servÃ©', ",
+                    "?1, 'CEM-LEGACY-001', 'Créneau réservé', ",
                     "'2026-07-15T09:30', '2026-07-15T11:30', ?2, ?4, ?3, ?4, ",
-                    "'EUT rÃ©servÃ©', 'planned', '', '2026-07-14T08:30:00Z', ",
+                    "'EUT réservé', 'planned', '', '2026-07-14T08:30:00Z', ",
                     "'2026-07-14T08:30:00Z', 1, 'test', 'test')"
                 ),
                 params![

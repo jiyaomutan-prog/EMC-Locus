@@ -50,6 +50,21 @@ import type {
   RegisterMetrologyInstrumentInput
 } from "./models/metrology";
 import type {
+  AdministrativeAvailability,
+  CreatePhysicalAssetInput,
+  LaboratoryLocation,
+  ModelReconciliationCandidate,
+  OwnershipSource,
+  PhysicalAsset,
+  ServiceState
+} from "./models/fleet";
+import type {
+  StationMeasurementSetupDefinition,
+  StationSetupAggregate,
+  StationSetupOperationResult,
+  StationSetupReadiness
+} from "./models/stationSetup";
+import type {
   ContractReviewOperationResult,
   ContractReviewStatus,
   LaboratoryLocationOption,
@@ -63,8 +78,7 @@ import type {
   PlannedTestPreparationOptions,
   PlannedTestPreparationRevision,
   ServiceScheduleItem,
-  ServiceScheduleOperationResult,
-  StationSetupLocationSource
+  ServiceScheduleOperationResult
 } from "./models/projects";
 
 export class ApiError extends Error {
@@ -411,6 +425,10 @@ export const equipmentApi = {
     request<{ equipment_model_id: string; revisions: EquipmentModelRevision[] }>(
       `/api/v1/equipment-models/${encodeURIComponent(modelId)}/revisions`
     ),
+  getModelRevision: (modelId: string, revisionId: string) =>
+    request<{ revision: EquipmentModelRevision }>(
+      `/api/v1/equipment-models/${encodeURIComponent(modelId)}/revisions/${encodeURIComponent(revisionId)}`
+    ),
   listModelAudit: (modelId: string) =>
     request<{ aggregate_kind: string; entity_id: string; audit_events: EquipmentAuditEvent[] }>(
       `/api/v1/equipment-models/${encodeURIComponent(modelId)}/audit-events`
@@ -712,24 +730,221 @@ export const metrologyApi = {
       original_filename: file.name,
       mime_type: file.type || "application/octet-stream",
       content_base64: await fileToBase64(file)
-    })
+  })
+};
+
+export const fleetApi = {
+  listAssets: () => request<{ assets: PhysicalAsset[] }>("/api/v1/fleet/assets"),
+  getAsset: (assetId: string) =>
+    request<{ asset: PhysicalAsset }>(`/api/v1/fleet/assets/${encodeURIComponent(assetId)}`),
+  listAssetAudit: (assetId: string) =>
+    request<{ entity_id: string; audit_events: import("./models/fleet").FleetAuditEvent[] }>(
+      `/api/v1/fleet/assets/${encodeURIComponent(assetId)}/audit-events`
+    ),
+  createAsset: (input: CreatePhysicalAssetInput, context: OperationContext) =>
+    post<{ asset: PhysicalAsset; replayed: boolean }>("/api/v1/fleet/assets", {
+      ...input,
+      ...context,
+      operation_id: operationId("fleet-asset-create", input.inventory_code)
+    }),
+  listModelReconciliationCandidates: () =>
+    request<{ candidates: ModelReconciliationCandidate[] }>(
+      "/api/v1/fleet/model-reconciliation-candidates"
+    ),
+  reconcileModel: (
+    asset: PhysicalAsset,
+    candidate: ModelReconciliationCandidate,
+    context: OperationContext
+  ) =>
+    post<{ asset: PhysicalAsset; replayed: boolean }>(
+      `/api/v1/fleet/assets/${encodeURIComponent(asset.asset_id)}/transitions/reconcile-model`,
+      {
+        expected_revision: asset.revision,
+        equipment_model_id: candidate.equipment_model_id,
+        equipment_model_revision_id: candidate.equipment_model_revision_id,
+        ...context,
+        operation_id: operationId(
+          "fleet-model-reconciliation",
+          `${asset.asset_id}-${candidate.equipment_model_revision_id}`
+        )
+      }
+    ),
+  updateAssetIdentification: (
+    asset: PhysicalAsset,
+    input: {
+      inventory_code: string;
+      serial_number?: string;
+      part_number?: string;
+      ownership_source: OwnershipSource;
+      notes?: string;
+    },
+    context: OperationContext
+  ) =>
+    put<{ asset: PhysicalAsset; replayed: boolean }>(
+      `/api/v1/fleet/assets/${encodeURIComponent(asset.asset_id)}/identification`,
+      {
+        ...input,
+        expected_revision: asset.revision,
+        ...context,
+        operation_id: operationId("fleet-asset-identification", asset.asset_id)
+      }
+    ),
+  moveAsset: (
+    asset: PhysicalAsset,
+    destinationLocationId: string | undefined,
+    context: OperationContext
+  ) =>
+    post<{ asset: PhysicalAsset; replayed: boolean }>(
+      `/api/v1/fleet/assets/${encodeURIComponent(asset.asset_id)}/transitions/move`,
+      {
+        expected_revision: asset.revision,
+        destination_location_id: destinationLocationId,
+        ...context,
+        operation_id: operationId(
+          "fleet-asset-move",
+          `${asset.asset_id}-${destinationLocationId ?? "unassigned"}`
+        )
+      }
+    ),
+  transitionServiceState: (
+    asset: PhysicalAsset,
+    serviceState: ServiceState,
+    serviceStateReason: string,
+    context: OperationContext
+  ) =>
+    post<{ asset: PhysicalAsset; replayed: boolean }>(
+      `/api/v1/fleet/assets/${encodeURIComponent(asset.asset_id)}/transitions/service-state`,
+      {
+        expected_revision: asset.revision,
+        service_state: serviceState,
+        service_state_reason: serviceStateReason,
+        ...context,
+        operation_id: operationId("fleet-service-state", asset.asset_id)
+      }
+    ),
+  transitionAdministrativeAvailability: (
+    asset: PhysicalAsset,
+    administrativeAvailability: AdministrativeAvailability,
+    administrativeUnavailabilityReason: string,
+    context: OperationContext
+  ) =>
+    post<{ asset: PhysicalAsset; replayed: boolean }>(
+      `/api/v1/fleet/assets/${encodeURIComponent(asset.asset_id)}/transitions/administrative-availability`,
+      {
+        expected_revision: asset.revision,
+        administrative_availability: administrativeAvailability,
+        administrative_unavailability_reason: administrativeUnavailabilityReason,
+        ...context,
+        operation_id: operationId("fleet-administrative-availability", asset.asset_id)
+      }
+    ),
+  listLocations: (includeArchived = false) =>
+    request<{ locations: LaboratoryLocation[] }>(
+      `/api/v1/laboratory-locations${includeArchived ? "?include_archived=true" : ""}`
+    ),
+  createLocation: (label: string, description: string, context: OperationContext) =>
+    post<{ location: LaboratoryLocation; replayed: boolean }>("/api/v1/laboratory-locations", {
+      label,
+      description,
+      ...context,
+      operation_id: operationId("laboratory-location-create", label)
+    }),
+  updateLocation: (
+    location: LaboratoryLocation,
+    label: string,
+    description: string,
+    context: OperationContext
+  ) =>
+    put<{ location: LaboratoryLocation; replayed: boolean }>(
+      `/api/v1/laboratory-locations/${encodeURIComponent(location.location_id)}`,
+      {
+        expected_revision: location.revision,
+        label,
+        description,
+        ...context,
+        operation_id: operationId("laboratory-location-update", location.location_id)
+      }
+    ),
+  archiveLocation: (location: LaboratoryLocation, context: OperationContext) =>
+    post<{ location: LaboratoryLocation; replayed: boolean }>(
+      `/api/v1/laboratory-locations/${encodeURIComponent(location.location_id)}/archive`,
+      {
+        expected_revision: location.revision,
+        ...context,
+        operation_id: operationId("laboratory-location-archive", location.location_id)
+      }
+    )
+};
+
+export const stationSetupApi = {
+  list: () => request<{ station_setups: StationSetupAggregate[] }>("/api/v1/station-setups"),
+  assetOptions: (input: {
+    planned_use_on: string;
+    execution_mode: "accredited" | "non_accredited" | "investigation";
+    laboratory_location_id: string;
+  }) => request<import("./models/fleet").ExecutablePhysicalAssetOptions>(
+    `/api/v1/station-setups/asset-options?${new URLSearchParams(input).toString()}`
+  ),
+  get: (setupId: string) =>
+    request<{ station_setup: StationSetupAggregate }>(
+      `/api/v1/station-setups/${encodeURIComponent(setupId)}`
+    ),
+  create: (input: {
+    setup_id: string;
+    label: string;
+    laboratory_location_id: string;
+    planned_use_on: string;
+    execution_mode: "accredited" | "non_accredited" | "investigation";
+  }, context: OperationContext) =>
+    post<StationSetupOperationResult>("/api/v1/station-setups", {
+      ...input,
+      ...context,
+      operation_id: operationId("station-setup-create", input.setup_id)
+    }),
+  replaceDraft: (
+    setupId: string,
+    revisionId: string,
+    expectedDefinitionChecksum: string,
+    definition: StationMeasurementSetupDefinition,
+    context: OperationContext
+  ) =>
+    put<StationSetupOperationResult>(
+      `/api/v1/station-setups/${encodeURIComponent(setupId)}/revisions/${encodeURIComponent(revisionId)}/definition`,
+      {
+        expected_definition_checksum: expectedDefinitionChecksum,
+        definition,
+        ...context,
+        operation_id: operationId("station-setup-save", revisionId)
+      }
+    ),
+  assess: (setupId: string, revisionId: string) =>
+    request<{ setup_id: string; revision_id: string; readiness: StationSetupReadiness }>(
+      `/api/v1/station-setups/${encodeURIComponent(setupId)}/revisions/${encodeURIComponent(revisionId)}/readiness`
+    ),
+  markReady: (
+    setupId: string,
+    revisionId: string,
+    expectedDefinitionChecksum: string,
+    context: OperationContext
+  ) =>
+    post<StationSetupOperationResult>(
+      `/api/v1/station-setups/${encodeURIComponent(setupId)}/revisions/${encodeURIComponent(revisionId)}/transitions/ready`,
+      {
+        expected_definition_checksum: expectedDefinitionChecksum,
+        ...context,
+        operation_id: operationId("station-setup-ready", revisionId)
+      }
+    )
 };
 
 export const projectApi = {
   listLaboratoryLocations: async (): Promise<LaboratoryLocationOption[]> => {
-    const response = await request<{ station_setups: StationSetupLocationSource[] }>(
-      "/api/v1/station-setups"
+    const response = await request<{ locations: LaboratoryLocation[] }>(
+      "/api/v1/laboratory-locations"
     );
-    const locations = new Map<string, string>();
-    for (const aggregate of response.station_setups) {
-      const definition = aggregate.current_ready_revision?.definition;
-      const locationId = definition?.laboratory_location_id?.trim();
-      const locationLabel = definition?.laboratory_location_label?.trim();
-      if (locationId && locationLabel) locations.set(locationId, locationLabel);
-    }
-    return Array.from(locations, ([laboratory_location_id, laboratory_location_label]) => ({
-      laboratory_location_id,
-      laboratory_location_label
+    return response.locations.map((location) => ({
+      laboratory_location_id: location.location_id,
+      laboratory_location_label: location.label
     })).sort((left, right) =>
       left.laboratory_location_label.localeCompare(right.laboratory_location_label, "fr")
     );

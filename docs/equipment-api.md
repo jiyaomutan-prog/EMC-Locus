@@ -49,10 +49,80 @@ Manufacturer and model name are structural model identifiers and cannot be
 archived. Other active field definitions can be edited or archived. Historical
 model revisions keep their template snapshot and values.
 
-Physical serial-numbered equipment is registered through
-`POST /api/v1/metrology/instruments`. LAB CONSOLE fills that contract from an
-approved equipment model; it does not store a serial number on the reusable
-model definition.
+Physical and software items used by the laboratory are registered in the fleet
+domain. Metrology stores only their metrology dossier and evidence; it no
+longer owns physical identity.
+
+## Physical Asset Fleet
+
+```text
+GET    /api/v1/fleet/assets[?at=<RFC3339>&checked_on=<YYYY-MM-DD>]
+POST   /api/v1/fleet/assets
+GET    /api/v1/fleet/assets/{asset_id}
+PUT    /api/v1/fleet/assets/{asset_id}/identification
+GET    /api/v1/fleet/assets/{asset_id}/audit-events
+POST   /api/v1/fleet/assets/{asset_id}/transitions/move
+POST   /api/v1/fleet/assets/{asset_id}/transitions/service-state
+POST   /api/v1/fleet/assets/{asset_id}/transitions/administrative-availability
+GET    /api/v1/fleet/model-reconciliation-candidates
+POST   /api/v1/fleet/assets/{asset_id}/transitions/reconcile-model
+```
+
+An asset exposes manually controlled `administrative_availability` separately
+from the dated `operational_usage` read model. Administrative unavailability
+requires `administrative_unavailability_reason`. Attempts to manually set
+`reserved`, `assigned_to_setup`, or `in_test` are rejected because those facts
+belong to planning, setup, and execution workflows. `operational_usage`
+contains structured source evidence and is recomputed for `at`; it is not a
+persisted source of truth. See
+`docs/domain/physical-asset-availability-and-usage.md`.
+
+`checked_on` controls the metrology assessment as a civil `YYYY-MM-DD` date.
+When omitted it defaults to the UTC date of `at`, or to the current UTC date.
+The nested `metrology` contract exposes `status`, `checked_on`, requirement
+(null only when the metrology source is unavailable),
+latest decision, `calibrated_at`, `due_at`, warning threshold, `blocking`,
+`explanation`, structured reason codes and latest-event references. Its status
+is one of `valid`, `due_soon`, `expired`, `missing`, `not_required`,
+`nonconforming`, `indeterminate`, or `unavailable`. An unavailable metrology
+source does not remove the asset from the response.
+
+The old `transitions/availability` route remains a temporary 0.21.x adapter.
+It accepts only the two administrative values and cannot synthesize an
+operational fact.
+
+Creation permits an absent serial number and an absent laboratory location.
+Every non-`usable` service state requires `service_state_reason`. For
+`in_maintenance`, `out_of_service`, and `retired`, the agent canonicalizes
+administrative availability to `unavailable`; when no separate administrative
+reason is supplied, the service-state reason becomes the unavailability
+reason. The transaction writes neither asset nor evidence if validation fails.
+
+Identification and movement are separate commands. `PUT .../identification`
+can change only inventory code, serial number, manufacturer part number,
+ownership/source, and notes. It does not read or revalidate the current
+location. `POST .../transitions/move` accepts `expected_revision`, optional
+`destination_location_id`, and the operation context with a human reason. The
+agent validates an assigned destination as active under `BEGIN IMMEDIATE`,
+derives its label, then commits the location snapshot, asset revision, audit,
+operation record, and outbox together. Omitting the destination removes the
+location assignment.
+
+`POST .../transitions/reconcile-model` is the only command that can resolve a
+migrated asset whose `model_link_state` is `migration_review_required`. It
+requires `expected_revision`, `equipment_model_id`,
+`equipment_model_revision_id`, `actor`, `reason`, and `operation_id`. The agent
+accepts only an exact `approved` or `superseded` immutable revision, parses and
+validates its typed definition, recomputes the canonical SHA-256 checksum, and
+derives manufacturer, model, variant and category snapshots server-side. The
+client neither supplies nor chooses a checksum or category code.
+
+The command runs under `BEGIN IMMEDIATE`. Asset update, revision increment,
+audit event, operation replay record and sync outbox entry commit together.
+Reusing an operation ID with the same request returns `replayed: true`; a
+different request is rejected. A resolved asset cannot be silently repointed.
+Migration evidence remains unchanged. Safe administrative edits do not make an
+unresolved asset executable.
 
 ## Equipment Models
 
