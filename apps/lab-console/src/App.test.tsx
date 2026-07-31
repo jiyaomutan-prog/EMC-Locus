@@ -3,10 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { FleetWorkspace } from "./features/equipment/FleetWorkspace";
+import { PhysicalAssetMetrologyPanel } from "./features/equipment/PhysicalAssetMetrologyPanel";
 import { StationSetupWorkspace } from "./features/equipment/StationSetupWorkspace";
 import { retainCompatibleAssignments } from "./features/planning/LaboratoryPlanningWorkspace";
 import type { EquipmentModelAggregate, EquipmentModelDefinition } from "./models/equipment";
-import type { AssetCorrectionAssignment } from "./models/metrology";
+import type { AssetCorrectionAssignment, MetrologyInstrument } from "./models/metrology";
 import type { PhysicalAsset, PhysicalAssetMetrologySummary } from "./models/fleet";
 import type {
   CompletedContractReviewItem,
@@ -1192,12 +1193,26 @@ describe("LAB CONSOLE", () => {
     expect(body.equipment_model_checksum).toBeUndefined();
   });
 
-  test("uses only physical fleet assets in a station setup and isolates fleet failure", async () => {
+  test("separates station requirements from physical assignment and isolates fleet failure", async () => {
     const setup = stationSetupFixture();
     let failFleet = false;
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const path = String(input);
       if (path === "/api/v1/station-setups") return jsonResponse({ station_setups: [setup] });
+      if (path === "/api/v1/equipment/categories/tree") return jsonResponse({ categories: equipmentCategoriesFixture() });
+      if (path === "/api/v1/fleet/assets") return failFleet
+        ? jsonResponse({ error: { code: "fleet_unavailable", message: "parc indisponible" } }, 503)
+        : jsonResponse({ assets: [
+          physicalAssetFixture(),
+          physicalAssetFixture({ asset_id: "ASSET-OOS-001", inventory_code: "INV-OOS", serial_number: null, service_state: "out_of_service", availability_state: "unavailable" })
+        ] });
+      if (path.includes("/material-requirements/receiver/candidates?")) return jsonResponse(stationMaterialCandidatesFixture([
+        stationMaterialCandidateFixture(physicalAssetFixture(), true),
+        stationMaterialCandidateFixture(
+          physicalAssetFixture({ asset_id: "ASSET-OOS-001", inventory_code: "INV-OOS", serial_number: null, service_state: "out_of_service", availability_state: "unavailable" }),
+          false
+        )
+      ]));
       if (path.startsWith("/api/v1/station-setups/asset-options?")) {
         return failFleet
           ? jsonResponse({ error: { code: "fleet_unavailable", message: "parc indisponible" } }, 503)
@@ -1249,29 +1264,24 @@ describe("LAB CONSOLE", () => {
     const view = render(<StationSetupWorkspace />);
 
     expect(await screen.findByRole("heading", { name: "Chaîne d'émissions conduites" })).toBeInTheDocument();
-    expect(screen.queryByText(/pré-vol/i)).not.toBeInTheDocument();
-    const selector = screen.getByLabelText(/Exemplaire du parc/);
-    const assetOption = await within(selector).findByRole("option", { name: /INV-0042.*SN 103456.*Labo CEM 1.*Utilisable.*Disponible.*Étalonnage valide/ });
-    expect(assetOption).toBeInTheDocument();
-    expect(within(selector).getByRole("option", { name: /INV-OOS.*hors service/ })).toBeDisabled();
-    expect(screen.getByText("Matériels non disponibles (1)")).toBeInTheDocument();
-    await user.selectOptions(selector, "ASSET-RESTRICTED-001");
-    expect(screen.getByText("Cet exemplaire comporte une restriction d'utilisation.")).toBeInTheDocument();
-    expect(screen.queryByText("EQM-NRP6AN-FWD-rev-0001")).not.toBeInTheDocument();
-    await user.type(screen.getByLabelText(/Rôle dans le montage/), "Récepteur EMI");
-    await user.selectOptions(selector, "ASSET-NRP6AN-001");
-    await user.click(screen.getByRole("button", { name: "Affecter au montage" }));
-    expect(screen.getByText(/INV-0042.*SN 103456/)).toBeInTheDocument();
+    expect(screen.getByText("Récepteur EMI")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Vérifier les candidats" }));
+    expect(await screen.findByText("Compatible et disponible")).toBeInTheDocument();
+    expect(screen.getByText("Compatible mais indisponible")).toBeInTheDocument();
+    expect(screen.getByText("Cet exemplaire est hors service.")).toBeInTheDocument();
+    const assignActions = screen.getAllByRole("button", { name: "Affecter pour l'utilisation prévue" });
+    expect(assignActions[0]).toBeEnabled();
+    expect(assignActions[1]).toBeDisabled();
 
     failFleet = true;
     view.unmount();
     render(<StationSetupWorkspace />);
     expect(await screen.findByRole("heading", { name: "Chaîne d'émissions conduites" })).toBeInTheDocument();
-    expect(await screen.findByText("Aptitude du parc temporairement indisponible")).toBeInTheDocument();
+    expect(await screen.findByText("Référentiel matériel partiellement indisponible")).toBeInTheDocument();
     expect(screen.getByText(/Labo CEM 1.*utilisation prévue/)).toBeInTheDocument();
   });
 
-  test("invalidates stale station asset options when the use context changes", async () => {
+  test("invalidates stale station candidates when the use context changes", async () => {
     const setup = stationSetupFixture();
     const locationAAsset = physicalAssetFixture({
       asset_id: "ASSET-LOCATION-A",
@@ -1293,7 +1303,9 @@ describe("LAB CONSOLE", () => {
       const path = String(input);
       if (path === "/api/v1/station-setups") return jsonResponse({ station_setups: [setup] });
       if (path === "/api/v1/laboratory-locations") return mockBaseApiResponse(path);
-      if (path.startsWith("/api/v1/station-setups/asset-options?")) {
+      if (path === "/api/v1/equipment/categories/tree") return jsonResponse({ categories: equipmentCategoriesFixture() });
+      if (path === "/api/v1/fleet/assets") return jsonResponse({ assets: [locationAAsset, locationBAsset] });
+      if (path.includes("/material-requirements/receiver/candidates?")) {
         const query = new URL(path, "http://localhost").searchParams;
         if (query.get("laboratory_location_id") === "LAB-LOCATION-CEM-1") {
           return locationAResponse;
@@ -1308,47 +1320,21 @@ describe("LAB CONSOLE", () => {
     render(<StationSetupWorkspace />);
 
     expect(await screen.findByRole("heading", { name: "Chaîne d'émissions conduites" })).toBeInTheDocument();
-    expect(await screen.findByRole("status")).toHaveTextContent(/Actualisation des exemplaires/);
+    await user.click(screen.getByRole("button", { name: "Vérifier les candidats" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/Recherche des exemplaires/);
     const locationSelector = screen.getByLabelText(/Lieu du laboratoire/);
-    const assetSelector = screen.getByLabelText(/Exemplaire du parc/);
-    const assignButton = screen.getByRole("button", { name: "Affecter au montage" });
 
     await user.selectOptions(locationSelector, "LAB-LOCATION-ANECHOIC");
-    expect(assetSelector).toBeDisabled();
-    expect(assignButton).toBeDisabled();
-    expect(within(assetSelector).queryByRole("option", { name: /INV-LOCATION-A/ })).not.toBeInTheDocument();
-    await waitFor(() => expect(fetchMock.mock.calls.some(([request]) =>
-      String(request).includes("laboratory_location_id=LAB-LOCATION-ANECHOIC")
-    )).toBe(true));
+    expect(screen.getByText("Enregistrez d'abord l'exigence du montage.")).toBeInTheDocument();
 
-    resolveLocationA(stationAssetOptionsResponse("LAB-LOCATION-CEM-1", locationAAsset));
-    await waitFor(() => expect(within(assetSelector).queryByRole("option", { name: /INV-LOCATION-A/ })).not.toBeInTheDocument());
-    expect(assetSelector).toBeDisabled();
-
-    resolveLocationB(stationAssetOptionsResponse("LAB-LOCATION-ANECHOIC", locationBAsset));
-    const locationBOption = await within(assetSelector).findByRole("option", { name: /INV-LOCATION-B/ });
-    expect(locationBOption).toBeEnabled();
-    await user.type(screen.getByLabelText(/Rôle dans le montage/), "Récepteur EMI");
-    await user.selectOptions(assetSelector, "ASSET-LOCATION-B");
-    expect(assignButton).toBeEnabled();
-    await user.click(assignButton);
-    expect(screen.getByText(/INV-LOCATION-B.*Chambre semi-anéchoïque/)).toBeInTheDocument();
-
-    await user.selectOptions(locationSelector, "");
-    expect(assetSelector).toBeDisabled();
-    expect(within(assetSelector).queryByRole("option", { name: /INV-LOCATION-B/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/Renseignez le lieu et la date d'utilisation/)).toBeInTheDocument();
-    expect(screen.getByText(/INV-LOCATION-B.*Chambre semi-anéchoïque/)).toBeInTheDocument();
-
-    await user.selectOptions(locationSelector, "LAB-LOCATION-ANECHOIC");
-    expect(await screen.findByText("Aptitude du parc temporairement indisponible")).toBeInTheDocument();
-    expect(assignButton).toBeDisabled();
-    expect(screen.getByRole("heading", { name: "Chaîne d'émissions conduites" })).toBeInTheDocument();
-    expect(screen.getByText(/INV-LOCATION-B.*Chambre semi-anéchoïque/)).toBeInTheDocument();
+    resolveLocationA(jsonResponse(stationMaterialCandidatesFixture([stationMaterialCandidateFixture(locationAAsset, true)])));
+    await waitFor(() => expect(screen.queryByText(/INV-LOCATION-A/)).not.toBeInTheDocument());
+    expect(locationBRequests).toBe(0);
+    resolveLocationB(jsonResponse(stationMaterialCandidatesFixture([stationMaterialCandidateFixture(locationBAsset, true)])));
   });
 
   test("records and displays a frequency response for a physical asset", async () => {
-    const instrument = metrologyInstrumentFixture();
+    const instrument = metrologyInstrumentFixture() as MetrologyInstrument;
     const characterizations: Array<Record<string, unknown>> = [];
     const collectionPath = `/api/v1/metrology/instruments/${instrument.asset_id}/characterizations`;
     const correctionPath = `/api/v1/metrology/instruments/${instrument.asset_id}/corrections`;
@@ -2008,7 +1994,8 @@ describe("LAB CONSOLE", () => {
     expect(await screen.findByText(/attend une décision/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Approuver et activer" }));
     expect(await screen.findByText("Active pour ce matériel")).toBeInTheDocument();
-    expect(screen.getByText("Prêt pour un essai")).toBeInTheDocument();
+    expect(screen.getByText("Corrections requises disponibles")).toBeInTheDocument();
+    expect(screen.queryByText("Prêt pour un essai")).not.toBeInTheDocument();
     expect(screen.getByText("Valeur propre à ce matériel")).toBeInTheDocument();
     expect(screen.getByText("Valeur nominale du modèle")).toBeInTheDocument();
     expect(screen.getByText(/non sélectionnée/)).toBeInTheDocument();
@@ -2022,6 +2009,86 @@ describe("LAB CONSOLE", () => {
     ]) {
       expect(operatorText).not.toContain(forbidden);
     }
+  });
+
+  test("records a first-class calibration and stages certificate values separately", async () => {
+    const instrument = metrologyInstrumentFixture() as MetrologyInstrument;
+    const events: Array<Record<string, unknown>> = [];
+    let valid = false;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      const calibrationPath = `/api/v1/metrology/instruments/${instrument.asset_id}/calibrations`;
+      if (path === calibrationPath && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        const calibrationEvent = {
+          ...body,
+          asset_id: instrument.asset_id,
+          uncertainty_summary_json: JSON.stringify(body.uncertainty_summary),
+          document_manifest_json: null,
+          as_found_status: body.as_found_status ?? null,
+          as_left_status: body.as_left_status ?? null,
+          traceability_reference: body.traceability_reference ?? null,
+          comment: body.comment ?? "",
+          recorded_at: "2026-07-31T10:00:00Z",
+          revision: "rev-calibration-001"
+        };
+        events.unshift(calibrationEvent);
+        valid = true;
+        return jsonResponse({ calibration_event: calibrationEvent });
+      }
+      if (path === calibrationPath) return jsonResponse({ asset_id: instrument.asset_id, calibration_events: events });
+      if (path.includes(`/${instrument.asset_id}/status?`)) return jsonResponse({
+        asset_id: instrument.asset_id,
+        checked_on: "2026-07-31",
+        calibration_status: valid ? "valid" : "missing",
+        serviceability_status: "usable",
+        calibration_requirement: "required",
+        calibration_due_warning_days: 45,
+        due_at: valid ? "2027-07-31" : null,
+        decision: valid ? "conforming" : null,
+        latest_calibration_event_id: valid ? "CAL-RF-CABLE-001" : null,
+        latest_calibration_revision: valid ? "rev-calibration-001" : null,
+        instrument_revision: instrument.revision,
+        reasons: valid ? ["Étalonnage conforme et valide."] : ["Aucun étalonnage valide."]
+      });
+      if (path.includes(`/${instrument.asset_id}/characterizations`)) return jsonResponse({ asset_id: instrument.asset_id, characterizations: [] });
+      if (path.includes(`/${instrument.asset_id}/corrections/resolve`)) return jsonResponse({ report: { asset_id: instrument.asset_id, intended_use_on: "2026-07-31", execution_context: "accredited", ready: true, resolutions: [] } });
+      if (path.endsWith(`/${instrument.asset_id}/corrections`)) return jsonResponse({ assignments: [] });
+      if (path === "/api/v1/metrology/corrections/review-queue") return jsonResponse({ assignments: [] });
+      return jsonResponse({ error: { code: "unexpected", message: path } }, 500);
+    });
+    const user = userEvent.setup();
+    const refreshInstruments = vi.fn(async () => undefined);
+    render(<PhysicalAssetMetrologyPanel
+      instruments={[instrument]}
+      approvedModels={[rfCableModelFixture() as EquipmentModelAggregate]}
+      nominalCorrections={[]}
+      categories={equipmentCategoriesFixture()}
+      onRegister={vi.fn()}
+      onRefreshInstruments={refreshInstruments}
+      onOpenCatalog={vi.fn()}
+      allowRegistration={false}
+    />);
+
+    expect(await screen.findByText("Aucun étalonnage valide")).toBeInTheDocument();
+    expect(screen.getByText("Corrections requises disponibles")).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "Enregistrer un étalonnage" })[0]);
+    await user.type(screen.getByLabelText(/Référence du certificat/), "CERT-EMITECH-2026-001");
+    await user.type(screen.getByLabelText(/Laboratoire ou prestataire/), "EMITECH");
+    await user.clear(screen.getByLabelText(/Date d'étalonnage/));
+    await user.type(screen.getByLabelText(/Date d'étalonnage/), "2026-07-31");
+    await user.clear(screen.getByLabelText(/Prochaine échéance/));
+    await user.type(screen.getByLabelText(/Prochaine échéance/), "2027-07-31");
+    await user.click(screen.getByRole("button", { name: "Enregistrer l'étalonnage" }));
+
+    expect(await screen.findByText("Étalonnage valide")).toBeInTheDocument();
+    expect(screen.getByText("CERT-EMITECH-2026-001")).toBeInTheDocument();
+    expect(refreshInstruments).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Ajouter des valeurs de correction issues de ce certificat" }));
+    expect(await screen.findByRole("heading", { name: "Ajouter une caractérisation" })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("CERT-EMITECH-2026-001")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("EMITECH")).toBeInTheDocument();
+    expect(screen.getByText(/ne crée pas l'événement d'étalonnage global/)).toBeInTheDocument();
   });
 });
 
@@ -2188,7 +2255,7 @@ function physicalAssetFixture(overrides: Record<string, unknown> = {}) {
 
 function stationSetupFixture() {
   const definition = {
-    definition_schema_version: "emc-locus.station-measurement-setup-definition.v2",
+    definition_schema_version: "emc-locus.station-measurement-setup-definition.v3",
     setup_id: "SETUP-CONDUCTED-001",
     label: "Chaîne d'émissions conduites",
     laboratory_location_id: "LAB-LOCATION-CEM-1",
@@ -2198,6 +2265,25 @@ function stationSetupFixture() {
     asset_bindings: [],
     connections: [],
     correction_selections: [],
+    material_requirements: [{
+      requirement_id: "receiver",
+      role_label: "Récepteur EMI",
+      description: "Mesure des émissions conduites",
+      required: true,
+      selection_policy: "category_pool",
+      assignment_stage: "planned_test_preparation",
+      substitution_policy: "same_category",
+      calibration_requirement: "required",
+      category_requirement: { category_id: "CAT-RF-POWER", accept_descendants: true },
+      logical_ports: [{
+        logical_port_id: "signal",
+        label: "Entrée RF",
+        directionality: "input",
+        signal_domain: "rf"
+      }]
+    }],
+    material_assignments: [],
+    logical_connections: [],
     notes: {}
   };
   const revision = {
@@ -2224,24 +2310,53 @@ function stationSetupFixture() {
       setup_id: definition.setup_id,
       label: definition.label,
       current_ready_revision_id: null,
+      current_qualified_revision_id: null,
       created_by: "station.technician",
       created_at: "2026-07-26T08:00:00Z",
       updated_at: "2026-07-26T08:00:00Z"
     },
     active_draft_revision: revision,
+    current_qualified_revision: null,
     current_ready_revision: null,
     latest_revision: revision
   };
 }
 
-function stationAssetOptionsResponse(laboratoryLocationId: string, asset: ReturnType<typeof physicalAssetFixture>) {
-  return jsonResponse({
-    assessed_at: "2026-07-30T12:00:00Z",
-    checked_on: "2026-07-30",
+function stationMaterialCandidatesFixture(candidates: ReturnType<typeof stationMaterialCandidateFixture>[]) {
+  return {
+    setup_id: "SETUP-CONDUCTED-001",
+    revision_id: "SETUP-CONDUCTED-001-rev-0001",
+    requirement_id: "receiver",
+    request_context_key: "station-candidates-fixture",
+    planned_use_on: "2026-07-30",
     execution_mode: "accredited",
-    laboratory_location_id: laboratoryLocationId,
-    assets: [{ asset, eligible: true, blocking_reasons: [], warnings: [] }]
-  });
+    laboratory_location_id: "LAB-LOCATION-CEM-1",
+    candidates
+  };
+}
+
+function stationMaterialCandidateFixture(asset: ReturnType<typeof physicalAssetFixture>, eligible: boolean) {
+  return {
+    asset,
+    requirement_compatible: true,
+    compatibility_state: "compatible",
+    operationally_eligible: eligible,
+    assignable: eligible,
+    exact_asset_required: false,
+    category_evidence: ["Catégorie compatible"],
+    capability_evidence: [],
+    technical_constraint_results: [],
+    driver_evidence: [],
+    logical_port_resolution_candidates: { signal: ["RF-IN"] },
+    compatibility_blockers: [],
+    operational_blockers: eligible ? [] : [{
+      code: "service_out_of_service",
+      message: "Cet exemplaire est hors service.",
+      next_action: "Rétablissez son état de service avant l'affectation."
+    }],
+    warnings: [],
+    next_actions: eligible ? [] : ["Rétablissez son état de service avant l'affectation."]
+  };
 }
 
 function rfCableModelFixture() {

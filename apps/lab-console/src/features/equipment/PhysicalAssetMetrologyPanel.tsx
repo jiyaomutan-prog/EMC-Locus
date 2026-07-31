@@ -1,11 +1,14 @@
 import {
   Activity,
   AlertTriangle,
+  CalendarCheck,
   CheckCircle2,
+  FileCheck2,
   FileUp,
   PackagePlus,
   Plus,
   Radio,
+  RefreshCw,
   Send,
   ShieldCheck,
   X
@@ -24,6 +27,9 @@ import type {
   AssetCharacterizationDefinition,
   AssetCorrectionAssignmentEnvelope,
   AssetCorrectionResolutionReport,
+  CalibrationEvent,
+  CalibrationStatus,
+  CalibrationUncertaintySummary,
   MetrologyAuditEvent,
   MetrologyInstrument,
   RegisterMetrologyInstrumentInput
@@ -35,12 +41,21 @@ interface PhysicalAssetMetrologyPanelProps {
   nominalCorrections: MeasurementEngineeringAggregate[];
   categories: EquipmentCategory[];
   onRegister: (input: RegisterMetrologyInstrumentInput) => Promise<void>;
+  onRefreshInstruments?: () => Promise<void>;
   onOpenCatalog: () => void;
   initialSelectedAssetId?: string | null;
   allowRegistration?: boolean;
 }
 
 type CharacterizationKind = "time_conversion" | "frequency_response";
+
+interface CalibrationEvidencePrefill {
+  certificateReference: string;
+  provider: string;
+  calibratedAt: string;
+  dueAt: string;
+  documentManifest?: EquipmentFileReference;
+}
 
 const quantityChoices = [
   ["voltage", "Tension", "V"],
@@ -64,8 +79,16 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
   const [selectedCharacterizationId, setSelectedCharacterizationId] = useState("");
   const [audit, setAudit] = useState<MetrologyAuditEvent[]>([]);
   const [creatingCharacterization, setCreatingCharacterization] = useState(false);
+  const [creatingCalibration, setCreatingCalibration] = useState(false);
+  const [calibrationPrefill, setCalibrationPrefill] = useState<CalibrationEvidencePrefill | null>(null);
   const [creatingForRequirement, setCreatingForRequirement] = useState<CorrectionRequirementDefinition | null>(null);
   const [loadingCharacterizations, setLoadingCharacterizations] = useState(false);
+  const [calibrations, setCalibrations] = useState<CalibrationEvent[]>([]);
+  const [calibrationStatus, setCalibrationStatus] = useState<CalibrationStatus | null>(null);
+  const [calibrationLoading, setCalibrationLoading] = useState(false);
+  const [calibrationError, setCalibrationError] = useState<string | null>(null);
+  const [characterizationLoadError, setCharacterizationLoadError] = useState<string | null>(null);
+  const [correctionLoadError, setCorrectionLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -86,23 +109,18 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
       setCorrectionAssignments([]);
       setCorrectionResolution(null);
       setSelectedCharacterizationId("");
+      setCalibrations([]);
+      setCalibrationStatus(null);
       return;
     }
     let cancelled = false;
     setLoadingCharacterizations(true);
-    setError(null);
-    Promise.all([
-      metrologyApi.listCharacterizations(selectedAssetId),
-      metrologyApi.listCorrections(selectedAssetId),
-      metrologyApi.correctionReviewQueue(),
-      metrologyApi.resolveCorrections(selectedAssetId, todayIso(), "accredited").catch(() => null)
-    ])
-      .then(([response, corrections, queue, resolution]) => {
+    setCharacterizationLoadError(null);
+    setCorrectionLoadError(null);
+    metrologyApi.listCharacterizations(selectedAssetId)
+      .then((response) => {
         if (cancelled) return;
         setCharacterizations(response.characterizations);
-        setCorrectionAssignments(corrections.assignments);
-        setReviewQueue(queue.assignments);
-        setCorrectionResolution(resolution?.report ?? null);
         setSelectedCharacterizationId((current) =>
           response.characterizations.some((item) => item.characterization_id === current)
             ? current
@@ -110,14 +128,44 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
         );
       })
       .catch((reason) => {
-        if (!cancelled) setError(characterizationErrorMessage(reason));
+        if (!cancelled) setCharacterizationLoadError(characterizationErrorMessage(reason));
       })
       .finally(() => {
         if (!cancelled) setLoadingCharacterizations(false);
       });
+    metrologyApi.listCorrections(selectedAssetId)
+      .then((response) => { if (!cancelled) setCorrectionAssignments(response.assignments); })
+      .catch((reason) => { if (!cancelled) setCorrectionLoadError(characterizationErrorMessage(reason)); });
+    metrologyApi.correctionReviewQueue()
+      .then((response) => { if (!cancelled) setReviewQueue(response.assignments); })
+      .catch((reason) => { if (!cancelled) setCorrectionLoadError(characterizationErrorMessage(reason)); });
+    metrologyApi.resolveCorrections(selectedAssetId, todayIso(), "accredited")
+      .then((response) => { if (!cancelled) setCorrectionResolution(response.report); })
+      .catch((reason) => { if (!cancelled) setCorrectionLoadError(characterizationErrorMessage(reason)); });
     return () => {
       cancelled = true;
     };
+  }, [selectedAssetId]);
+
+  useEffect(() => {
+    if (!selectedAssetId) return;
+    let cancelled = false;
+    setCalibrationLoading(true);
+    setCalibrationError(null);
+    Promise.allSettled([
+      metrologyApi.listCalibrations(selectedAssetId),
+      metrologyApi.calibrationStatus(selectedAssetId, todayIso())
+    ]).then(([history, status]) => {
+      if (cancelled) return;
+      const errors: string[] = [];
+      if (history.status === "fulfilled") setCalibrations(history.value.calibration_events);
+      else errors.push(characterizationErrorMessage(history.reason));
+      if (status.status === "fulfilled") setCalibrationStatus(status.value);
+      else errors.push(characterizationErrorMessage(status.reason));
+      setCalibrationError(errors.length > 0 ? errors.join(" ") : null);
+      setCalibrationLoading(false);
+    });
+    return () => { cancelled = true; };
   }, [selectedAssetId]);
 
   useEffect(() => {
@@ -149,6 +197,41 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
     (item) => item.characterization_id === selectedCharacterizationId
   );
 
+  async function refreshCalibrationDossier(assetId: string): Promise<string[]> {
+    const [history, status] = await Promise.allSettled([
+      metrologyApi.listCalibrations(assetId),
+      metrologyApi.calibrationStatus(assetId, todayIso())
+    ]);
+    const errors: string[] = [];
+    if (history.status === "fulfilled") setCalibrations(history.value.calibration_events);
+    else errors.push(`Historique : ${characterizationErrorMessage(history.reason)}`);
+    if (status.status === "fulfilled") setCalibrationStatus(status.value);
+    else errors.push(`Statut daté : ${characterizationErrorMessage(status.reason)}`);
+    return errors;
+  }
+
+  async function recordCalibration(input: Parameters<typeof metrologyApi.recordCalibration>[1]) {
+    if (!selectedAsset) return;
+    setError(null);
+    const response = await metrologyApi.recordCalibration(selectedAsset.asset_id, input);
+    setCalibrations((current) => [
+      response.calibration_event,
+      ...current.filter((event) => event.event_id !== response.calibration_event.event_id)
+    ]);
+    const secondaryErrors = await refreshCalibrationDossier(selectedAsset.asset_id);
+    if (props.onRefreshInstruments) {
+      try {
+        await props.onRefreshInstruments();
+      } catch (reason) {
+        secondaryErrors.push(`Parc : ${characterizationErrorMessage(reason)}`);
+      }
+    }
+    setCalibrationError(secondaryErrors.length > 0
+      ? `L'étalonnage est enregistré. Certains états n'ont pas pu être actualisés. ${secondaryErrors.join(" ")}`
+      : null);
+    setCreatingCalibration(false);
+  }
+
   async function recordCharacterization(input: Parameters<typeof metrologyApi.recordCharacterization>[1]) {
     if (!selectedAsset) return;
     setError(null);
@@ -176,16 +259,22 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
   }
 
   async function refreshCorrectionDossier(assetId: string) {
-    const [characterizationResponse, correctionResponse, queueResponse, resolutionResponse] = await Promise.all([
+    const [characterizationResponse, correctionResponse, queueResponse, resolutionResponse] = await Promise.allSettled([
       metrologyApi.listCharacterizations(assetId),
       metrologyApi.listCorrections(assetId),
       metrologyApi.correctionReviewQueue(),
-      metrologyApi.resolveCorrections(assetId, todayIso(), "accredited").catch(() => null)
+      metrologyApi.resolveCorrections(assetId, todayIso(), "accredited")
     ]);
-    setCharacterizations(characterizationResponse.characterizations);
-    setCorrectionAssignments(correctionResponse.assignments);
-    setReviewQueue(queueResponse.assignments);
-    setCorrectionResolution(resolutionResponse?.report ?? null);
+    const secondaryErrors: string[] = [];
+    if (characterizationResponse.status === "fulfilled") setCharacterizations(characterizationResponse.value.characterizations);
+    else secondaryErrors.push(`Caractérisations : ${characterizationErrorMessage(characterizationResponse.reason)}`);
+    if (correctionResponse.status === "fulfilled") setCorrectionAssignments(correctionResponse.value.assignments);
+    else secondaryErrors.push(`Affectations : ${characterizationErrorMessage(correctionResponse.reason)}`);
+    if (queueResponse.status === "fulfilled") setReviewQueue(queueResponse.value.assignments);
+    else secondaryErrors.push(`File de revue : ${characterizationErrorMessage(queueResponse.reason)}`);
+    if (resolutionResponse.status === "fulfilled") setCorrectionResolution(resolutionResponse.value.report);
+    else secondaryErrors.push(`Résolution : ${characterizationErrorMessage(resolutionResponse.reason)}`);
+    setCorrectionLoadError(secondaryErrors.length > 0 ? secondaryErrors.join(" ") : null);
   }
 
   async function createCorrectionAssignment(requirement: CorrectionRequirementDefinition, sourceEventId: string) {
@@ -302,15 +391,38 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
                 <h2>{selectedAsset.inventory_code}</h2>
                 <p>{selectedAsset.manufacturer} {selectedAsset.model} · {selectedAsset.serial_number ? `N° de série ${selectedAsset.serial_number}` : "Sans numéro de série"}</p>
               </div>
-              {!creatingCharacterization && (
-                <button type="button" onClick={() => { setCreatingForRequirement(null); setCreatingCharacterization(true); }}>
+              <div className="headerActions">
+                {!creatingCalibration && <button type="button" onClick={() => { setCreatingCharacterization(false); setCreatingCalibration(true); }}>
+                  <CalendarCheck size={16} /> Enregistrer un étalonnage
+                </button>}
+                {!creatingCharacterization && <button className="secondary" type="button" onClick={() => { setCreatingCalibration(false); setCalibrationPrefill(null); setCreatingForRequirement(null); setCreatingCharacterization(true); }}>
                   <Plus size={16} /> Ajouter une caractérisation
-                </button>
-              )}
+                </button>}
+              </div>
             </header>
 
             <AssetSummary asset={selectedAsset} />
 
+            {creatingCalibration ? <CalibrationForm
+              asset={selectedAsset}
+              onCancel={() => setCreatingCalibration(false)}
+              onRecord={recordCalibration}
+            /> : <CalibrationHistoryPanel
+              asset={selectedAsset}
+              status={calibrationStatus}
+              events={calibrations}
+              loading={calibrationLoading}
+              error={calibrationError}
+              onRetry={() => void refreshCalibrationDossier(selectedAsset.asset_id).then((errors) => setCalibrationError(errors.join(" ") || null))}
+              onAddValues={(event) => {
+                setCalibrationPrefill(calibrationEvidencePrefill(event));
+                setCreatingForRequirement(null);
+                setCreatingCharacterization(true);
+              }}
+              onRecord={() => setCreatingCalibration(true)}
+            />}
+
+            {correctionLoadError && <div className="targetedError" role="alert"><AlertTriangle size={17} /><div><strong>État des corrections partiellement indisponible</strong><p>{correctionLoadError}</p><button className="secondary" type="button" onClick={() => void refreshCorrectionDossier(selectedAsset.asset_id)}><RefreshCw size={15} /> Réessayer</button></div></div>}
             <CorrectionRequirementsPanel
               requirements={correctionRequirements}
               assignments={correctionAssignments}
@@ -333,6 +445,9 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
                 asset={selectedAsset}
                 initialKind={creatingForRequirement?.correction_kind === "raw_signal_conversion" ? "time_conversion" : "frequency_response"}
                 requirementName={creatingForRequirement?.display_name}
+                initialEvidence={calibrationPrefill}
+                hasCalibrationEvent={calibrations.length > 0}
+                onRecordCalibration={() => { setCreatingCharacterization(false); setCreatingCalibration(true); }}
                 onCancel={() => setCreatingCharacterization(false)}
                 onRecord={recordCharacterization}
               />
@@ -346,6 +461,7 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
                   <span className="countBadge">{characterizations.length}</span>
                 </div>
                 {loadingCharacterizations && <p>Chargement des caractérisations…</p>}
+                {characterizationLoadError && <div className="targetedError" role="alert"><AlertTriangle size={17} /><div><strong>Historique des caractérisations indisponible</strong><p>{characterizationLoadError}</p><button className="secondary" type="button" onClick={() => void refreshCorrectionDossier(selectedAsset.asset_id)}><RefreshCw size={15} /> Réessayer</button></div></div>}
                 {!loadingCharacterizations && characterizations.length === 0 && (
                   <div className="workflowEmpty">
                     <Activity size={24} />
@@ -395,6 +511,172 @@ export function PhysicalAssetMetrologyPanel(props: PhysicalAssetMetrologyPanelPr
   );
 }
 
+function CalibrationHistoryPanel(props: {
+  asset: MetrologyInstrument;
+  status: CalibrationStatus | null;
+  events: CalibrationEvent[];
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onRecord: () => void;
+  onAddValues: (event: CalibrationEvent) => void;
+}) {
+  return <section className="editorCard calibrationHistorySection">
+    <div className="sectionTitleRow">
+      <div><p className="eyebrow">Décision métrologique globale</p><h2>Étalonnages</h2><p>Validité et décision applicables au matériel physique {props.asset.inventory_code}.</p></div>
+      <span className={`readinessBadge ${calibrationStatusTone(props.status?.calibration_status)}`}>
+        {props.status?.calibration_status === "valid" || props.status?.calibration_status === "not_required" ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+        {calibrationStatusLabel(props.status?.calibration_status, props.asset.calibration_requirement)}
+      </span>
+    </div>
+    <div className="metrologyStateGrid">
+      <div><span>Exigence d'étalonnage</span><strong>{calibrationRequirementLabel(props.asset.calibration_requirement)}</strong></div>
+      <div><span>État de service</span><strong>{serviceabilityLabel(props.status?.serviceability_status ?? props.asset.serviceability_status)}</strong></div>
+      <div><span>Statut au {formatDate(props.status?.checked_on ?? todayIso())}</span><strong>{calibrationStatusLabel(props.status?.calibration_status, props.asset.calibration_requirement)}</strong></div>
+    </div>
+    {props.status?.reasons.map((reason) => <p className="calibrationReason" key={reason}>{reason}</p>)}
+    {props.error && <div className="targetedError" role="alert"><AlertTriangle size={17} /><div><strong>État métrologique partiellement indisponible</strong><p>{props.error}</p><button className="secondary" type="button" onClick={props.onRetry}><RefreshCw size={15} /> Réessayer</button></div></div>}
+    {props.loading && <p role="status">Chargement de l'historique d'étalonnage…</p>}
+    {!props.loading && props.events.length === 0 && <div className="workflowEmpty compactWorkflowEmpty"><CalendarCheck size={22} /><div><strong>Aucun événement d'étalonnage</strong><p>Une caractérisation issue d'un certificat ne remplace pas cette décision globale.</p></div><button type="button" onClick={props.onRecord}>Enregistrer l'étalonnage</button></div>}
+    <div className="calibrationEventList">
+      {props.events.map((event) => {
+        const uncertainty = parseJsonObject<CalibrationUncertaintySummary>(event.uncertainty_summary_json);
+        const document = parseJsonObject<EquipmentFileReference>(event.document_manifest_json);
+        return <article key={event.event_id}>
+          <header><div><strong>{event.certificate_reference}</strong><span>{event.provider} · étalonné le {formatDate(event.calibrated_at)}</span></div><span className={`status ${event.decision}`}>{decisionLabel(event.decision)}</span></header>
+          <dl className="businessSummary compact">
+            <dt>Échéance</dt><dd>{formatDate(event.due_at)}</dd>
+            <dt>État constaté</dt><dd>{event.as_found_status ? decisionLabel(event.as_found_status) : "Non renseigné"}</dd>
+            <dt>État laissé</dt><dd>{event.as_left_status ? decisionLabel(event.as_left_status) : "Non renseigné"}</dd>
+            <dt>Réglage</dt><dd>{event.adjustment_performed ? "Effectué" : "Non effectué"}</dd>
+            {uncertainty && <><dt>Incertitude</dt><dd>{uncertaintySummaryLabel(uncertainty)}</dd></>}
+            {event.traceability_reference && <><dt>Traçabilité</dt><dd>{event.traceability_reference}</dd></>}
+            {document && <><dt>Document</dt><dd><FileCheck2 size={14} /> {document.original_filename}</dd></>}
+          </dl>
+          {event.comment && <p>{event.comment}</p>}
+          <div className="headerActions"><button className="secondary" type="button" onClick={() => props.onAddValues(event)}><Plus size={15} /> Ajouter des valeurs de correction issues de ce certificat</button></div>
+          <details><summary>Détails techniques</summary><dl className="businessSummary compact"><dt>Enregistré par</dt><dd>{event.recorded_by}</dd><dt>Enregistré le</dt><dd>{formatDateTime(event.recorded_at)}</dd><dt>Événement</dt><dd className="mono">{event.event_id}</dd><dt>Révision</dt><dd className="mono">{event.revision}</dd>{document && <><dt>Empreinte du document</dt><dd className="mono">{document.sha256}</dd></>}</dl></details>
+        </article>;
+      })}
+    </div>
+  </section>;
+}
+
+function CalibrationForm(props: {
+  asset: MetrologyInstrument;
+  onCancel: () => void;
+  onRecord: (input: Parameters<typeof metrologyApi.recordCalibration>[1]) => Promise<void>;
+}) {
+  const currentDate = todayIso();
+  const [calibratedAt, setCalibratedAt] = useState(currentDate);
+  const [dueAt, setDueAt] = useState(oneYearAfter(currentDate));
+  const [certificateReference, setCertificateReference] = useState("");
+  const [provider, setProvider] = useState("");
+  const [decision, setDecision] = useState<CalibrationEvent["decision"]>("conforming");
+  const [asFoundStatus, setAsFoundStatus] = useState<CalibrationEvent["decision"] | "">("");
+  const [asLeftStatus, setAsLeftStatus] = useState<CalibrationEvent["decision"] | "">("");
+  const [adjustmentPerformed, setAdjustmentPerformed] = useState(false);
+  const [uncertainty, setUncertainty] = useState("");
+  const [uncertaintyUnit, setUncertaintyUnit] = useState("");
+  const [coverageFactor, setCoverageFactor] = useState("2");
+  const [uncertaintyStatement, setUncertaintyStatement] = useState("");
+  const [traceabilityReference, setTraceabilityReference] = useState("");
+  const [comment, setComment] = useState("");
+  const [recordedBy, setRecordedBy] = useState("metrology.operator");
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormError(null);
+    if (!certificateReference.trim() || !provider.trim() || !recordedBy.trim()) {
+      setFormError("La référence du certificat, le laboratoire ou prestataire et l'auteur de saisie sont obligatoires.");
+      return;
+    }
+    if (!calibratedAt || !dueAt || dueAt < calibratedAt) {
+      setFormError("L'échéance doit être identique ou postérieure à la date d'étalonnage.");
+      return;
+    }
+    let uncertaintySummary: CalibrationUncertaintySummary = {};
+    try {
+      const expanded = optionalFiniteNumber(uncertainty, "L'incertitude");
+      uncertaintySummary = {
+        ...(expanded !== undefined ? {
+          expanded_uncertainty: expanded,
+          unit: uncertaintyUnit.trim(),
+          coverage_factor: requiredFiniteNumber(coverageFactor, "Le facteur d'élargissement")
+        } : {}),
+        ...(uncertaintyStatement.trim() ? { statement: uncertaintyStatement.trim() } : {})
+      };
+      if (expanded !== undefined && !uncertaintyUnit.trim()) throw new Error("L'unité de l'incertitude est obligatoire lorsqu'une valeur est renseignée.");
+    } catch (reason) {
+      setFormError(reason instanceof Error ? reason.message : "L'incertitude est invalide.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const documentManifest = proofFile ? (await metrologyApi.uploadFile(proofFile)).file : undefined;
+      await props.onRecord({
+        event_id: newCalibrationEventId(props.asset.asset_id),
+        certificate_reference: certificateReference.trim(),
+        calibrated_at: calibratedAt,
+        due_at: dueAt,
+        provider: provider.trim(),
+        decision,
+        as_found_status: asFoundStatus || undefined,
+        as_left_status: asLeftStatus || undefined,
+        adjustment_performed: adjustmentPerformed,
+        uncertainty_summary: uncertaintySummary,
+        traceability_reference: traceabilityReference.trim() || undefined,
+        comment: comment.trim() || undefined,
+        document_manifest: documentManifest,
+        recorded_by: recordedBy.trim(),
+        actor: recordedBy.trim(),
+        reason: "enregistrement de l'événement d'étalonnage global du matériel"
+      });
+    } catch (reason) {
+      setFormError(calibrationErrorMessage(reason));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return <form className="characterizationForm calibrationForm" onSubmit={submit}>
+    <header className="sectionTitleRow"><div><p className="eyebrow">Nouvel événement métrologique global</p><h2>Enregistrer un étalonnage</h2><p>Cette décision met à jour le statut d'étalonnage de {props.asset.inventory_code}. Elle ne crée aucune valeur de correction.</p></div><button className="iconButton" type="button" title="Fermer" onClick={props.onCancel}><X size={18} /></button></header>
+    {formError && <p className="errorText"><AlertTriangle size={16} /> {formError}</p>}
+    <section className="editorCard"><h3>Certificat et décision</h3><div className="formGrid">
+      <label><FieldCaption label="Date d'étalonnage" required /><input type="date" value={calibratedAt} onChange={(event) => setCalibratedAt(event.target.value)} /></label>
+      <label><FieldCaption label="Prochaine échéance" required /><input type="date" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /></label>
+      <label><FieldCaption label="Référence du certificat" required /><input value={certificateReference} onChange={(event) => setCertificateReference(event.target.value)} /></label>
+      <label><FieldCaption label="Laboratoire ou prestataire" required /><input value={provider} onChange={(event) => setProvider(event.target.value)} /></label>
+      <label><FieldCaption label="Décision globale" required /><CalibrationDecisionSelect value={decision} onChange={setDecision} /></label>
+      <label>État constaté avant intervention<CalibrationDecisionSelect optional value={asFoundStatus} onChange={setAsFoundStatus} /></label>
+      <label>État laissé après intervention<CalibrationDecisionSelect optional value={asLeftStatus} onChange={setAsLeftStatus} /></label>
+      <label className="checkboxField"><input type="checkbox" checked={adjustmentPerformed} onChange={(event) => setAdjustmentPerformed(event.target.checked)} /> Un réglage a été effectué</label>
+    </div></section>
+    <section className="editorCard"><h3>Incertitude et traçabilité</h3><div className="formGrid">
+      <label>Incertitude élargie<input type="number" min="0" step="any" value={uncertainty} onChange={(event) => setUncertainty(event.target.value)} /></label>
+      <label>Unité<input value={uncertaintyUnit} onChange={(event) => setUncertaintyUnit(event.target.value)} /></label>
+      <label>Facteur d'élargissement<input type="number" min="0.01" step="any" value={coverageFactor} onChange={(event) => setCoverageFactor(event.target.value)} /></label>
+      <label>Résumé de l'incertitude<textarea value={uncertaintyStatement} onChange={(event) => setUncertaintyStatement(event.target.value)} /></label>
+      <label>Référence de traçabilité<input value={traceabilityReference} onChange={(event) => setTraceabilityReference(event.target.value)} /></label>
+      <label className="fileField"><span>Document de preuve</span><input type="file" onChange={(event) => setProofFile(event.target.files?.[0] ?? null)} /><small>{proofFile ? proofFile.name : "Certificat PDF, feuille de calcul ou document associé"}</small></label>
+      <label><FieldCaption label="Enregistré par" required /><input value={recordedBy} onChange={(event) => setRecordedBy(event.target.value)} /></label>
+      <label>Commentaire<textarea value={comment} onChange={(event) => setComment(event.target.value)} /></label>
+    </div></section>
+    <div className="buttonRow stickyActions"><button className="secondary" type="button" onClick={props.onCancel}>Annuler</button><button type="submit" disabled={submitting}><CheckCircle2 size={16} /> {submitting ? "Enregistrement…" : "Enregistrer l'étalonnage"}</button></div>
+  </form>;
+}
+
+function CalibrationDecisionSelect<T extends CalibrationEvent["decision"] | "">(props: {
+  value: T;
+  optional?: boolean;
+  onChange: (value: T) => void;
+}) {
+  return <select value={props.value} onChange={(event) => props.onChange(event.target.value as T)}>{props.optional && <option value="">Non renseigné</option>}<option value="conforming">Conforme</option><option value="nonconforming">Non conforme</option><option value="indeterminate">Indéterminé</option><option value="not_assessed">Non évalué</option></select>;
+}
+
 function CorrectionRequirementsPanel(props: {
   requirements: CorrectionRequirementDefinition[];
   assignments: AssetCorrectionAssignmentEnvelope[];
@@ -426,7 +708,7 @@ function CorrectionRequirementsPanel(props: {
         </div>
         <span className={`readinessBadge ${props.resolution?.ready ? "ready" : "blocked"}`}>
           {props.resolution?.ready ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-          {props.resolution?.ready ? "Prêt pour un essai" : "Non prêt pour un essai"}
+          {props.resolution?.ready ? "Corrections requises disponibles" : "Corrections incomplètes"}
         </span>
       </div>
 
@@ -575,22 +857,25 @@ interface CharacterizationFormProps {
   asset: MetrologyInstrument;
   initialKind?: CharacterizationKind;
   requirementName?: string;
+  initialEvidence?: CalibrationEvidencePrefill | null;
+  hasCalibrationEvent: boolean;
+  onRecordCalibration: () => void;
   onCancel: () => void;
   onRecord: (input: Parameters<typeof metrologyApi.recordCharacterization>[1]) => Promise<void>;
 }
 
-function CharacterizationForm({ asset, initialKind = "frequency_response", requirementName, onCancel, onRecord }: CharacterizationFormProps) {
+function CharacterizationForm({ asset, initialKind = "frequency_response", requirementName, initialEvidence, hasCalibrationEvent, onRecordCalibration, onCancel, onRecord }: CharacterizationFormProps) {
   const today = todayIso();
   const [kind, setKind] = useState<CharacterizationKind>(initialKind);
   const [label, setLabel] = useState(requirementName ?? (initialKind === "frequency_response" ? "Pertes mesurées" : "Sensibilité mesurée"));
-  const [performedOn, setPerformedOn] = useState(today);
-  const [validFrom, setValidFrom] = useState(today);
-  const [validUntil, setValidUntil] = useState(oneYearAfter(today));
-  const [sourceKind, setSourceKind] = useState<AssetCharacterization["source_kind"]>("characterization");
-  const [provider, setProvider] = useState("");
+  const [performedOn, setPerformedOn] = useState(initialEvidence?.calibratedAt ?? today);
+  const [validFrom, setValidFrom] = useState(initialEvidence?.calibratedAt ?? today);
+  const [validUntil, setValidUntil] = useState(initialEvidence?.dueAt ?? oneYearAfter(today));
+  const [sourceKind, setSourceKind] = useState<AssetCharacterization["source_kind"]>(initialEvidence ? "calibration" : "characterization");
+  const [provider, setProvider] = useState(initialEvidence?.provider ?? "");
   const [methodReference, setMethodReference] = useState("");
   const [decision, setDecision] = useState<AssetCharacterization["decision"]>("conforming");
-  const [certificateReference, setCertificateReference] = useState("");
+  const [certificateReference, setCertificateReference] = useState(initialEvidence?.certificateReference ?? "");
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [comment, setComment] = useState("");
   const [uncertainty, setUncertainty] = useState("");
@@ -753,7 +1038,7 @@ function CharacterizationForm({ asset, initialKind = "frequency_response", requi
 
     setSubmitting(true);
     try {
-      let documentManifest: EquipmentFileReference | undefined;
+      let documentManifest: EquipmentFileReference | undefined = initialEvidence?.documentManifest;
       if (proofFile) {
         documentManifest = (await metrologyApi.uploadFile(proofFile)).file;
       }
@@ -828,7 +1113,7 @@ function CharacterizationForm({ asset, initialKind = "frequency_response", requi
         <h2>Origine et validité</h2>
         <div className="formGrid">
           <label><FieldCaption label="Nom de la caractérisation" required /><input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="ex. Pertes du câble RF après contrôle" /></label>
-          <label><FieldCaption label="Source de la correction" required /><select value={sourceKind} onChange={(event) => setSourceKind(event.target.value as typeof sourceKind)}><option value="calibration">Certificat d’étalonnage</option><option value="characterization">Rapport de caractérisation</option><option value="internal_measurement">Mesure interne</option><option value="manufacturer_certificate">Certificat fabricant</option><option value="verification">Vérification</option></select></label>
+          <label><FieldCaption label="Origine des valeurs mesurées" required /><select value={sourceKind} onChange={(event) => setSourceKind(event.target.value as typeof sourceKind)}><option value="calibration">Valeurs issues d’un certificat d’étalonnage</option><option value="characterization">Rapport de caractérisation</option><option value="internal_measurement">Mesure interne</option><option value="manufacturer_certificate">Certificat fabricant</option><option value="verification">Vérification</option></select></label>
           <label><FieldCaption label="Date de mesure" required /><input type="date" value={performedOn} onChange={(event) => setPerformedOn(event.target.value)} /></label>
           <label><FieldCaption label="Valide à partir du" required /><input type="date" value={validFrom} onChange={(event) => setValidFrom(event.target.value)} /></label>
           <label><FieldCaption label="Valide jusqu’au" required /><input type="date" value={validUntil} onChange={(event) => setValidUntil(event.target.value)} /></label>
@@ -836,6 +1121,7 @@ function CharacterizationForm({ asset, initialKind = "frequency_response", requi
           <label><FieldCaption label="Méthode utilisée" required /><input value={methodReference} onChange={(event) => setMethodReference(event.target.value)} placeholder="ex. MET-RF-CABLE-001" /></label>
           <label><FieldCaption label="Décision" required /><select value={decision} onChange={(event) => setDecision(event.target.value as typeof decision)}><option value="conforming">Conforme</option><option value="nonconforming">Non conforme</option><option value="indeterminate">Indéterminée</option><option value="not_assessed">Non évaluée</option></select></label>
         </div>
+        {sourceKind === "calibration" && <div className="evidenceBoundaryNotice"><AlertTriangle size={17} /><div><strong>Valeurs mesurées uniquement</strong><p>Cette caractérisation enregistre les valeurs mesurées. Elle ne crée pas l'événement d'étalonnage global du matériel.</p>{!hasCalibrationEvent && <button className="secondary" type="button" onClick={onRecordCalibration}>Enregistrer d'abord l'étalonnage</button>}</div></div>}
       </section>
 
       {kind === "time_conversion" ? (
@@ -893,7 +1179,7 @@ function CharacterizationForm({ asset, initialKind = "frequency_response", requi
           <label>Référence du certificat ou feuillet<input value={certificateReference} onChange={(event) => setCertificateReference(event.target.value)} /></label>
           <label>Température (°C)<input type="number" step="any" value={temperatureC} onChange={(event) => setTemperatureC(event.target.value)} placeholder="Optionnelle" /></label>
           <label>Humidité relative (%)<input type="number" min="0" max="100" step="any" value={humidityPercent} onChange={(event) => setHumidityPercent(event.target.value)} placeholder="Optionnelle" /></label>
-          <label className="fileField"><span>Document de preuve</span><input type="file" onChange={(event) => setProofFile(event.target.files?.[0] ?? null)} /><small>{proofFile ? proofFile.name : "PDF, feuille de calcul ou document associé"}</small></label>
+          <label className="fileField"><span>Document de preuve</span><input type="file" onChange={(event) => setProofFile(event.target.files?.[0] ?? null)} /><small>{proofFile ? proofFile.name : initialEvidence?.documentManifest?.original_filename ?? "PDF, feuille de calcul ou document associé"}</small></label>
         </div>
         <div className="formGrid">
           <label>État constaté avant intervention<textarea value={asFound} onChange={(event) => setAsFound(event.target.value)} placeholder="Valeurs ou observation avant réglage" /></label>
@@ -1135,6 +1421,11 @@ function newCharacterizationId(assetId: string) {
   return `CHAR-${safeAsset}-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
 }
 
+function newCalibrationEventId(assetId: string) {
+  const safeAsset = assetId.replace(/[^A-Za-z0-9_-]/g, "-");
+  return `CAL-${safeAsset}-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
+}
+
 function newCorrectionAssignmentId(assetId: string, requirementId: string) {
   const safeAsset = assetId.replace(/[^A-Za-z0-9_-]/g, "-");
   const safeRequirement = requirementId.replace(/[^A-Za-z0-9_-]/g, "-");
@@ -1175,6 +1466,17 @@ function characterizationErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "L’opération métrologique a échoué.";
 }
 
+function calibrationErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    if (error.code === "invalid_metrology_calibration") return "Les dates ou la décision d'étalonnage sont incohérentes.";
+    if (error.code === "metrology_calibration_already_exists") return "Ce certificat d'étalonnage est déjà enregistré pour ce matériel.";
+    if (error.code === "operation_replay_mismatch") return "Cette opération a déjà été utilisée avec d'autres valeurs. Relancez l'enregistrement.";
+    if (error.code === "metrology_instrument_not_found") return "Le matériel n'existe plus dans le registre métrologique.";
+    return error.message;
+  }
+  return error instanceof Error ? error.message : "L'étalonnage n'a pas pu être enregistré.";
+}
+
 function correctionAssignmentStatusLabel(status: string) {
   return {
     draft: "Brouillon à soumettre",
@@ -1211,7 +1513,7 @@ function characterizationKindLabel(kind: AssetCharacterization["characterization
 
 function sourceKindLabel(kind: AssetCharacterization["source_kind"]) {
   return {
-    calibration: "Certificat d’étalonnage",
+    calibration: "Valeurs issues d’un certificat d’étalonnage",
     characterization: "Rapport de caractérisation",
     verification: "Vérification",
     manufacturer_certificate: "Certificat fabricant",
@@ -1271,6 +1573,54 @@ function serviceabilityLabel(status: MetrologyInstrument["serviceability_status"
 
 function calibrationRequirementLabel(value: MetrologyInstrument["calibration_requirement"]) {
   return { required: "Étalonnage requis", conditional: "Selon l’utilisation", not_required: "Non applicable" }[value];
+}
+
+function calibrationStatusLabel(
+  status: CalibrationStatus["calibration_status"] | undefined,
+  requirement: MetrologyInstrument["calibration_requirement"]
+) {
+  if (!status) return requirement === "not_required" ? "Étalonnage non applicable" : "Statut à actualiser";
+  return {
+    valid: "Étalonnage valide",
+    due_soon: "Étalonnage à renouveler bientôt",
+    expired: "Étalonnage expiré",
+    missing: "Aucun étalonnage valide",
+    not_required: "Étalonnage non applicable",
+    nonconforming: "Dernier étalonnage non conforme"
+  }[status];
+}
+
+function calibrationStatusTone(status: CalibrationStatus["calibration_status"] | undefined) {
+  if (status === "valid" || status === "not_required") return "ready";
+  if (status === "due_soon") return "warning";
+  return "blocked";
+}
+
+function calibrationEvidencePrefill(event: CalibrationEvent): CalibrationEvidencePrefill {
+  return {
+    certificateReference: event.certificate_reference,
+    provider: event.provider,
+    calibratedAt: event.calibrated_at,
+    dueAt: event.due_at,
+    documentManifest: parseJsonObject<EquipmentFileReference>(event.document_manifest_json) ?? undefined
+  };
+}
+
+function uncertaintySummaryLabel(uncertainty: CalibrationUncertaintySummary) {
+  const numeric = uncertainty.expanded_uncertainty !== undefined
+    ? `${uncertainty.expanded_uncertainty} ${uncertainty.unit ?? ""}${uncertainty.coverage_factor !== undefined ? ` (k = ${uncertainty.coverage_factor})` : ""}`
+    : "";
+  return [numeric, uncertainty.statement].filter(Boolean).join(" · ") || "Résumé non renseigné";
+}
+
+function parseJsonObject<T>(value: string | null): T | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as T : null;
+  } catch {
+    return null;
+  }
 }
 
 function categoryLabel(categories: EquipmentCategory[], categoryId: string) {

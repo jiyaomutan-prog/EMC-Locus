@@ -44,8 +44,11 @@ import type {
   AssetCharacterization,
   AssetCorrectionAssignmentEnvelope,
   AssetCorrectionResolutionReport,
+  CalibrationEvent,
+  CalibrationStatus,
   MetrologyAuditEvent,
   MetrologyInstrument,
+  RecordCalibrationEventInput,
   RecordAssetCharacterizationInput,
   RegisterMetrologyInstrumentInput
 } from "./models/metrology";
@@ -60,6 +63,7 @@ import type {
 } from "./models/fleet";
 import type {
   StationMeasurementSetupDefinition,
+  StationMaterialCandidates,
   StationSetupAggregate,
   StationSetupOperationResult,
   StationSetupReadiness
@@ -642,6 +646,22 @@ export const metrologyApi = {
       ...input,
       operation_id: operationId("metrology-register", input.asset_id)
     }),
+  listCalibrations: (assetId: string) =>
+    request<{ asset_id: string; calibration_events: CalibrationEvent[] }>(
+      `/api/v1/metrology/instruments/${encodeURIComponent(assetId)}/calibrations`
+    ),
+  recordCalibration: (assetId: string, input: RecordCalibrationEventInput) =>
+    post<{ calibration_event: CalibrationEvent }>(
+      `/api/v1/metrology/instruments/${encodeURIComponent(assetId)}/calibrations`,
+      {
+        ...input,
+        operation_id: operationId("metrology-calibration", input.event_id)
+      }
+    ),
+  calibrationStatus: (assetId: string, checkedOn: string) =>
+    request<CalibrationStatus>(
+      `/api/v1/metrology/instruments/${encodeURIComponent(assetId)}/status?${new URLSearchParams({ checked_on: checkedOn })}`
+    ),
   listCharacterizations: (assetId: string) =>
     request<{ asset_id: string; characterizations: AssetCharacterization[] }>(
       `/api/v1/metrology/instruments/${encodeURIComponent(assetId)}/characterizations`
@@ -885,6 +905,23 @@ export const stationSetupApi = {
   }) => request<import("./models/fleet").ExecutablePhysicalAssetOptions>(
     `/api/v1/station-setups/asset-options?${new URLSearchParams(input).toString()}`
   ),
+  materialCandidates: (
+    setupId: string,
+    revisionId: string,
+    requirementId: string,
+    input: {
+      planned_use_on: string;
+      execution_mode: "accredited" | "non_accredited" | "investigation";
+      laboratory_location_id: string;
+      excluded_schedule_item_code?: string;
+    }
+  ) => request<StationMaterialCandidates>(
+    `/api/v1/station-setups/${encodeURIComponent(setupId)}/revisions/${encodeURIComponent(
+      revisionId
+    )}/material-requirements/${encodeURIComponent(requirementId)}/candidates?${new URLSearchParams(
+      input
+    ).toString()}`
+  ),
   get: (setupId: string) =>
     request<{ station_setup: StationSetupAggregate }>(
       `/api/v1/station-setups/${encodeURIComponent(setupId)}`
@@ -934,7 +971,38 @@ export const stationSetupApi = {
         ...context,
         operation_id: operationId("station-setup-ready", revisionId)
       }
-    )
+    ),
+  markQualified: (
+    setupId: string,
+    revisionId: string,
+    expectedDefinitionChecksum: string,
+    context: OperationContext
+  ) =>
+    post<StationSetupOperationResult>(
+      `/api/v1/station-setups/${encodeURIComponent(setupId)}/revisions/${encodeURIComponent(revisionId)}/transitions/qualified`,
+      {
+        expected_definition_checksum: expectedDefinitionChecksum,
+        ...context,
+        operation_id: operationId("station-setup-qualified", revisionId)
+      }
+    ),
+  deriveRevision: (
+    setupId: string,
+    sourceRevisionId: string,
+    upgradeToV3: boolean,
+    context: OperationContext
+  ) => post<StationSetupOperationResult>(
+    `/api/v1/station-setups/${encodeURIComponent(setupId)}/revisions`,
+    {
+      source_revision_id: sourceRevisionId,
+      upgrade_to_v3: upgradeToV3,
+      ...context,
+      operation_id: operationId(
+        upgradeToV3 ? "station-setup-upgrade-v3" : "station-setup-derive",
+        sourceRevisionId
+      )
+    }
+  )
 };
 
 export const projectApi = {

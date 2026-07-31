@@ -1033,6 +1033,10 @@ export function EquipmentWorkspace(props: { initialSpace?: EquipmentSpace; onSpa
           nominalCorrections={[...sampleConversions, ...frequencyResponses]}
           categories={categories}
           onRegister={registerPhysicalAsset}
+          onRefreshInstruments={async () => {
+            const response = await metrologyApi.listInstruments();
+            setInstruments(response.instruments);
+          }}
           onOpenCatalog={() => setSpace("catalog")}
           initialSelectedAssetId={metrologyAssetId}
           allowRegistration={false}

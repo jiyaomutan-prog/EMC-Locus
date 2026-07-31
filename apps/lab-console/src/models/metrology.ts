@@ -7,6 +7,74 @@ export interface CalibrationRecordSummary {
   revision: string;
 }
 
+export type CalibrationDecision =
+  | "conforming"
+  | "nonconforming"
+  | "indeterminate"
+  | "not_assessed";
+
+export interface CalibrationUncertaintySummary {
+  expanded_uncertainty?: number;
+  unit?: string;
+  coverage_factor?: number;
+  confidence_level_percent?: number;
+  statement?: string;
+}
+
+export interface CalibrationEvent {
+  event_id: string;
+  asset_id: string;
+  certificate_reference: string;
+  calibrated_at: string;
+  due_at: string;
+  provider: string;
+  decision: CalibrationDecision;
+  as_found_status: CalibrationDecision | null;
+  as_left_status: CalibrationDecision | null;
+  adjustment_performed: boolean;
+  uncertainty_summary_json: string;
+  traceability_reference: string | null;
+  comment: string;
+  document_manifest_json: string | null;
+  recorded_at: string;
+  recorded_by: string;
+  revision: string;
+}
+
+export interface RecordCalibrationEventInput {
+  event_id: string;
+  certificate_reference: string;
+  calibrated_at: string;
+  due_at: string;
+  provider: string;
+  decision: CalibrationDecision;
+  as_found_status?: CalibrationDecision;
+  as_left_status?: CalibrationDecision;
+  adjustment_performed: boolean;
+  uncertainty_summary: CalibrationUncertaintySummary;
+  traceability_reference?: string;
+  comment?: string;
+  document_manifest?: EquipmentFileReference;
+  recorded_by: string;
+  actor: string;
+  reason: string;
+}
+
+export interface CalibrationStatus {
+  asset_id: string;
+  checked_on: string;
+  calibration_status: "valid" | "due_soon" | "expired" | "missing" | "not_required" | "nonconforming";
+  serviceability_status: MetrologyInstrument["serviceability_status"];
+  calibration_requirement: MetrologyInstrument["calibration_requirement"];
+  calibration_due_warning_days: number;
+  due_at: string | null;
+  decision: CalibrationDecision | null;
+  latest_calibration_event_id: string | null;
+  latest_calibration_revision: string | null;
+  instrument_revision: string;
+  reasons: string[];
+}
+
 export interface MetrologyInstrument {
   asset_id: string;
   inventory_code: string;
