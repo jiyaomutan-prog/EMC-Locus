@@ -14,6 +14,7 @@ pub(crate) struct StoredStationSetupIdentity {
     pub(crate) setup_id: String,
     pub(crate) label: String,
     pub(crate) current_ready_revision_id: Option<String>,
+    pub(crate) current_qualified_revision_id: Option<String>,
     pub(crate) created_by: String,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
@@ -34,6 +35,7 @@ pub(crate) struct StoredStationSetupRevision {
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
     pub(crate) ready_at: Option<String>,
+    pub(crate) qualified_at: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -73,6 +75,14 @@ pub(crate) struct AttachedLaboratoryLocation {
     pub(crate) location_id: String,
     pub(crate) label: String,
     pub(crate) status: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AttachedPhysicalAssetSnapshot {
+    pub(crate) asset_id: String,
+    pub(crate) inventory_code: String,
+    pub(crate) serial_number: Option<String>,
+    pub(crate) revision: u64,
 }
 
 pub(crate) struct NewStationSetupIdentity<'a> {
@@ -255,6 +265,28 @@ pub(crate) fn load_attached_laboratory_location(
         .map_err(|error| AgentError::new("laboratory_location_query_failed", error.to_string()))
 }
 
+pub(crate) fn load_attached_physical_asset_snapshot(
+    connection: &Connection,
+    asset_id: &str,
+) -> Result<Option<AttachedPhysicalAssetSnapshot>, AgentError> {
+    connection
+        .query_row(
+            "SELECT asset_id, inventory_code, serial_number, revision
+             FROM equipment_db.physical_assets WHERE asset_id = ?1",
+            params![asset_id],
+            |row| {
+                Ok(AttachedPhysicalAssetSnapshot {
+                    asset_id: row.get(0)?,
+                    inventory_code: row.get(1)?,
+                    serial_number: row.get(2)?,
+                    revision: row.get(3)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| AgentError::new("station_setup_query_failed", error.to_string()))
+}
+
 fn ensure_station_tables(connection: &Connection) -> Result<(), AgentError> {
     for table in [
         "schema_migrations",
@@ -288,7 +320,8 @@ pub(crate) fn list_station_setup_identities(
 ) -> Result<Vec<StoredStationSetupIdentity>, AgentError> {
     let mut statement = connection
         .prepare(
-            "SELECT setup_id, label, current_ready_revision_id, created_by, created_at, updated_at
+            "SELECT setup_id, label, current_ready_revision_id, created_by, created_at, updated_at,
+                    current_qualified_revision_id
              FROM station_setup_identities ORDER BY updated_at DESC, setup_id",
         )
         .map_err(|error| AgentError::new("station_setup_query_failed", error.to_string()))?;
@@ -304,7 +337,8 @@ pub(crate) fn load_station_setup_identity(
 ) -> Result<Option<StoredStationSetupIdentity>, AgentError> {
     connection
         .query_row(
-            "SELECT setup_id, label, current_ready_revision_id, created_by, created_at, updated_at
+            "SELECT setup_id, label, current_ready_revision_id, created_by, created_at, updated_at,
+                    current_qualified_revision_id
              FROM station_setup_identities WHERE setup_id = ?1",
             params![setup_id],
             station_identity_from_row,
@@ -321,7 +355,7 @@ pub(crate) fn load_station_setup_revision(
         .query_row(
             "SELECT revision_id, setup_id, revision_number, parent_revision_id, status,
                     definition_schema_version, definition_json, definition_checksum,
-                    readiness_json, created_by, created_at, updated_at, ready_at
+                    readiness_json, created_by, created_at, updated_at, ready_at, qualified_at
              FROM station_setup_revisions WHERE revision_id = ?1",
             params![revision_id],
             station_revision_from_row,
@@ -338,7 +372,7 @@ pub(crate) fn load_station_setup_revisions(
         .prepare(
             "SELECT revision_id, setup_id, revision_number, parent_revision_id, status,
                     definition_schema_version, definition_json, definition_checksum,
-                    readiness_json, created_by, created_at, updated_at, ready_at
+                    readiness_json, created_by, created_at, updated_at, ready_at, qualified_at
              FROM station_setup_revisions WHERE setup_id = ?1 ORDER BY revision_number DESC",
         )
         .map_err(|error| AgentError::new("station_setup_query_failed", error.to_string()))?;
@@ -356,8 +390,9 @@ pub(crate) fn load_active_station_setup_draft(
         .query_row(
             "SELECT revision_id, setup_id, revision_number, parent_revision_id, status,
                     definition_schema_version, definition_json, definition_checksum,
-                    readiness_json, created_by, created_at, updated_at, ready_at
-             FROM station_setup_revisions WHERE setup_id = ?1 AND status = 'draft'",
+                    readiness_json, created_by, created_at, updated_at, ready_at, qualified_at
+             FROM station_setup_revisions
+             WHERE setup_id = ?1 AND status = 'draft' AND qualified_at IS NULL",
             params![setup_id],
             station_revision_from_row,
         )
@@ -437,7 +472,7 @@ pub(crate) fn replace_station_setup_draft(
              SET definition_schema_version = ?4, definition_json = ?5,
                  definition_checksum = ?6, readiness_json = ?7, updated_at = ?8
              WHERE setup_id = ?1 AND revision_id = ?2 AND status = 'draft'
-               AND definition_checksum = ?3",
+               AND qualified_at IS NULL AND definition_checksum = ?3",
             params![
                 input.setup_id,
                 input.revision_id,
@@ -494,7 +529,39 @@ pub(crate) fn mark_station_setup_ready(
     transaction
         .execute(
             "UPDATE station_setup_identities
-             SET current_ready_revision_id = ?2, updated_at = ?3 WHERE setup_id = ?1",
+             SET current_ready_revision_id = ?2, current_qualified_revision_id = NULL,
+                 updated_at = ?3 WHERE setup_id = ?1",
+            params![setup_id, revision_id, timestamp],
+        )
+        .map_err(|error| AgentError::new("station_setup_write_failed", error.to_string()))?;
+    Ok(())
+}
+
+pub(crate) fn mark_station_setup_qualified(
+    transaction: &Transaction<'_>,
+    setup_id: &str,
+    revision_id: &str,
+    timestamp: &str,
+) -> Result<(), AgentError> {
+    let changed = transaction
+        .execute(
+            "UPDATE station_setup_revisions
+             SET qualified_at = ?3, updated_at = ?3
+             WHERE setup_id = ?1 AND revision_id = ?2 AND status = 'draft'
+               AND qualified_at IS NULL",
+            params![setup_id, revision_id, timestamp],
+        )
+        .map_err(|error| AgentError::new("station_setup_write_failed", error.to_string()))?;
+    if changed != 1 {
+        return Err(AgentError::new(
+            "station_setup_revision_not_editable",
+            "only an unqualified draft can be qualified",
+        ));
+    }
+    transaction
+        .execute(
+            "UPDATE station_setup_identities
+             SET current_qualified_revision_id = ?2, updated_at = ?3 WHERE setup_id = ?1",
             params![setup_id, revision_id, timestamp],
         )
         .map_err(|error| AgentError::new("station_setup_write_failed", error.to_string()))?;
@@ -677,6 +744,7 @@ fn station_identity_from_row(
         created_by: row.get(3)?,
         created_at: row.get(4)?,
         updated_at: row.get(5)?,
+        current_qualified_revision_id: row.get(6)?,
     })
 }
 
@@ -697,6 +765,7 @@ fn station_revision_from_row(
         created_at: row.get(10)?,
         updated_at: row.get(11)?,
         ready_at: row.get(12)?,
+        qualified_at: row.get(13)?,
     })
 }
 

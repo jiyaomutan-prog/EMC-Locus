@@ -633,6 +633,64 @@ button.planningSlot-cancelled {
   gap: 8px;
 }
 
+.stationMaterialPreparation {
+  border-bottom: 1px solid #dce3df;
+  display: grid;
+  gap: 9px;
+  padding: 4px 0 14px;
+}
+
+.stationMaterialPreparation:last-child {
+  border-bottom: 0;
+}
+
+.stationMaterialPreparationHeader {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.stationMaterialPreparationHeader > div {
+  display: grid;
+  gap: 2px;
+}
+
+.stationMaterialPreparationHeader small,
+.stationMaterialPreparation > p,
+.stationPortResolution > strong {
+  color: #68766e;
+  font-size: 11px;
+  margin: 0;
+}
+
+.candidateState {
+  border-left: 3px solid #44745e;
+  color: #315f4b;
+  font-size: 11px;
+  font-weight: 700;
+  padding-left: 7px;
+}
+
+.candidateState-blocked {
+  border-left-color: #b9673c;
+  color: #7f3d27;
+}
+
+.exactAssetNotice {
+  color: #2f5847 !important;
+}
+
+.stationPortResolution {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stationPortResolution > strong {
+  grid-column: 1 / -1;
+}
+
 .instrumentAssignmentRow {
   align-items: center;
   display: grid;
@@ -679,6 +737,13 @@ button.planningSlot-cancelled {
   gap: 12px;
   grid-template-columns: minmax(0, 1fr) auto;
   padding: 13px 20px;
+}
+
+.preparationMissingFields {
+  color: #7f3d27;
+  font-size: 11px;
+  grid-column: 1 / -1;
+  margin: 0;
 }
 
 .preparationHistory {
@@ -1118,6 +1183,165 @@ button.planningSlot-cancelled {
   font-size: 12px;
 }
 
+.stationRequirementList,
+.candidateResultList {
+  display: grid;
+  gap: 8px;
+}
+
+.stationRequirementList > article,
+.candidateResultList > article {
+  background: #f8faf9;
+  border: 1px solid #d6dfda;
+  border-left: 4px solid #789a90;
+  display: grid;
+  gap: 8px;
+  padding: 11px 13px;
+}
+
+.stationRequirementList > article.active {
+  background: #edf7f4;
+  border-color: #6f9f92;
+}
+
+.stationRequirementList header,
+.candidateResultList header,
+.stationRoleDialog > header,
+.stationRoleDialog > footer {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.stationRequirementList header > div,
+.candidateResultList header > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stationRequirementList p,
+.stationRequirementList dl,
+.candidateResultList p,
+.candidateResultList dl {
+  margin: 0;
+}
+
+.stationRequirementList dl,
+.candidateResultList dl {
+  display: grid;
+  font-size: 11px;
+  gap: 4px 10px;
+  grid-template-columns: max-content minmax(0, 1fr);
+}
+
+.stationRequirementList dt,
+.candidateResultList dt { color: #65736c; }
+.stationRequirementList dd,
+.candidateResultList dd { margin: 0; }
+
+.exactAssetRequirement {
+  align-items: center;
+  background: #fff8e7;
+  border-left: 3px solid #b58125;
+  color: #574416;
+  display: flex;
+  gap: 7px;
+  padding: 8px 10px;
+}
+
+.stationTopologyAction {
+  align-items: center;
+  color: #617068;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.legacyStationNotice {
+  background: #f7f6f1;
+  border-left: 3px solid #8b8066;
+  padding-left: 12px;
+}
+
+.stationCandidatePanel { background: #fbfcfb; }
+.candidateResultList > article.compatible { border-left-color: #32856f; }
+.candidateResultList > article.blocked { background: #fffaf0; border-left-color: #bd8422; }
+.candidateResultList > article.incompatible { background: #fff7f4; border-left-color: #b65c48; }
+.candidateResultList > article p > span { color: #5e5040; font-weight: 700; }
+.candidateEvidenceGrid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.candidateEvidenceGrid > div {
+  background: #fff;
+  border: 1px solid #d8e0dc;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px;
+}
+
+.candidateEvidenceGrid span {
+  color: #66736c;
+  font-size: 11px;
+}
+
+.candidateEvidenceGrid strong {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.candidateEvidenceGrid .positive { color: #1b6755; }
+.candidateEvidenceGrid .negative { color: #8a451f; }
+.candidateResultList .status.compatible { background: #dceee8; color: #145e4e; }
+.candidateResultList .status.blocked { background: #f7e8c7; color: #715015; }
+.candidateResultList .status.incompatible { background: #f5ddd7; color: #7a3021; }
+
+.stationRoleDialog {
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  width: min(900px, calc(100vw - 48px));
+}
+
+@media (max-width: 1000px) {
+  .candidateEvidenceGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.stationRoleDialog .segmentedControl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 14px 0;
+}
+
+.stationRoleDialog .segmentedControl button {
+  white-space: normal;
+}
+
+.stationRoleDialog .formGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stationRoleDialog > footer {
+  border-top: 1px solid #d8dfdb;
+  justify-content: flex-end;
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.compactEmpty {
+  background: #f2f5f3;
+  color: #526159;
+  display: grid;
+  gap: 3px;
+  padding: 12px;
+}
+
 .selectionReasonPanel {
   background: #fff8e8;
   border-left: 3px solid #b98423;
@@ -1547,6 +1771,8 @@ button.planningSlot-cancelled {
   .assetCreationDialog { width: 100vw; }
   .assetCreationDialog .formGrid,
   .stationCreationDialog .formGrid,
+  .stationRoleDialog .formGrid,
+  .stationRoleDialog .segmentedControl,
   .stationSection .formGrid,
   .stationAssetPicker,
   .assetEditSection .formGrid,
@@ -4199,6 +4425,76 @@ body:has(.modalBackdrop) {
   gap: 7px;
 }
 
+.calibrationHistorySection {
+  display: grid;
+  gap: 13px;
+}
+
+.metrologyStateGrid {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.metrologyStateGrid > div {
+  background: #f2f5f3;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.metrologyStateGrid span {
+  color: #617068;
+  font-size: 11px;
+}
+
+.calibrationReason {
+  color: #70541b;
+  margin: 0;
+}
+
+.calibrationEventList {
+  display: grid;
+  gap: 8px;
+}
+
+.calibrationEventList > article {
+  border: 1px solid #d7dfda;
+  border-left: 4px solid #4a796c;
+  display: grid;
+  gap: 8px;
+  padding: 11px 13px;
+}
+
+.calibrationEventList > article > header {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.calibrationEventList > article > header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.calibrationEventList p { margin: 0; }
+.calibrationEventList dd { align-items: center; display: flex; gap: 6px; }
+
+.evidenceBoundaryNotice {
+  align-items: start;
+  background: #fff7e6;
+  border-left: 4px solid #b47b1b;
+  color: #614812;
+  display: flex;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 10px 12px;
+}
+
+.evidenceBoundaryNotice p { margin: 3px 0 8px; }
+.calibrationForm .editorCard h3 { margin: 0; }
+
 .characterizationForm {
   display: grid;
   gap: 14px;
@@ -4553,6 +4849,10 @@ body:has(.modalBackdrop) {
 
   .physicalAssetsLayout,
   .assetCharacterizationLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .metrologyStateGrid {
     grid-template-columns: 1fr;
   }
 

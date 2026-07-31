@@ -8,6 +8,44 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-07-31
+
+### Added
+
+- Added typed station v3 material requirements for category pools, stable
+  capabilities and exact physical assets, plus immutable assignment and port
+  snapshots.
+- Added requirement-specific candidate evaluation, qualified-versus-ready
+  lifecycle evidence and deferred assignment during planned-test preparation.
+- Added first-class calibration recording and history in LAB CONSOLE, including
+  certificate documents and an explicit follow-up characterization workflow.
+- Added 19 reviewed release screenshots and a dedicated three-scenario
+  real-agent acceptance suite for CA-001, UTF-8, v2 compatibility and restart.
+
+### Changed
+
+- Separated design compatibility from contextual operational eligibility and
+  correction readiness from overall test readiness.
+- Kept calibration events, characterizations and correction assignments as
+  independent metrology evidence with explicit operator wording.
+- Declared every Local Agent JSON success and error response as UTF-8.
+
+### Fixed
+
+- Allowed an exact blocked asset to be imposed without making it assignable or
+  ready, and preserved the requirement while location and calibration blockers
+  are resolved.
+- Enforced the Rust-computed intersection of method roles and station material
+  assignments in planned-test preparation, including persisted logical-port
+  mappings.
+- Isolated calibration-history and other secondary panel failures so loaded
+  station and metrology context remains visible.
+
+### Migrations
+
+- Added station migrations `0003` and `0004` for qualified v3 revisions and
+  explicit assignment evidence without rewriting immutable v2 definitions.
+
 ## [0.22.0] - 2026-07-28
 
 ### Added

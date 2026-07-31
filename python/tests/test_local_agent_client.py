@@ -588,6 +588,15 @@ class LocalAgentClientTests(unittest.TestCase):
                 assignments=[
                     {"slot_id": "receiver", "binding_id": "receiver-binding"}
                 ],
+                station_material_assignments=[
+                    {
+                        "requirement_id": "rf-cable",
+                        "asset_id": "SA-CABLE-001",
+                        "selected_ports": [
+                            {"logical_port_id": "rf", "actual_port_id": "RF_A"}
+                        ],
+                    }
+                ],
                 actor="operateur.cem",
                 reason="Controle avant essai",
                 operation_id="op-preparation-python",
@@ -610,6 +619,10 @@ class LocalAgentClientTests(unittest.TestCase):
         self.assertEqual(
             captured[4]["body"]["assignments"],
             [{"slot_id": "receiver", "binding_id": "receiver-binding"}],
+        )
+        self.assertEqual(
+            captured[4]["body"]["station_material_assignments"][0]["asset_id"],
+            "SA-CABLE-001",
         )
 
     def test_reads_laboratory_week_and_posts_schedule_mutation_payloads(self) -> None:
@@ -1328,6 +1341,23 @@ class LocalAgentClientTests(unittest.TestCase):
                 operation_id="op-station-save",
             )
             client.assess_station_setup("SETUP-PY-001", "SETUP-PY-001-rev-0001")
+            client.station_material_candidates(
+                setup_id="SETUP-PY-001",
+                revision_id="SETUP-PY-001-rev-0001",
+                requirement_id="rf-cable",
+                planned_use_on="2026-07-15",
+                execution_mode="accredited",
+                laboratory_location_id="LAB-LOCATION-CEM-1",
+                excluded_schedule_item_code="PLAN-PY-001",
+            )
+            client.mark_station_setup_qualified(
+                setup_id="SETUP-PY-001",
+                revision_id="SETUP-PY-001-rev-0001",
+                expected_definition_checksum="sha256:" + "b" * 64,
+                actor="operator.one",
+                reason="définition vérifiée",
+                operation_id="op-station-qualified",
+            )
             client.mark_station_setup_ready(
                 setup_id="SETUP-PY-001",
                 revision_id="SETUP-PY-001-rev-0001",
@@ -1339,6 +1369,7 @@ class LocalAgentClientTests(unittest.TestCase):
             client.derive_station_setup_draft(
                 setup_id="SETUP-PY-001",
                 source_revision_id="SETUP-PY-001-rev-0001",
+                upgrade_to_v3=True,
                 actor="operator.one",
                 reason="adapter le montage",
                 operation_id="op-station-derive",
@@ -1352,8 +1383,15 @@ class LocalAgentClientTests(unittest.TestCase):
         self.assertEqual(captured[1][2]["expected_definition_checksum"], "sha256:" + "a" * 64)
         self.assertEqual(captured[2][0], "GET")
         self.assertTrue(captured[2][1].endswith("/SETUP-PY-001-rev-0001/readiness"))
-        self.assertTrue(captured[3][1].endswith("/transitions/ready"))
-        self.assertEqual(captured[4][2]["source_revision_id"], "SETUP-PY-001-rev-0001")
+        self.assertIn(
+            "/material-requirements/rf-cable/candidates?",
+            captured[3][1],
+        )
+        self.assertIn("excluded_schedule_item_code=PLAN-PY-001", captured[3][1])
+        self.assertTrue(captured[4][1].endswith("/transitions/qualified"))
+        self.assertTrue(captured[5][1].endswith("/transitions/ready"))
+        self.assertEqual(captured[6][2]["source_revision_id"], "SETUP-PY-001-rev-0001")
+        self.assertTrue(captured[6][2]["upgrade_to_v3"])
 
     def test_list_documents_encodes_owner_filter(self) -> None:
         captured: dict[str, object] = {}

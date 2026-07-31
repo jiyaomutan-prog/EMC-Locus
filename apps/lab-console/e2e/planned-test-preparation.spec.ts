@@ -236,6 +236,7 @@ test("an operator resolves a blocked preparation before starting the planned tes
   await expect(preparationDialog.getByText("Prêt à démarrer", { exact: true })).toBeVisible();
   await expect(preparationDialog.getByText("Contrôle n° 2", { exact: true }).last()).toBeVisible();
   await expect(preparationDialog.getByText("Contrôle n° 1", { exact: true }).last()).toBeVisible();
+  await capture0221ReleaseScreenshot(page, "planned-preparation-assignment-1440x900.png");
 
   for (const viewport of viewports) {
     await page.setViewportSize(viewport);
@@ -747,26 +748,72 @@ async function createReadyStation(
   const aggregate = (await created.json()).station_setup;
   const draft = aggregate.active_draft_revision;
   const definition = {
-    definition_schema_version: "emc-locus.station-measurement-setup-definition.v2",
+    definition_schema_version: "emc-locus.station-measurement-setup-definition.v3",
     setup_id: input.setupId,
     label: input.label,
     laboratory_location_id: locationId,
     laboratory_location_label: locationSnapshotLabel,
     planned_use_on: input.plannedDate,
     execution_mode: "investigation",
-    asset_bindings: [
-      stationBinding("rf_generator", "Générateur RF", input.generator, input.generatorModel),
-      stationBinding("power_meter", "Wattmètre RF", input.meter, input.meterModel)
-    ],
-    connections: [
+    asset_bindings: [],
+    connections: [],
+    correction_selections: [],
+    material_requirements: [
       {
-        connection_id: "rf_verification_path",
-        label: "Sortie générateur vers entrée wattmètre",
-        from: { binding_id: "rf_generator", port_id: "RF_OUT" },
-        to: { binding_id: "power_meter", port_id: "RF_IN" }
+        requirement_id: "rf_generator",
+        role_label: "Générateur RF",
+        required: true,
+        selection_policy: "exact_asset",
+        assignment_stage: "setup_definition",
+        substitution_policy: "no_substitution",
+        calibration_requirement: "not_required",
+        exact_asset_id: input.generator.asset_id,
+        logical_ports: [{
+          logical_port_id: "rf_output",
+          label: "Sortie RF",
+          directionality: "output",
+          signal_domain: "rf"
+        }]
+      },
+      {
+        requirement_id: "power_meter",
+        role_label: "Wattmètre RF",
+        required: true,
+        selection_policy: "exact_asset",
+        assignment_stage: "setup_definition",
+        substitution_policy: "no_substitution",
+        calibration_requirement: "not_required",
+        exact_asset_id: input.meter.asset_id,
+        logical_ports: [{
+          logical_port_id: "rf_input",
+          label: "Entrée RF",
+          directionality: "input",
+          signal_domain: "rf"
+        }]
       }
     ],
-    correction_selections: [],
+    material_assignments: [
+      stationMaterialAssignment(
+        "rf_generator",
+        "RF_OUT",
+        input.generator,
+        input.generatorModel,
+        input.plannedDate
+      ),
+      stationMaterialAssignment(
+        "power_meter",
+        "RF_IN",
+        input.meter,
+        input.meterModel,
+        input.plannedDate
+      )
+    ],
+    logical_connections: [{
+      connection_id: "rf_verification_path",
+      label: "Sortie générateur vers entrée wattmètre",
+      from: { requirement_id: "rf_generator", logical_port_id: "rf_output" },
+      to: { requirement_id: "power_meter", logical_port_id: "rf_input" }
+    }],
     notes: { purpose: "Contrôle d’aptitude E2E" }
   };
   const saved = await request.put(
@@ -789,19 +836,56 @@ async function createReadyStation(
   expect(readiness.ok(), await readiness.text()).toBeTruthy();
   const readinessBody = await readiness.json();
   expect(readinessBody.readiness.ready, JSON.stringify(readinessBody.readiness)).toBe(true);
+  const qualified = await request.post(
+    `/api/v1/station-setups/${input.setupId}/revisions/${draft.revision_id}/transitions/qualified`,
+    {
+      data: {
+        expected_definition_checksum: savedDraft.definition_checksum,
+        actor: "E2E technicien",
+        reason: "Valider la définition du montage du scénario de contrôle d’aptitude",
+        operation_id: `op-${input.operationPrefix}-qualified`
+      }
+    }
+  );
+  expect(qualified.ok(), await qualified.text()).toBeTruthy();
   const ready = await request.post(
     `/api/v1/station-setups/${input.setupId}/revisions/${draft.revision_id}/transitions/ready`,
     {
       data: {
         expected_definition_checksum: savedDraft.definition_checksum,
         actor: "E2E technicien",
-        reason: "Valider le montage du scénario de contrôle d’aptitude",
+        reason: "Déclarer le montage apte au scénario de contrôle d’aptitude",
         operation_id: `op-${input.operationPrefix}-ready`
       }
     }
   );
   expect(ready.ok(), await ready.text()).toBeTruthy();
   return location;
+}
+
+function stationMaterialAssignment(
+  requirementId: string,
+  actualPortId: string,
+  instrument: RegisteredInstrument,
+  model: ApprovedModel,
+  assignedOn: string
+) {
+  return {
+    requirement_id: requirementId,
+    asset_id: instrument.asset_id,
+    asset_revision: instrument.revision,
+    inventory_code: instrument.asset_id,
+    serial_number: instrument.asset_id,
+    equipment_model_id: model.modelId,
+    equipment_model_revision_id: model.revisionId,
+    equipment_model_checksum: model.checksum,
+    selected_ports: [{
+      logical_port_id: requirementId === "rf_generator" ? "rf_output" : "rf_input",
+      actual_port_id: actualPortId
+    }],
+    assignment_context: "station_setup",
+    assigned_on: assignedOn
+  };
 }
 
 async function moveInstrumentToStationLocation(
@@ -834,23 +918,6 @@ async function moveInstrumentToStationLocation(
   );
   expect(movedResponse.ok(), await movedResponse.text()).toBeTruthy();
   instrument.revision = String((await movedResponse.json()).asset.revision);
-}
-
-function stationBinding(
-  bindingId: string,
-  roleLabel: string,
-  instrument: RegisteredInstrument,
-  model: ApprovedModel
-) {
-  return {
-    binding_id: bindingId,
-    role_label: roleLabel,
-    asset_id: instrument.asset_id,
-    asset_revision: instrument.revision,
-    equipment_model_id: model.modelId,
-    equipment_model_revision_id: model.revisionId,
-    equipment_model_checksum: model.checksum
-  };
 }
 
 async function createSchedule(
@@ -1020,4 +1087,27 @@ async function captureReleaseScreenshot(page: Page, name: string) {
   const evidenceDirectory = path.resolve(process.cwd(), "../../docs/ux/0.21.1/screenshots");
   await mkdir(evidenceDirectory, { recursive: true });
   await writeFile(path.join(evidenceDirectory, name), body);
+}
+
+async function capture0221ReleaseScreenshot(page: Page, name: string) {
+  if (
+    process.env.EMC_LOCUS_REFRESH_RELEASE_SCREENSHOTS !== "1"
+    || process.env.EMC_LOCUS_RELEASE_SCREENSHOT_VERSION !== "0.22.1"
+  ) {
+    return;
+  }
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(80);
+  const evidenceDirectory = path.resolve(process.cwd(), "../../docs/ux/0.22.1/screenshots");
+  await mkdir(evidenceDirectory, { recursive: true });
+  await page.screenshot({
+    animations: "disabled",
+    fullPage: false,
+    path: path.join(evidenceDirectory, name)
+  });
 }

@@ -262,6 +262,8 @@ POST /api/v1/station-setups/{setup_id}/revisions
 GET  /api/v1/station-setups/{setup_id}/revisions/{revision_id}
 PUT  /api/v1/station-setups/{setup_id}/revisions/{revision_id}/definition
 GET  /api/v1/station-setups/{setup_id}/revisions/{revision_id}/readiness
+GET  /api/v1/station-setups/{setup_id}/revisions/{revision_id}/material-requirements/{requirement_id}/candidates
+POST /api/v1/station-setups/{setup_id}/revisions/{revision_id}/transitions/qualified
 POST /api/v1/station-setups/{setup_id}/revisions/{revision_id}/transitions/ready
 GET  /api/v1/station-setups/{setup_id}/audit-events
 GET  /api/v1/documents
@@ -487,6 +489,19 @@ fleet API. The bootstrap can still expose legacy category definitions and the
 other local repository domains, but it never reads
 `legacy_instruments_0_21_1` as a runtime fleet fallback. This prevents a
 second writable identity path beside `equipment.sqlite/physical_assets`.
+
+Release `0.22.1` makes the agent authoritative for station v3 requirement
+matching, physical assignment snapshots, logical-port resolution and the
+qualified-versus-ready lifecycle. Candidate queries combine immutable model
+evidence with dated fleet, metrology, reservation and correction evidence. A
+blocked exact asset can be preserved as a requirement but cannot be assigned or
+declared ready. Planned-test preparation consumes the same evaluation and
+intersects station roles with method instrumentation roles.
+
+The existing calibration routes are now fully used by LAB CONSOLE; no parallel
+calibration persistence was introduced. JSON responses from every success and
+error path declare `application/json; charset=utf-8`, so accented French
+messages round-trip correctly in browsers and PowerShell.
 
 Version `0.7.0` promoted the agent metrology path to the vertical-slice
 baseline. Standalone metrology documents and richer execution/method evidence

@@ -46,9 +46,12 @@ from emc_locus.station_setup_ui import (
     editable_definition,
     eligible_station_instruments,
     instrument_display_label,
+    is_station_v3_definition,
     model_signal_ports,
     port_display_label,
     readiness_lines,
+    station_material_role_rows,
+    station_revision_status_label,
 )
 from emc_locus.qt_console_models import (
     FormFieldSpec,
@@ -414,13 +417,13 @@ def _station_setup_tab(
     material_pane = qt.QWidget()
     material_layout = qt.QVBoxLayout(material_pane)
     material_layout.setContentsMargins(0, 0, 6, 0)
-    material_group = qt.QGroupBox("Matériels réels du montage")
+    material_group = qt.QGroupBox("Rôles matériels du montage")
     material_group_layout = qt.QVBoxLayout(material_group)
-    material_table = qt.QTableWidget(0, 2)
+    material_table = qt.QTableWidget(0, 3)
     _configure_station_table(
         qt,
         material_table,
-        ("Rôle", "Matériel et aptitude"),
+        ("Rôle", "Exigence", "Affectation physique"),
     )
     material_table.setWordWrap(True)
     material_group_layout.addWidget(material_table, 1)
@@ -553,25 +556,27 @@ def _station_setup_tab(
         if not isinstance(revision, dict) or definition is None:
             summary.setText("Aucun montage ouvert. Créez un montage pour sélectionner les matériels réels.")
             return
-        status = {
-            "draft": "Brouillon",
-            "ready": "Montage prêt",
-            "superseded": "Remplacé",
-        }.get(str(revision.get("status")), str(revision.get("status", "")))
+        status = station_revision_status_label(revision)
         dirty = " · modifications non sauvegardées" if state["dirty"] else ""
         location_label = definition.get(
             "laboratory_location_label",
             definition.get("station_label", ""),
         )
+        v3_note = (
+            " · exigences et affectations gérées dans LAB CONSOLE"
+            if is_station_v3_definition(definition)
+            else ""
+        )
         summary.setText(
             f"{definition.get('label', 'Montage')} · {location_label} · "
-            f"{definition.get('planned_use_on', '')} · {status}{dirty}"
+            f"{definition.get('planned_use_on', '')} · {status}{dirty}{v3_note}"
         )
 
     def update_controls() -> None:
         revision = state.get("revision")
         definition = active_definition()
         draft = isinstance(revision, dict) and revision.get("status") == "draft"
+        legacy_draft = draft and not is_station_v3_definition(definition)
         has_definition = definition is not None
         for widget in (
             instrument_selector,
@@ -590,41 +595,44 @@ def _station_setup_tab(
             remove_correction_button,
             save_button,
         ):
-            widget.setEnabled(bool(draft))
+            widget.setEnabled(bool(legacy_draft))
         check_button.setEnabled(has_definition and not state["dirty"])
-        ready_button.setEnabled(bool(draft))
+        ready_button.setEnabled(bool(legacy_draft))
         derive_button.setEnabled(
-            isinstance(revision, dict) and revision.get("status") in {"ready", "superseded"}
+            isinstance(revision, dict)
+            and revision.get("status") in {"qualified", "ready", "superseded"}
         )
 
     def refresh_materials() -> None:
         definition = active_definition() or {}
-        bindings = definition.get("asset_bindings", [])
         by_asset = {item.get("asset_id"): item for item in state["instruments"]}
-        material_table.setRowCount(len(bindings))
-        for row, binding in enumerate(bindings):
-            instrument = by_asset.get(binding.get("asset_id"), {})
-            manufacturer = str(instrument.get("manufacturer", "")).strip()
-            model = str(instrument.get("model", "")).strip()
-            identity = " · ".join(
-                part for part in (
-                    model or manufacturer,
-                    f"S/N {instrument.get('serial_number')}"
-                    if instrument.get("serial_number")
-                    else "",
-                ) if part
-            )
-            status = _instrument_station_status(instrument)
-            values = (binding_label(binding), f"{identity}\n{status}")
+        rows = station_material_role_rows(definition)
+        if not is_station_v3_definition(definition):
+            for row, binding in zip(rows, definition.get("asset_bindings", []), strict=False):
+                instrument = by_asset.get(binding.get("asset_id"), {})
+                manufacturer = str(instrument.get("manufacturer", "")).strip()
+                model = str(instrument.get("model", "")).strip()
+                identity = " · ".join(
+                    part
+                    for part in (
+                        model or manufacturer,
+                        f"S/N {instrument.get('serial_number')}"
+                        if instrument.get("serial_number")
+                        else "",
+                    )
+                    if part
+                )
+                row["assignment"] = f"{identity}\n{_instrument_station_status(instrument)}"
+        material_table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            values = (row["role"], row["requirement"], row["assignment"])
             for column, value in enumerate(values):
                 item = qt.QTableWidgetItem(value)
-                tooltip = value.replace("\n", " · ")
-                if column == 1 and manufacturer and manufacturer not in identity:
-                    tooltip = f"{manufacturer} · {tooltip}"
-                item.setToolTip(tooltip)
-                material_table.setItem(row, column, item)
-            material_table.setRowHeight(row, 62)
-        material_table.setColumnWidth(0, 90)
+                item.setToolTip(value.replace("\n", " · "))
+                material_table.setItem(row_index, column, item)
+            material_table.setRowHeight(row_index, 62)
+        material_table.setColumnWidth(0, 120)
+        material_table.setColumnWidth(1, 240)
         material_table.horizontalHeader().setStretchLastSection(True)
         refresh_binding_choices()
 
@@ -695,17 +703,19 @@ def _station_setup_tab(
 
     def refresh_connections() -> None:
         definition = active_definition() or {}
-        connections = definition.get("connections", [])
-        labels = {
-            binding.get("binding_id"): binding_label(binding)
-            for binding in definition.get("asset_bindings", [])
-        }
+        v3 = is_station_v3_definition(definition)
+        connections = definition.get("logical_connections" if v3 else "connections", [])
+        label_items = definition.get("material_requirements" if v3 else "asset_bindings", [])
+        label_key = "requirement_id" if v3 else "binding_id"
+        labels = {item.get(label_key): binding_label(item) for item in label_items}
         connection_table.setRowCount(len(connections))
         for row, connection in enumerate(connections):
+            endpoint_key = "requirement_id" if v3 else "binding_id"
+            port_key = "logical_port_id" if v3 else "port_id"
             values = (
                 str(connection.get("label", "Liaison")),
-                f"{labels.get(connection.get('from', {}).get('binding_id'), 'Matériel')} · {connection.get('from', {}).get('port_id', '')}",
-                f"{labels.get(connection.get('to', {}).get('binding_id'), 'Matériel')} · {connection.get('to', {}).get('port_id', '')}",
+                f"{labels.get(connection.get('from', {}).get(endpoint_key), 'Matériel')} · {connection.get('from', {}).get(port_key, '')}",
+                f"{labels.get(connection.get('to', {}).get(endpoint_key), 'Matériel')} · {connection.get('to', {}).get(port_key, '')}",
             )
             for column, value in enumerate(values):
                 connection_table.setItem(row, column, qt.QTableWidgetItem(value))

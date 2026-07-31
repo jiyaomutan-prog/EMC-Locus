@@ -202,22 +202,62 @@ function Ensure-Instrument {
     return $asset
 }
 
-function New-StationBinding {
+function New-StationRequirement {
     param(
-        [string]$BindingId,
+        [string]$RequirementId,
         [string]$RoleLabel,
         [object]$Instrument,
-        [object]$Model
+        [string]$PortId,
+        [string]$PortLabel,
+        [ValidateSet("input", "output")]
+        [string]$Directionality
     )
 
     return [ordered]@{
-        binding_id = $BindingId
+        requirement_id = $RequirementId
         role_label = $RoleLabel
+        required = $true
+        selection_policy = "exact_asset"
+        assignment_stage = "setup_definition"
+        substitution_policy = "no_substitution"
+        calibration_requirement = "not_required"
+        exact_asset_id = $Instrument.asset_id
+        logical_ports = @(
+            [ordered]@{
+                logical_port_id = $PortId
+                label = $PortLabel
+                directionality = $Directionality
+                signal_domain = "rf"
+            }
+        )
+    }
+}
+
+function New-StationAssignment {
+    param(
+        [string]$RequirementId,
+        [object]$Instrument,
+        [object]$Model,
+        [string]$PortId
+    )
+
+    return [ordered]@{
+        requirement_id = $RequirementId
         asset_id = $Instrument.asset_id
         asset_revision = [string]$Instrument.revision
+        inventory_code = $Instrument.inventory_code
+        serial_number = $Instrument.serial_number
         equipment_model_id = $Model.identity.equipment_model_id
         equipment_model_revision_id = $Model.current_approved_revision.revision_id
         equipment_model_checksum = $Model.current_approved_revision.definition_checksum
+        selected_ports = @(
+            [ordered]@{
+                logical_port_id = $PortId
+                actual_port_id = $PortId
+            }
+        )
+        assignment_context = "setup_definition"
+        assigned_on = "2026-07-16"
     }
 }
 
@@ -256,26 +296,32 @@ function Ensure-ReadyStation {
 
     $draft = $setup.active_draft_revision
     $definition = [ordered]@{
-        definition_schema_version = "emc-locus.station-measurement-setup-definition.v2"
+        definition_schema_version = "emc-locus.station-measurement-setup-definition.v3"
         setup_id = $setupId
         label = "Chaine RF de verification"
         laboratory_location_id = $Location.location_id
         laboratory_location_label = $Location.label
         planned_use_on = "2026-07-16"
         execution_mode = "investigation"
-        asset_bindings = @(
-            (New-StationBinding -BindingId "rf_generator" -RoleLabel "Generateur RF" -Instrument $Generator -Model $GeneratorModel),
-            (New-StationBinding -BindingId "power_meter" -RoleLabel "Wattmetre RF" -Instrument $PowerMeter -Model $PowerMeterModel)
+        asset_bindings = @()
+        connections = @()
+        correction_selections = @()
+        material_requirements = @(
+            (New-StationRequirement -RequirementId "rf_generator" -RoleLabel "Generateur RF" -Instrument $Generator -PortId "RF_OUT" -PortLabel "Sortie RF" -Directionality "output"),
+            (New-StationRequirement -RequirementId "power_meter" -RoleLabel "Wattmetre RF" -Instrument $PowerMeter -PortId "rf_input" -PortLabel "Entree RF" -Directionality "input")
         )
-        connections = @(
+        material_assignments = @(
+            (New-StationAssignment -RequirementId "rf_generator" -Instrument $Generator -Model $GeneratorModel -PortId "RF_OUT"),
+            (New-StationAssignment -RequirementId "power_meter" -Instrument $PowerMeter -Model $PowerMeterModel -PortId "rf_input")
+        )
+        logical_connections = @(
             [ordered]@{
                 connection_id = "rf_verification_path"
                 label = "Sortie generateur vers entree wattmetre"
-                from = [ordered]@{ binding_id = "rf_generator"; port_id = "RF_OUT" }
-                to = [ordered]@{ binding_id = "power_meter"; port_id = "rf_input" }
+                from = [ordered]@{ requirement_id = "rf_generator"; logical_port_id = "RF_OUT" }
+                to = [ordered]@{ requirement_id = "power_meter"; logical_port_id = "rf_input" }
             }
         )
-        correction_selections = @()
         notes = [ordered]@{ purpose = "Démonstration du contrôle d’aptitude du montage" }
     }
     $saved = Invoke-EmcApi -Method PUT -Path "/api/v1/station-setups/$setupId/revisions/$($draft.revision_id)/definition" -Body ([ordered]@{
@@ -290,6 +336,12 @@ function Ensure-ReadyStation {
     if (-not $readiness.readiness.ready) {
         throw "Demo station readiness is blocked: $($readiness | ConvertTo-Json -Depth 20 -Compress)"
     }
+    Invoke-EmcApi -Method POST -Path "/api/v1/station-setups/$setupId/revisions/$($savedDraft.revision_id)/transitions/qualified" -Body ([ordered]@{
+        expected_definition_checksum = $savedDraft.definition_checksum
+        actor = "demo.technician"
+        reason = "Valider la definition logique de demonstration"
+        operation_id = "seed-planned-preparation-station-qualified"
+    }) | Out-Null
     Invoke-EmcApi -Method POST -Path "/api/v1/station-setups/$setupId/revisions/$($savedDraft.revision_id)/transitions/ready" -Body ([ordered]@{
         expected_definition_checksum = $savedDraft.definition_checksum
         actor = "demo.technician"

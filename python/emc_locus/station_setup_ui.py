@@ -26,11 +26,98 @@ READINESS_DIMENSION_LABELS = {
 def current_station_revision(aggregate: dict[str, Any]) -> dict[str, Any] | None:
     """Return the revision the technician can act on."""
 
-    for key in ("active_draft_revision", "current_ready_revision", "latest_revision"):
+    for key in (
+        "active_draft_revision",
+        "current_qualified_revision",
+        "current_ready_revision",
+        "latest_revision",
+    ):
         value = aggregate.get(key)
         if isinstance(value, dict):
             return value
     return None
+
+
+def station_revision_status_label(revision: dict[str, Any]) -> str:
+    """Return the operator lifecycle label exposed by the Rust projection."""
+
+    return {
+        "draft": "Brouillon",
+        "qualified": "Définition validée",
+        "ready": "Prêt à utiliser",
+        "superseded": "Version remplacée",
+    }.get(str(revision.get("status", "")), "État inconnu")
+
+
+def is_station_v3_definition(definition: dict[str, Any] | None) -> bool:
+    return bool(
+        isinstance(definition, dict)
+        and definition.get("definition_schema_version")
+        == "emc-locus.station-measurement-setup-definition.v3"
+    )
+
+
+def station_material_role_rows(definition: dict[str, Any]) -> list[dict[str, str]]:
+    """Shape v2 bindings or v3 requirements for a read-only Qt table."""
+
+    if not is_station_v3_definition(definition):
+        bindings = definition.get("asset_bindings")
+        if not isinstance(bindings, list):
+            return []
+        return [
+            {
+                "role": str(binding.get("role_label") or "Matériel"),
+                "requirement": "Exemplaire défini dans le montage",
+                "assignment": str(binding.get("asset_id") or "Affectation absente"),
+            }
+            for binding in bindings
+            if isinstance(binding, dict)
+        ]
+
+    requirements = definition.get("material_requirements")
+    assignments = definition.get("material_assignments")
+    assignment_by_requirement = {
+        str(assignment.get("requirement_id")): assignment
+        for assignment in assignments or []
+        if isinstance(assignment, dict) and assignment.get("requirement_id")
+    }
+    rows: list[dict[str, str]] = []
+    for requirement in requirements or []:
+        if not isinstance(requirement, dict):
+            continue
+        requirement_id = str(requirement.get("requirement_id") or "")
+        assignment = assignment_by_requirement.get(requirement_id)
+        policy = {
+            "category_pool": "Catégorie du parc",
+            "capability_match": "Aptitudes techniques",
+            "exact_asset": "Exemplaire imposé",
+        }.get(str(requirement.get("selection_policy")), "Exigence matérielle")
+        stage = {
+            "setup_definition": "affecté dans le montage",
+            "planned_test_preparation": "à choisir lors de la préparation",
+        }.get(str(requirement.get("assignment_stage")), "étape non renseignée")
+        required = "obligatoire" if requirement.get("required") else "optionnel"
+        exact_asset = str(requirement.get("exact_asset_id") or "").strip()
+        if isinstance(assignment, dict):
+            serial = str(assignment.get("serial_number") or "").strip()
+            assignment_label = str(
+                assignment.get("inventory_code") or assignment.get("asset_id") or "Affecté"
+            )
+            if serial:
+                assignment_label += f" · S/N {serial}"
+            assignment_label += " · affectation physique figée"
+        elif exact_asset:
+            assignment_label = f"Exemplaire imposé : {exact_asset} · affectation à finaliser"
+        else:
+            assignment_label = "Aucun exemplaire affecté"
+        rows.append(
+            {
+                "role": str(requirement.get("role_label") or requirement_id or "Rôle"),
+                "requirement": f"{policy} · {required} · {stage}",
+                "assignment": assignment_label,
+            }
+        )
+    return rows
 
 
 def eligible_station_instruments(payload: dict[str, Any]) -> list[dict[str, Any]]:

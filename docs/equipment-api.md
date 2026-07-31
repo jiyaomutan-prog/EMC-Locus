@@ -416,3 +416,18 @@ An acquisition channel recipe links approved DAQ, optional sensor, scaling, and
 correction definitions into a reusable logical output channel such as
 `current_A`. It is not a campaign execution package and does not start a
 measurement.
+
+## Fleet Evidence Used By Station V3
+
+Station material matching never treats an equipment model as a physical asset.
+For each fleet candidate the agent reads the exact immutable approved model pin
+and uses its category, stable capability kinds, specifications, ports and
+communication interfaces. A model-local capability id is supporting evidence,
+not a portable cross-model contract.
+
+An exact `asset_id` in a station requirement is a design constraint only.
+Current service state, administrative availability, reservation/test usage,
+location, metrology and correction readiness still determine whether the asset
+can be assigned for the intended use. Assignment snapshots retain asset and
+model revisions so later catalogue or fleet changes cannot silently alter a
+qualified setup.

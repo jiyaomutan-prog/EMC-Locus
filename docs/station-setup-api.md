@@ -1,5 +1,8 @@
 # Physical Station Setup API
 
+Version `0.22.1` adds the typed v3 requirement/assignment contract described
+below. Historical v1/v2 sections remain as compatibility documentation.
+
 Version `0.17.0` exposes one local-agent workflow for preparing a real
 measurement setup. The API is revisioned and local-first. It prepares the
 physical chain; it does not control instruments or process measurement data.
@@ -17,6 +20,8 @@ POST /api/v1/station-setups/{setup_id}/revisions
 GET  /api/v1/station-setups/{setup_id}/revisions/{revision_id}
 PUT  /api/v1/station-setups/{setup_id}/revisions/{revision_id}/definition
 GET  /api/v1/station-setups/{setup_id}/revisions/{revision_id}/readiness
+GET  /api/v1/station-setups/{setup_id}/revisions/{revision_id}/material-requirements/{requirement_id}/candidates
+POST /api/v1/station-setups/{setup_id}/revisions/{revision_id}/transitions/qualified
 POST /api/v1/station-setups/{setup_id}/revisions/{revision_id}/transitions/ready
 
 GET  /api/v1/station-setups/{setup_id}/audit-events
@@ -159,3 +164,33 @@ operation or outbox evidence.
 
 Authenticated identity, RBAC, electronic signatures, central synchronization,
 real acquisition and correction application are outside this release.
+
+## Version 3 Material Requirements
+
+`emc-locus.station-measurement-setup-definition.v3` replaces immediate asset
+bindings with two first-class collections:
+
+- `material_requirements` describes category pools, stable capability matches
+  or one imposed exact `asset_id` using logical ports;
+- `material_assignments` pins the selected physical asset revision, inventory
+  and serial snapshots, exact immutable model revision/checksum, assignment
+  context and logical-to-physical port mappings.
+
+`selection_policy` is `category_pool`, `capability_match` or `exact_asset`.
+`assignment_stage` is `setup_definition` or `planned_test_preparation`.
+Substitution is explicit; `exact_asset` always means no silent substitution.
+An exact asset may be recorded while operationally blocked, but it cannot be
+assigned or make the setup ready.
+
+The requirement-specific candidate route requires `planned_use_on`,
+`execution_mode` and `laboratory_location_id`; it accepts an optional
+`excluded_schedule_item_code`. Each result exposes independent
+`requirement_compatible`, `operationally_eligible` and `assignable` states,
+technical/driver/port evidence, correction readiness, blockers, warnings and
+next actions. Rust owns all matching and unit conversion.
+
+`qualified` freezes a logically coherent definition that may retain mandatory
+roles deferred to planned-test preparation. `ready` requires every mandatory
+assignment and all contextual checks. Deriving from v2 with
+`upgrade_to_v3=true` creates an audited child draft and leaves source JSON and
+checksum unchanged.

@@ -33,7 +33,10 @@ use crate::station_setup_repository::{
     list_station_setup_identities, load_station_setup_revision, open_station_connection,
     sha256_text, StoredStationSetupRevision,
 };
-use crate::station_setup_service::assess_station_setup_readiness_for_context;
+use crate::station_setup_service::{
+    assess_station_setup_readiness_for_context, list_station_material_candidates,
+    ListStationMaterialCandidatesInput,
+};
 use crate::test_template_repository::{
     list_test_template_identities, load_current_approved_test_template_revision,
     load_test_template_revision, open_test_template_connection, StoredTestTemplateRevision,
@@ -46,11 +49,12 @@ use emc_locus_core::{
     AuditReason, EquipmentModelDefinition, PlannedTestInstrumentAssignment,
     PlannedTestMaterialCompatibility, PlannedTestPreparationAssessmentInput,
     PlannedTestPreparationDefinition, PlannedTestPreparationState, PlannedTestScheduleSnapshot,
-    PreparedEquipmentCapabilitySnapshot, PreparedStationAssetSnapshot,
-    PreparedStationCorrectionSnapshot, PreparedStationSetupSnapshot, PreparedTestMethodSnapshot,
-    ServiceScheduleStatus, StableId, StationMeasurementSetupDefinition, StationReadinessDimension,
-    StationReadinessIssue, StationReadinessSeverity, StationSetupReadiness,
-    StationSetupRevisionStatus,
+    PlannedTestStationMaterialAssignment, PreparedEquipmentCapabilitySnapshot,
+    PreparedStationAssetSnapshot, PreparedStationCorrectionSnapshot, PreparedStationSetupSnapshot,
+    PreparedTestMethodSnapshot, ServiceScheduleStatus, StableId,
+    StationMaterialAssignmentDefinition, StationMeasurementSetupDefinition,
+    StationReadinessDimension, StationReadinessIssue, StationReadinessSeverity,
+    StationSetupReadiness, StationSetupRevisionStatus,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -78,6 +82,7 @@ pub struct AssessPlannedTestPreparationInput {
     pub method_revision_id: String,
     pub station_setup_id: String,
     pub station_setup_revision_id: String,
+    pub station_material_assignments: Vec<PlannedTestStationMaterialAssignment>,
     pub assignments: Vec<PlannedTestInstrumentAssignment>,
     pub context: PlannedTestPreparationOperationContext,
 }
@@ -98,6 +103,7 @@ struct AssessmentCommand<'a> {
     method_revision_id: &'a str,
     station_setup_id: &'a str,
     station_setup_revision_id: &'a str,
+    station_material_assignments: &'a [PlannedTestStationMaterialAssignment],
     assignments: &'a [PlannedTestInstrumentAssignment],
     reason: &'a str,
 }
@@ -211,7 +217,11 @@ pub fn list_planned_test_preparation_options(
     let stations = open_station_connection(storage_root)?;
     let mut station_setups = Vec::new();
     for identity in list_station_setup_identities(&stations)? {
-        let Some(revision_id) = identity.current_ready_revision_id.as_deref() else {
+        let Some(revision_id) = identity
+            .current_qualified_revision_id
+            .as_deref()
+            .or(identity.current_ready_revision_id.as_deref())
+        else {
             continue;
         };
         let revision = load_station_setup_revision(&stations, revision_id)?.ok_or_else(|| {
@@ -226,12 +236,39 @@ pub fn list_planned_test_preparation_options(
             true,
             &schedule,
             &project.execution_mode,
+            &[],
         )?;
+        let mut material_candidates = Vec::new();
+        for requirement in &loaded.snapshot.material_requirements {
+            material_candidates.push(list_station_material_candidates(
+                storage_root,
+                ListStationMaterialCandidatesInput {
+                    setup_id: revision.setup_id.clone(),
+                    revision_id: revision.revision_id.clone(),
+                    requirement_id: requirement.requirement_id.clone(),
+                    planned_use_on: scheduled_date(&schedule.planned_start_at)?.to_owned(),
+                    execution_mode: project.execution_mode.clone(),
+                    laboratory_location_id: schedule.laboratory_location_id.clone().ok_or_else(
+                        || {
+                            AgentError::new(
+                                "planned_test_location_identity_missing",
+                                "the scheduled test requires a stable laboratory location",
+                            )
+                        },
+                    )?,
+                    excluded_schedule_item_code: Some(schedule.item_code.clone()),
+                },
+            )?);
+        }
         let blocking_reasons = loaded
             .readiness
             .issues
             .iter()
             .filter(|issue| issue.severity == emc_locus_core::StationReadinessSeverity::Blocking)
+            .filter(|issue| {
+                loaded.snapshot.revision_status != StationSetupRevisionStatus::Qualified
+                    || issue.code != "station_required_material_unassigned"
+            })
             .map(station_option_reason)
             .collect::<Vec<_>>();
         let warnings = loaded
@@ -242,11 +279,13 @@ pub fn list_planned_test_preparation_options(
             .map(station_option_reason)
             .collect::<Vec<_>>();
         station_setups.push(PlannedTestPreparationStationOptionDto {
-            eligible: loaded.readiness.ready
-                && loaded.asset_options.iter().all(|option| option.eligible),
+            eligible: loaded.snapshot.revision_status == StationSetupRevisionStatus::Qualified
+                || (loaded.readiness.ready
+                    && loaded.asset_options.iter().all(|option| option.eligible)),
             blocking_reasons,
             warnings,
             asset_options: loaded.asset_options,
+            material_candidates,
             station_setup: loaded.snapshot,
             readiness: loaded.readiness,
         });
@@ -316,6 +355,9 @@ pub fn assess_planned_test_preparation_for_schedule(
             .cmp(&right.slot_id)
             .then_with(|| left.binding_id.cmp(&right.binding_id))
     });
+    input
+        .station_material_assignments
+        .sort_by(|left, right| left.requirement_id.cmp(&right.requirement_id));
     let request_json = render_json(&AssessmentCommand {
         project_code: input.project_code.trim(),
         schedule_item_code: input.schedule_item_code.trim(),
@@ -325,6 +367,7 @@ pub fn assess_planned_test_preparation_for_schedule(
         method_revision_id: input.method_revision_id.trim(),
         station_setup_id: input.station_setup_id.trim(),
         station_setup_revision_id: input.station_setup_revision_id.trim(),
+        station_material_assignments: &input.station_material_assignments,
         assignments: &input.assignments,
         reason: input.context.reason.trim(),
     });
@@ -400,6 +443,7 @@ pub fn assess_planned_test_preparation_for_schedule(
         true,
         &schedule,
         &project.execution_mode,
+        &input.station_material_assignments,
     )?;
     let material_compatibility =
         assess_planned_test_material_compatibility(&method, &station.snapshot, &station.readiness);
@@ -409,6 +453,7 @@ pub fn assess_planned_test_preparation_for_schedule(
         schedule: schedule_snapshot,
         method,
         station_setup: station.snapshot,
+        station_material_assignments: input.station_material_assignments.clone(),
         assignments: input.assignments.clone(),
         station_readiness: station.readiness,
     })
@@ -645,6 +690,7 @@ pub(crate) fn require_planned_test_preparation_for_start(
         false,
         &schedule,
         &project.execution_mode,
+        &definition.station_material_assignments,
     )?;
     if station.snapshot.definition_checksum != definition.station_setup.definition_checksum {
         return Err(AgentError::new(
@@ -657,6 +703,7 @@ pub(crate) fn require_planned_test_preparation_for_start(
             schedule: schedule_snapshot(&schedule, &project.execution_mode)?,
             method,
             station_setup: station.snapshot,
+            station_material_assignments: definition.station_material_assignments.clone(),
             assignments: definition.assignments.clone(),
             station_readiness: station.readiness,
         })
@@ -680,6 +727,270 @@ struct LoadedStationSnapshot {
     snapshot: PreparedStationSetupSnapshot,
     readiness: StationSetupReadiness,
     asset_options: Vec<crate::fleet_dto::ExecutablePhysicalAssetOptionDto>,
+}
+
+struct ResolvedStationMaterial {
+    binding_id: String,
+    requirement_id: Option<String>,
+    role_label: String,
+    asset_id: String,
+    asset_revision: String,
+    equipment_model_id: String,
+    equipment_model_revision_id: String,
+    equipment_model_checksum: String,
+    selected_ports: Vec<emc_locus_core::StationPhysicalPortMappingDefinition>,
+}
+
+fn resolve_planned_station_materials(
+    storage_root: &Path,
+    revision: &StoredStationSetupRevision,
+    schedule: &StoredServiceScheduleItem,
+    execution_mode: &str,
+    selections: &[PlannedTestStationMaterialAssignment],
+    definition: &mut StationMeasurementSetupDefinition,
+) -> Result<(), AgentError> {
+    if selections.is_empty() {
+        return Ok(());
+    }
+    if definition.definition_schema_version
+        != emc_locus_core::STATION_SETUP_DEFINITION_SCHEMA_VERSION
+    {
+        return Err(AgentError::new(
+            "planned_test_station_material_assignments_not_supported",
+            "deferred station material assignments require a station v3 revision",
+        ));
+    }
+    let location_id = schedule.laboratory_location_id.clone().ok_or_else(|| {
+        AgentError::new(
+            "planned_test_location_identity_missing",
+            "the scheduled test requires a stable laboratory location",
+        )
+    })?;
+    let mut requirement_ids = std::collections::BTreeSet::new();
+    let mut asset_ids = std::collections::BTreeSet::new();
+    for selection in selections {
+        validate_id(&selection.requirement_id, "requirement_id")?;
+        validate_id(&selection.asset_id, "asset_id")?;
+        if !requirement_ids.insert(selection.requirement_id.as_str()) {
+            return Err(AgentError::with_details(
+                "invalid_planned_test_preparation_request",
+                "a station material requirement can only be assigned once",
+                json!({ "requirement_id": selection.requirement_id }),
+            ));
+        }
+        if !asset_ids.insert(selection.asset_id.as_str()) {
+            return Err(AgentError::with_details(
+                "invalid_planned_test_preparation_request",
+                "a physical asset can only satisfy one station material requirement",
+                json!({ "asset_id": selection.asset_id }),
+            ));
+        }
+        let requirement = definition
+            .material_requirements
+            .iter()
+            .find(|requirement| requirement.requirement_id == selection.requirement_id)
+            .ok_or_else(|| {
+                AgentError::with_details(
+                    "planned_test_station_material_requirement_not_found",
+                    "the selected station material requirement does not exist",
+                    json!({ "requirement_id": selection.requirement_id }),
+                )
+            })?;
+        let candidates = list_station_material_candidates(
+            storage_root,
+            ListStationMaterialCandidatesInput {
+                setup_id: revision.setup_id.clone(),
+                revision_id: revision.revision_id.clone(),
+                requirement_id: selection.requirement_id.clone(),
+                planned_use_on: scheduled_date(&schedule.planned_start_at)?.to_owned(),
+                execution_mode: execution_mode.to_owned(),
+                laboratory_location_id: location_id.clone(),
+                excluded_schedule_item_code: Some(schedule.item_code.clone()),
+            },
+        )?;
+        let candidate = candidates
+            .candidates
+            .into_iter()
+            .find(|candidate| candidate.asset.asset_id == selection.asset_id)
+            .ok_or_else(|| {
+                AgentError::with_details(
+                    "planned_test_station_material_candidate_not_found",
+                    "the selected asset is not a candidate for this station requirement",
+                    json!({
+                        "requirement_id": selection.requirement_id,
+                        "asset_id": selection.asset_id,
+                    }),
+                )
+            })?;
+        if !candidate.assignable {
+            return Err(AgentError::with_details(
+                "planned_test_station_material_not_assignable",
+                "the selected asset is not operationally assignable for the planned use",
+                json!({
+                    "requirement_id": selection.requirement_id,
+                    "asset_id": selection.asset_id,
+                    "requirement_compatible": candidate.requirement_compatible,
+                    "operationally_eligible": candidate.operationally_eligible,
+                    "compatibility_blockers": candidate.compatibility_blockers,
+                    "operational_blockers": candidate.operational_blockers,
+                    "next_actions": candidate.next_actions,
+                }),
+            ));
+        }
+        validate_selected_station_ports(requirement, selection, &candidate)?;
+        let model_id = candidate
+            .asset
+            .equipment_model_id
+            .clone()
+            .ok_or_else(|| missing_candidate_model_pin(&selection.asset_id))?;
+        let model_revision_id = candidate
+            .asset
+            .equipment_model_revision_id
+            .clone()
+            .ok_or_else(|| missing_candidate_model_pin(&selection.asset_id))?;
+        let model_checksum = candidate
+            .asset
+            .equipment_model_checksum
+            .clone()
+            .ok_or_else(|| missing_candidate_model_pin(&selection.asset_id))?;
+        let assignment = StationMaterialAssignmentDefinition {
+            requirement_id: selection.requirement_id.clone(),
+            asset_id: candidate.asset.asset_id,
+            asset_revision: candidate.asset.revision.to_string(),
+            inventory_code: candidate.asset.inventory_code,
+            serial_number: candidate.asset.serial_number,
+            equipment_model_id: model_id,
+            equipment_model_revision_id: model_revision_id,
+            equipment_model_checksum: model_checksum,
+            selected_ports: selection.selected_ports.clone(),
+            assignment_context: "planned_test_preparation".to_owned(),
+            assigned_on: scheduled_date(&schedule.planned_start_at)?.to_owned(),
+        };
+        definition
+            .material_assignments
+            .retain(|current| current.requirement_id != selection.requirement_id);
+        definition.material_assignments.push(assignment);
+    }
+    definition.canonicalize().map_err(|validation| {
+        AgentError::with_details(
+            "invalid_planned_test_preparation_request",
+            "the resolved station material assignments are structurally invalid",
+            json!({ "validation": validation }),
+        )
+    })?;
+    Ok(())
+}
+
+fn validate_selected_station_ports(
+    requirement: &emc_locus_core::StationMaterialRequirementDefinition,
+    selection: &PlannedTestStationMaterialAssignment,
+    candidate: &crate::station_setup_dto::StationMaterialCandidateDto,
+) -> Result<(), AgentError> {
+    let selected_by_logical_port = selection
+        .selected_ports
+        .iter()
+        .map(|mapping| {
+            (
+                mapping.logical_port_id.as_str(),
+                mapping.actual_port_id.as_str(),
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    if selected_by_logical_port.len() != selection.selected_ports.len() {
+        return Err(AgentError::new(
+            "planned_test_station_port_mapping_invalid",
+            "each logical station port can only be resolved once",
+        ));
+    }
+    for logical_port in &requirement.logical_ports {
+        let actual_port_id = selected_by_logical_port
+            .get(logical_port.logical_port_id.as_str())
+            .copied()
+            .ok_or_else(|| {
+                AgentError::with_details(
+                    "planned_test_station_port_mapping_required",
+                    "each logical station port must be resolved to an actual model port",
+                    json!({
+                        "requirement_id": requirement.requirement_id,
+                        "logical_port_id": logical_port.logical_port_id,
+                    }),
+                )
+            })?;
+        if !candidate
+            .logical_port_resolution_candidates
+            .get(&logical_port.logical_port_id)
+            .is_some_and(|ports| ports.iter().any(|port_id| port_id == actual_port_id))
+        {
+            return Err(AgentError::with_details(
+                "planned_test_station_port_mapping_incompatible",
+                "the selected actual port does not satisfy the logical station port",
+                json!({
+                    "requirement_id": requirement.requirement_id,
+                    "logical_port_id": logical_port.logical_port_id,
+                    "actual_port_id": actual_port_id,
+                }),
+            ));
+        }
+    }
+    if selection.selected_ports.len() != requirement.logical_ports.len() {
+        return Err(AgentError::new(
+            "planned_test_station_port_mapping_invalid",
+            "selected station ports must match the declared logical ports exactly",
+        ));
+    }
+    Ok(())
+}
+
+fn missing_candidate_model_pin(asset_id: &str) -> AgentError {
+    AgentError::with_details(
+        "planned_test_station_candidate_model_pin_missing",
+        "the selected asset has no immutable approved equipment model pin",
+        json!({ "asset_id": asset_id }),
+    )
+}
+
+fn resolved_station_materials(
+    definition: &StationMeasurementSetupDefinition,
+) -> Vec<ResolvedStationMaterial> {
+    let mut materials = definition
+        .asset_bindings
+        .iter()
+        .map(|binding| ResolvedStationMaterial {
+            binding_id: binding.binding_id.clone(),
+            requirement_id: None,
+            role_label: binding.role_label.clone(),
+            asset_id: binding.asset_id.clone(),
+            asset_revision: binding.asset_revision.clone(),
+            equipment_model_id: binding.equipment_model_id.clone(),
+            equipment_model_revision_id: binding.equipment_model_revision_id.clone(),
+            equipment_model_checksum: binding.equipment_model_checksum.clone(),
+            selected_ports: Vec::new(),
+        })
+        .collect::<Vec<_>>();
+    materials.extend(
+        definition
+            .material_assignments
+            .iter()
+            .filter_map(|assignment| {
+                let requirement = definition
+                    .material_requirements
+                    .iter()
+                    .find(|requirement| requirement.requirement_id == assignment.requirement_id)?;
+                Some(ResolvedStationMaterial {
+                    binding_id: assignment.requirement_id.clone(),
+                    requirement_id: Some(assignment.requirement_id.clone()),
+                    role_label: requirement.role_label.clone(),
+                    asset_id: assignment.asset_id.clone(),
+                    asset_revision: assignment.asset_revision.clone(),
+                    equipment_model_id: assignment.equipment_model_id.clone(),
+                    equipment_model_revision_id: assignment.equipment_model_revision_id.clone(),
+                    equipment_model_checksum: assignment.equipment_model_checksum.clone(),
+                    selected_ports: assignment.selected_ports.clone(),
+                })
+            }),
+    );
+    materials.sort_by(|left, right| left.binding_id.cmp(&right.binding_id));
+    materials
 }
 
 fn station_option_reason(issue: &StationReadinessIssue) -> AssetSelectionReasonDto {
@@ -788,20 +1099,30 @@ fn station_snapshot(
     require_ready: bool,
     schedule: &StoredServiceScheduleItem,
     execution_mode: &str,
+    material_assignments: &[PlannedTestStationMaterialAssignment],
 ) -> Result<LoadedStationSnapshot, AgentError> {
-    let status = parse_station_status(&revision.status)?;
+    let status = if revision.status == "draft" && revision.qualified_at.is_some() {
+        StationSetupRevisionStatus::Qualified
+    } else {
+        parse_station_status(&revision.status)?
+    };
     let allowed = if require_ready {
-        status == StationSetupRevisionStatus::Ready
+        matches!(
+            status,
+            StationSetupRevisionStatus::Qualified | StationSetupRevisionStatus::Ready
+        )
     } else {
         matches!(
             status,
-            StationSetupRevisionStatus::Ready | StationSetupRevisionStatus::Superseded
+            StationSetupRevisionStatus::Qualified
+                | StationSetupRevisionStatus::Ready
+                | StationSetupRevisionStatus::Superseded
         )
     };
     if !allowed {
         return Err(AgentError::with_details(
             "planned_test_station_setup_not_ready",
-            "only a ready station setup can be selected for preparation",
+            "only a qualified or ready station setup can be selected for preparation",
             json!({ "revision_id": revision.revision_id, "status": revision.status }),
         ));
     }
@@ -829,6 +1150,18 @@ fn station_snapshot(
         ));
     }
 
+    let mut contextual_definition = definition;
+    contextual_definition.planned_use_on = scheduled_date(&schedule.planned_start_at)?.to_owned();
+    contextual_definition.execution_mode = execution_mode.to_owned();
+    resolve_planned_station_materials(
+        storage_root,
+        revision,
+        schedule,
+        execution_mode,
+        material_assignments,
+        &mut contextual_definition,
+    )?;
+
     let assessed_at = parse_laboratory_instant(&schedule.planned_start_at).map_err(|error| {
         AgentError::with_details(
             "planned_test_schedule_storage_invalid",
@@ -853,15 +1186,16 @@ fn station_snapshot(
     let fleet = open_fleet_connection(storage_root)?;
     let equipment = open_equipment_connection(storage_root)?;
     let mut assets = Vec::new();
-    for binding in &definition.asset_bindings {
-        let asset = load_physical_asset(&fleet, &binding.asset_id)?;
+    let resolved_materials = resolved_station_materials(&contextual_definition);
+    for material in &resolved_materials {
+        let asset = load_physical_asset(&fleet, &material.asset_id)?;
         let selection = asset_options
             .iter()
-            .find(|option| option.asset.asset_id == binding.asset_id);
+            .find(|option| option.asset.asset_id == material.asset_id);
         let model_revision = load_equipment_model_revision(
             &equipment,
-            &binding.equipment_model_id,
-            &binding.equipment_model_revision_id,
+            &material.equipment_model_id,
+            &material.equipment_model_revision_id,
         )?;
         let model = model_revision
             .as_ref()
@@ -873,7 +1207,7 @@ fn station_snapshot(
                     .canonicalize()
                     .ok()
                     .filter(|canonical| {
-                        canonical.definition_checksum == binding.equipment_model_checksum
+                        canonical.definition_checksum == material.equipment_model_checksum
                     })
                     .map(|_| definition)
             });
@@ -895,10 +1229,11 @@ fn station_snapshot(
             .map(|option| option.asset.metrology.clone())
             .unwrap_or_else(|| MetrologyStatusSummaryDto::unavailable(metrology_checked_on));
         assets.push(PreparedStationAssetSnapshot {
-            binding_id: binding.binding_id.clone(),
-            role_label: binding.role_label.clone(),
-            asset_id: binding.asset_id.clone(),
-            asset_revision: binding.asset_revision.clone(),
+            binding_id: material.binding_id.clone(),
+            requirement_id: material.requirement_id.clone(),
+            role_label: material.role_label.clone(),
+            asset_id: material.asset_id.clone(),
+            asset_revision: material.asset_revision.clone(),
             inventory_code: selection
                 .map(|option| option.asset.inventory_code.clone())
                 .unwrap_or_else(|| "Non disponible".to_owned()),
@@ -911,9 +1246,9 @@ fn station_snapshot(
             model_name: selection
                 .map(|option| option.asset.model_name.clone())
                 .unwrap_or_else(|| "Non disponible".to_owned()),
-            equipment_model_id: binding.equipment_model_id.clone(),
-            equipment_model_revision_id: binding.equipment_model_revision_id.clone(),
-            equipment_model_checksum: binding.equipment_model_checksum.clone(),
+            equipment_model_id: material.equipment_model_id.clone(),
+            equipment_model_revision_id: material.equipment_model_revision_id.clone(),
+            equipment_model_checksum: material.equipment_model_checksum.clone(),
             category_code: model
                 .as_ref()
                 .map(|model| model.category_code.clone())
@@ -933,9 +1268,10 @@ fn station_snapshot(
                 .unwrap_or_else(|| "unavailable".to_owned()),
             metrology: metrology.assessment,
             capabilities,
+            selected_ports: material.selected_ports.clone(),
         });
     }
-    let corrections = definition
+    let corrections = contextual_definition
         .correction_selections
         .iter()
         .map(|selection| PreparedStationCorrectionSnapshot {
@@ -953,17 +1289,15 @@ fn station_snapshot(
         revision_number: revision.revision_number,
         revision_status: status,
         definition_checksum: revision.definition_checksum.clone(),
-        label: definition.label.clone(),
-        laboratory_location_id: definition.laboratory_location_id.clone(),
-        laboratory_location_label: definition.laboratory_location_label.clone(),
-        planned_use_on: definition.planned_use_on.clone(),
-        execution_mode: definition.execution_mode.clone(),
+        label: contextual_definition.label.clone(),
+        laboratory_location_id: contextual_definition.laboratory_location_id.clone(),
+        laboratory_location_label: contextual_definition.laboratory_location_label.clone(),
+        planned_use_on: contextual_definition.planned_use_on.clone(),
+        execution_mode: contextual_definition.execution_mode.clone(),
+        material_requirements: contextual_definition.material_requirements.clone(),
         assets,
         corrections,
     };
-    let mut contextual_definition = definition;
-    contextual_definition.planned_use_on = scheduled_date(&schedule.planned_start_at)?.to_owned();
-    contextual_definition.execution_mode = execution_mode.to_owned();
     let mut readiness = assess_station_setup_readiness_for_context(
         storage_root,
         &contextual_definition,
@@ -994,6 +1328,10 @@ fn station_snapshot(
                     .asset_bindings
                     .iter()
                     .any(|binding| binding.asset_id == option.asset.asset_id)
+                    || contextual_definition
+                        .material_assignments
+                        .iter()
+                        .any(|assignment| assignment.asset_id == option.asset.asset_id)
             })
             .collect(),
     })
@@ -1362,8 +1700,13 @@ mod tests {
         VariableLockPolicyKind, VariableValueType, TEST_TEMPLATE_DEFINITION_SCHEMA_VERSION,
     };
     use emc_locus_core::{
-        StationAssetBindingDefinition, StationConnectionDefinition, StationPortEndpoint,
-        STATION_SETUP_DEFINITION_SCHEMA_VERSION,
+        PlannedTestStationMaterialAssignment, StationAssetBindingDefinition,
+        StationCalibrationRequirement, StationCategoryRequirementDefinition,
+        StationConnectionDefinition, StationLogicalConnectionDefinition,
+        StationLogicalPortEndpoint, StationLogicalPortRequirementDefinition,
+        StationMaterialAssignmentStage, StationMaterialRequirementDefinition,
+        StationMaterialSelectionPolicy, StationMaterialSubstitutionPolicy,
+        StationPhysicalPortMappingDefinition, StationPortEndpoint, StationRangeConstraint,
     };
     use rusqlite::{params, Connection};
     use serde_json::Value;
@@ -1376,6 +1719,7 @@ mod tests {
     const METHOD_REVISION_ID: &str = "METHOD-PREP-001-rev-0001";
     const SETUP_ID: &str = "SETUP-PREP-001";
     const SETUP_REVISION_ID: &str = "SETUP-PREP-001-rev-0001";
+    const V3_SETUP_REVISION_ID: &str = "SETUP-PREP-001-rev-0002";
     const MODEL_ID: &str = "MODEL-PREP-001";
     const MODEL_REVISION_ID: &str = "MODEL-PREP-001-rev-0001";
     const ASSET_ID: &str = "ASSET-PREP-001";
@@ -1921,6 +2265,180 @@ mod tests {
         remove_temporary_storage_root(&storage_root);
     }
 
+    #[test]
+    fn qualified_v3_station_resolves_deferred_assets_and_ports_during_preparation() {
+        let storage_root = prepared_storage("planned-test-v3-material-resolution");
+        seed_qualified_v3_station(&storage_root);
+
+        let options =
+            list_planned_test_preparation_options(&storage_root, PROJECT_CODE, ITEM_CODE).unwrap();
+        let options: Value = serde_json::from_str(&options).unwrap();
+        let station = options["station_setups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|option| option["station_setup"]["revision_id"] == V3_SETUP_REVISION_ID)
+            .unwrap();
+        assert_eq!(station["station_setup"]["revision_status"], "qualified");
+        assert_eq!(station["eligible"], true);
+        assert_eq!(station["material_candidates"].as_array().unwrap().len(), 2);
+        assert!(station["material_candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|list| list["candidates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|candidate| candidate["assignable"] == true)));
+
+        let mut input = assessment_input(
+            "op-prep-v3-ready",
+            None,
+            vec![PlannedTestInstrumentAssignment {
+                slot_id: SLOT_ID.to_owned(),
+                binding_id: "receiver-role".to_owned(),
+            }],
+        );
+        input.station_setup_revision_id = V3_SETUP_REVISION_ID.to_owned();
+        input.station_material_assignments = vec![
+            PlannedTestStationMaterialAssignment {
+                requirement_id: "receiver-role".to_owned(),
+                asset_id: ASSET_ID.to_owned(),
+                selected_ports: vec![StationPhysicalPortMappingDefinition {
+                    logical_port_id: "measurement-input".to_owned(),
+                    actual_port_id: "rf_input".to_owned(),
+                }],
+            },
+            PlannedTestStationMaterialAssignment {
+                requirement_id: "source-role".to_owned(),
+                asset_id: SOURCE_ASSET_ID.to_owned(),
+                selected_ports: vec![StationPhysicalPortMappingDefinition {
+                    logical_port_id: "signal-output".to_owned(),
+                    actual_port_id: "rf_output".to_owned(),
+                }],
+            },
+        ];
+        let prepared = assess_planned_test_preparation_for_schedule(&storage_root, input).unwrap();
+        let prepared: Value = serde_json::from_str(&prepared).unwrap();
+        let revision = &prepared["preparation"]["current_revision"];
+        assert_eq!(prepared["preparation"]["current_state"], "ready");
+        assert_eq!(
+            revision["definition"]["station_setup"]["assets"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            revision["definition"]["station_material_assignments"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            revision["definition"]["station_setup"]["assets"][0]["requirement_id"],
+            "receiver-role"
+        );
+        assert_eq!(
+            revision["definition"]["station_setup"]["assets"][0]["selected_ports"][0]
+                ["actual_port_id"],
+            "rf_input"
+        );
+
+        let started = transition_service_schedule_item(
+            &storage_root,
+            start_input(
+                "op-start-v3-ready",
+                1,
+                revision["revision_id"].as_str().unwrap(),
+                revision["definition_checksum"].as_str().unwrap(),
+            ),
+        )
+        .unwrap();
+        let started: Value = serde_json::from_str(&started).unwrap();
+        assert_eq!(started["schedule_item"]["status"], "in_progress");
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn exact_blocked_station_asset_is_visible_but_cannot_be_assigned_in_preparation() {
+        let storage_root = prepared_storage("planned-test-v3-exact-blocked");
+        seed_qualified_v3_station(&storage_root);
+        impose_exact_v3_requirement(&storage_root, ASSET_ID);
+        move_physical_asset(
+            &storage_root,
+            MovePhysicalAssetInput {
+                asset_id: ASSET_ID.to_owned(),
+                expected_revision: 2,
+                destination_location_id: None,
+                context: fleet_context("op-prep-remove-exact-location"),
+            },
+        )
+        .unwrap();
+
+        let options =
+            list_planned_test_preparation_options(&storage_root, PROJECT_CODE, ITEM_CODE).unwrap();
+        let options: Value = serde_json::from_str(&options).unwrap();
+        let candidates = options["station_setups"][0]["material_candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|list| list["requirement_id"] == "receiver-role")
+            .unwrap()["candidates"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0]["asset"]["asset_id"], ASSET_ID);
+        assert_eq!(candidates[0]["exact_asset_required"], true);
+        assert_eq!(candidates[0]["requirement_compatible"], true);
+        assert_eq!(candidates[0]["operationally_eligible"], false);
+        assert!(candidates[0]["operational_blockers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|blocker| blocker["code"] == "location_missing"));
+
+        let mut input = assessment_input(
+            "op-prep-exact-blocked",
+            None,
+            vec![PlannedTestInstrumentAssignment {
+                slot_id: SLOT_ID.to_owned(),
+                binding_id: "receiver-role".to_owned(),
+            }],
+        );
+        input.station_setup_revision_id = V3_SETUP_REVISION_ID.to_owned();
+        input.station_material_assignments = vec![PlannedTestStationMaterialAssignment {
+            requirement_id: "receiver-role".to_owned(),
+            asset_id: ASSET_ID.to_owned(),
+            selected_ports: vec![StationPhysicalPortMappingDefinition {
+                logical_port_id: "measurement-input".to_owned(),
+                actual_port_id: "rf_input".to_owned(),
+            }],
+        }];
+        let error = assess_planned_test_preparation_for_schedule(&storage_root, input).unwrap_err();
+        assert_eq!(error.code, "planned_test_station_material_not_assignable");
+        assert_eq!(
+            error.details.as_ref().unwrap()["operational_blockers"][0]["code"],
+            "location_missing"
+        );
+        let projects = Connection::open(storage_root.join("projects.sqlite")).unwrap();
+        let revision_count: u64 = projects
+            .query_row(
+                "SELECT COUNT(*) FROM planned_test_preparation_revisions",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(revision_count, 0);
+        drop(projects);
+
+        remove_temporary_storage_root(&storage_root);
+    }
+
     fn assessment_input(
         operation_id: &str,
         expected_current_revision_id: Option<&str>,
@@ -1935,6 +2453,7 @@ mod tests {
             method_revision_id: METHOD_REVISION_ID.to_owned(),
             station_setup_id: SETUP_ID.to_owned(),
             station_setup_revision_id: SETUP_REVISION_ID.to_owned(),
+            station_material_assignments: Vec::new(),
             assignments,
             context: PlannedTestPreparationOperationContext {
                 actor: "operateur.cem".to_owned(),
@@ -2322,7 +2841,8 @@ mod tests {
         source_revision: &str,
     ) {
         let definition = StationMeasurementSetupDefinition {
-            definition_schema_version: STATION_SETUP_DEFINITION_SCHEMA_VERSION.to_owned(),
+            definition_schema_version: emc_locus_core::STATION_SETUP_V2_DEFINITION_SCHEMA_VERSION
+                .to_owned(),
             setup_id: SETUP_ID.to_owned(),
             label: "Chaîne émission conduite".to_owned(),
             laboratory_location_id: Some("LAB-LOCATION-CEM-1".to_owned()),
@@ -2362,6 +2882,9 @@ mod tests {
                 },
             }],
             correction_selections: Vec::new(),
+            material_requirements: Vec::new(),
+            material_assignments: Vec::new(),
+            logical_connections: Vec::new(),
             notes: BTreeMap::new(),
         };
         let canonical = definition.canonicalize().unwrap();
@@ -2393,6 +2916,155 @@ mod tests {
             )
             .unwrap();
         transaction.commit().unwrap();
+    }
+
+    fn seed_qualified_v3_station(storage_root: &Path) {
+        let frequency_range = Some(StationRangeConstraint {
+            minimum: Some(150_000.0),
+            maximum: Some(30_000_000.0),
+            unit: "Hz".to_owned(),
+        });
+        let requirement = |requirement_id: &str,
+                           role_label: &str,
+                           logical_port_id: &str,
+                           port_label: &str,
+                           directionality: PortDirectionality| {
+            StationMaterialRequirementDefinition {
+                requirement_id: requirement_id.to_owned(),
+                role_label: role_label.to_owned(),
+                description: "Rôle résolu au moment de la préparation planifiée".to_owned(),
+                required: true,
+                selection_policy: StationMaterialSelectionPolicy::CategoryPool,
+                assignment_stage: StationMaterialAssignmentStage::PlannedTestPreparation,
+                substitution_policy: StationMaterialSubstitutionPolicy::SameCategory,
+                calibration_requirement: StationCalibrationRequirement::NotRequired,
+                category_requirement: Some(StationCategoryRequirementDefinition {
+                    category_id: "emi_receiver".to_owned(),
+                    accept_descendants: true,
+                }),
+                capability_requirement: None,
+                exact_asset_id: None,
+                logical_ports: vec![StationLogicalPortRequirementDefinition {
+                    logical_port_id: logical_port_id.to_owned(),
+                    label: port_label.to_owned(),
+                    directionality,
+                    signal_domain: SignalDomain::Rf,
+                    connector_requirement: Some("N".to_owned()),
+                    impedance_ohm: Some(50.0),
+                    frequency_range: frequency_range.clone(),
+                    voltage_range: None,
+                    current_range: None,
+                    power_range: None,
+                }],
+            }
+        };
+        let definition = StationMeasurementSetupDefinition {
+            definition_schema_version: emc_locus_core::STATION_SETUP_DEFINITION_SCHEMA_VERSION
+                .to_owned(),
+            setup_id: SETUP_ID.to_owned(),
+            label: "Chaîne émission conduite à affecter".to_owned(),
+            laboratory_location_id: Some("LAB-LOCATION-CEM-1".to_owned()),
+            laboratory_location_label: "Poste CEM 1".to_owned(),
+            planned_use_on: "2026-07-16".to_owned(),
+            execution_mode: "investigation".to_owned(),
+            asset_bindings: Vec::new(),
+            connections: Vec::new(),
+            correction_selections: Vec::new(),
+            material_requirements: vec![
+                requirement(
+                    "receiver-role",
+                    "Récepteur de mesure",
+                    "measurement-input",
+                    "Entrée de mesure",
+                    PortDirectionality::Input,
+                ),
+                requirement(
+                    "source-role",
+                    "Source de vérification",
+                    "signal-output",
+                    "Sortie du signal",
+                    PortDirectionality::Output,
+                ),
+            ],
+            material_assignments: Vec::new(),
+            logical_connections: vec![StationLogicalConnectionDefinition {
+                connection_id: "logical-rf-path".to_owned(),
+                label: "Chemin RF logique".to_owned(),
+                from: StationLogicalPortEndpoint {
+                    requirement_id: "source-role".to_owned(),
+                    logical_port_id: "signal-output".to_owned(),
+                },
+                to: StationLogicalPortEndpoint {
+                    requirement_id: "receiver-role".to_owned(),
+                    logical_port_id: "measurement-input".to_owned(),
+                },
+            }],
+            notes: BTreeMap::new(),
+        };
+        let canonical = definition.canonicalize().unwrap();
+        let mut connection = Connection::open(storage_root.join("station.sqlite")).unwrap();
+        let transaction = connection.transaction().unwrap();
+        transaction
+            .execute(
+                concat!(
+                    "INSERT INTO station_setup_revisions (revision_id, setup_id, revision_number, ",
+                    "parent_revision_id, status, definition_schema_version, definition_json, ",
+                    "definition_checksum, readiness_json, created_by, created_at, updated_at, ",
+                    "qualified_at) VALUES (?1, ?2, 2, ?3, 'draft', ?4, ?5, ?6, ",
+                    "'{\"ready\":false,\"checked_on\":\"2026-07-16\",\"issues\":[]}', ",
+                    "'methodiste', ?7, ?7, ?7)"
+                ),
+                params![
+                    V3_SETUP_REVISION_ID,
+                    SETUP_ID,
+                    SETUP_REVISION_ID,
+                    canonical.definition_schema_version,
+                    canonical.canonical_json,
+                    canonical.definition_checksum,
+                    "2026-07-15T09:00:00Z"
+                ],
+            )
+            .unwrap();
+        transaction
+            .execute(
+                "UPDATE station_setup_identities SET current_qualified_revision_id = ?1, updated_at = ?2 WHERE setup_id = ?3",
+                params![V3_SETUP_REVISION_ID, "2026-07-15T09:00:00Z", SETUP_ID],
+            )
+            .unwrap();
+        transaction.commit().unwrap();
+    }
+
+    fn impose_exact_v3_requirement(storage_root: &Path, asset_id: &str) {
+        let connection = Connection::open(storage_root.join("station.sqlite")).unwrap();
+        let definition_json: String = connection
+            .query_row(
+                "SELECT definition_json FROM station_setup_revisions WHERE revision_id = ?1",
+                [V3_SETUP_REVISION_ID],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut definition =
+            StationMeasurementSetupDefinition::from_json_str(&definition_json).unwrap();
+        let requirement = definition
+            .material_requirements
+            .iter_mut()
+            .find(|requirement| requirement.requirement_id == "receiver-role")
+            .unwrap();
+        requirement.selection_policy = StationMaterialSelectionPolicy::ExactAsset;
+        requirement.substitution_policy = StationMaterialSubstitutionPolicy::NoSubstitution;
+        requirement.category_requirement = None;
+        requirement.exact_asset_id = Some(asset_id.to_owned());
+        let canonical = definition.canonicalize().unwrap();
+        connection
+            .execute(
+                "UPDATE station_setup_revisions SET definition_json = ?1, definition_checksum = ?2 WHERE revision_id = ?3",
+                params![
+                    canonical.canonical_json,
+                    canonical.definition_checksum,
+                    V3_SETUP_REVISION_ID
+                ],
+            )
+            .unwrap();
     }
 
     fn repo_root() -> PathBuf {

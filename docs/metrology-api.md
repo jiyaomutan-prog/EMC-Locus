@@ -326,6 +326,35 @@ The response is context-derived and explains the selected source, pinned
 revision/checksum, validity, fallback warning and blocking state. It is not a
 runtime signal-processing operation.
 
+## Calibration, Characterization And Correction In 0.22.1
+
+The existing calibration routes are the authoritative global metrology
+workflow:
+
+```text
+GET  /api/v1/metrology/instruments/{asset_id}/calibrations
+POST /api/v1/metrology/instruments/{asset_id}/calibrations
+GET  /api/v1/metrology/instruments/{asset_id}/status?checked_on=YYYY-MM-DD
+```
+
+LAB CONSOLE now records these events directly. The command validates the civil
+dates, non-empty certificate/provider, supported decision and as-found/as-left
+states, optional adjustment and uncertainty evidence, traceability, proof
+manifest and normal actor/reason/operation context. Duplicate certificate use
+is explicit and operation replay remains idempotent.
+
+A characterization with `source_kind=calibration` only says that measured
+values came from a certificate. It does not satisfy the asset calibration
+requirement. Conversely, a calibration event does not silently create measured
+values or a correction assignment. The staged certificate action reuses the
+reference, provider and content-addressed proof manifest, then asks the operator
+to confirm characterization values separately.
+
+Correction resolution returns a scoped verdict: required corrections are
+available or incomplete. It is not an overall test-readiness claim. Station
+candidate projections present calibration, service, location, correction and
+contextual eligibility independently.
+
 ## Current Boundary
 
 Version `0.22.0` keeps Rust as the source of truth while separating the fleet
@@ -371,9 +400,9 @@ evidence manifests, and revision evidence. The current execution runtime does
 not yet select or apply these corrections; a future test-preparation workflow
 must pin the chosen characterization id and checksum.
 
-Document attachment remains partly split. Characterization evidence can upload
-bytes through the content-addressed metrology file route. Calibration events
-still accept a pre-existing certificate manifest, and standalone instrument
-documents remain a legacy SQLite form until a dedicated agent route is added.
+Document attachment remains partly split. LAB CONSOLE uploads calibration and
+characterization proof bytes through the content-addressed metrology file route
+before submitting their manifest. Standalone instrument documents remain a
+legacy SQLite form until a dedicated agent route is added.
 Optional certificate or instrument-document checksums must be unprefixed
 64-character lowercase hexadecimal SHA-256 digests before storage.

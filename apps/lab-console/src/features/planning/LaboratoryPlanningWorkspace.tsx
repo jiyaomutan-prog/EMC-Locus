@@ -20,7 +20,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, projectApi } from "../../api";
 import { metrologyStatusLabel } from "../../metrologyStatus";
-import { operatorCategoryPath, operatorModelName, operatorRequirementLabel } from "../../operatorEquipmentLabels";
+import { operatorRequirementLabel } from "../../operatorEquipmentLabels";
 import type {
   LaboratoryLocationOption,
   LaboratoryScheduleItem,
@@ -34,6 +34,11 @@ import type {
   PlannedStationSetupSnapshot,
   ServiceScheduleStatus
 } from "../../models/projects";
+import type {
+  StationMaterialCandidate,
+  StationMaterialRequirement,
+  StationMaterialSelectionPolicy
+} from "../../models/stationSetup";
 
 const statusLabels: Record<ServiceScheduleStatus, string> = {
   planned: "Prévu",
@@ -951,6 +956,27 @@ function PreparationWorkspace(props: {
       ]) ?? []
     )
   );
+  const [stationMaterialAssignments, setStationMaterialAssignments] = useState<
+    Record<string, string>
+  >(() =>
+    Object.fromEntries(
+      props.preparation?.current_revision?.definition.station_material_assignments?.map(
+        (assignment) => [assignment.requirement_id, assignment.asset_id]
+      ) ?? []
+    )
+  );
+  const [stationPortAssignments, setStationPortAssignments] = useState<Record<string, string>>(
+    () =>
+      Object.fromEntries(
+        props.preparation?.current_revision?.definition.station_material_assignments?.flatMap(
+          (assignment) =>
+            assignment.selected_ports?.map((mapping) => [
+              `${assignment.requirement_id}:${mapping.logical_port_id}`,
+              mapping.actual_port_id
+            ]) ?? []
+        ) ?? []
+      )
+  );
   const [reason, setReason] = useState("Vérification avant essai");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -1001,14 +1027,64 @@ function PreparationWorkspace(props: {
 
   useEffect(() => {
     if (!options || !method || !stationOption) return;
+    const activeSlots = new Set(method.instrumentation_chain.map((slot) => slot.slot_id));
+    const stationBindingIds = new Set([
+      ...stationOption.station_setup.assets.map((asset) => asset.binding_id),
+      ...(stationOption.station_setup.material_requirements ?? []).map(
+        (requirement) => requirement.requirement_id
+      )
+    ]);
     setAssignments((current) =>
-      retainCompatibleAssignments(
-        current,
-        method.instrumentation_chain.map((slot) => slot.slot_id),
-        materialCompatibility
+      Object.fromEntries(
+        Object.entries(current).filter(
+          ([slotId, bindingId]) => activeSlots.has(slotId) && stationBindingIds.has(bindingId)
+        )
       )
     );
+    const requirementIds = new Set(
+      (stationOption.station_setup.material_requirements ?? []).map(
+        (requirement) => requirement.requirement_id
+      )
+    );
+    setStationMaterialAssignments((current) => {
+      const retained = Object.fromEntries(
+        Object.entries(current).filter(([requirementId]) => requirementIds.has(requirementId))
+      );
+      for (const asset of stationOption.station_setup.assets) {
+        if (asset.requirement_id && requirementIds.has(asset.requirement_id)) {
+          retained[asset.requirement_id] = asset.asset_id;
+        }
+      }
+      return retained;
+    });
+    setStationPortAssignments((current) => {
+      const retained = Object.fromEntries(
+        Object.entries(current).filter(([key]) => requirementIds.has(key.split(":", 1)[0]))
+      );
+      for (const asset of stationOption.station_setup.assets) {
+        if (!asset.requirement_id || !requirementIds.has(asset.requirement_id)) continue;
+        for (const mapping of asset.selected_ports ?? []) {
+          retained[`${asset.requirement_id}:${mapping.logical_port_id}`] = mapping.actual_port_id;
+        }
+      }
+      return retained;
+    });
   }, [materialCompatibility, method, options, stationOption]);
+
+  const stationRequirements = stationOption?.station_setup.material_requirements ?? [];
+  const unresolvedRequiredStationRoles = stationRequirements.filter(
+    (requirement) => requirement.required && !stationMaterialAssignments[requirement.requirement_id]
+  );
+  const unresolvedStationPorts = stationRequirements.flatMap((requirement) =>
+    requirement.logical_ports.filter(
+      (port) =>
+        stationMaterialAssignments[requirement.requirement_id]
+        && !stationPortAssignments[`${requirement.requirement_id}:${port.logical_port_id}`]
+    )
+  );
+  const unresolvedMethodRoles = method?.instrumentation_chain.filter(
+    (slot) => slot.required && !assignments[slot.slot_id]
+  ) ?? [];
 
   async function assess() {
     if (!method || !stationOption) return;
@@ -1021,6 +1097,20 @@ function PreparationWorkspace(props: {
         method_revision_id: method.revision_id,
         station_setup_id: stationOption.station_setup.setup_id,
         station_setup_revision_id: stationOption.station_setup.revision_id,
+        station_material_assignments: stationRequirements
+          .map((requirement) => ({
+            requirement_id: requirement.requirement_id,
+            asset_id: stationMaterialAssignments[requirement.requirement_id] ?? "",
+            selected_ports: requirement.logical_ports
+              .map((port) => ({
+                logical_port_id: port.logical_port_id,
+                actual_port_id:
+                  stationPortAssignments[`${requirement.requirement_id}:${port.logical_port_id}`]
+                    ?? ""
+              }))
+              .filter((mapping) => mapping.actual_port_id)
+          }))
+          .filter((assignment) => assignment.asset_id),
         assignments: method.instrumentation_chain
           .map((slot) => ({ slot_id: slot.slot_id, binding_id: assignments[slot.slot_id] ?? "" }))
           .filter((assignment) => assignment.binding_id),
@@ -1108,7 +1198,7 @@ function PreparationWorkspace(props: {
 
       <section className="preparationSection">
         <div className="preparationSectionTitle">
-          <span>2</span><div><strong>Montage de mesure</strong><small>Matériels et corrections figés dans Test Station</small></div>
+          <span>2</span><div><strong>Montage de mesure</strong><small>Définition logique validée ou montage déjà prêt</small></div>
         </div>
         <label>
           Montage
@@ -1122,7 +1212,9 @@ function PreparationWorkspace(props: {
             <span>
               {stationOption.readiness.ready
                 ? "Montage contrôlé pour la date prévue"
-                : `${stationOption.readiness.issues.filter((issue) => issue.severity === "blocking").length} point(s) bloquant(s) sur le montage`}
+                : stationOption.station_setup.revision_status === "qualified"
+                  ? "Définition validée : les exemplaires seront affectés pour ce créneau"
+                  : `${stationOption.readiness.issues.filter((issue) => issue.severity === "blocking").length} point(s) bloquant(s) sur le montage`}
             </span>
           </div>
         )}
@@ -1130,22 +1222,162 @@ function PreparationWorkspace(props: {
         {stationOption && stationOption.warnings.length > 0 && <div className="selectionReasonPanel"><strong>Points d'attention</strong><ul>{stationOption.warnings.map((reason) => <li key={reason.code}>{reason.message} <span>{reason.next_action}</span></li>)}</ul></div>}
       </section>
 
+      {stationOption && stationRequirements.length > 0 && (
+        <section className="preparationSection">
+          <div className="preparationSectionTitle">
+            <span>3</span><div><strong>Matériels du montage</strong><small>Exemplaires physiques et ports figés pour ce créneau</small></div>
+          </div>
+          <div className="instrumentAssignmentList">
+            {stationRequirements.map((requirement) => {
+              const candidateList = stationOption.material_candidates?.find(
+                (list) => list.requirement_id === requirement.requirement_id
+              );
+              const selectedAssetId = stationMaterialAssignments[requirement.requirement_id] ?? "";
+              const selectedCandidate = candidateList?.candidates.find(
+                (candidate) => candidate.asset.asset_id === selectedAssetId
+              );
+              const exactCandidate = requirement.exact_asset_id
+                ? candidateList?.candidates.find(
+                    (candidate) => candidate.asset.asset_id === requirement.exact_asset_id
+                  )
+                : undefined;
+              const visibleCandidate = selectedCandidate ?? exactCandidate;
+              const assignableCandidates = candidateList?.candidates.filter(
+                (candidate) => candidate.assignable
+              ) ?? [];
+              return (
+                <div className="stationMaterialPreparation" key={requirement.requirement_id}>
+                  <div className="stationMaterialPreparationHeader">
+                    <div>
+                      <strong>{requirement.role_label}</strong>
+                      <small>
+                        {requirement.required ? "Obligatoire" : "Optionnel"} · {stationSelectionPolicyLabel(requirement.selection_policy)}
+                      </small>
+                    </div>
+                    {visibleCandidate && (
+                      <span className={`candidateState candidateState-${visibleCandidate.assignable ? "assignable" : "blocked"}`}>
+                        {visibleCandidate.assignable
+                          ? "Compatible et disponible"
+                          : visibleCandidate.requirement_compatible
+                            ? "Compatible mais indisponible"
+                            : "Incompatible avec les aptitudes requises"}
+                      </span>
+                    )}
+                  </div>
+                  {requirement.description && <p>{requirement.description}</p>}
+                  <p className="preparationContextLine">{stationRequirementSummary(requirement)}</p>
+                  {requirement.exact_asset_id && exactCandidate && (
+                    <p className="exactAssetNotice">
+                      Exemplaire imposé : <strong>{exactCandidate.asset.inventory_code}</strong>
+                    </p>
+                  )}
+                  <label>
+                    Exemplaire affecté pour l'utilisation prévue
+                    <select
+                      aria-label={`Exemplaire pour ${requirement.role_label}`}
+                      disabled={assignableCandidates.length === 0}
+                      value={selectedAssetId}
+                      onChange={(event) => {
+                        const assetId = event.target.value;
+                        setStationMaterialAssignments((current) => ({
+                          ...current,
+                          [requirement.requirement_id]: assetId
+                        }));
+                        setStationPortAssignments((current) =>
+                          Object.fromEntries(
+                            Object.entries(current).filter(
+                              ([key]) => !key.startsWith(`${requirement.requirement_id}:`)
+                            )
+                          )
+                        );
+                      }}
+                    >
+                      <option value="">Non affecté</option>
+                      {candidateList && plannedMaterialCandidateOptions(candidateList.candidates)}
+                    </select>
+                  </label>
+                  {selectedCandidate && requirement.logical_ports.length > 0 && (
+                    <div className="stationPortResolution">
+                      <strong>Correspondance des ports</strong>
+                      {requirement.logical_ports.map((port) => (
+                        <label key={port.logical_port_id}>
+                          {port.label}
+                          <select
+                            value={stationPortAssignments[`${requirement.requirement_id}:${port.logical_port_id}`] ?? ""}
+                            onChange={(event) =>
+                              setStationPortAssignments((current) => ({
+                                ...current,
+                                [`${requirement.requirement_id}:${port.logical_port_id}`]: event.target.value
+                              }))
+                            }
+                          >
+                            <option value="">Choisir le port physique</option>
+                            {(selectedCandidate.logical_port_resolution_candidates[port.logical_port_id] ?? []).map(
+                              (portId) => <option key={portId} value={portId}>{portId}</option>
+                            )}
+                          </select>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  {visibleCandidate && !visibleCandidate.assignable && (
+                    <div className="selectionReasonPanel" role="status">
+                      <strong>{requirement.selection_policy === "exact_asset" ? "Exemplaire imposé mais non apte" : "Affectation impossible pour le moment"}</strong>
+                      <ul>
+                        {[
+                          ...visibleCandidate.compatibility_blockers.map((reason) => reason.message),
+                          ...visibleCandidate.operational_blockers.map((reason) => reason.message)
+                        ].map((message) => <li key={message}>{message}</li>)}
+                      </ul>
+                      {visibleCandidate.next_actions.map((action) => <small key={action}>{action}</small>)}
+                    </div>
+                  )}
+                  {assignableCandidates.length === 0 && !visibleCandidate && (
+                    <div className="materialCompatibilityEmpty" role="status">
+                      <strong>Aucun exemplaire affectable.</strong>
+                      <span>Les candidats incompatibles ou indisponibles restent visibles avec leurs motifs.</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {method && stationOption && (
         <section className="preparationSection">
           <div className="preparationSectionTitle">
-            <span>3</span><div><strong>Affectation des matériels</strong><small>Un matériel physique pour chaque rôle de la méthode</small></div>
+            <span>{stationRequirements.length > 0 ? "4" : "3"}</span><div><strong>Affectation des matériels</strong><small>Intersection contrôlée par l'agent entre les rôles de la méthode et du montage</small></div>
           </div>
           <div className="instrumentAssignmentList">
             {method.instrumentation_chain.map((slot) => {
               const slotCompatibility = materialCompatibility.filter(
                 (candidate) => candidate.slot_id === slot.slot_id
               );
-              const compatibleAssets = stationOption.station_setup.assets.filter((asset) =>
-                slotCompatibility.some(
-                  (candidate) => candidate.binding_id === asset.binding_id && candidate.compatible
-                )
-                && stationOption.asset_options.find((option) => option.asset.asset_id === asset.asset_id)?.eligible
-              );
+              const preparedMaterials = stationRequirements.length > 0
+                ? stationRequirements
+                    .filter(
+                      (requirement) =>
+                        stationMaterialAssignments[requirement.requirement_id]
+                        && slotCompatibility.some(
+                          (candidate) =>
+                            candidate.binding_id === requirement.requirement_id
+                            && candidate.compatible
+                        )
+                    )
+                    .map((requirement) => ({
+                      bindingId: requirement.requirement_id,
+                      label: `${requirement.role_label} · ${candidateInventoryCode(stationOption, requirement.requirement_id, stationMaterialAssignments[requirement.requirement_id])}`
+                    }))
+                : stationOption.station_setup.assets
+                    .filter((asset) =>
+                      slotCompatibility.some(
+                        (candidate) => candidate.binding_id === asset.binding_id && candidate.compatible
+                      )
+                      && stationOption.asset_options.find((option) => option.asset.asset_id === asset.asset_id)?.eligible
+                    )
+                    .map((asset) => ({ bindingId: asset.binding_id, label: assetOptionLabel(asset) }));
               const firstIneligible = stationOption.station_setup.assets
                 .map((asset) => stationOption.asset_options.find((option) => option.asset.asset_id === asset.asset_id))
                 .find((option) => option && !option.eligible);
@@ -1159,21 +1391,23 @@ function PreparationWorkspace(props: {
                   <div className="materialAssignmentControl">
                     <select
                       aria-label={`Matériel pour ${slot.label}`}
-                      disabled={compatibleAssets.length === 0}
+                      disabled={preparedMaterials.length === 0}
                       value={assignments[slot.slot_id] ?? ""}
                       onChange={(event) =>
                         setAssignments({ ...assignments, [slot.slot_id]: event.target.value })
                       }
                     >
                       <option value="">Non affecté</option>
-                      {plannedAssetOptionGroups(compatibleAssets)}
+                      {preparedMaterials.map((material) => (
+                        <option key={material.bindingId} value={material.bindingId}>{material.label}</option>
+                      ))}
                     </select>
-                    {compatibleAssets.length > 0 && (
+                    {preparedMaterials.length > 0 && (
                       <small className="compatibilityExplanation">
                         Exemplaires du parc compatibles avec {operatorRequirementLabel(slot.required_category || slot.required_capability || "le rôle demandé")}.
                       </small>
                     )}
-                    {compatibleAssets.length === 0 && (
+                    {preparedMaterials.length === 0 && (
                       <div className="materialCompatibilityEmpty" role="status">
                         <strong>Aucun matériel compatible dans ce montage.</strong>
                         {firstIneligible?.blocking_reasons[0] && <span>{firstIneligible.blocking_reasons[0].message}</span>}
@@ -1194,9 +1428,29 @@ function PreparationWorkspace(props: {
           Motif du contrôle
           <input value={reason} onChange={(event) => setReason(event.target.value)} />
         </label>
-        <button disabled={busy || !method || !stationOption?.eligible || !reason.trim()} onClick={() => void assess()}>
+        <button
+          disabled={busy || !method || !stationOption?.eligible || !reason.trim()}
+          onClick={() => void assess()}
+        >
           <ClipboardCheck size={16} /> Vérifier la préparation
         </button>
+        {(unresolvedRequiredStationRoles.length > 0
+          || unresolvedStationPorts.length > 0
+          || unresolvedMethodRoles.length > 0) && (
+          <p className="preparationMissingFields" role="status">
+            Complétez {[
+              unresolvedRequiredStationRoles.length > 0
+                ? `${unresolvedRequiredStationRoles.length} rôle(s) matériel(s) obligatoire(s)`
+                : "",
+              unresolvedStationPorts.length > 0
+                ? `${unresolvedStationPorts.length} correspondance(s) de port`
+                : "",
+              unresolvedMethodRoles.length > 0
+                ? `${unresolvedMethodRoles.length} rôle(s) de méthode`
+                : ""
+            ].filter(Boolean).join(", ")} avant la vérification.
+          </p>
+        )}
       </section>
 
       {historyError && <PreparationSourceError title="Historique de préparation indisponible" detail={`La préparation courante reste consultable. ${historyError}`} />}
@@ -1320,18 +1574,93 @@ function assetOptionLabel(asset: PlannedStationSetupSnapshot["assets"][number]) 
   return `${asset.inventory_code} · ${serial} · ${asset.laboratory_location_label || "Sans emplacement"} · ${plannedServiceLabel(asset.service_state)} · ${plannedAvailabilityLabel(asset.availability_state)} · ${plannedMetrologyLabel(asset)}`;
 }
 
-function plannedAssetOptionGroups(assets: PlannedStationSetupSnapshot["assets"]) {
-  const groups = new Map<string, PlannedStationSetupSnapshot["assets"]>();
-  for (const asset of assets) {
-    const category = operatorCategoryPath(asset.category_code, asset.category_path ?? []).join(" > ");
-    const label = `${category} · ${asset.manufacturer} ${operatorModelName(asset.category_code, asset.model_name, asset.manufacturer === "Demo")}`;
-    groups.set(label, [...(groups.get(label) ?? []), asset]);
-  }
-  return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, "fr")).map(([label, rows]) => (
-    <optgroup key={label} label={label}>
-      {rows.map((asset) => <option key={asset.binding_id} value={asset.binding_id}>{assetOptionLabel(asset)}</option>)}
+function plannedMaterialCandidateOptions(candidates: StationMaterialCandidate[]) {
+  const groups = [
+    {
+      label: "Compatibles et disponibles",
+      rows: candidates.filter((candidate) => candidate.assignable),
+      disabled: false
+    },
+    {
+      label: "Compatibles mais indisponibles",
+      rows: candidates.filter(
+        (candidate) => candidate.requirement_compatible && !candidate.operationally_eligible
+      ),
+      disabled: true
+    },
+    {
+      label: "Incompatibles avec les aptitudes requises",
+      rows: candidates.filter((candidate) => !candidate.requirement_compatible),
+      disabled: true
+    }
+  ];
+  return groups.filter((group) => group.rows.length > 0).map((group) => (
+    <optgroup key={group.label} label={group.label}>
+      {group.rows.map((candidate) => (
+        <option
+          key={candidate.asset.asset_id}
+          value={candidate.asset.asset_id}
+          disabled={group.disabled}
+        >
+          {candidate.asset.inventory_code} · {candidate.asset.manufacturer} {candidate.asset.model_name}
+          {candidate.operational_blockers[0] ? ` · ${candidate.operational_blockers[0].message}` : ""}
+        </option>
+      ))}
     </optgroup>
   ));
+}
+
+function candidateInventoryCode(
+  option: PlannedTestPreparationOptions["station_setups"][number],
+  requirementId: string,
+  assetId: string
+) {
+  return option.material_candidates
+    ?.find((list) => list.requirement_id === requirementId)
+    ?.candidates.find((candidate) => candidate.asset.asset_id === assetId)
+    ?.asset.inventory_code ?? "Exemplaire sélectionné";
+}
+
+function stationSelectionPolicyLabel(policy: StationMaterialSelectionPolicy) {
+  return {
+    category_pool: "catégorie du parc",
+    capability_match: "aptitudes techniques",
+    exact_asset: "exemplaire imposé"
+  }[policy];
+}
+
+function stationRequirementSummary(requirement: StationMaterialRequirement) {
+  if (requirement.selection_policy === "category_pool") {
+    return `Catégorie : ${operatorRequirementLabel(requirement.category_requirement?.category_id ?? "non définie")}${requirement.category_requirement?.accept_descendants ? " et sous-catégories" : ""}`;
+  }
+  if (requirement.selection_policy === "exact_asset") {
+    return "Aucune substitution silencieuse n'est autorisée pour cet exemplaire.";
+  }
+  const capability = requirement.capability_requirement;
+  const constraints = [
+    capability?.capability_kind
+      ? `Aptitude : ${operatorRequirementLabel(capability.capability_kind)}`
+      : "Aptitude non définie",
+    capability?.frequency_range
+      ? `Fréquence ${rangeSummary(capability.frequency_range)}`
+      : "",
+    capability?.detector_modes?.length
+      ? `Modes ${capability.detector_modes.join(", ")}`
+      : "",
+    capability?.required_driver_action
+      ? `Action pilote ${capability.required_driver_action}`
+      : ""
+  ].filter(Boolean);
+  return constraints.join(" · ");
+}
+
+function rangeSummary(range: { minimum?: number; maximum?: number; unit: string }) {
+  if (range.minimum !== undefined && range.maximum !== undefined) {
+    return `${range.minimum} à ${range.maximum} ${range.unit}`;
+  }
+  if (range.minimum !== undefined) return `≥ ${range.minimum} ${range.unit}`;
+  if (range.maximum !== undefined) return `≤ ${range.maximum} ${range.unit}`;
+  return range.unit;
 }
 
 function plannedServiceLabel(value?: string) {

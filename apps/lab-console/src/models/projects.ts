@@ -1,3 +1,8 @@
+import type {
+  StationMaterialCandidates,
+  StationMaterialRequirement
+} from "./stationSetup";
+
 export type ProjectExecutionMode = "accredited" | "non_accredited" | "investigation";
 
 export type ProjectStage =
@@ -182,6 +187,7 @@ export interface PlannedTestMethodSnapshot {
 
 export interface PlannedStationAssetSnapshot {
   binding_id: string;
+  requirement_id?: string;
   role_label: string;
   asset_id: string;
   asset_revision: string;
@@ -203,19 +209,21 @@ export interface PlannedStationAssetSnapshot {
     label: string;
     capability_kind: string;
   }>;
+  selected_ports?: Array<{ logical_port_id: string; actual_port_id: string }>;
 }
 
 export interface PlannedStationSetupSnapshot {
   setup_id: string;
   revision_id: string;
   revision_number: number;
-  revision_status: "ready" | "superseded";
+  revision_status: "qualified" | "ready" | "superseded";
   definition_checksum: string;
   label: string;
   laboratory_location_id: string | null;
   laboratory_location_label: string;
   planned_use_on: string;
   execution_mode: ProjectExecutionMode;
+  material_requirements?: StationMaterialRequirement[];
   assets: PlannedStationAssetSnapshot[];
   corrections?: Array<{
     selection_id: string;
@@ -247,6 +255,11 @@ export interface PlannedTestPreparationDefinition {
   schedule: PlannedTestScheduleSnapshot;
   method: PlannedTestMethodSnapshot;
   station_setup: PlannedStationSetupSnapshot;
+  station_material_assignments?: Array<{
+    requirement_id: string;
+    asset_id: string;
+    selected_ports?: Array<{ logical_port_id: string; actual_port_id: string }>;
+  }>;
   assignments: Array<{ slot_id: string; binding_id: string }>;
   verdict: {
     ready: boolean;
@@ -299,6 +312,7 @@ export interface PlannedTestPreparationOptions {
     blocking_reasons: import("./fleet").AssetSelectionReason[];
     warnings: import("./fleet").AssetSelectionReason[];
     asset_options: import("./fleet").ExecutablePhysicalAssetOption[];
+    material_candidates?: StationMaterialCandidates[];
     readiness: {
       ready: boolean;
       checked_on: string;

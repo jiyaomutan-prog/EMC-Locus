@@ -94,11 +94,13 @@ use crate::service_schedule_service::{
 };
 use crate::station_setup_service::{
     assess_station_setup_revision_json, create_station_setup, derive_station_setup_revision,
-    get_station_setup, get_station_setup_revision_json, list_station_setup_asset_options_json,
-    list_station_setup_audit_events_json, list_station_setup_revisions_json, list_station_setups,
+    get_station_setup, get_station_setup_revision_json, list_station_material_candidates_json,
+    list_station_setup_asset_options_json, list_station_setup_audit_events_json,
+    list_station_setup_revisions_json, list_station_setups, mark_station_setup_revision_qualified,
     mark_station_setup_revision_ready, replace_station_setup_draft_definition,
-    CreateStationSetupInput, DeriveStationSetupRevisionInput, ListStationSetupAssetOptionsInput,
-    MarkStationSetupReadyInput, ReplaceStationSetupDraftInput, StationOperationContext,
+    CreateStationSetupInput, DeriveStationSetupRevisionInput, ListStationMaterialCandidatesInput,
+    ListStationSetupAssetOptionsInput, MarkStationSetupQualifiedInput, MarkStationSetupReadyInput,
+    ReplaceStationSetupDraftInput, StationOperationContext,
 };
 use crate::test_execution_service::{
     get_simulated_test_execution, list_project_simulated_test_executions, run_simulated_emc_test,
@@ -119,7 +121,8 @@ use emc_locus_core::{
         MeasurementEngineeringAggregateKind, MeasurementEngineeringRevisionStatus,
     },
     test_definitions::TemplateRevisionStatus,
-    PlannedTestInstrumentAssignment,
+    PlannedTestInstrumentAssignment, PlannedTestStationMaterialAssignment,
+    StationPhysicalPortMappingDefinition,
 };
 use serde_json::{json, Value};
 use std::{
@@ -263,7 +266,7 @@ fn json_response(status: u16, body: String) -> ApiResponse {
     ApiResponse {
         status,
         body,
-        content_type: "application/json".to_owned(),
+        content_type: "application/json; charset=utf-8".to_owned(),
         location: None,
     }
 }
@@ -419,7 +422,7 @@ fn lab_content_type(path: &Path) -> &'static str {
         Some("html") => "text/html; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
         Some("js") => "text/javascript; charset=utf-8",
-        Some("json") => "application/json",
+        Some("json") => "application/json; charset=utf-8",
         Some("svg") => "image/svg+xml",
         _ => "text/plain; charset=utf-8",
     }
@@ -683,6 +686,31 @@ fn route_api_request(
     {
         return get_station_setup_revision_json(&config.storage_root, parts[3], parts[5]);
     }
+    if parts.len() == 9
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "station-setups"
+        && parts[4] == "revisions"
+        && parts[6] == "material-requirements"
+        && parts[8] == "candidates"
+        && method == "GET"
+    {
+        return list_station_material_candidates_json(
+            &config.storage_root,
+            ListStationMaterialCandidatesInput {
+                setup_id: parts[3].to_owned(),
+                revision_id: parts[5].to_owned(),
+                requirement_id: parts[7].to_owned(),
+                planned_use_on: required_query_value(query, "planned_use_on")?,
+                execution_mode: required_query_value(query, "execution_mode")?,
+                laboratory_location_id: required_query_value(query, "laboratory_location_id")?,
+                excluded_schedule_item_code: optional_query_value(
+                    query,
+                    "excluded_schedule_item_code",
+                ),
+            },
+        );
+    }
     if parts.len() == 7
         && parts[0] == "api"
         && parts[1] == "v1"
@@ -708,14 +736,27 @@ fn route_api_request(
         && parts[2] == "station-setups"
         && parts[4] == "revisions"
         && parts[6] == "transitions"
-        && parts[7] == "ready"
         && method == "POST"
     {
         let payload = parse_json_body(body)?;
-        return mark_station_setup_revision_ready(
-            &config.storage_root,
-            mark_station_setup_ready_input(parts[3], parts[5], &payload)?,
-        );
+        if parts[7] == "qualified" {
+            let input = mark_station_setup_ready_input(parts[3], parts[5], &payload)?;
+            return mark_station_setup_revision_qualified(
+                &config.storage_root,
+                MarkStationSetupQualifiedInput {
+                    setup_id: input.setup_id,
+                    revision_id: input.revision_id,
+                    expected_definition_checksum: input.expected_definition_checksum,
+                    context: input.context,
+                },
+            );
+        }
+        if parts[7] == "ready" {
+            return mark_station_setup_revision_ready(
+                &config.storage_root,
+                mark_station_setup_ready_input(parts[3], parts[5], &payload)?,
+            );
+        }
     }
     if parts.as_slice() == ["api", "v1", "documents"] && method == "GET" {
         return list_documents(&config.storage_root, list_documents_input(query));
@@ -1778,6 +1819,42 @@ fn planned_test_preparation_input(
             })
         })
         .collect::<Result<Vec<_>, AgentError>>()?;
+    let station_material_assignments = payload
+        .get("station_material_assignments")
+        .and_then(Value::as_array)
+        .map(|assignments| {
+            assignments
+                .iter()
+                .map(|assignment| {
+                    let selected_ports = assignment
+                        .get("selected_ports")
+                        .and_then(Value::as_array)
+                        .map(|mappings| {
+                            mappings
+                                .iter()
+                                .map(|mapping| {
+                                    Ok(StationPhysicalPortMappingDefinition {
+                                        logical_port_id: required_string(
+                                            mapping,
+                                            "logical_port_id",
+                                        )?,
+                                        actual_port_id: required_string(mapping, "actual_port_id")?,
+                                    })
+                                })
+                                .collect::<Result<Vec<_>, AgentError>>()
+                        })
+                        .transpose()?
+                        .unwrap_or_default();
+                    Ok(PlannedTestStationMaterialAssignment {
+                        requirement_id: required_string(assignment, "requirement_id")?,
+                        asset_id: required_string(assignment, "asset_id")?,
+                        selected_ports,
+                    })
+                })
+                .collect::<Result<Vec<_>, AgentError>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
     Ok(AssessPlannedTestPreparationInput {
         project_code: project_code.to_owned(),
         schedule_item_code: item_code.to_owned(),
@@ -1787,6 +1864,7 @@ fn planned_test_preparation_input(
         method_revision_id: required_string(payload, "method_revision_id")?,
         station_setup_id: required_string(payload, "station_setup_id")?,
         station_setup_revision_id: required_string(payload, "station_setup_revision_id")?,
+        station_material_assignments,
         assignments,
         context: PlannedTestPreparationOperationContext {
             actor: required_string(payload, "actor")?,
@@ -2141,6 +2219,7 @@ fn derive_station_setup_revision_input(
     Ok(DeriveStationSetupRevisionInput {
         setup_id: setup_id.to_owned(),
         source_revision_id: required_string(payload, "source_revision_id")?,
+        upgrade_to_v3: optional_bool(payload, "upgrade_to_v3")?.unwrap_or(false),
         context: station_operation_context(payload)?,
     })
 }
@@ -3334,6 +3413,7 @@ fn status_for_error(code: &str) -> u16 {
         | "station_setup_revision_not_editable"
         | "station_setup_active_draft_exists"
         | "station_setup_source_not_ready"
+        | "station_setup_not_qualified"
         | "station_setup_not_ready"
         | "planned_test_schedule_not_confirmed"
         | "planned_test_schedule_concurrent_update"
@@ -3492,6 +3572,35 @@ mod tests {
             optional_query_value("search=R%C3%A9cepteur+EMI", "search").as_deref(),
             Some("Récepteur EMI")
         );
+    }
+
+    #[test]
+    fn json_success_and_error_responses_declare_utf8_and_preserve_accents() {
+        let success = json_response(
+            200,
+            render_json(&json!({
+                "message": "Étalonnage valide à la date prévue.",
+                "blocker": "Emplacement non défini"
+            })),
+        );
+        assert_eq!(success.content_type, "application/json; charset=utf-8");
+        assert_eq!(
+            std::str::from_utf8(success.body.as_bytes()).unwrap(),
+            "{\"blocker\":\"Emplacement non défini\",\"message\":\"Étalonnage valide à la date prévue.\"}"
+        );
+
+        let error = json_response(
+            400,
+            AgentError::new(
+                "invalid_station_setup_request",
+                "L'échéance d'étalonnage est déjà dépassée.",
+            )
+            .to_json(),
+        );
+        assert_eq!(error.content_type, "application/json; charset=utf-8");
+        assert!(error
+            .body
+            .contains("L'échéance d'étalonnage est déjà dépassée."));
     }
 
     #[test]
@@ -5421,7 +5530,7 @@ mod tests {
         assert!(incomplete.body.contains("\"ready\":false"));
         assert!(incomplete
             .body
-            .contains("station_setup_requires_two_materials"));
+            .contains("station_setup_requires_two_material_roles"));
 
         let premature_ready = handle_api_request(
             "POST",
@@ -5438,9 +5547,9 @@ mod tests {
             &config,
         );
         assert_eq!(premature_ready.status, 409, "{}", premature_ready.body);
-        assert!(premature_ready.body.contains("station_setup_not_ready"));
+        assert!(premature_ready.body.contains("station_setup_not_qualified"));
 
-        let definition = json!({
+        let definition = station_v3_definition(json!({
             "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-RF-STATION-001",
             "label": "Mesure RF câble vers récepteur",
@@ -5480,7 +5589,7 @@ mod tests {
                 "characterization_checksum": cable_characterization_checksum,
                 "label": "Pertes mesurées du câble CAB-001"
             }]
-        });
+        }));
         let saved = handle_api_request(
             "PUT",
             &format!(
@@ -5532,6 +5641,22 @@ mod tests {
         );
         assert_eq!(readiness.status, 200, "{}", readiness.body);
         assert!(readiness.body.contains("\"ready\":true"));
+
+        let qualified = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/station-setups/SETUP-RF-STATION-001/revisions/{revision_id}/transitions/qualified"
+            ),
+            &json!({
+                "expected_definition_checksum": ready_checksum,
+                "actor": "test.technician",
+                "reason": "validate the logical measurement chain",
+                "operation_id": "op-station-setup-qualified"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(qualified.status, 200, "{}", qualified.body);
 
         let marked_ready = handle_api_request(
             "POST",
@@ -7338,6 +7463,12 @@ mod tests {
         stream.read_to_string(&mut response).unwrap();
 
         assert!(response.starts_with("HTTP/1.1 400"));
+        assert!(
+            response
+                .lines()
+                .any(|line| line
+                    .eq_ignore_ascii_case("Content-Type: application/json; charset=utf-8"))
+        );
         assert!(response.contains("api_request_body_not_utf8"));
         assert_eq!(http_request("GET", &address, "/api/v1/health", "").0, 200);
         server
@@ -7734,6 +7865,7 @@ mod tests {
         assert_eq!(missing.0, 200);
         assert!(missing.1.contains("\"ready\":false"));
         assert!(missing.1.contains("\"code\":\"calibration_missing\""));
+        assert!(missing.1.contains("Aucun étalonnage valide"));
 
         let calibration = http_request(
             "POST",
@@ -8252,7 +8384,7 @@ mod tests {
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
             lab_console_dist: repo_root().join("apps/lab-console/dist"),
-            max_requests: Some(9),
+            max_requests: Some(10),
         });
         assert_eq!(wait_for_http(&first_address, "/api/v1/health").0, 200);
 
@@ -8295,7 +8427,7 @@ mod tests {
             draft["definition"]["laboratory_location_label"],
             "Poste CEM mobile"
         );
-        let definition = json!({
+        let definition = station_v3_definition(json!({
             "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-RF-HTTP-001",
             "label": "Mesure RF câble vers récepteur",
@@ -8335,7 +8467,7 @@ mod tests {
                 "characterization_checksum": fixture.characterization_checksum,
                 "label": "Pertes mesurées du câble CAB-001"
             }]
-        });
+        }));
         let saved = http_request(
             "PUT",
             &first_address,
@@ -8369,6 +8501,21 @@ mod tests {
         );
         assert_eq!(readiness.0, 200, "{}", readiness.1);
         assert!(readiness.1.contains("\"ready\":true"));
+        let qualified = http_request(
+            "POST",
+            &first_address,
+            &format!(
+                "/api/v1/station-setups/SETUP-RF-HTTP-001/revisions/{revision_id}/transitions/qualified"
+            ),
+            &json!({
+                "expected_definition_checksum": ready_checksum,
+                "actor": "test.technician",
+                "reason": "validate HTTP station definition",
+                "operation_id": "op-http-station-qualified"
+            })
+            .to_string(),
+        );
+        assert_eq!(qualified.0, 200, "{}", qualified.1);
         let equipment = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
         equipment
             .execute(
@@ -9053,9 +9200,18 @@ mod tests {
             .and_then(|line| line.split_whitespace().nth(1))
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or(0);
-        let body = response
+        let (headers, body) = response
             .split_once("\r\n\r\n")
-            .map_or_else(String::new, |(_, body)| body.to_owned());
+            .map_or((response.as_str(), String::new()), |(headers, body)| {
+                (headers, body.to_owned())
+            });
+        if path.starts_with("/api/") {
+            assert!(
+                headers.lines().any(|line| line
+                    .eq_ignore_ascii_case("Content-Type: application/json; charset=utf-8")),
+                "JSON API response omitted its UTF-8 content type: {headers}"
+            );
+        }
         Ok((status, body))
     }
 
@@ -9194,7 +9350,7 @@ mod tests {
             .as_str()
             .unwrap();
         assert_eq!(station_revision_id, "SETUP-PREP-HTTP-rev-0001");
-        let station_definition = json!({
+        let station_definition = station_v3_definition(json!({
             "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-PREP-HTTP",
             "label": "HTTP RF preparation chain",
@@ -9234,7 +9390,7 @@ mod tests {
                 "characterization_checksum": fixture.characterization_checksum,
                 "label": "Measured RF cable loss"
             }]
-        });
+        }));
         let station_saved = handle_api_request(
             "PUT",
             &format!(
@@ -9256,6 +9412,21 @@ mod tests {
             ["definition_checksum"]
             .as_str()
             .unwrap();
+        let station_qualified = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/station-setups/SETUP-PREP-HTTP/revisions/{station_revision_id}/transitions/qualified"
+            ),
+            &json!({
+                "expected_definition_checksum": station_ready_checksum,
+                "actor": "station.technician",
+                "reason": "validate HTTP preparation station definition",
+                "operation_id": "op-http-preparation-station-qualified"
+            })
+            .to_string(),
+            config,
+        );
+        assert_eq!(station_qualified.status, 200, "{}", station_qualified.body);
         let station_ready = handle_api_request(
             "POST",
             &format!(
@@ -9573,10 +9744,132 @@ mod tests {
             "role_label": role_label,
             "asset_id": instrument["asset_id"],
             "asset_revision": instrument["revision"],
+            "inventory_code": instrument["inventory_code"],
+            "serial_number": instrument["serial_number"],
             "equipment_model_id": model_id,
             "equipment_model_revision_id": model_revision_id,
             "equipment_model_checksum": model_checksum
         })
+    }
+
+    fn station_v3_definition(mut definition: Value) -> Value {
+        let bindings = definition["asset_bindings"]
+            .as_array()
+            .expect("station fixture bindings")
+            .clone();
+        let connections = definition["connections"]
+            .as_array()
+            .expect("station fixture connections")
+            .clone();
+        let correction_selections = definition["correction_selections"]
+            .as_array()
+            .expect("station fixture corrections")
+            .clone();
+        let assigned_on = definition["planned_use_on"]
+            .as_str()
+            .expect("station fixture date")
+            .to_owned();
+        let mut requirements = Vec::new();
+        let mut assignments = Vec::new();
+        for binding in bindings {
+            let binding_id = binding["binding_id"]
+                .as_str()
+                .expect("station fixture binding id");
+            let mut ports = std::collections::BTreeMap::new();
+            for connection in &connections {
+                if connection["from"]["binding_id"] == binding_id {
+                    ports.insert(
+                        connection["from"]["port_id"]
+                            .as_str()
+                            .expect("source port")
+                            .to_owned(),
+                        "output",
+                    );
+                }
+                if connection["to"]["binding_id"] == binding_id {
+                    ports.insert(
+                        connection["to"]["port_id"]
+                            .as_str()
+                            .expect("destination port")
+                            .to_owned(),
+                        "input",
+                    );
+                }
+            }
+            let logical_ports = ports
+                .iter()
+                .map(|(port_id, directionality)| {
+                    json!({
+                        "logical_port_id": port_id,
+                        "label": port_id,
+                        "directionality": directionality,
+                        "signal_domain": "rf"
+                    })
+                })
+                .collect::<Vec<_>>();
+            let selected_ports = ports
+                .keys()
+                .map(|port_id| {
+                    json!({
+                        "logical_port_id": port_id,
+                        "actual_port_id": port_id
+                    })
+                })
+                .collect::<Vec<_>>();
+            requirements.push(json!({
+                "requirement_id": binding_id,
+                "role_label": binding["role_label"],
+                "required": true,
+                "selection_policy": "exact_asset",
+                "assignment_stage": "setup_definition",
+                "substitution_policy": "no_substitution",
+                "calibration_requirement": "not_required",
+                "exact_asset_id": binding["asset_id"],
+                "logical_ports": logical_ports
+            }));
+            assignments.push(json!({
+                "requirement_id": binding_id,
+                "asset_id": binding["asset_id"],
+                "asset_revision": binding["asset_revision"],
+                "inventory_code": binding["inventory_code"],
+                "serial_number": binding["serial_number"],
+                "equipment_model_id": binding["equipment_model_id"],
+                "equipment_model_revision_id": binding["equipment_model_revision_id"],
+                "equipment_model_checksum": binding["equipment_model_checksum"],
+                "selected_ports": selected_ports,
+                "assignment_context": "setup_definition",
+                "assigned_on": assigned_on
+            }));
+        }
+        let logical_connections = connections
+            .into_iter()
+            .map(|connection| {
+                json!({
+                    "connection_id": connection["connection_id"],
+                    "label": connection["label"],
+                    "from": {
+                        "requirement_id": connection["from"]["binding_id"],
+                        "logical_port_id": connection["from"]["port_id"]
+                    },
+                    "to": {
+                        "requirement_id": connection["to"]["binding_id"],
+                        "logical_port_id": connection["to"]["port_id"]
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        definition["definition_schema_version"] =
+            json!("emc-locus.station-measurement-setup-definition.v3");
+        definition["asset_bindings"] = json!([]);
+        definition["connections"] = json!([]);
+        definition["correction_selections"] = json!([]);
+        definition["material_requirements"] = json!(requirements);
+        definition["material_assignments"] = json!(assignments);
+        definition["logical_connections"] = json!(logical_connections);
+        definition["notes"] = json!({
+            "v2_correction_selections": correction_selections
+        });
+        definition
     }
 
     fn station_cable_characterization_body() -> String {

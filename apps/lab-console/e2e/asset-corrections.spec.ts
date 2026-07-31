@@ -40,11 +40,11 @@ test("serialized RF cable stays blocked until its measured loss is reviewed and 
   await page.getByRole("button", { name: "Métrologie du parc" }).click();
   await page.getByRole("button", { name: new RegExp(firstAssetId) }).click();
   await expect(page.getByText("Correction manquante")).toBeVisible();
-  await expect(page.getByText("Non prêt pour un essai")).toBeVisible();
+  await expect(page.getByText("Corrections incomplètes")).toBeVisible();
   await captureAtDesktopSizes(page, "physical-item-missing-correction");
 
   await page.getByRole("button", { name: "Mesurer cette correction" }).click();
-  await page.getByLabel(/Source de la correction/).selectOption("calibration");
+  await page.getByLabel(/Origine des valeurs mesurées/).selectOption("calibration");
   await page.getByLabel(/Laboratoire ou prestataire/).fill("Laboratoire CEM interne");
   await page.getByLabel(/Méthode utilisée/).fill("MET-RF-CABLE-001");
   await page.getByLabel("Référence du certificat ou feuillet").fill(`CAL-CBL-${suffix}`);
@@ -72,7 +72,7 @@ test("serialized RF cable stays blocked until its measured loss is reviewed and 
   await captureAtDesktopSizes(page, "correction-review");
   await page.getByRole("button", { name: "Approuver et activer" }).click();
   await expect(page.getByText("Active pour ce matériel")).toBeVisible();
-  await expect(page.getByText("Prêt pour un essai")).toBeVisible();
+  await expect(page.getByText("Corrections requises disponibles")).toBeVisible();
   await expect(page.getByLabel("Corrections requises").getByText(`CAL-CBL-${suffix}`)).toBeVisible();
   await captureAtDesktopSizes(page, "physical-item-ready");
 
@@ -81,7 +81,7 @@ test("serialized RF cable stays blocked until its measured loss is reviewed and 
   await page.getByRole("button", { name: "Métrologie du parc" }).click();
   await page.getByRole("button", { name: new RegExp(secondAssetId) }).click();
   await expect(page.getByText("Correction manquante")).toBeVisible();
-  await expect(page.getByText("Non prêt pour un essai")).toBeVisible();
+  await expect(page.getByText("Corrections incomplètes")).toBeVisible();
   await expect(page.getByText(`CAL-CBL-${suffix}`)).toHaveCount(0);
 });
 
@@ -108,7 +108,7 @@ test("calibrated IEPE sensitivity takes precedence over the nominal model value"
   await expect(page.getByText("Correction manquante")).toBeVisible();
   await page.getByRole("button", { name: "Mesurer cette correction" }).click();
   await page.getByLabel(/Nom de la caractérisation/).fill("Sensibilité étalonnée 102,4 mV/g");
-  await page.getByLabel(/Source de la correction/).selectOption("calibration");
+  await page.getByLabel(/Origine des valeurs mesurées/).selectOption("calibration");
   await page.getByLabel(/Laboratoire ou prestataire/).fill("Laboratoire vibration interne");
   await page.getByLabel(/Méthode utilisée/).fill("ISO-16063-21");
   await page.getByLabel("Référence du certificat ou feuillet").fill(`CAL-ACC-${suffix}`);
@@ -120,7 +120,7 @@ test("calibrated IEPE sensitivity takes precedence over the nominal model value"
   await page.getByRole("button", { name: "Soumettre pour revue" }).click();
   await page.getByRole("button", { name: "Approuver et activer" }).click();
 
-  await expect(page.getByText("Prêt pour un essai")).toBeVisible();
+  await expect(page.getByText("Corrections requises disponibles")).toBeVisible();
   await expect(page.getByText("Valeur propre à ce matériel")).toBeVisible();
   await expect(page.getByText("Sensibilité nominale 100 mV/g")).toBeVisible();
   await expect(page.getByText(/non sélectionnée/)).toBeVisible();
