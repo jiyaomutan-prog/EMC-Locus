@@ -599,6 +599,24 @@ describe("LAB CONSOLE", () => {
     expect(screen.getByText("Le modèle ne fournit pas la capacité spectrale requise.")).toBeInTheDocument();
   });
 
+  test("filters a deferred station assignment through the authoritative method intersection", async () => {
+    mockLaboratoryPlanningApi({ v3Preparation: "category", noCompatibleMaterials: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Immunité rayonnée, dossier CEM-LAB-002"
+      })
+    );
+    await user.click(await screen.findByRole("button", { name: "Préparer l'essai" }));
+    await user.selectOptions(screen.getByLabelText("Exemplaire pour Récepteur EMI"), "ASSET-RX-001");
+
+    expect(await screen.findByText("Aucun matériel compatible dans ce montage.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Matériel pour Récepteur de mesure")).toBeDisabled();
+  });
+
   test("loads templates, filters them, and opens the draft studio", async () => {
     mockBaseApi([templateFixture()]);
     const user = userEvent.setup();
@@ -3407,7 +3425,7 @@ function mockLaboratoryPlanningApi(settings: {
         materials: [
           {
             slot_id: "receiver",
-            binding_id: "receiver-binding",
+            binding_id: settings.v3Preparation ? "receiver-role" : "receiver-binding",
             compatible: !settings.noCompatibleMaterials,
             reason: settings.noCompatibleMaterials
               ? "Le modèle ne fournit pas la capacité spectrale requise."

@@ -1057,11 +1057,18 @@ function PreparationWorkspace(props: {
       }
       return retained;
     });
-    setStationPortAssignments((current) =>
-      Object.fromEntries(
+    setStationPortAssignments((current) => {
+      const retained = Object.fromEntries(
         Object.entries(current).filter(([key]) => requirementIds.has(key.split(":", 1)[0]))
-      )
-    );
+      );
+      for (const asset of stationOption.station_setup.assets) {
+        if (!asset.requirement_id || !requirementIds.has(asset.requirement_id)) continue;
+        for (const mapping of asset.selected_ports ?? []) {
+          retained[`${asset.requirement_id}:${mapping.logical_port_id}`] = mapping.actual_port_id;
+        }
+      }
+      return retained;
+    });
   }, [materialCompatibility, method, options, stationOption]);
 
   const stationRequirements = stationOption?.station_setup.material_requirements ?? [];
@@ -1350,7 +1357,15 @@ function PreparationWorkspace(props: {
               );
               const preparedMaterials = stationRequirements.length > 0
                 ? stationRequirements
-                    .filter((requirement) => stationMaterialAssignments[requirement.requirement_id])
+                    .filter(
+                      (requirement) =>
+                        stationMaterialAssignments[requirement.requirement_id]
+                        && slotCompatibility.some(
+                          (candidate) =>
+                            candidate.binding_id === requirement.requirement_id
+                            && candidate.compatible
+                        )
+                    )
                     .map((requirement) => ({
                       bindingId: requirement.requirement_id,
                       label: `${requirement.role_label} · ${candidateInventoryCode(stationOption, requirement.requirement_id, stationMaterialAssignments[requirement.requirement_id])}`

@@ -339,16 +339,21 @@ function StationSetupDetail(props: {
   }
 
   function connectRoles() {
-    const connected = requirements.slice(0, -1).map((requirement, index) => ({
+    const orderedRequirements = [...requirements].sort((left, right) =>
+      logicalDirectionOrder(left.logical_ports[0]?.directionality)
+        - logicalDirectionOrder(right.logical_ports[0]?.directionality)
+      || left.role_label.localeCompare(right.role_label, "fr")
+    );
+    const connected = orderedRequirements.slice(0, -1).map((requirement, index) => ({
       connection_id: `logical-link-${index + 1}`,
-      label: `${requirement.role_label} vers ${requirements[index + 1].role_label}`,
+      label: `${requirement.role_label} vers ${orderedRequirements[index + 1].role_label}`,
       from: {
         requirement_id: requirement.requirement_id,
         logical_port_id: requirement.logical_ports[0]?.logical_port_id ?? "port"
       },
       to: {
-        requirement_id: requirements[index + 1].requirement_id,
-        logical_port_id: requirements[index + 1].logical_ports[0]?.logical_port_id ?? "port"
+        requirement_id: orderedRequirements[index + 1].requirement_id,
+        logical_port_id: orderedRequirements[index + 1].logical_ports[0]?.logical_port_id ?? "port"
       }
     }));
     setDefinition((current) => current ? { ...current, logical_connections: connected } : current);
@@ -704,6 +709,7 @@ function requirementSummary(requirement: StationMaterialRequirement, categories:
 function categoryName(categories: EquipmentCategory[], categoryId: string): string { return flattenCategories(categories).find(({ category }) => category.category_id === categoryId)?.category.label ?? categoryId; }
 function flattenCategories(categories: EquipmentCategory[], depth = 0): Array<{ category: EquipmentCategory; depth: number }> { return categories.flatMap((category) => [{ category, depth }, ...flattenCategories(category.children, depth + 1)]); }
 function rangeLabel(range: { minimum?: number; maximum?: number; unit: string }) { return `${range.minimum ?? "…"} à ${range.maximum ?? "…"} ${range.unit}`; }
+function logicalDirectionOrder(direction?: string) { return direction === "output" ? 0 : direction === "bidirectional" ? 1 : 2; }
 function correctionReadinessLabel(candidate: StationMaterialCandidate) { return ({ available: "Corrections requises disponibles", incomplete: "Corrections incomplètes", unavailable: "État des corrections indisponible", not_required: "Aucune correction requise" })[candidate.correction_readiness]; }
 function metrologyCandidateLabel(candidate: StationMaterialCandidate) { return ({ valid: "Étalonnage valide", due_soon: "Étalonnage bientôt à échéance", expired: "Étalonnage expiré", missing: "Aucun étalonnage valide", not_required: "Étalonnage non requis", nonconforming: "Étalonnage non conforme", indeterminate: "Décision d'étalonnage indéterminée", unavailable: "État métrologique indisponible" })[candidate.asset.metrology.status] ?? candidate.asset.metrology.explanation; }
 function assetLabel(asset?: PhysicalAsset) { return asset ? `${asset.inventory_code} · ${asset.manufacturer} ${operatorModelName(asset.category_code, asset.model_name, asset.manufacturer === "Demo")} · ${asset.serial_number || "Sans numéro de série"}` : "Exemplaire introuvable"; }
