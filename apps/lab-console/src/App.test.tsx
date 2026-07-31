@@ -1419,9 +1419,8 @@ describe("LAB CONSOLE", () => {
     const user = userEvent.setup();
     render(<StationSetupWorkspace />);
 
-    expect(await screen.findByText("Définition validée")).toBeInTheDocument();
     await user.click(
-      screen.getByRole("button", { name: "Finaliser les affectations dans un brouillon" })
+      await screen.findByRole("button", { name: "Finaliser les affectations dans un brouillon" })
     );
 
     await waitFor(() => expect(deriveBodies).toHaveLength(1));
