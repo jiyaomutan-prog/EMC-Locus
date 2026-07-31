@@ -1330,6 +1330,10 @@ describe("LAB CONSOLE", () => {
     await user.click(screen.getByRole("button", { name: "Vérifier les candidats" }));
     expect(await screen.findByText("Compatible et disponible")).toBeInTheDocument();
     expect(screen.getByText("Compatible mais indisponible")).toBeInTheDocument();
+    expect(screen.getAllByText("Aucune correction requise")).toHaveLength(2);
+    expect(screen.getAllByText("Étalonnage valide")).toHaveLength(2);
+    expect(screen.getByText("Apte pour l'utilisation prévue")).toBeInTheDocument();
+    expect(screen.getByText("Non apte pour l'utilisation prévue")).toBeInTheDocument();
     expect(screen.getByText("Cet exemplaire est hors service.")).toBeInTheDocument();
     const assignActions = screen.getAllByRole("button", { name: "Affecter pour l'utilisation prévue" });
     expect(assignActions[0]).toBeEnabled();
@@ -2471,6 +2475,8 @@ function stationMaterialCandidateFixture(asset: ReturnType<typeof physicalAssetF
     operationally_eligible: eligible,
     assignable: eligible,
     exact_asset_required: false,
+    correction_readiness: "not_required",
+    correction_requirement_count: 0,
     category_evidence: ["Catégorie compatible"],
     capability_evidence: [],
     technical_constraint_results: [],
@@ -3350,6 +3356,8 @@ function mockLaboratoryPlanningApi(settings: {
             operationally_eligible: settings.v3Preparation !== "exact-blocked",
             assignable: settings.v3Preparation !== "exact-blocked",
             exact_asset_required: settings.v3Preparation === "exact-blocked",
+            correction_readiness: settings.v3Preparation === "exact-blocked" ? "available" : "not_required",
+            correction_requirement_count: settings.v3Preparation === "exact-blocked" ? 1 : 0,
             category_evidence: v3CandidateAsset.category_path,
             capability_evidence: [],
             technical_constraint_results: [],

@@ -140,6 +140,12 @@ struct OperationalStationAsset<'a> {
     selected_ports: &'a [StationPhysicalPortMappingDefinition],
 }
 
+struct StationMaterialCorrectionAssessment {
+    status: &'static str,
+    requirement_count: usize,
+    blocker: Option<AssetSelectionReasonDto>,
+}
+
 pub fn list_station_setup_asset_options_json(
     storage_root: &Path,
     input: ListStationSetupAssetOptionsInput,
@@ -325,12 +331,13 @@ pub(crate) fn list_station_material_candidates(
             &option.asset.asset_id,
             checked_on,
         )?;
-        let correction_blocker = station_material_correction_blocker(
+        let correction_assessment = station_material_correction_assessment(
             storage_root,
             &option.asset.asset_id,
             input.planned_use_on.trim(),
             input.execution_mode.trim(),
         )?;
+        let correction_blocker = correction_assessment.blocker.clone();
         let operationally_eligible =
             option.eligible && calibration_blocker.is_none() && correction_blocker.is_none();
         let mut operational_blockers = option.blocking_reasons;
@@ -384,6 +391,8 @@ pub(crate) fn list_station_material_candidates(
             next_actions,
             exact_asset_required: requirement.selection_policy
                 == StationMaterialSelectionPolicy::ExactAsset,
+            correction_readiness: correction_assessment.status.to_owned(),
+            correction_requirement_count: correction_assessment.requirement_count,
             assignable: requirement_compatible && operationally_eligible,
             requirement_compatible,
             compatibility_state: compatibility_state.to_owned(),
@@ -1305,12 +1314,14 @@ pub(crate) fn assess_station_setup_readiness_for_context(
         }
         let metrology = open_metrology_connection(storage_root)?;
         for operational_asset in &operational_assets {
-            if let Some(reason) = station_material_correction_blocker(
+            if let Some(reason) = station_material_correction_assessment(
                 storage_root,
                 operational_asset.asset_id,
                 &definition.planned_use_on,
                 &definition.execution_mode,
-            )? {
+            )?
+            .blocker
+            {
                 issues.push(selection_readiness_issue(
                     &reason,
                     StationReadinessSeverity::Blocking,
@@ -1623,12 +1634,12 @@ pub(crate) fn assess_station_setup_readiness_for_context(
     ))
 }
 
-fn station_material_correction_blocker(
+fn station_material_correction_assessment(
     storage_root: &Path,
     asset_id: &str,
     intended_use_on: &str,
     execution_context: &str,
-) -> Result<Option<AssetSelectionReasonDto>, AgentError> {
+) -> Result<StationMaterialCorrectionAssessment, AgentError> {
     let report = match assess_material_correction_readiness(
         storage_root,
         ResolveMaterialCorrectionsInput {
@@ -1643,19 +1654,30 @@ fn station_material_correction_blocker(
             if error.code.starts_with("asset_correction_")
                 || error.code == "equipment_model_corrections_require_upgrade" =>
         {
-            return Ok(Some(AssetSelectionReasonDto {
-                code: "correction_readiness_unavailable".to_owned(),
-                message: "L'aptitude des corrections du matÃ©riel ne peut pas Ãªtre Ã©tablie."
-                    .to_owned(),
-                next_action:
-                    "RÃ©conciliez son modÃ¨le puis complÃ©tez les corrections exigÃ©es pour l'usage."
+            return Ok(StationMaterialCorrectionAssessment {
+                status: "unavailable",
+                requirement_count: 0,
+                blocker: Some(AssetSelectionReasonDto {
+                    code: "correction_readiness_unavailable".to_owned(),
+                    message: "L'aptitude des corrections du matÃ©riel ne peut pas Ãªtre Ã©tablie."
                         .to_owned(),
-            }));
+                    next_action: "RÃ©conciliez son modÃ¨le puis complÃ©tez les corrections exigÃ©es pour l'usage."
+                        .to_owned(),
+                }),
+            });
         }
         Err(error) => return Err(error),
     };
     if report.ready {
-        return Ok(None);
+        return Ok(StationMaterialCorrectionAssessment {
+            status: if report.resolutions.is_empty() {
+                "not_required"
+            } else {
+                "available"
+            },
+            requirement_count: report.resolutions.len(),
+            blocker: None,
+        });
     }
     let missing = report
         .resolutions
@@ -1668,14 +1690,19 @@ fn station_material_correction_blocker(
     } else {
         format!(" Corrections concernÃ©es : {}.", missing.join(", "))
     };
-    Ok(Some(AssetSelectionReasonDto {
-        code: "correction_readiness_incomplete".to_owned(),
-        message: format!(
-            "Les corrections requises par le modÃ¨le ne sont pas toutes disponibles.{detail}"
-        ),
-        next_action: "Mesurez ou importez les corrections, puis faites-les approuver et activer."
-            .to_owned(),
-    }))
+    Ok(StationMaterialCorrectionAssessment {
+        status: "incomplete",
+        requirement_count: report.resolutions.len(),
+        blocker: Some(AssetSelectionReasonDto {
+            code: "correction_readiness_incomplete".to_owned(),
+            message: format!(
+                "Les corrections requises par le modÃ¨le ne sont pas toutes disponibles.{detail}"
+            ),
+            next_action:
+                "Mesurez ou importez les corrections, puis faites-les approuver et activer."
+                    .to_owned(),
+        }),
+    })
 }
 
 fn asset_revision_matches(stored: &str, revision: u64, asset_id: &str, updated_at: &str) -> bool {
@@ -3266,6 +3293,8 @@ mod tests {
         assert!(candidate.requirement_compatible);
         assert!(!candidate.operationally_eligible);
         assert!(!candidate.assignable);
+        assert_eq!(candidate.correction_readiness, "incomplete");
+        assert_eq!(candidate.correction_requirement_count, 1);
         assert!(candidate
             .operational_blockers
             .iter()

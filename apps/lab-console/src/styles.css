@@ -1270,6 +1270,33 @@ button.planningSlot-cancelled {
 .candidateResultList > article.blocked { background: #fffaf0; border-left-color: #bd8422; }
 .candidateResultList > article.incompatible { background: #fff7f4; border-left-color: #b65c48; }
 .candidateResultList > article p > span { color: #5e5040; font-weight: 700; }
+.candidateEvidenceGrid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.candidateEvidenceGrid > div {
+  background: #fff;
+  border: 1px solid #d8e0dc;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px;
+}
+
+.candidateEvidenceGrid span {
+  color: #66736c;
+  font-size: 11px;
+}
+
+.candidateEvidenceGrid strong {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.candidateEvidenceGrid .positive { color: #1b6755; }
+.candidateEvidenceGrid .negative { color: #8a451f; }
 .candidateResultList .status.compatible { background: #dceee8; color: #145e4e; }
 .candidateResultList .status.blocked { background: #f7e8c7; color: #715015; }
 .candidateResultList .status.incompatible { background: #f5ddd7; color: #7a3021; }
@@ -1278,6 +1305,10 @@ button.planningSlot-cancelled {
   max-height: calc(100vh - 48px);
   overflow-y: auto;
   width: min(900px, calc(100vw - 48px));
+}
+
+@media (max-width: 1000px) {
+  .candidateEvidenceGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .stationRoleDialog .segmentedControl {

@@ -132,6 +132,8 @@ export interface StationMaterialCandidate {
   operationally_eligible: boolean;
   assignable: boolean;
   exact_asset_required: boolean;
+  correction_readiness: "not_required" | "available" | "incomplete" | "unavailable";
+  correction_requirement_count: number;
   category_evidence: string[];
   capability_evidence: string[];
   technical_constraint_results: StationCompatibilityReason[];

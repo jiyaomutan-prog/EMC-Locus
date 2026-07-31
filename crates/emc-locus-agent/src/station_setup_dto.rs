@@ -88,6 +88,8 @@ pub(crate) struct StationMaterialCandidateDto {
     pub(crate) operationally_eligible: bool,
     pub(crate) assignable: bool,
     pub(crate) exact_asset_required: bool,
+    pub(crate) correction_readiness: String,
+    pub(crate) correction_requirement_count: usize,
     pub(crate) category_evidence: Vec<String>,
     pub(crate) capability_evidence: Vec<String>,
     pub(crate) technical_constraint_results: Vec<emc_locus_core::StationCompatibilityReason>,
