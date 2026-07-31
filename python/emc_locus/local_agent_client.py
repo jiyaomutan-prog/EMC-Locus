@@ -1722,6 +1722,7 @@ class LocalAgentClient:
         station_setup_id: str,
         station_setup_revision_id: str,
         assignments: list[dict[str, str]],
+        station_material_assignments: list[dict[str, Any]] | None = None,
         actor: str,
         reason: str,
         operation_id: str | None = None,
@@ -1742,6 +1743,7 @@ class LocalAgentClient:
             "station_setup_id": station_setup_id,
             "station_setup_revision_id": station_setup_revision_id,
             "assignments": assignments,
+            "station_material_assignments": station_material_assignments or [],
             "actor": actor,
             "reason": reason,
             "operation_id": operation_id,
@@ -2273,6 +2275,30 @@ class LocalAgentClient:
             f"/api/v1/station-setups/{quote(setup_id)}/revisions/{quote(revision_id)}/readiness",
         )
 
+    def station_material_candidates(
+        self,
+        *,
+        setup_id: str,
+        revision_id: str,
+        requirement_id: str,
+        planned_use_on: str,
+        execution_mode: str,
+        laboratory_location_id: str,
+        excluded_schedule_item_code: str | None = None,
+    ) -> dict[str, Any]:
+        query: dict[str, str] = {
+            "planned_use_on": planned_use_on,
+            "execution_mode": execution_mode,
+            "laboratory_location_id": laboratory_location_id,
+        }
+        if excluded_schedule_item_code:
+            query["excluded_schedule_item_code"] = excluded_schedule_item_code
+        return self.request_json(
+            "GET",
+            f"/api/v1/station-setups/{quote(setup_id)}/revisions/{quote(revision_id)}"
+            f"/material-requirements/{quote(requirement_id)}/candidates?{urlencode(query)}",
+        )
+
     def create_station_setup(
         self,
         *,
@@ -2360,6 +2386,34 @@ class LocalAgentClient:
             payload,
         )
 
+    def mark_station_setup_qualified(
+        self,
+        *,
+        setup_id: str,
+        revision_id: str,
+        expected_definition_checksum: str,
+        actor: str,
+        reason: str,
+        operation_id: str | None = None,
+        correlation_id: str | None = None,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        operation_id = operation_id or generate_operation_id("station-setup-qualified", setup_id)
+        payload: dict[str, Any] = {
+            "expected_definition_checksum": expected_definition_checksum,
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+        }
+        _put_optional(payload, "correlation_id", correlation_id)
+        _put_optional(payload, "device_id", device_id)
+        return self.request_json(
+            "POST",
+            f"/api/v1/station-setups/{quote(setup_id)}/revisions/{quote(revision_id)}"
+            "/transitions/qualified",
+            payload,
+        )
+
     def derive_station_setup_draft(
         self,
         *,
@@ -2367,6 +2421,7 @@ class LocalAgentClient:
         source_revision_id: str,
         actor: str,
         reason: str,
+        upgrade_to_v3: bool = False,
         operation_id: str | None = None,
         correlation_id: str | None = None,
         device_id: str | None = None,
@@ -2374,6 +2429,7 @@ class LocalAgentClient:
         operation_id = operation_id or generate_operation_id("station-setup-derive", setup_id)
         payload: dict[str, Any] = {
             "source_revision_id": source_revision_id,
+            "upgrade_to_v3": upgrade_to_v3,
             "actor": actor,
             "reason": reason,
             "operation_id": operation_id,
