@@ -136,3 +136,26 @@ obtenir un montage déclaré prêt conservé avec son audit.
 Le même contrat doit pouvoir représenter ensuite une chaîne temporelle
 `capteur -> conditionneur -> voie DAQ`, sans mélanger la préparation physique
 avec l'acquisition ou le traitement des données.
+
+## Évolution 0.22.1 : besoin, exemplaire et aptitude
+
+Le montage v3 décrit d'abord des **rôles matériels**. Un rôle peut demander une
+catégorie et ses descendants, des aptitudes techniques stables, ou imposer un
+exemplaire précis du parc. Il indique aussi si le choix est effectué dans le
+montage ou pendant la préparation de l'essai. Les ports restent logiques tant
+qu'aucun exemplaire n'est sélectionné.
+
+L'affectation physique est une décision distincte. Elle fige l'identité et la
+révision de l'exemplaire, la révision immuable de son modèle et les ports
+physiques retenus. L'agent vérifie l'intersection avec la méthode d'essai. Une
+affectation incompatible ne peut pas être forcée depuis l'interface.
+
+Un exemplaire exact indisponible peut rester une exigence de conception : il
+n'est ni remplacé silencieusement, ni déclaré apte. Les blocages de service,
+disponibilité, réservation, lieu, étalonnage et corrections restent
+autoritaires. `Définition validée` signifie que les rôles et la topologie sont
+cohérents ; `Prêt à utiliser` exige en plus toutes les affectations obligatoires
+et tous les contrôles opérationnels.
+
+Les anciennes révisions v2 restent lisibles et immuables. Leur évolution passe
+par la création explicite d'un nouveau brouillon v3 audité.

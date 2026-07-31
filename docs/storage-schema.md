@@ -915,3 +915,26 @@ CREATE TABLE update_install_validation_evidence (
 - Should audit events use JSON payloads first, or strongly typed event tables?
 - Which user and authorization model should be introduced before technical
   review and report approval?
+
+## Station Material Additions In 0.22.1
+
+Station migrations `0003_station_material_requirements.sql` and
+`0004_station_qualified_revision_derivation.sql` are additive. They extend the
+station revision lifecycle and operation evidence needed by the typed v3
+definition; the canonical requirement and assignment document remains in the
+revision's versioned `definition_json` with its checksum. No published v1/v2
+row is rewritten.
+
+The v3 JSON separates `material_requirements` from `material_assignments`.
+Requirements use logical ports and may defer selection. Assignments snapshot
+the authoritative physical asset revision, immutable model id/revision/checksum
+and selected physical ports. `qualified` and `ready` pointers are distinct on
+the identity. Audit and operation rows identify explicit v2-to-v3 derivation,
+qualification and readiness actions; sync outbox writes remain atomic through
+the attached `sync.sqlite` boundary.
+
+No new calibration table was added. `metrology.sqlite/calibration_events`
+remains the authoritative global calibration history, while
+`asset_characterizations` and reviewed correction assignments remain separate
+evidence. Uploaded certificate bytes are content-addressed and referenced by a
+manifest; they are not embedded in station definitions.

@@ -84,7 +84,18 @@ This repository is in active pre-production development. The current focus is
 closing complete laboratory workflows across the Rust agent, local storage and
 operator interfaces while keeping each domain traceable and offline-capable.
 
-Current software version: `0.22.0`.
+Current software version: `0.22.1`.
+
+Version `0.22.1` separates what a measurement setup requires from the exact
+physical assets assigned for a dated use. Category, stable-capability and exact
+asset requirements use logical ports and Rust-authoritative candidate evidence;
+an imposed but blocked asset remains a valid design requirement without
+bypassing calibration, location, service, reservation or correction checks.
+LAB CONSOLE now records authoritative calibration events separately from
+characterizations and correction assignments. Historical station v2 revisions
+remain readable and can only evolve through an explicit v3 draft. This release
+prepares laboratory resources; it does not control instruments, acquire signals
+or apply corrections at runtime.
 
 Version `0.22.0` establishes the equipment-owned physical fleet as the source
 of truth for every real laboratory material. A concrete asset is pinned to one

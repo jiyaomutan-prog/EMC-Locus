@@ -528,12 +528,6 @@ test.describe.serial("0.22.0 equipment fleet", () => {
   });
 
   test("offers physical assets in station setup and planned-test preparation", async ({ page, request }) => {
-    const alternateLocation = await createLocation(
-      request,
-      "Zone parc 0.22 C",
-      "Lieu actif utilisé pour invalider un ancien contexte de sélection",
-      "location-selector-context"
-    );
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/lab/");
     await page.getByRole("button", { name: "Montages de mesure" }).click();
@@ -545,44 +539,15 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     await dialog.getByLabel(/Date d'utilisation/).fill("2026-07-30");
     await dialog.getByRole("button", { name: "Créer le brouillon" }).click();
 
-    const assetSelector = page.getByLabel(/Exemplaire du parc/);
+    await page.getByRole("button", { name: "Ajouter un rôle" }).click();
+    const roleDialog = page.getByRole("dialog", { name: "Ajouter un rôle" });
+    await roleDialog.getByRole("button", { name: "Imposer un exemplaire du parc" }).click();
+    await roleDialog.getByLabel(/Nom du rôle/).fill("Analyseur imposé");
+    const assetSelector = roleDialog.getByLabel(/Exemplaire du parc/);
     await expect(assetSelector).toBeVisible();
     await expect(assetSelector.locator("option", { hasText: inventoryCode })).toHaveCount(1);
     await expect(assetSelector.locator("option", { hasText: modelId })).toHaveCount(0);
     await capture(page, "station-selector-eligible-assets-1440x900.png");
-
-    let releaseStaleLocationRequest!: () => void;
-    const staleLocationRequest = new Promise<void>((resolve) => { releaseStaleLocationRequest = resolve; });
-    await page.route("**/api/v1/station-setups/asset-options?*", async (route) => {
-      const query = new URL(route.request().url()).searchParams;
-      if (query.get("laboratory_location_id") === alternateLocation.location_id) {
-        await staleLocationRequest;
-      }
-      await route.continue();
-    });
-    const contextLocation = page.locator(".stationDetail").getByLabel(/Lieu du laboratoire/);
-    await contextLocation.selectOption(alternateLocation.location_id);
-    await expect(page.getByRole("status")).toContainText("Actualisation des exemplaires disponibles");
-    await expect(assetSelector).toBeDisabled();
-    await expect(assetSelector.locator("option", { hasText: inventoryCode })).toHaveCount(0);
-
-    await contextLocation.selectOption(secondLocation.location_id);
-    await expect(assetSelector.locator("option", { hasText: inventoryCode })).toHaveCount(1);
-    await expect(assetSelector).toBeEnabled();
-    const staleResponse = page.waitForResponse((response) => {
-      const query = new URL(response.url()).searchParams;
-      return response.url().includes("/api/v1/station-setups/asset-options")
-        && query.get("laboratory_location_id") === alternateLocation.location_id;
-    });
-    releaseStaleLocationRequest();
-    await staleResponse;
-    await expect(assetSelector.locator("option", { hasText: inventoryCode })).toHaveCount(1);
-    await page.unroute("**/api/v1/station-setups/asset-options?*");
-
-    const unavailableAssets = page.locator("details.unavailableAssetExplanations");
-    await expect(unavailableAssets).toBeVisible();
-    await unavailableAssets.locator("summary").click();
-    await capture(page, "station-selector-explained-ineligible-assets-1440x900.png");
 
     const schedule = await request.get("/api/v1/projects/CEM-DEMO-PREP-001/schedule-items");
     expect(schedule.ok(), await schedule.text()).toBeTruthy();
@@ -663,11 +628,11 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     await expect(preparation.getByText("Choix de préparation temporairement indisponibles")).toBeVisible();
   });
 
-  test("reviews the operator workflow and refreshes only 0.22.0 evidence", async ({ page }) => {
+  test("reviews the operator workflow without rewriting 0.22.0 evidence", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/lab/");
-    await expect(page.getByText("LAB CONSOLE 0.22.0", { exact: true })).toBeVisible();
-    await expect(page.locator(".connectionStatus")).toContainText("Agent local0.22.0");
+    await expect(page.getByText("LAB CONSOLE 0.22.1", { exact: true })).toBeVisible();
+    await expect(page.locator(".connectionStatus")).toContainText("Agent local0.22.1");
     await page.getByRole("button", { name: "Catalogue des modèles" }).click();
     await showDemoModels(page);
     await expect(page.getByText("Ressources techniques", { exact: true })).toBeVisible();
@@ -719,8 +684,12 @@ test.describe.serial("0.22.0 equipment fleet", () => {
     await capture(page, "laboratory-location-registry-1440x900.png");
     await page.getByRole("button", { name: "Montages de mesure" }).click();
     await page.getByRole("button", { name: /Montage E2E parc 0.22/ }).click();
-    await expect(page.getByLabel(/Exemplaire du parc/)).toBeVisible();
+    await page.getByRole("button", { name: "Ajouter un rôle" }).click();
+    const roleDialog = page.getByRole("dialog", { name: "Ajouter un rôle" });
+    await roleDialog.getByRole("button", { name: "Imposer un exemplaire du parc" }).click();
+    await expect(roleDialog.getByLabel(/Exemplaire du parc/)).toBeVisible();
     await capture(page, "station-setup-physical-asset-selector-1440x900.png");
+    await roleDialog.getByRole("button", { name: "Annuler" }).click();
 
     await openPlannedPreparation(page);
     await expect(page.getByRole("dialog", { name: "Préparer l'essai" })).toBeVisible();

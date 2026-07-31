@@ -635,7 +635,19 @@ function CandidatePanel(props: {
         </div>
         {candidate.compatibility_blockers.map((reason) => <p key={reason.code}>{reason.message} {reason.next_action && <span>{reason.next_action}</span>}</p>)}
         {candidate.operational_blockers.map((reason) => <p key={reason.code}>{reason.message} <span>{reason.next_action}</span></p>)}
-        <button type="button" disabled={props.readOnly || !candidate.assignable} title={!candidate.assignable ? candidate.next_actions.join(" ") || title : undefined} onClick={() => props.onAssign(props.requirement!, candidate)}><CheckCircle2 size={15} /> Affecter pour l'utilisation prévue</button>
+        <button
+          type="button"
+          disabled={props.readOnly || !candidate.assignable}
+          title={
+            props.readOnly
+              ? "Créez un brouillon pour modifier les affectations de cette définition validée."
+              : !candidate.assignable ? candidate.next_actions.join(" ") || title : undefined
+          }
+          onClick={() => props.onAssign(props.requirement!, candidate)}
+        ><CheckCircle2 size={15} /> Affecter pour l'utilisation prévue</button>
+        {props.readOnly && candidate.assignable && (
+          <small>Créez un brouillon pour affecter cet exemplaire à la définition validée.</small>
+        )}
         {!candidate.assignable && <small className="actionExplanation">{candidate.next_actions[0] ?? title}</small>}
         <details><summary>Détails techniques</summary><dl><dt>Version de modèle</dt><dd>{candidate.asset.equipment_model_revision_id ?? "Non rapprochée"}</dd><dt>Ports compatibles</dt><dd>{Object.entries(candidate.logical_port_resolution_candidates).map(([logical, ports]) => `${logical}: ${ports.join(", ") || "aucun"}`).join(" · ")}</dd><dt>Driver</dt><dd>{candidate.driver_evidence.join(", ") || "Aucune action requise ou disponible"}</dd></dl></details>
       </article>;

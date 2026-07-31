@@ -1005,7 +1005,7 @@ mod tests {
                 .find(|domain| domain.domain == "station_configurations")
                 .unwrap()
                 .schema_version,
-            Some(2)
+            Some(4)
         );
 
         remove_temporary_storage_root(&storage_root);

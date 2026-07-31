@@ -3413,6 +3413,7 @@ fn status_for_error(code: &str) -> u16 {
         | "station_setup_revision_not_editable"
         | "station_setup_active_draft_exists"
         | "station_setup_source_not_ready"
+        | "station_setup_not_qualified"
         | "station_setup_not_ready"
         | "planned_test_schedule_not_confirmed"
         | "planned_test_schedule_concurrent_update"
@@ -5529,7 +5530,7 @@ mod tests {
         assert!(incomplete.body.contains("\"ready\":false"));
         assert!(incomplete
             .body
-            .contains("station_setup_requires_two_materials"));
+            .contains("station_setup_requires_two_material_roles"));
 
         let premature_ready = handle_api_request(
             "POST",
@@ -5546,9 +5547,9 @@ mod tests {
             &config,
         );
         assert_eq!(premature_ready.status, 409, "{}", premature_ready.body);
-        assert!(premature_ready.body.contains("station_setup_not_ready"));
+        assert!(premature_ready.body.contains("station_setup_not_qualified"));
 
-        let definition = json!({
+        let definition = station_v3_definition(json!({
             "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-RF-STATION-001",
             "label": "Mesure RF câble vers récepteur",
@@ -5588,7 +5589,7 @@ mod tests {
                 "characterization_checksum": cable_characterization_checksum,
                 "label": "Pertes mesurées du câble CAB-001"
             }]
-        });
+        }));
         let saved = handle_api_request(
             "PUT",
             &format!(
@@ -5640,6 +5641,22 @@ mod tests {
         );
         assert_eq!(readiness.status, 200, "{}", readiness.body);
         assert!(readiness.body.contains("\"ready\":true"));
+
+        let qualified = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/station-setups/SETUP-RF-STATION-001/revisions/{revision_id}/transitions/qualified"
+            ),
+            &json!({
+                "expected_definition_checksum": ready_checksum,
+                "actor": "test.technician",
+                "reason": "validate the logical measurement chain",
+                "operation_id": "op-station-setup-qualified"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(qualified.status, 200, "{}", qualified.body);
 
         let marked_ready = handle_api_request(
             "POST",
@@ -8367,7 +8384,7 @@ mod tests {
             storage_root: storage_root.clone(),
             migrations_root: migrations_root.clone(),
             lab_console_dist: repo_root().join("apps/lab-console/dist"),
-            max_requests: Some(9),
+            max_requests: Some(10),
         });
         assert_eq!(wait_for_http(&first_address, "/api/v1/health").0, 200);
 
@@ -8410,7 +8427,7 @@ mod tests {
             draft["definition"]["laboratory_location_label"],
             "Poste CEM mobile"
         );
-        let definition = json!({
+        let definition = station_v3_definition(json!({
             "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-RF-HTTP-001",
             "label": "Mesure RF câble vers récepteur",
@@ -8450,7 +8467,7 @@ mod tests {
                 "characterization_checksum": fixture.characterization_checksum,
                 "label": "Pertes mesurées du câble CAB-001"
             }]
-        });
+        }));
         let saved = http_request(
             "PUT",
             &first_address,
@@ -8484,6 +8501,21 @@ mod tests {
         );
         assert_eq!(readiness.0, 200, "{}", readiness.1);
         assert!(readiness.1.contains("\"ready\":true"));
+        let qualified = http_request(
+            "POST",
+            &first_address,
+            &format!(
+                "/api/v1/station-setups/SETUP-RF-HTTP-001/revisions/{revision_id}/transitions/qualified"
+            ),
+            &json!({
+                "expected_definition_checksum": ready_checksum,
+                "actor": "test.technician",
+                "reason": "validate HTTP station definition",
+                "operation_id": "op-http-station-qualified"
+            })
+            .to_string(),
+        );
+        assert_eq!(qualified.0, 200, "{}", qualified.1);
         let equipment = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
         equipment
             .execute(
@@ -9318,7 +9350,7 @@ mod tests {
             .as_str()
             .unwrap();
         assert_eq!(station_revision_id, "SETUP-PREP-HTTP-rev-0001");
-        let station_definition = json!({
+        let station_definition = station_v3_definition(json!({
             "definition_schema_version": "emc-locus.station-measurement-setup-definition.v2",
             "setup_id": "SETUP-PREP-HTTP",
             "label": "HTTP RF preparation chain",
@@ -9358,7 +9390,7 @@ mod tests {
                 "characterization_checksum": fixture.characterization_checksum,
                 "label": "Measured RF cable loss"
             }]
-        });
+        }));
         let station_saved = handle_api_request(
             "PUT",
             &format!(
@@ -9380,6 +9412,21 @@ mod tests {
             ["definition_checksum"]
             .as_str()
             .unwrap();
+        let station_qualified = handle_api_request(
+            "POST",
+            &format!(
+                "/api/v1/station-setups/SETUP-PREP-HTTP/revisions/{station_revision_id}/transitions/qualified"
+            ),
+            &json!({
+                "expected_definition_checksum": station_ready_checksum,
+                "actor": "station.technician",
+                "reason": "validate HTTP preparation station definition",
+                "operation_id": "op-http-preparation-station-qualified"
+            })
+            .to_string(),
+            config,
+        );
+        assert_eq!(station_qualified.status, 200, "{}", station_qualified.body);
         let station_ready = handle_api_request(
             "POST",
             &format!(
@@ -9697,10 +9744,132 @@ mod tests {
             "role_label": role_label,
             "asset_id": instrument["asset_id"],
             "asset_revision": instrument["revision"],
+            "inventory_code": instrument["inventory_code"],
+            "serial_number": instrument["serial_number"],
             "equipment_model_id": model_id,
             "equipment_model_revision_id": model_revision_id,
             "equipment_model_checksum": model_checksum
         })
+    }
+
+    fn station_v3_definition(mut definition: Value) -> Value {
+        let bindings = definition["asset_bindings"]
+            .as_array()
+            .expect("station fixture bindings")
+            .clone();
+        let connections = definition["connections"]
+            .as_array()
+            .expect("station fixture connections")
+            .clone();
+        let correction_selections = definition["correction_selections"]
+            .as_array()
+            .expect("station fixture corrections")
+            .clone();
+        let assigned_on = definition["planned_use_on"]
+            .as_str()
+            .expect("station fixture date")
+            .to_owned();
+        let mut requirements = Vec::new();
+        let mut assignments = Vec::new();
+        for binding in bindings {
+            let binding_id = binding["binding_id"]
+                .as_str()
+                .expect("station fixture binding id");
+            let mut ports = std::collections::BTreeMap::new();
+            for connection in &connections {
+                if connection["from"]["binding_id"] == binding_id {
+                    ports.insert(
+                        connection["from"]["port_id"]
+                            .as_str()
+                            .expect("source port")
+                            .to_owned(),
+                        "output",
+                    );
+                }
+                if connection["to"]["binding_id"] == binding_id {
+                    ports.insert(
+                        connection["to"]["port_id"]
+                            .as_str()
+                            .expect("destination port")
+                            .to_owned(),
+                        "input",
+                    );
+                }
+            }
+            let logical_ports = ports
+                .iter()
+                .map(|(port_id, directionality)| {
+                    json!({
+                        "logical_port_id": port_id,
+                        "label": port_id,
+                        "directionality": directionality,
+                        "signal_domain": "rf"
+                    })
+                })
+                .collect::<Vec<_>>();
+            let selected_ports = ports
+                .keys()
+                .map(|port_id| {
+                    json!({
+                        "logical_port_id": port_id,
+                        "actual_port_id": port_id
+                    })
+                })
+                .collect::<Vec<_>>();
+            requirements.push(json!({
+                "requirement_id": binding_id,
+                "role_label": binding["role_label"],
+                "required": true,
+                "selection_policy": "exact_asset",
+                "assignment_stage": "setup_definition",
+                "substitution_policy": "no_substitution",
+                "calibration_requirement": "not_required",
+                "exact_asset_id": binding["asset_id"],
+                "logical_ports": logical_ports
+            }));
+            assignments.push(json!({
+                "requirement_id": binding_id,
+                "asset_id": binding["asset_id"],
+                "asset_revision": binding["asset_revision"],
+                "inventory_code": binding["inventory_code"],
+                "serial_number": binding["serial_number"],
+                "equipment_model_id": binding["equipment_model_id"],
+                "equipment_model_revision_id": binding["equipment_model_revision_id"],
+                "equipment_model_checksum": binding["equipment_model_checksum"],
+                "selected_ports": selected_ports,
+                "assignment_context": "setup_definition",
+                "assigned_on": assigned_on
+            }));
+        }
+        let logical_connections = connections
+            .into_iter()
+            .map(|connection| {
+                json!({
+                    "connection_id": connection["connection_id"],
+                    "label": connection["label"],
+                    "from": {
+                        "requirement_id": connection["from"]["binding_id"],
+                        "logical_port_id": connection["from"]["port_id"]
+                    },
+                    "to": {
+                        "requirement_id": connection["to"]["binding_id"],
+                        "logical_port_id": connection["to"]["port_id"]
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        definition["definition_schema_version"] =
+            json!("emc-locus.station-measurement-setup-definition.v3");
+        definition["asset_bindings"] = json!([]);
+        definition["connections"] = json!([]);
+        definition["correction_selections"] = json!([]);
+        definition["material_requirements"] = json!(requirements);
+        definition["material_assignments"] = json!(assignments);
+        definition["logical_connections"] = json!(logical_connections);
+        definition["notes"] = json!({
+            "v2_correction_selections": correction_selections
+        });
+        definition
     }
 
     fn station_cable_characterization_body() -> String {

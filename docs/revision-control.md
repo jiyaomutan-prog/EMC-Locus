@@ -90,18 +90,19 @@ only a reusable library.
 
 ## Current Validated Baseline
 
-Version `0.22.0` was validated on 2026-07-28 with the CI-equivalent command
+Version `0.22.1` was validated on 2026-07-31 with the CI-equivalent command
 set. Its checks cover the same path as GitHub Actions: Rust format, Clippy,
 Rust tests, Python compile/tests, SQLite migration validation, LAB CONSOLE
 typecheck/lint/unit/build, versioned `dist` verification, Playwright E2E,
 release consistency, launcher smoke and whitespace checks. The commands were
 run through the repository validation script and the available npm CLI.
-For `0.22.0`, Playwright proves the equipment-owned fleet, exact model pins,
-migrated-asset reconciliation, stable locations, administrative availability,
-calculated usage, dated metrology and eligibility-aware setup/preparation
-selectors. It also covers stale selector responses, targeted secondary-source
-failures, restart persistence, audit/outbox evidence and preservation of all
-historical release screenshots. The reviewed 0.22.0 states are captured at
+For `0.22.1`, Playwright proves station requirements, exact and deferred
+physical assignments, logical-port mappings, category/capability evidence,
+qualified and ready states, first-class calibration, the CA-001 blocker
+sequence, UTF-8, v2 compatibility and planned-test resolution. It also covers
+stale responses, targeted secondary-source failures, restart persistence,
+audit/outbox evidence and preservation of all historical release screenshots.
+The reviewed 0.22.1 states are captured at
 exactly 1440 x 900 and 1280 x 720 in their current-release evidence directory.
 
 The explicit command sequence is:

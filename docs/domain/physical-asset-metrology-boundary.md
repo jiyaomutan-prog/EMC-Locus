@@ -58,3 +58,22 @@ Le parc, le sélecteur de montage et l'instantané de préparation consomment ce
 même verdict. Une panne de `metrology.sqlite` conserve l'identité physique et
 retourne `metrology.status = unavailable`; elle ne fait jamais échouer toute
 la liste du parc.
+
+## Workflow de certificat en 0.22.1
+
+Un événement d'étalonnage porte la décision globale et sa validité. Une
+caractérisation porte des valeurs mesurées propres à la série. Une affectation
+de correction porte la décision revue d'utiliser une source pour une exigence
+de signal. Ces trois objets ne se déduisent jamais automatiquement l'un de
+l'autre.
+
+Un même certificat peut alimenter l'événement et une caractérisation, mais
+l'opérateur les enregistre en deux étapes explicites. Le document de preuve
+content-addressé et la référence peuvent être réutilisés. L'étalonnage ne crée
+pas de correction ; la mention « valeurs issues d'un certificat » ne valide pas
+l'étalonnage global.
+
+Les candidats de montage exposent donc séparément l'étalonnage, l'état de
+service, la disponibilité des corrections et l'aptitude opérationnelle
+contextuelle. Une panne de l'historique d'étalonnage conserve le dossier et les
+autres preuves déjà chargées, avec une erreur et une relance ciblées.

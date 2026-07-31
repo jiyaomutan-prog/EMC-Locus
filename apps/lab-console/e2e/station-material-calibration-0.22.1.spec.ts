@@ -215,8 +215,14 @@ test.describe.serial("0.22.1 station materials and calibration acceptance", () =
       .filter({ hasText: "Câble CA-001 imposé" })
       .getByRole("button", { name: "Vérifier les candidats" })
       .click();
-    await expect(page.getByText("Compatible et disponible")).toBeVisible();
-    await capture(page, "exact-eligible-asset-1280x720.png", 1280, 720);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const exactEligibleVerdict = page.getByText("Compatible et disponible");
+    await expect(exactEligibleVerdict).toBeVisible();
+    await exactEligibleVerdict.evaluate((element) =>
+      element.scrollIntoView({ block: "center", inline: "nearest" })
+    );
+    await page.waitForTimeout(80);
+    await capture(page, "exact-eligible-asset-1280x720.png", 1280, 720, false);
     await page.getByRole("button", { name: "Finaliser les affectations dans un brouillon" }).click();
     await expect(page.getByText("Brouillon", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Ajouter un rôle" })).toBeVisible();
@@ -536,9 +542,17 @@ async function stationCandidates(request: APIRequestContext, currentSetupId: str
   );
 }
 
-async function capture(page: Page, name: string, width: number, height: number) {
+async function capture(
+  page: Page,
+  name: string,
+  width: number,
+  height: number,
+  resetScroll = true
+) {
   await page.setViewportSize({ width, height });
-  await page.evaluate(() => window.scrollTo(0, 0));
+  if (resetScroll) {
+    await page.evaluate(() => window.scrollTo(0, 0));
+  }
   await page.waitForTimeout(100);
   const image = await page.screenshot({ animations: "disabled", fullPage: false });
   if (
