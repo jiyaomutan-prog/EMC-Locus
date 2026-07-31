@@ -844,7 +844,11 @@ pub(crate) fn assess_metrology_readiness_report(
                     asset_id: instrument.asset_id.clone(),
                     code: format!("calibration_{}", status.calibration_status),
                     dimension: calibration_issue_dimension(&status.calibration_status).to_owned(),
-                    message: "required calibration is not valid".to_owned(),
+                    message: if status.calibration_status == "missing" {
+                        "Aucun étalonnage valide n'est disponible à la date prévue.".to_owned()
+                    } else {
+                        "L'étalonnage requis est expiré à la date prévue.".to_owned()
+                    },
                 });
             }
             "nonconforming" => {

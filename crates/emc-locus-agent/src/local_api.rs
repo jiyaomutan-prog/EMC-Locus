@@ -265,7 +265,7 @@ fn json_response(status: u16, body: String) -> ApiResponse {
     ApiResponse {
         status,
         body,
-        content_type: "application/json".to_owned(),
+        content_type: "application/json; charset=utf-8".to_owned(),
         location: None,
     }
 }
@@ -421,7 +421,7 @@ fn lab_content_type(path: &Path) -> &'static str {
         Some("html") => "text/html; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
         Some("js") => "text/javascript; charset=utf-8",
-        Some("json") => "application/json",
+        Some("json") => "application/json; charset=utf-8",
         Some("svg") => "image/svg+xml",
         _ => "text/plain; charset=utf-8",
     }
@@ -3533,6 +3533,35 @@ mod tests {
             optional_query_value("search=R%C3%A9cepteur+EMI", "search").as_deref(),
             Some("Récepteur EMI")
         );
+    }
+
+    #[test]
+    fn json_success_and_error_responses_declare_utf8_and_preserve_accents() {
+        let success = json_response(
+            200,
+            render_json(&json!({
+                "message": "Étalonnage valide à la date prévue.",
+                "blocker": "Emplacement non défini"
+            })),
+        );
+        assert_eq!(success.content_type, "application/json; charset=utf-8");
+        assert_eq!(
+            std::str::from_utf8(success.body.as_bytes()).unwrap(),
+            "{\"blocker\":\"Emplacement non défini\",\"message\":\"Étalonnage valide à la date prévue.\"}"
+        );
+
+        let error = json_response(
+            400,
+            AgentError::new(
+                "invalid_station_setup_request",
+                "L'échéance d'étalonnage est déjà dépassée.",
+            )
+            .to_json(),
+        );
+        assert_eq!(error.content_type, "application/json; charset=utf-8");
+        assert!(error
+            .body
+            .contains("L'échéance d'étalonnage est déjà dépassée."));
     }
 
     #[test]
@@ -7379,6 +7408,12 @@ mod tests {
         stream.read_to_string(&mut response).unwrap();
 
         assert!(response.starts_with("HTTP/1.1 400"));
+        assert!(
+            response
+                .lines()
+                .any(|line| line
+                    .eq_ignore_ascii_case("Content-Type: application/json; charset=utf-8"))
+        );
         assert!(response.contains("api_request_body_not_utf8"));
         assert_eq!(http_request("GET", &address, "/api/v1/health", "").0, 200);
         server
@@ -7775,6 +7810,7 @@ mod tests {
         assert_eq!(missing.0, 200);
         assert!(missing.1.contains("\"ready\":false"));
         assert!(missing.1.contains("\"code\":\"calibration_missing\""));
+        assert!(missing.1.contains("Aucun étalonnage valide"));
 
         let calibration = http_request(
             "POST",
@@ -9094,9 +9130,18 @@ mod tests {
             .and_then(|line| line.split_whitespace().nth(1))
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or(0);
-        let body = response
+        let (headers, body) = response
             .split_once("\r\n\r\n")
-            .map_or_else(String::new, |(_, body)| body.to_owned());
+            .map_or((response.as_str(), String::new()), |(headers, body)| {
+                (headers, body.to_owned())
+            });
+        if path.starts_with("/api/") {
+            assert!(
+                headers.lines().any(|line| line
+                    .eq_ignore_ascii_case("Content-Type: application/json; charset=utf-8")),
+                "JSON API response omitted its UTF-8 content type: {headers}"
+            );
+        }
         Ok((status, body))
     }
 
