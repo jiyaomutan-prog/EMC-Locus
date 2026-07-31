@@ -305,6 +305,19 @@ function StationSetupDetail(props: {
     props.onReplace(result.station_setup);
   }
 
+  async function deriveQualifiedDraft() {
+    const result = await stationSetupApi.deriveRevision(
+      props.setup!.identity.setup_id,
+      revision!.revision_id,
+      false,
+      {
+        ...operationContext,
+        reason: "finalisation des affectations physiques d'une définition validée"
+      }
+    );
+    props.onReplace(result.station_setup);
+  }
+
   function addRequirement(requirement: StationMaterialRequirement) {
     setDefinition((current) => current ? {
       ...current,
@@ -432,6 +445,7 @@ function StationSetupDetail(props: {
       {!readOnly && <button type="button" disabled={busy || !dirty || !definition.label.trim() || !definition.laboratory_location_id} onClick={() => void run(save)}><Save size={16} /> Enregistrer comme exigence du montage</button>}
       {!readOnly && !dirty && <button className="secondary" type="button" disabled={busy} onClick={() => void run(assess)}><RefreshCw size={16} /> Contrôler l'aptitude opérationnelle</button>}
       {!readOnly && isV3 && !dirty && <button type="button" disabled={busy || requirements.length < 2} onClick={() => void run(qualify)}><ShieldCheck size={16} /> Valider la définition</button>}
+      {revision.status === "qualified" && <button className="secondary" type="button" disabled={busy} onClick={() => void run(deriveQualifiedDraft)}><RefreshCw size={16} /> Finaliser les affectations dans un brouillon</button>}
       {(revision.status === "qualified" || (!isV3 && revision.status === "draft")) && <button type="button" disabled={busy || !readiness?.ready} onClick={() => void run(markReady)}><CheckCircle2 size={16} /> Déclarer prêt à utiliser</button>}
     </div>
     {!readOnly && dirty && <p className="actionExplanation">Enregistrez le brouillon avant de demander les candidats ou de relancer les contrôles.</p>}

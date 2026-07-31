@@ -1042,10 +1042,13 @@ pub fn derive_station_setup_revision(
         ));
     }
     let source = required_revision(&transaction, &input.setup_id, &input.source_revision_id)?;
-    if !matches!(source.status.as_str(), "ready" | "superseded") {
+    let source_is_qualified_v3 = source.status == "draft"
+        && source.qualified_at.is_some()
+        && source.definition_schema_version == STATION_SETUP_DEFINITION_SCHEMA_VERSION;
+    if !matches!(source.status.as_str(), "ready" | "superseded") && !source_is_qualified_v3 {
         return Err(AgentError::new(
             "station_setup_source_not_ready",
-            "a new draft must be derived from a ready setup revision",
+            "a new draft must be derived from a qualified or ready setup revision",
         ));
     }
     let mut definition = validated_stored_definition(&source)?;
@@ -2862,13 +2865,38 @@ mod tests {
             MarkStationSetupReadyInput {
                 setup_id: "SETUP-V3-EXACT".to_owned(),
                 revision_id: "SETUP-V3-EXACT-rev-0001".to_owned(),
-                expected_definition_checksum: checksum,
+                expected_definition_checksum: checksum.clone(),
                 context: context("op-v3-ready-refused"),
             },
         )
         .unwrap_err();
         assert_eq!(ready_refusal.code, "station_setup_not_ready");
         assert_eq!(evidence_counts(&storage_root), before_refusal);
+
+        let derived = json_value(
+            &derive_station_setup_revision(
+                &storage_root,
+                DeriveStationSetupRevisionInput {
+                    setup_id: "SETUP-V3-EXACT".to_owned(),
+                    source_revision_id: "SETUP-V3-EXACT-rev-0001".to_owned(),
+                    upgrade_to_v3: false,
+                    context: context("op-v3-finalize-assignments"),
+                },
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            derived["station_setup"]["active_draft_revision"]["parent_revision_id"],
+            "SETUP-V3-EXACT-rev-0001"
+        );
+        assert_eq!(
+            derived["station_setup"]["active_draft_revision"]["definition_checksum"],
+            checksum
+        );
+        assert_eq!(
+            derived["station_setup"]["current_qualified_revision"]["revision_id"],
+            "SETUP-V3-EXACT-rev-0001"
+        );
         let _ = std::fs::remove_dir_all(storage_root);
     }
 

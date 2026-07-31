@@ -1343,6 +1343,72 @@ describe("LAB CONSOLE", () => {
     expect(screen.getByText(/Labo CEM 1.*utilisation prévue/)).toBeInTheDocument();
   });
 
+  test("derives an audited draft to finalize assignments from a qualified setup", async () => {
+    const setup = stationSetupFixture();
+    const qualifiedRevision = {
+      ...setup.active_draft_revision,
+      status: "qualified" as const,
+      qualified_at: "2026-07-30T09:00:00Z"
+    };
+    const qualifiedSetup = {
+      ...setup,
+      identity: {
+        ...setup.identity,
+        current_qualified_revision_id: qualifiedRevision.revision_id
+      },
+      active_draft_revision: null,
+      current_qualified_revision: qualifiedRevision,
+      latest_revision: qualifiedRevision
+    };
+    const deriveBodies: Array<Record<string, unknown>> = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/station-setups" && !init?.method) {
+        return jsonResponse({ station_setups: [qualifiedSetup] });
+      }
+      if (path === "/api/v1/laboratory-locations") return mockBaseApiResponse(path);
+      if (path === "/api/v1/equipment/categories/tree") {
+        return jsonResponse({ categories: equipmentCategoriesFixture() });
+      }
+      if (path === "/api/v1/fleet/assets") return jsonResponse({ assets: [physicalAssetFixture()] });
+      if (path.endsWith("/revisions") && init?.method === "POST") {
+        deriveBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        const draft = {
+          ...qualifiedRevision,
+          revision_id: "SETUP-CONDUCTED-001-rev-0002",
+          revision_number: 2,
+          parent_revision_id: qualifiedRevision.revision_id,
+          status: "draft" as const,
+          qualified_at: null
+        };
+        return jsonResponse({
+          operation: "station_setup_revision_derived",
+          operation_id: "op-derived",
+          replayed: false,
+          station_setup: {
+            ...qualifiedSetup,
+            active_draft_revision: draft,
+            latest_revision: draft
+          }
+        });
+      }
+      return jsonResponse({ error: { code: "unexpected", message: path } }, 500);
+    });
+    const user = userEvent.setup();
+    render(<StationSetupWorkspace />);
+
+    expect(await screen.findByText("Définition validée")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Finaliser les affectations dans un brouillon" })
+    );
+
+    await waitFor(() => expect(deriveBodies).toHaveLength(1));
+    expect(deriveBodies[0].source_revision_id).toBe(qualifiedRevision.revision_id);
+    expect(deriveBodies[0].upgrade_to_v3).toBe(false);
+    expect(await screen.findByText("Brouillon", { selector: ".stationIdentityHeader .status" }))
+      .toBeInTheDocument();
+  });
+
   test("invalidates stale station candidates when the use context changes", async () => {
     const setup = stationSetupFixture();
     const locationAAsset = physicalAssetFixture({
