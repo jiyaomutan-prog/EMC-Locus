@@ -21,8 +21,9 @@ use crate::{render_json, AgentError};
 use emc_locus_core::{
     resolve_asset_corrections, validate_asset_correction_assignment,
     AssetCharacterizationDefinition, AssetCharacterizationKind, AssetCorrectionAssignment,
-    AssetCorrectionAssignmentStatus, CorrectionRequirementDefinition, CorrectionRequirementKind,
-    CorrectionSourceKind, EquipmentModelDefinition,
+    AssetCorrectionAssignmentStatus, AssetCorrectionResolutionReport,
+    CorrectionRequirementDefinition, CorrectionRequirementKind, CorrectionSourceKind,
+    EquipmentModelDefinition,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -69,6 +70,15 @@ struct AssignmentEnvelope {
 #[derive(Serialize)]
 struct AssignmentListEnvelope {
     assignments: Vec<AssignmentEnvelope>,
+}
+
+#[derive(Serialize)]
+struct MaterialCorrectionResolutionEnvelope {
+    asset_id: String,
+    equipment_model_id: String,
+    equipment_model_revision_id: String,
+    equipment_model_checksum: String,
+    report: AssetCorrectionResolutionReport,
 }
 
 pub fn create_asset_correction_assignment(
@@ -272,6 +282,23 @@ pub fn resolve_material_corrections(
     storage_root: &Path,
     input: ResolveMaterialCorrectionsInput,
 ) -> Result<String, AgentError> {
+    Ok(render_json(&resolve_material_corrections_typed(
+        storage_root,
+        input,
+    )?))
+}
+
+pub(crate) fn assess_material_correction_readiness(
+    storage_root: &Path,
+    input: ResolveMaterialCorrectionsInput,
+) -> Result<AssetCorrectionResolutionReport, AgentError> {
+    Ok(resolve_material_corrections_typed(storage_root, input)?.report)
+}
+
+fn resolve_material_corrections_typed(
+    storage_root: &Path,
+    input: ResolveMaterialCorrectionsInput,
+) -> Result<MaterialCorrectionResolutionEnvelope, AgentError> {
     require_token(&input.asset_id, "asset_id")?;
     validate_execution_context(&input.execution_context)?;
     validate_date(&input.intended_use_on, "intended_use_on")?;
@@ -307,13 +334,13 @@ pub fn resolve_material_corrections(
         input.execution_context.trim(),
         &input.conditions,
     );
-    Ok(render_json(&json!({
-        "asset_id": instrument.asset_id,
-        "equipment_model_id": model_id,
-        "equipment_model_revision_id": model_revision_id,
-        "equipment_model_checksum": model_checksum,
-        "report": report,
-    })))
+    Ok(MaterialCorrectionResolutionEnvelope {
+        asset_id: instrument.asset_id,
+        equipment_model_id: model_id,
+        equipment_model_revision_id: model_revision_id,
+        equipment_model_checksum: model_checksum,
+        report,
+    })
 }
 
 #[derive(Clone, Copy)]

@@ -1,3 +1,6 @@
+use crate::asset_correction_service::{
+    assess_material_correction_readiness, ResolveMaterialCorrectionsInput,
+};
 use crate::equipment_repository::{
     list_driver_profile_identities, list_equipment_categories,
     load_current_approved_driver_profile_revision, load_equipment_model_revision,
@@ -322,9 +325,19 @@ pub(crate) fn list_station_material_candidates(
             &option.asset.asset_id,
             checked_on,
         )?;
-        let operationally_eligible = option.eligible && calibration_blocker.is_none();
+        let correction_blocker = station_material_correction_blocker(
+            storage_root,
+            &option.asset.asset_id,
+            input.planned_use_on.trim(),
+            input.execution_mode.trim(),
+        )?;
+        let operationally_eligible =
+            option.eligible && calibration_blocker.is_none() && correction_blocker.is_none();
         let mut operational_blockers = option.blocking_reasons;
-        if let Some(blocker) = calibration_blocker {
+        for blocker in [calibration_blocker, correction_blocker]
+            .into_iter()
+            .flatten()
+        {
             if !operational_blockers
                 .iter()
                 .any(|reason| reason.code == blocker.code)
@@ -1292,6 +1305,18 @@ pub(crate) fn assess_station_setup_readiness_for_context(
         }
         let metrology = open_metrology_connection(storage_root)?;
         for operational_asset in &operational_assets {
+            if let Some(reason) = station_material_correction_blocker(
+                storage_root,
+                operational_asset.asset_id,
+                &definition.planned_use_on,
+                &definition.execution_mode,
+            )? {
+                issues.push(selection_readiness_issue(
+                    &reason,
+                    StationReadinessSeverity::Blocking,
+                    operational_asset.reference_id,
+                ));
+            }
             let Some(requirement) = operational_asset.requirement else {
                 continue;
             };
@@ -1596,6 +1621,61 @@ pub(crate) fn assess_station_setup_readiness_for_context(
         definition.planned_use_on.clone(),
         issues,
     ))
+}
+
+fn station_material_correction_blocker(
+    storage_root: &Path,
+    asset_id: &str,
+    intended_use_on: &str,
+    execution_context: &str,
+) -> Result<Option<AssetSelectionReasonDto>, AgentError> {
+    let report = match assess_material_correction_readiness(
+        storage_root,
+        ResolveMaterialCorrectionsInput {
+            asset_id: asset_id.to_owned(),
+            intended_use_on: intended_use_on.to_owned(),
+            execution_context: execution_context.to_owned(),
+            conditions: BTreeMap::new(),
+        },
+    ) {
+        Ok(report) => report,
+        Err(error)
+            if error.code.starts_with("asset_correction_")
+                || error.code == "equipment_model_corrections_require_upgrade" =>
+        {
+            return Ok(Some(AssetSelectionReasonDto {
+                code: "correction_readiness_unavailable".to_owned(),
+                message: "L'aptitude des corrections du matÃ©riel ne peut pas Ãªtre Ã©tablie."
+                    .to_owned(),
+                next_action:
+                    "RÃ©conciliez son modÃ¨le puis complÃ©tez les corrections exigÃ©es pour l'usage."
+                        .to_owned(),
+            }));
+        }
+        Err(error) => return Err(error),
+    };
+    if report.ready {
+        return Ok(None);
+    }
+    let missing = report
+        .resolutions
+        .iter()
+        .filter(|resolution| resolution.blocking)
+        .map(|resolution| resolution.display_name.as_str())
+        .collect::<Vec<_>>();
+    let detail = if missing.is_empty() {
+        String::new()
+    } else {
+        format!(" Corrections concernÃ©es : {}.", missing.join(", "))
+    };
+    Ok(Some(AssetSelectionReasonDto {
+        code: "correction_readiness_incomplete".to_owned(),
+        message: format!(
+            "Les corrections requises par le modÃ¨le ne sont pas toutes disponibles.{detail}"
+        ),
+        next_action: "Mesurez ou importez les corrections, puis faites-les approuver et activer."
+            .to_owned(),
+    }))
 }
 
 fn asset_revision_matches(stored: &str, revision: u64, asset_id: &str, updated_at: &str) -> bool {
@@ -2524,8 +2604,10 @@ mod tests {
     };
     use crate::{run_storage_action, StorageAction};
     use emc_locus_core::{
-        EquipmentClass, FunctionalRole, PhysicalQuantity, PortFlowRole, TechnologyTag,
-        EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION,
+        AssetSpecificCorrectionPolicy, CorrectionApplicationOperation,
+        CorrectionRequirementDefinition, CorrectionRequirementKind, EquipmentClass,
+        EquipmentSignalPathDefinition, FunctionalRole, PhysicalQuantity, PortFlowRole,
+        TechnologyTag, EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION,
     };
     use rusqlite::{params, Connection};
     use serde_json::Value;
@@ -3119,6 +3201,79 @@ mod tests {
     }
 
     #[test]
+    fn station_candidates_require_active_model_corrections() {
+        let storage_root = initialized_storage("station-v3-correction-readiness");
+        insert_location(&storage_root, "LOC-STATION-CORRECTION", "Labo corrections");
+        let model_checksum = seed_correction_required_test_model(&storage_root);
+        register_station_correction_asset(
+            &storage_root,
+            "CA-CORRECTION-001",
+            "LOC-STATION-CORRECTION",
+            &model_checksum,
+        );
+        let created = json_value(
+            &create_station_setup(
+                &storage_root,
+                create_input(
+                    "SETUP-V3-CORRECTION",
+                    "LOC-STATION-CORRECTION",
+                    "op-v3-correction-create",
+                ),
+            )
+            .unwrap(),
+        );
+        let draft = &created["station_setup"]["active_draft_revision"];
+        let mut definition = draft["definition"].clone();
+        definition["material_requirements"] = json!([station_test_requirement(
+            "cable",
+            "CÃ¢ble corrigÃ©",
+            "CA-CORRECTION-001",
+            "output"
+        )]);
+        replace_station_setup_draft_definition(
+            &storage_root,
+            ReplaceStationSetupDraftInput {
+                setup_id: "SETUP-V3-CORRECTION".to_owned(),
+                revision_id: "SETUP-V3-CORRECTION-rev-0001".to_owned(),
+                expected_definition_checksum: draft["definition_checksum"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                definition_json: definition.to_string(),
+                context: context("op-v3-correction-save"),
+            },
+        )
+        .unwrap();
+
+        let candidates = list_station_material_candidates(
+            &storage_root,
+            ListStationMaterialCandidatesInput {
+                setup_id: "SETUP-V3-CORRECTION".to_owned(),
+                revision_id: "SETUP-V3-CORRECTION-rev-0001".to_owned(),
+                requirement_id: "cable".to_owned(),
+                planned_use_on: "2026-07-28".to_owned(),
+                execution_mode: "investigation".to_owned(),
+                laboratory_location_id: "LOC-STATION-CORRECTION".to_owned(),
+                excluded_schedule_item_code: None,
+            },
+        )
+        .unwrap();
+        let candidate = candidates
+            .candidates
+            .iter()
+            .find(|candidate| candidate.asset.asset_id == "CA-CORRECTION-001")
+            .unwrap();
+        assert!(candidate.requirement_compatible);
+        assert!(!candidate.operationally_eligible);
+        assert!(!candidate.assignable);
+        assert!(candidate
+            .operational_blockers
+            .iter()
+            .any(|reason| reason.code == "correction_readiness_incomplete"));
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
+    #[test]
     fn draft_replacement_cannot_change_definition_schema() {
         let storage_root = initialized_storage("station-schema-boundary");
         insert_location(&storage_root, "LOC-STATION-SCHEMA", "Labo schéma");
@@ -3265,6 +3420,93 @@ mod tests {
         canonical.definition_checksum
     }
 
+    fn seed_correction_required_test_model(storage_root: &Path) -> String {
+        let definition = EquipmentModelDefinition {
+            definition_schema_version: EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION.to_owned(),
+            manufacturer: "Locus Cables".to_owned(),
+            model_name: "RF-CORRECTED".to_owned(),
+            variant: None,
+            equipment_class: EquipmentClass::ManualEquipment,
+            functional_role: FunctionalRole::RfNetworkElement,
+            category_code: "rf_cable".to_owned(),
+            signal_domains: vec![SignalDomain::Rf],
+            technology_tags: vec![TechnologyTag::Rf50Ohm],
+            specifications: Vec::new(),
+            signal_ports: vec![
+                station_test_port(
+                    "rf_input",
+                    "EntrÃ©e RF",
+                    PortDirectionality::Input,
+                    PortFlowRole::MeasurementPort,
+                ),
+                station_test_port(
+                    "rf_output",
+                    "Sortie RF",
+                    PortDirectionality::Output,
+                    PortFlowRole::SourcePort,
+                ),
+            ],
+            signal_paths: vec![EquipmentSignalPathDefinition {
+                path_id: "rf_through".to_owned(),
+                label: "Transmission RF".to_owned(),
+                input_port_id: "rf_input".to_owned(),
+                output_port_id: "rf_output".to_owned(),
+                transformations: Vec::new(),
+                correction_requirements: vec![CorrectionRequirementDefinition {
+                    requirement_id: "cable_loss".to_owned(),
+                    display_name: "Pertes du cÃ¢ble".to_owned(),
+                    description: "Compensation des pertes en fonction de la frÃ©quence".to_owned(),
+                    signal_path_id: "rf_through".to_owned(),
+                    correction_kind: CorrectionRequirementKind::FrequencyDependentCorrection,
+                    physical_purpose: "Ramener le niveau au plan de rÃ©fÃ©rence".to_owned(),
+                    operation: CorrectionApplicationOperation::Add,
+                    input_quantity: PhysicalQuantity::Power,
+                    output_quantity: PhysicalQuantity::Power,
+                    expected_unit: "dB".to_owned(),
+                    required_for_use: true,
+                    asset_specific_policy: AssetSpecificCorrectionPolicy::AssetRequired,
+                    model_default_reference: None,
+                    conditions: BTreeMap::new(),
+                }],
+            }],
+            communication_interfaces: Vec::new(),
+            capabilities: Vec::new(),
+            custom_field_values: BTreeMap::new(),
+            template_snapshot: None,
+            is_demo: false,
+            metadata: BTreeMap::new(),
+        };
+        let canonical = definition.canonicalize().unwrap();
+        let equipment = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        equipment
+            .execute(
+                "INSERT INTO equipment_model_identities
+                 (equipment_model_id, manufacturer, model_name, equipment_class, category_code,
+                  current_approved_revision_id, created_by, created_at, updated_at)
+                 VALUES ('EQM-RF-CORRECTED', 'Locus Cables', 'RF-CORRECTED', 'manual_equipment',
+                         'rf_cable', 'EQM-RF-CORRECTED-rev-0001', 'catalogue', ?1, ?1)",
+                ["2026-07-27T08:00:00Z"],
+            )
+            .unwrap();
+        equipment
+            .execute(
+                "INSERT INTO equipment_model_revisions
+                 (revision_id, equipment_model_id, revision_number, status,
+                  definition_schema_version, definition_json, definition_checksum, created_by,
+                  created_at, updated_at, submitted_at, approved_at)
+                 VALUES ('EQM-RF-CORRECTED-rev-0001', 'EQM-RF-CORRECTED', 1, 'approved',
+                         ?1, ?2, ?3, 'catalogue', ?4, ?4, ?4, ?4)",
+                params![
+                    canonical.definition_schema_version,
+                    canonical.canonical_json,
+                    canonical.definition_checksum,
+                    "2026-07-27T08:00:00Z"
+                ],
+            )
+            .unwrap();
+        canonical.definition_checksum
+    }
+
     fn station_test_port(
         port_id: &str,
         label: &str,
@@ -3338,6 +3580,56 @@ mod tests {
                 "UPDATE physical_assets
                  SET laboratory_location_id = ?2,
                      laboratory_location_label_snapshot = 'Labo ports',
+                     revision = revision + 1,
+                     updated_at = '2026-07-27T09:00:00Z'
+                 WHERE asset_id = ?1",
+                params![asset_id, location_id],
+            )
+            .unwrap();
+    }
+
+    fn register_station_correction_asset(
+        storage_root: &Path,
+        asset_id: &str,
+        location_id: &str,
+        model_checksum: &str,
+    ) {
+        register_metrology_instrument(
+            storage_root,
+            RegisterInstrumentInput {
+                asset_id: asset_id.to_owned(),
+                family: "CÃ¢ble RF".to_owned(),
+                category_code: Some("rf_cable".to_owned()),
+                equipment_model_id: Some("EQM-RF-CORRECTED".to_owned()),
+                equipment_model_revision_id: Some("EQM-RF-CORRECTED-rev-0001".to_owned()),
+                equipment_model_checksum: Some(model_checksum.to_owned()),
+                manufacturer: "Locus Cables".to_owned(),
+                model: "RF-CORRECTED".to_owned(),
+                serial_number: "CA-CORRECTION-001".to_owned(),
+                part_number: Some("RF-CORRECTED".to_owned()),
+                calibration_requirement: "not_required".to_owned(),
+                calibration_period_months: None,
+                calibration_due_warning_days: None,
+                serviceability_status: "usable".to_owned(),
+                serviceability_reason: "CÃ¢ble disponible".to_owned(),
+                capabilities_json: "[]".to_owned(),
+                metrology_notes: String::new(),
+                context: MetrologyOperationContext {
+                    actor: "metrologue".to_owned(),
+                    reason: "CrÃ©ation du cÃ¢ble de test".to_owned(),
+                    operation_id: format!("op-register-{asset_id}"),
+                    correlation_id: format!("corr-register-{asset_id}"),
+                    device_id: "metrology-test".to_owned(),
+                },
+            },
+        )
+        .unwrap();
+        let equipment = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        equipment
+            .execute(
+                "UPDATE physical_assets
+                 SET laboratory_location_id = ?2,
+                     laboratory_location_label_snapshot = 'Labo corrections',
                      revision = revision + 1,
                      updated_at = '2026-07-27T09:00:00Z'
                  WHERE asset_id = ?1",
