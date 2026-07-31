@@ -6,8 +6,13 @@ use crate::equipment_repository::{
 use crate::fleet_dto::{AssetSelectionReasonDto, ExecutablePhysicalAssetOptionListDto};
 use crate::fleet_repository::{load_physical_asset, open_fleet_connection};
 use crate::fleet_service::{executable_physical_asset_options, PhysicalAssetSelectionContext};
-use crate::metrology_assessment::parse_checked_on;
-use crate::metrology_repository::{load_asset_characterization, open_metrology_connection};
+use crate::metrology_assessment::{
+    assess_metrology_source, parse_checked_on, MetrologyAssessmentSource,
+};
+use crate::metrology_repository::{
+    load_asset_characterization, load_instrument, load_latest_calibration_event,
+    open_metrology_connection,
+};
 use crate::metrology_service::{assess_metrology_readiness_report, AssessReadinessInput};
 use crate::station_setup_dto::{
     revision_dto_unchecked, StationMaterialCandidateDto, StationMaterialCandidateListDto,
@@ -34,15 +39,15 @@ use crate::{render_json, AgentError};
 use emc_locus_core::{
     evaluate_station_material_requirement, station_setup_qualification_issues,
     AssetCharacterizationDefinition, AuditActor, AuditReason, DriverProfileDefinition,
-    EquipmentModelDefinition, PortDirectionality, SignalDomain, SignalPortDefinition, StableId,
-    StationCalibrationRequirement, StationCompatibilityReason, StationCompatibilityState,
-    StationLogicalConnectionDefinition, StationLogicalPortEndpoint,
-    StationLogicalPortRequirementDefinition, StationMaterialAssignmentDefinition,
-    StationMaterialAssignmentStage, StationMaterialRequirementDefinition,
-    StationMaterialSelectionPolicy, StationMaterialSubstitutionPolicy,
-    StationMeasurementSetupDefinition, StationPhysicalPortMappingDefinition,
-    StationReadinessDimension, StationReadinessIssue, StationReadinessSeverity,
-    StationSetupReadiness, STATION_SETUP_DEFINITION_SCHEMA_VERSION,
+    EquipmentModelDefinition, MetrologyAssessmentStatus, MetrologyDate, PortDirectionality,
+    SignalDomain, SignalPortDefinition, StableId, StationCalibrationRequirement,
+    StationCompatibilityReason, StationCompatibilityState, StationLogicalConnectionDefinition,
+    StationLogicalPortEndpoint, StationLogicalPortRequirementDefinition,
+    StationMaterialAssignmentDefinition, StationMaterialAssignmentStage,
+    StationMaterialRequirementDefinition, StationMaterialSelectionPolicy,
+    StationMaterialSubstitutionPolicy, StationMeasurementSetupDefinition,
+    StationPhysicalPortMappingDefinition, StationReadinessDimension, StationReadinessIssue,
+    StationReadinessSeverity, StationSetupReadiness, STATION_SETUP_DEFINITION_SCHEMA_VERSION,
     STATION_SETUP_V2_DEFINITION_SCHEMA_VERSION,
 };
 use rusqlite::{OptionalExtension, TransactionBehavior};
@@ -251,6 +256,7 @@ pub(crate) fn list_station_material_candidates(
     };
     let options = executable_physical_asset_options(storage_root, &option_context)?;
     let equipment = open_equipment_connection(storage_root)?;
+    let metrology = open_metrology_connection(storage_root)?;
     let categories = list_equipment_categories(&equipment, true)?;
     let driver_identities = list_driver_profile_identities(
         &equipment,
@@ -310,14 +316,28 @@ pub(crate) fn list_station_material_candidates(
             },
         );
         let requirement_compatible = compatibility.requirement_compatible;
-        let operationally_eligible = option.eligible;
+        let calibration_blocker = station_requirement_calibration_blocker(
+            &metrology,
+            requirement,
+            &option.asset.asset_id,
+            checked_on,
+        )?;
+        let operationally_eligible = option.eligible && calibration_blocker.is_none();
+        let mut operational_blockers = option.blocking_reasons;
+        if let Some(blocker) = calibration_blocker {
+            if !operational_blockers
+                .iter()
+                .any(|reason| reason.code == blocker.code)
+            {
+                operational_blockers.push(blocker);
+            }
+        }
         let mut next_actions: Vec<String> = compatibility
             .reasons
             .iter()
             .filter_map(|reason| reason.next_action.clone())
             .chain(
-                option
-                    .blocking_reasons
+                operational_blockers
                     .iter()
                     .map(|reason| reason.next_action.clone()),
             )
@@ -346,7 +366,7 @@ pub(crate) fn list_station_material_candidates(
             driver_evidence: driver_actions.iter().cloned().collect(),
             logical_port_resolution_candidates: compatibility.logical_port_candidates,
             compatibility_blockers: compatibility.reasons,
-            operational_blockers: option.blocking_reasons,
+            operational_blockers,
             warnings: option.warnings,
             next_actions,
             exact_asset_required: requirement.selection_policy
@@ -436,6 +456,72 @@ fn approved_driver_actions(
         }
     }
     Ok(actions)
+}
+
+fn station_requirement_calibration_blocker(
+    metrology: &rusqlite::Connection,
+    requirement: &StationMaterialRequirementDefinition,
+    asset_id: &str,
+    checked_on: MetrologyDate,
+) -> Result<Option<AssetSelectionReasonDto>, AgentError> {
+    if requirement.calibration_requirement != StationCalibrationRequirement::Required {
+        return Ok(None);
+    }
+    let Some(instrument) = load_instrument(metrology, asset_id)? else {
+        return Ok(Some(AssetSelectionReasonDto {
+            code: "metrology_unavailable".to_owned(),
+            message: "Le rôle exige un étalonnage, mais le dossier métrologique est absent."
+                .to_owned(),
+            next_action: "Enregistrez l'exemplaire dans le registre métrologique.".to_owned(),
+        }));
+    };
+    let latest = load_latest_calibration_event(metrology, asset_id)?;
+    let status = assess_metrology_source(
+        checked_on,
+        MetrologyAssessmentSource {
+            calibration_requirement: "required".to_owned(),
+            calibration_period_months: instrument.calibration_period_months,
+            calibration_due_warning_days: instrument.calibration_due_warning_days,
+            calibrated_at: latest.as_ref().map(|event| event.calibrated_at.clone()),
+            due_at: latest.as_ref().map(|event| event.due_at.clone()),
+            decision: latest.as_ref().map(|event| event.decision.clone()),
+            latest_calibration_event_id: latest.as_ref().map(|event| event.event_id.clone()),
+            latest_calibration_revision: latest.as_ref().map(|event| event.revision.clone()),
+        },
+    );
+    let reason = match status.assessment.status {
+        MetrologyAssessmentStatus::Valid | MetrologyAssessmentStatus::DueSoon => return Ok(None),
+        MetrologyAssessmentStatus::Missing | MetrologyAssessmentStatus::NotRequired => (
+            "calibration_missing",
+            "Le rôle exige un étalonnage valide, mais aucun événement valable n'est disponible.",
+            "Enregistrez un étalonnage conforme couvrant la date prévue.",
+        ),
+        MetrologyAssessmentStatus::Expired => (
+            "calibration_expired",
+            "L'étalonnage exigé par le rôle est expiré à la date prévue.",
+            "Renouvelez l'étalonnage avant l'affectation.",
+        ),
+        MetrologyAssessmentStatus::Nonconforming => (
+            "calibration_nonconforming",
+            "Le dernier étalonnage exigé par le rôle est non conforme.",
+            "Traitez la non-conformité et enregistrez une décision métrologique acceptable.",
+        ),
+        MetrologyAssessmentStatus::Indeterminate => (
+            "calibration_indeterminate",
+            "La décision d'étalonnage exigée par le rôle est indéterminée.",
+            "Faites statuer la décision métrologique avant l'affectation.",
+        ),
+        MetrologyAssessmentStatus::Unavailable => (
+            "metrology_unavailable",
+            "Le statut d'étalonnage exigé par le rôle ne peut pas être établi.",
+            "Complétez les preuves métrologiques de l'exemplaire.",
+        ),
+    };
+    Ok(Some(AssetSelectionReasonDto {
+        code: reason.0.to_owned(),
+        message: reason.1.to_owned(),
+        next_action: reason.2.to_owned(),
+    }))
 }
 
 pub fn create_station_setup(
@@ -1197,6 +1283,24 @@ pub(crate) fn assess_station_setup_readiness_for_context(
                 issues.push(selection_readiness_issue(
                     reason,
                     StationReadinessSeverity::Warning,
+                    operational_asset.reference_id,
+                ));
+            }
+        }
+        let metrology = open_metrology_connection(storage_root)?;
+        for operational_asset in &operational_assets {
+            let Some(requirement) = operational_asset.requirement else {
+                continue;
+            };
+            if let Some(reason) = station_requirement_calibration_blocker(
+                &metrology,
+                requirement,
+                operational_asset.asset_id,
+                checked_on,
+            )? {
+                issues.push(selection_readiness_issue(
+                    &reason,
+                    StationReadinessSeverity::Blocking,
                     operational_asset.reference_id,
                 ));
             }
@@ -2412,7 +2516,8 @@ fn utc_timestamp() -> Result<String, AgentError> {
 mod tests {
     use super::*;
     use crate::metrology_service::{
-        register_metrology_instrument, MetrologyOperationContext, RegisterInstrumentInput,
+        record_metrology_calibration, register_metrology_instrument, MetrologyOperationContext,
+        RecordCalibrationInput, RegisterInstrumentInput,
     };
     use crate::{run_storage_action, StorageAction};
     use emc_locus_core::{
@@ -2870,6 +2975,117 @@ mod tests {
         assert_eq!(
             corrected["station_setup"]["active_draft_revision"]["readiness"]["ready"],
             true
+        );
+
+        definition["material_requirements"][0]["calibration_requirement"] = json!("required");
+        let calibration_required = json_value(
+            &replace_station_setup_draft_definition(
+                &storage_root,
+                ReplaceStationSetupDraftInput {
+                    setup_id: "SETUP-V3-PORTS".to_owned(),
+                    revision_id: "SETUP-V3-PORTS-rev-0001".to_owned(),
+                    expected_definition_checksum: corrected["station_setup"]
+                        ["active_draft_revision"]["definition_checksum"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                    definition_json: definition.to_string(),
+                    context: context("op-v3-calibration-required"),
+                },
+            )
+            .unwrap(),
+        );
+        assert!(
+            calibration_required["station_setup"]["active_draft_revision"]["readiness"]["issues"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|issue| {
+                    issue["code"] == "station_calibration_missing"
+                        && issue["binding_ids"] == json!(["source"])
+                })
+        );
+        let blocked_candidates = list_station_material_candidates(
+            &storage_root,
+            ListStationMaterialCandidatesInput {
+                setup_id: "SETUP-V3-PORTS".to_owned(),
+                revision_id: "SETUP-V3-PORTS-rev-0001".to_owned(),
+                requirement_id: "source".to_owned(),
+                planned_use_on: "2026-07-28".to_owned(),
+                execution_mode: "investigation".to_owned(),
+                laboratory_location_id: "LOC-STATION-PORTS".to_owned(),
+                excluded_schedule_item_code: None,
+            },
+        )
+        .unwrap();
+        let source_candidate = blocked_candidates
+            .candidates
+            .iter()
+            .find(|candidate| candidate.asset.asset_id == "SA-SOURCE-001")
+            .unwrap();
+        assert!(!source_candidate.operationally_eligible);
+        assert!(source_candidate
+            .operational_blockers
+            .iter()
+            .any(|reason| reason.code == "calibration_missing"));
+
+        record_metrology_calibration(
+            &storage_root,
+            RecordCalibrationInput {
+                event_id: "CAL-SA-SOURCE-001".to_owned(),
+                asset_id: "SA-SOURCE-001".to_owned(),
+                certificate_reference: "CERT-SA-SOURCE-001".to_owned(),
+                calibrated_at: "2026-07-27".to_owned(),
+                due_at: "2027-07-27".to_owned(),
+                provider: "EMITECH".to_owned(),
+                decision: "conforming".to_owned(),
+                as_found_status: Some("conforming".to_owned()),
+                as_left_status: Some("conforming".to_owned()),
+                adjustment_performed: false,
+                uncertainty_summary_json: "{\"summary\":\"0.5 dB\"}".to_owned(),
+                traceability_reference: Some("SI-RF-001".to_owned()),
+                comment: "Étalonnage du rôle source".to_owned(),
+                document_manifest_json: None,
+                recorded_by: "metrologue".to_owned(),
+                context: MetrologyOperationContext {
+                    actor: "metrologue".to_owned(),
+                    reason: "Validation de l'étalonnage exigé par le montage".to_owned(),
+                    operation_id: "op-v3-source-calibration".to_owned(),
+                    correlation_id: "corr-v3-source-calibration".to_owned(),
+                    device_id: "metrology-test".to_owned(),
+                },
+            },
+        )
+        .unwrap();
+        let refreshed = json_value(
+            &assess_station_setup_revision_json(
+                &storage_root,
+                "SETUP-V3-PORTS",
+                "SETUP-V3-PORTS-rev-0001",
+            )
+            .unwrap(),
+        );
+        assert_eq!(refreshed["readiness"]["ready"], true);
+        let eligible_candidates = list_station_material_candidates(
+            &storage_root,
+            ListStationMaterialCandidatesInput {
+                setup_id: "SETUP-V3-PORTS".to_owned(),
+                revision_id: "SETUP-V3-PORTS-rev-0001".to_owned(),
+                requirement_id: "source".to_owned(),
+                planned_use_on: "2026-07-28".to_owned(),
+                execution_mode: "investigation".to_owned(),
+                laboratory_location_id: "LOC-STATION-PORTS".to_owned(),
+                excluded_schedule_item_code: None,
+            },
+        )
+        .unwrap();
+        assert!(
+            eligible_candidates
+                .candidates
+                .iter()
+                .find(|candidate| candidate.asset.asset_id == "SA-SOURCE-001")
+                .unwrap()
+                .assignable
         );
         let _ = std::fs::remove_dir_all(storage_root);
     }
