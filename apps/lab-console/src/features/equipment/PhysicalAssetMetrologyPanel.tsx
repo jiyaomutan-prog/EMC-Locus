@@ -526,7 +526,7 @@ function CalibrationHistoryPanel(props: {
       <div><p className="eyebrow">Décision métrologique globale</p><h2>Étalonnages</h2><p>Validité et décision applicables au matériel physique {props.asset.inventory_code}.</p></div>
       <span className={`readinessBadge ${calibrationStatusTone(props.status?.calibration_status)}`}>
         {props.status?.calibration_status === "valid" || props.status?.calibration_status === "not_required" ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-        {calibrationStatusLabel(props.status?.calibration_status, props.asset.calibration_requirement)}
+        {calibrationStatusBadgeLabel(props.status?.calibration_status, props.asset.calibration_requirement)}
       </span>
     </div>
     <div className="metrologyStateGrid">
@@ -1594,6 +1594,21 @@ function calibrationStatusTone(status: CalibrationStatus["calibration_status"] |
   if (status === "valid" || status === "not_required") return "ready";
   if (status === "due_soon") return "warning";
   return "blocked";
+}
+
+function calibrationStatusBadgeLabel(
+  status: CalibrationStatus["calibration_status"] | undefined,
+  requirement: MetrologyInstrument["calibration_requirement"]
+) {
+  if (!status) return requirement === "not_required" ? "Non applicable" : "À actualiser";
+  return {
+    valid: "Valide",
+    due_soon: "À renouveler bientôt",
+    expired: "Expiré",
+    missing: "À enregistrer",
+    not_required: "Non applicable",
+    nonconforming: "Non conforme"
+  }[status];
 }
 
 function calibrationEvidencePrefill(event: CalibrationEvent): CalibrationEvidencePrefill {

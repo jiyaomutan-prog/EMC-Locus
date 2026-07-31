@@ -172,6 +172,16 @@ pub fn list_station_material_candidates_json(
     storage_root: &Path,
     input: ListStationMaterialCandidatesInput,
 ) -> Result<String, AgentError> {
+    Ok(render_json(&list_station_material_candidates(
+        storage_root,
+        input,
+    )?))
+}
+
+pub(crate) fn list_station_material_candidates(
+    storage_root: &Path,
+    input: ListStationMaterialCandidatesInput,
+) -> Result<StationMaterialCandidateListDto, AgentError> {
     safe_id(&input.setup_id, "setup_id")?;
     safe_id(&input.revision_id, "revision_id")?;
     safe_id(&input.requirement_id, "requirement_id")?;
@@ -359,7 +369,7 @@ pub fn list_station_material_candidates_json(
         "laboratory_location_id": input.laboratory_location_id,
         "excluded_schedule_item_code": input.excluded_schedule_item_code,
     })));
-    Ok(render_json(&StationMaterialCandidateListDto {
+    Ok(StationMaterialCandidateListDto {
         setup_id: input.setup_id,
         revision_id: input.revision_id,
         requirement_id: input.requirement_id,
@@ -368,7 +378,7 @@ pub fn list_station_material_candidates_json(
         execution_mode: input.execution_mode,
         laboratory_location_id: input.laboratory_location_id,
         candidates,
-    }))
+    })
 }
 
 fn category_lineage_ids(

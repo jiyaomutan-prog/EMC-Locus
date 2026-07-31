@@ -15,6 +15,7 @@ import type {
   PlannedTestPreparationAggregate,
   PlannedTestPreparationOptions,
   PlannedTestPreparationRevision,
+  PlannedStationSetupSnapshot,
   ProjectAuditEvent,
   ProjectRecord,
   ServiceScheduleItem
@@ -470,6 +471,67 @@ describe("LAB CONSOLE", () => {
       expect.stringContaining("/transitions/start"),
       expect.objectContaining({ method: "POST" })
     );
+  });
+
+  test("resolves a category station role into an exact planned-test assignment", async () => {
+    mockLaboratoryPlanningApi({ v3Preparation: "category" });
+    const user = userEvent.setup();
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Immunité rayonnée, dossier CEM-LAB-002"
+      })
+    );
+    await user.click(await screen.findByRole("button", { name: "Préparer l'essai" }));
+
+    expect(await screen.findByText("Matériels du montage")).toBeInTheDocument();
+    expect(screen.getByText(/Catégorie : .* et sous-catégories/)).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Exemplaire pour Récepteur EMI"), "ASSET-RX-001");
+    await user.selectOptions(
+      screen.getByLabelText("Matériel pour Récepteur de mesure"),
+      "receiver-role"
+    );
+    await user.click(screen.getByRole("button", { name: "Vérifier la préparation" }));
+
+    expect(await screen.findByText("Prêt à démarrer")).toBeInTheDocument();
+    const assessment = fetchMock.mock.calls.find(([path, init]) =>
+      String(path).endsWith("/preparation/assessments")
+      && (init as RequestInit | undefined)?.method === "POST"
+    );
+    const body = JSON.parse(String((assessment?.[1] as RequestInit).body));
+    expect(body.station_material_assignments).toEqual([{
+      requirement_id: "receiver-role",
+      asset_id: "ASSET-RX-001",
+      selected_ports: []
+    }]);
+    expect(body.assignments).toEqual([{
+      slot_id: "receiver",
+      binding_id: "receiver-role"
+    }]);
+  });
+
+  test("keeps an exact blocked station asset visible without making it assignable", async () => {
+    mockLaboratoryPlanningApi({ v3Preparation: "exact-blocked" });
+    const user = userEvent.setup();
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Planning du laboratoire" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ouvrir Immunité rayonnée, dossier CEM-LAB-002"
+      })
+    );
+    await user.click(await screen.findByRole("button", { name: "Préparer l'essai" }));
+
+    expect(await screen.findByText("Exemplaire imposé :", { exact: false })).toHaveTextContent("CA-001");
+    expect(screen.getByText("Compatible mais indisponible")).toBeInTheDocument();
+    expect(screen.getByText("Exemplaire imposé mais non apte")).toBeInTheDocument();
+    expect(screen.getByText("Aucun étalonnage valide.")).toBeInTheDocument();
+    expect(screen.getByText("Emplacement non défini.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Exemplaire pour Récepteur EMI")).toBeDisabled();
+    expect(screen.getByText(/1 rôle\(s\) matériel\(s\) obligatoire\(s\)/)).toBeInTheDocument();
   });
 
   test("uses current operator wording when preparation choices are empty", async () => {
@@ -3040,6 +3102,7 @@ function mockLaboratoryPlanningApi(settings: {
   locationFailure?: boolean;
   preparationOptionsFailure?: boolean;
   emptyPreparationOptions?: boolean;
+  v3Preparation?: "category" | "exact-blocked";
 } = {}) {
   let rescheduleAttempts = 0;
   const first: LaboratoryScheduleItem = {
@@ -3109,7 +3172,7 @@ function mockLaboratoryPlanningApi(settings: {
       }
     ]
   };
-  const station = {
+  const station: PlannedStationSetupSnapshot = {
     setup_id: "SETUP-RI-001",
     revision_id: "SETUP-RI-001-rev-0003",
     revision_number: 3,
@@ -3156,6 +3219,46 @@ function mockLaboratoryPlanningApi(settings: {
     ],
     corrections: []
   };
+  const v3CandidateAsset = physicalAssetFixture({
+    asset_id: settings.v3Preparation === "exact-blocked" ? "ASSET-CA-001" : "ASSET-RX-001",
+    inventory_code: settings.v3Preparation === "exact-blocked" ? "CA-001" : "INV-RX-001",
+    serial_number: settings.v3Preparation === "exact-blocked" ? "CA-SN-001" : "SN-ESW-101",
+    equipment_model_id: "MODEL-ESW",
+    equipment_model_revision_id: "MODEL-ESW-rev-0002",
+    equipment_model_checksum: canonicalChecksum("c"),
+    manufacturer: settings.v3Preparation === "exact-blocked" ? "Radial" : "Rohde & Schwarz",
+    model_name: settings.v3Preparation === "exact-blocked" ? "IMR-400" : "ESW",
+    category_code: "emi_receiver",
+    category_path: ["Instruments de mesure", "Récepteurs EMI"],
+    laboratory_location_id:
+      settings.v3Preparation === "exact-blocked" ? null : "LAB-LOCATION-ANECHOIC",
+    laboratory_location_label:
+      settings.v3Preparation === "exact-blocked" ? null : "Chambre semi-anéchoïque",
+    availability_state: settings.v3Preparation === "exact-blocked" ? "unavailable" : "available",
+    metrology: metrologySummary({
+      status: settings.v3Preparation === "exact-blocked" ? "missing" : "valid"
+    })
+  }) as PhysicalAsset;
+  if (settings.v3Preparation) {
+    station.revision_status = "qualified";
+    station.assets = [];
+    station.material_requirements = [{
+      requirement_id: "receiver-role",
+      role_label: "Récepteur EMI",
+      description: "Récepteur couvrant la bande de la méthode",
+      required: true,
+      selection_policy:
+        settings.v3Preparation === "exact-blocked" ? "exact_asset" : "category_pool",
+      assignment_stage: "planned_test_preparation",
+      substitution_policy:
+        settings.v3Preparation === "exact-blocked" ? "no_substitution" : "same_category",
+      calibration_requirement: "required",
+      ...(settings.v3Preparation === "exact-blocked"
+        ? { exact_asset_id: "ASSET-CA-001" }
+        : { category_requirement: { category_id: "emi_receiver", accept_descendants: true } }),
+      logical_ports: []
+    }];
+  }
   const preparationOptions: PlannedTestPreparationOptions = {
     project_code: second.project_code,
     schedule_item_code: second.item_code,
@@ -3166,6 +3269,39 @@ function mockLaboratoryPlanningApi(settings: {
         eligible: true,
         blocking_reasons: [],
         warnings: [],
+        material_candidates: settings.v3Preparation ? [{
+          setup_id: station.setup_id,
+          revision_id: station.revision_id,
+          requirement_id: "receiver-role",
+          request_context_key: canonicalChecksum("8"),
+          planned_use_on: "2026-07-16",
+          execution_mode: "investigation",
+          laboratory_location_id: "LAB-LOCATION-ANECHOIC",
+          candidates: [{
+            asset: v3CandidateAsset,
+            requirement_compatible: true,
+            compatibility_state: "compatible",
+            operationally_eligible: settings.v3Preparation !== "exact-blocked",
+            assignable: settings.v3Preparation !== "exact-blocked",
+            exact_asset_required: settings.v3Preparation === "exact-blocked",
+            category_evidence: v3CandidateAsset.category_path,
+            capability_evidence: [],
+            technical_constraint_results: [],
+            driver_evidence: [],
+            logical_port_resolution_candidates: {},
+            compatibility_blockers: [],
+            operational_blockers: settings.v3Preparation === "exact-blocked"
+              ? [
+                  { code: "calibration_missing", message: "Aucun étalonnage valide.", next_action: "Enregistrez l'étalonnage." },
+                  { code: "location_missing", message: "Emplacement non défini.", next_action: "Déplacez le matériel vers le laboratoire." }
+                ]
+              : [],
+            warnings: [],
+            next_actions: settings.v3Preparation === "exact-blocked"
+              ? ["Enregistrez l'étalonnage.", "Déplacez le matériel vers le laboratoire."]
+              : []
+          }]
+        }] : [],
         asset_options: station.assets.map((asset) => ({
           asset: physicalAssetFixture({
             asset_id: asset.asset_id,
@@ -3279,11 +3415,16 @@ function mockLaboratoryPlanningApi(settings: {
     if (path === `${preparationBase}/assessments` && init?.method === "POST") {
       const body = JSON.parse(String(init.body)) as {
         assignments: Array<{ slot_id: string; binding_id: string }>;
+        station_material_assignments?: Array<{ requirement_id: string; asset_id: string }>;
       };
       const ready = body.assignments.some(
         (assignment) =>
-          assignment.slot_id === "receiver" && assignment.binding_id === "receiver-binding"
-      );
+          assignment.slot_id === "receiver"
+          && assignment.binding_id === (settings.v3Preparation ? "receiver-role" : "receiver-binding")
+      ) && (!settings.v3Preparation || Boolean(body.station_material_assignments?.some(
+        (assignment) => assignment.requirement_id === "receiver-role"
+          && assignment.asset_id === "ASSET-RX-001"
+      )));
       const revisionNumber = preparationRevisions.length + 1;
       const revision: PlannedTestPreparationRevision = {
         revision_id: `PLAN-LAB-002-prep-rev-${String(revisionNumber).padStart(4, "0")}`,
@@ -3310,6 +3451,7 @@ function mockLaboratoryPlanningApi(settings: {
           },
           method,
           station_setup: station,
+          station_material_assignments: body.station_material_assignments,
           assignments: body.assignments,
           verdict: {
             ready,

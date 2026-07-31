@@ -121,7 +121,8 @@ use emc_locus_core::{
         MeasurementEngineeringAggregateKind, MeasurementEngineeringRevisionStatus,
     },
     test_definitions::TemplateRevisionStatus,
-    PlannedTestInstrumentAssignment,
+    PlannedTestInstrumentAssignment, PlannedTestStationMaterialAssignment,
+    StationPhysicalPortMappingDefinition,
 };
 use serde_json::{json, Value};
 use std::{
@@ -1818,6 +1819,42 @@ fn planned_test_preparation_input(
             })
         })
         .collect::<Result<Vec<_>, AgentError>>()?;
+    let station_material_assignments = payload
+        .get("station_material_assignments")
+        .and_then(Value::as_array)
+        .map(|assignments| {
+            assignments
+                .iter()
+                .map(|assignment| {
+                    let selected_ports = assignment
+                        .get("selected_ports")
+                        .and_then(Value::as_array)
+                        .map(|mappings| {
+                            mappings
+                                .iter()
+                                .map(|mapping| {
+                                    Ok(StationPhysicalPortMappingDefinition {
+                                        logical_port_id: required_string(
+                                            mapping,
+                                            "logical_port_id",
+                                        )?,
+                                        actual_port_id: required_string(mapping, "actual_port_id")?,
+                                    })
+                                })
+                                .collect::<Result<Vec<_>, AgentError>>()
+                        })
+                        .transpose()?
+                        .unwrap_or_default();
+                    Ok(PlannedTestStationMaterialAssignment {
+                        requirement_id: required_string(assignment, "requirement_id")?,
+                        asset_id: required_string(assignment, "asset_id")?,
+                        selected_ports,
+                    })
+                })
+                .collect::<Result<Vec<_>, AgentError>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
     Ok(AssessPlannedTestPreparationInput {
         project_code: project_code.to_owned(),
         schedule_item_code: item_code.to_owned(),
@@ -1827,6 +1864,7 @@ fn planned_test_preparation_input(
         method_revision_id: required_string(payload, "method_revision_id")?,
         station_setup_id: required_string(payload, "station_setup_id")?,
         station_setup_revision_id: required_string(payload, "station_setup_revision_id")?,
+        station_material_assignments,
         assignments,
         context: PlannedTestPreparationOperationContext {
             actor: required_string(payload, "actor")?,

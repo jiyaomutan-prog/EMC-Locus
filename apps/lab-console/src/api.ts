@@ -1094,6 +1094,11 @@ export const projectApi = {
       method_revision_id: string;
       station_setup_id: string;
       station_setup_revision_id: string;
+      station_material_assignments: Array<{
+        requirement_id: string;
+        asset_id: string;
+        selected_ports: Array<{ logical_port_id: string; actual_port_id: string }>;
+      }>;
       assignments: Array<{ slot_id: string; binding_id: string }>;
       actor: string;
       reason: string;

@@ -1,7 +1,8 @@
 use crate::metrology::MetrologyAssessment;
 use crate::service_planning::ServiceScheduleStatus;
 use crate::station_setup::{
-    StationCorrectionKind, StationReadinessDimension, StationReadinessSeverity,
+    StationCorrectionKind, StationMaterialRequirementDefinition,
+    StationPhysicalPortMappingDefinition, StationReadinessDimension, StationReadinessSeverity,
     StationSetupReadiness, StationSetupRevisionStatus,
 };
 use crate::test_definitions::{
@@ -131,6 +132,8 @@ pub struct PreparedEquipmentCapabilitySnapshot {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PreparedStationAssetSnapshot {
     pub binding_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requirement_id: Option<String>,
     pub role_label: String,
     pub asset_id: String,
     pub asset_revision: String,
@@ -153,6 +156,8 @@ pub struct PreparedStationAssetSnapshot {
     pub metrology: MetrologyAssessment,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub capabilities: Vec<PreparedEquipmentCapabilitySnapshot>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_ports: Vec<StationPhysicalPortMappingDefinition>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -165,7 +170,7 @@ pub struct PreparedStationCorrectionSnapshot {
     pub label: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PreparedStationSetupSnapshot {
     pub setup_id: String,
     pub revision_id: String,
@@ -179,6 +184,8 @@ pub struct PreparedStationSetupSnapshot {
     pub laboratory_location_label: String,
     pub planned_use_on: String,
     pub execution_mode: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub material_requirements: Vec<StationMaterialRequirementDefinition>,
     pub assets: Vec<PreparedStationAssetSnapshot>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub corrections: Vec<PreparedStationCorrectionSnapshot>,
@@ -188,6 +195,14 @@ pub struct PreparedStationSetupSnapshot {
 pub struct PlannedTestInstrumentAssignment {
     pub slot_id: String,
     pub binding_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlannedTestStationMaterialAssignment {
+    pub requirement_id: String,
+    pub asset_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_ports: Vec<StationPhysicalPortMappingDefinition>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -201,21 +216,24 @@ pub struct PlannedTestMaterialCompatibility {
     pub next_action: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PlannedTestPreparationAssessmentInput {
     pub schedule: PlannedTestScheduleSnapshot,
     pub method: PreparedTestMethodSnapshot,
     pub station_setup: PreparedStationSetupSnapshot,
+    pub station_material_assignments: Vec<PlannedTestStationMaterialAssignment>,
     pub assignments: Vec<PlannedTestInstrumentAssignment>,
     pub station_readiness: StationSetupReadiness,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PlannedTestPreparationDefinition {
     pub definition_schema_version: String,
     pub schedule: PlannedTestScheduleSnapshot,
     pub method: PreparedTestMethodSnapshot,
     pub station_setup: PreparedStationSetupSnapshot,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub station_material_assignments: Vec<PlannedTestStationMaterialAssignment>,
     pub assignments: Vec<PlannedTestInstrumentAssignment>,
     pub verdict: PlannedTestPreparationVerdict,
 }
@@ -362,6 +380,7 @@ pub fn assess_planned_test_preparation(
         schedule: input.schedule,
         method: input.method,
         station_setup: input.station_setup,
+        station_material_assignments: input.station_material_assignments,
         assignments: input.assignments,
         verdict: PlannedTestPreparationVerdict::from_issues(
             input.station_readiness.checked_on,
@@ -510,6 +529,7 @@ fn validate_assessment_input(
         schedule: input.schedule.clone(),
         method: input.method.clone(),
         station_setup: input.station_setup.clone(),
+        station_material_assignments: input.station_material_assignments.clone(),
         assignments: input.assignments.clone(),
         verdict: PlannedTestPreparationVerdict {
             ready: true,
@@ -773,6 +793,32 @@ fn validate_definition_structure(
             "the station setup revision number must be greater than zero",
         ));
     }
+    let mut requirement_ids = BTreeSet::new();
+    for (index, requirement) in definition
+        .station_setup
+        .material_requirements
+        .iter()
+        .enumerate()
+    {
+        let path = format!("station_setup.material_requirements[{index}]");
+        require_id(
+            &mut issues,
+            &requirement.requirement_id,
+            &format!("{path}.requirement_id"),
+        );
+        require_text(
+            &mut issues,
+            &requirement.role_label,
+            &format!("{path}.role_label"),
+        );
+        if !requirement_ids.insert(requirement.requirement_id.as_str()) {
+            issues.push(validation_issue(
+                "duplicate_planned_test_station_requirement",
+                &format!("{path}.requirement_id"),
+                "station material requirement identifiers must be unique",
+            ));
+        }
+    }
     let mut binding_ids = BTreeSet::new();
     let mut asset_ids = BTreeSet::new();
     for (index, asset) in definition.station_setup.assets.iter().enumerate() {
@@ -783,6 +829,20 @@ fn validate_definition_structure(
             &format!("{path}.binding_id"),
         );
         require_id(&mut issues, &asset.asset_id, &format!("{path}.asset_id"));
+        if let Some(requirement_id) = asset.requirement_id.as_deref() {
+            require_id(
+                &mut issues,
+                requirement_id,
+                &format!("{path}.requirement_id"),
+            );
+            if !requirement_ids.contains(requirement_id) {
+                issues.push(validation_issue(
+                    "planned_test_station_asset_unknown_requirement",
+                    &format!("{path}.requirement_id"),
+                    "the prepared asset references an unknown station material requirement",
+                ));
+            }
+        }
         require_id(
             &mut issues,
             &asset.asset_revision,
@@ -836,6 +896,86 @@ fn validate_definition_structure(
                 &format!("{path}.asset_id"),
                 "the same physical material cannot appear twice",
             ));
+        }
+        let mut logical_port_ids = BTreeSet::new();
+        let mut actual_port_ids = BTreeSet::new();
+        for (mapping_index, mapping) in asset.selected_ports.iter().enumerate() {
+            let mapping_path = format!("{path}.selected_ports[{mapping_index}]");
+            require_id(
+                &mut issues,
+                &mapping.logical_port_id,
+                &format!("{mapping_path}.logical_port_id"),
+            );
+            require_id(
+                &mut issues,
+                &mapping.actual_port_id,
+                &format!("{mapping_path}.actual_port_id"),
+            );
+            if !logical_port_ids.insert(mapping.logical_port_id.as_str())
+                || !actual_port_ids.insert(mapping.actual_port_id.as_str())
+            {
+                issues.push(validation_issue(
+                    "duplicate_planned_test_station_port_mapping",
+                    &mapping_path,
+                    "logical and actual station ports must each be selected only once",
+                ));
+            }
+        }
+    }
+
+    let asset_by_requirement: BTreeMap<&str, &PreparedStationAssetSnapshot> = definition
+        .station_setup
+        .assets
+        .iter()
+        .filter_map(|asset| {
+            asset
+                .requirement_id
+                .as_deref()
+                .map(|requirement_id| (requirement_id, asset))
+        })
+        .collect();
+    let mut selected_requirements = BTreeSet::new();
+    let mut selected_assets = BTreeSet::new();
+    for (index, assignment) in definition.station_material_assignments.iter().enumerate() {
+        let path = format!("station_material_assignments[{index}]");
+        require_id(
+            &mut issues,
+            &assignment.requirement_id,
+            &format!("{path}.requirement_id"),
+        );
+        require_id(
+            &mut issues,
+            &assignment.asset_id,
+            &format!("{path}.asset_id"),
+        );
+        if !selected_requirements.insert(assignment.requirement_id.as_str()) {
+            issues.push(validation_issue(
+                "duplicate_planned_test_station_material_assignment",
+                &format!("{path}.requirement_id"),
+                "a station material requirement can only be resolved once",
+            ));
+        }
+        if !selected_assets.insert(assignment.asset_id.as_str()) {
+            issues.push(validation_issue(
+                "duplicate_planned_test_station_material_asset",
+                &format!("{path}.asset_id"),
+                "a physical asset can only resolve one station material requirement",
+            ));
+        }
+        match asset_by_requirement.get(assignment.requirement_id.as_str()) {
+            Some(asset)
+                if asset.asset_id == assignment.asset_id
+                    && asset.selected_ports == assignment.selected_ports => {}
+            Some(_) => issues.push(validation_issue(
+                "planned_test_station_material_snapshot_mismatch",
+                &path,
+                "the station material selection does not match its authoritative prepared snapshot",
+            )),
+            None => issues.push(validation_issue(
+                "planned_test_station_material_assignment_unknown_requirement",
+                &format!("{path}.requirement_id"),
+                "the station material selection has no prepared asset snapshot",
+            )),
         }
     }
 
@@ -907,13 +1047,15 @@ fn derive_static_readiness_issues(
     }
     if !matches!(
         station.revision_status,
-        StationSetupRevisionStatus::Ready | StationSetupRevisionStatus::Superseded
+        StationSetupRevisionStatus::Qualified
+            | StationSetupRevisionStatus::Ready
+            | StationSetupRevisionStatus::Superseded
     ) {
         issues.push(blocking_issue(
             "planned_test_station_not_ready",
             PlannedTestPreparationDimension::StationSetup,
-            "Le montage choisi n’est pas déclaré prêt.",
-            "Choisissez un montage déclaré prêt ou terminez sa préparation dans Montages de mesure.",
+            "La définition du montage n'est pas validée.",
+            "Validez la définition logique du montage avant de préparer l'essai.",
             None,
             None,
             None,
@@ -1230,6 +1372,10 @@ fn normalize_definition(definition: &mut PlannedTestPreparationDefinition) {
         .to_owned();
     definition
         .station_setup
+        .material_requirements
+        .sort_by(|left, right| left.requirement_id.cmp(&right.requirement_id));
+    definition
+        .station_setup
         .assets
         .sort_by(|left, right| left.binding_id.cmp(&right.binding_id));
     for asset in &mut definition.station_setup.assets {
@@ -1253,11 +1399,22 @@ fn normalize_definition(definition: &mut PlannedTestPreparationDefinition) {
                 .cmp(&right.capability_id)
                 .then_with(|| left.capability_kind.cmp(&right.capability_kind))
         });
+        asset
+            .selected_ports
+            .sort_by(|left, right| left.logical_port_id.cmp(&right.logical_port_id));
     }
     definition
         .station_setup
         .corrections
         .sort_by(|left, right| left.selection_id.cmp(&right.selection_id));
+    definition
+        .station_material_assignments
+        .sort_by(|left, right| left.requirement_id.cmp(&right.requirement_id));
+    for assignment in &mut definition.station_material_assignments {
+        assignment
+            .selected_ports
+            .sort_by(|left, right| left.logical_port_id.cmp(&right.logical_port_id));
+    }
     definition
         .assignments
         .sort_by(|left, right| left.slot_id.cmp(&right.slot_id));
@@ -1433,8 +1590,10 @@ mod tests {
                 laboratory_location_label: "Poste CEM 1".to_owned(),
                 planned_use_on: "2026-07-16".to_owned(),
                 execution_mode: "investigation".to_owned(),
+                material_requirements: Vec::new(),
                 assets: vec![PreparedStationAssetSnapshot {
                     binding_id: "receiver-binding".to_owned(),
+                    requirement_id: None,
                     role_label: "Récepteur".to_owned(),
                     asset_id: "ASSET-RX-001".to_owned(),
                     asset_revision: "rev-0001".to_owned(),
@@ -1463,9 +1622,11 @@ mod tests {
                         label: "Mesure spectrale".to_owned(),
                         capability_kind: "frequency_spectrum".to_owned(),
                     }],
+                    selected_ports: Vec::new(),
                 }],
                 corrections: Vec::new(),
             },
+            station_material_assignments: Vec::new(),
             assignments: vec![PlannedTestInstrumentAssignment {
                 slot_id: "receiver".to_owned(),
                 binding_id: "receiver-binding".to_owned(),
