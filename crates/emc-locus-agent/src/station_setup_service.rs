@@ -121,6 +121,17 @@ pub struct ListStationMaterialCandidatesInput {
     pub excluded_schedule_item_code: Option<String>,
 }
 
+struct OperationalStationAsset<'a> {
+    reference_id: &'a str,
+    asset_id: &'a str,
+    asset_revision: &'a str,
+    equipment_model_id: &'a str,
+    equipment_model_revision_id: &'a str,
+    equipment_model_checksum: &'a str,
+    requirement: Option<&'a StationMaterialRequirementDefinition>,
+    selected_ports: &'a [StationPhysicalPortMappingDefinition],
+}
+
 pub fn list_station_setup_asset_options_json(
     storage_root: &Path,
     input: ListStationSetupAssetOptionsInput,
@@ -608,6 +619,12 @@ pub fn replace_station_setup_draft_definition(
     }
     if stored.definition_checksum != input.expected_definition_checksum {
         return Err(concurrency_error(&stored));
+    }
+    if stored.definition_schema_version != definition.definition_schema_version {
+        return Err(AgentError::new(
+            "station_setup_schema_change_requires_derived_revision",
+            "derive an explicit revision when changing the station definition schema",
+        ));
     }
     bind_current_station_location(&transaction, &mut definition)?;
     let canonical = canonical_definition(&definition)?;
@@ -1113,13 +1130,46 @@ pub(crate) fn assess_station_setup_readiness_for_context(
     excluded_schedule_item_code: Option<&str>,
 ) -> Result<StationSetupReadiness, AgentError> {
     let mut issues = definition.structural_readiness_issues();
-    let binding_by_asset: BTreeMap<&str, &str> = definition
-        .asset_bindings
-        .iter()
-        .map(|binding| (binding.asset_id.as_str(), binding.binding_id.as_str()))
-        .collect();
+    let mut operational_assets =
+        Vec::with_capacity(definition.asset_bindings.len() + definition.material_assignments.len());
+    operational_assets.extend(definition.asset_bindings.iter().map(|binding| {
+        OperationalStationAsset {
+            reference_id: &binding.binding_id,
+            asset_id: &binding.asset_id,
+            asset_revision: &binding.asset_revision,
+            equipment_model_id: &binding.equipment_model_id,
+            equipment_model_revision_id: &binding.equipment_model_revision_id,
+            equipment_model_checksum: &binding.equipment_model_checksum,
+            requirement: None,
+            selected_ports: &[],
+        }
+    }));
+    operational_assets.extend(definition.material_assignments.iter().map(|assignment| {
+        let requirement = definition
+            .material_requirements
+            .iter()
+            .find(|requirement| requirement.requirement_id == assignment.requirement_id)
+            .expect("station setup integrity guarantees material requirement");
+        OperationalStationAsset {
+            reference_id: &assignment.requirement_id,
+            asset_id: &assignment.asset_id,
+            asset_revision: &assignment.asset_revision,
+            equipment_model_id: &assignment.equipment_model_id,
+            equipment_model_revision_id: &assignment.equipment_model_revision_id,
+            equipment_model_checksum: &assignment.equipment_model_checksum,
+            requirement: Some(requirement),
+            selected_ports: &assignment.selected_ports,
+        }
+    }));
+    let mut references_by_asset: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for asset in &operational_assets {
+        references_by_asset
+            .entry(asset.asset_id)
+            .or_default()
+            .push(asset.reference_id);
+    }
 
-    if !definition.asset_bindings.is_empty() {
+    if !operational_assets.is_empty() {
         let checked_on = parse_checked_on(&definition.planned_use_on, "planned_use_on")?;
         let option_context = PhysicalAssetSelectionContext {
             assessed_at,
@@ -1129,10 +1179,10 @@ pub(crate) fn assess_station_setup_readiness_for_context(
             excluded_schedule_item_code: excluded_schedule_item_code.map(str::to_owned),
         };
         let selection_options = executable_physical_asset_options(storage_root, &option_context)?;
-        for binding in &definition.asset_bindings {
+        for operational_asset in &operational_assets {
             let Some(option) = selection_options
                 .iter()
-                .find(|option| option.asset.asset_id == binding.asset_id)
+                .find(|option| option.asset.asset_id == operational_asset.asset_id)
             else {
                 continue;
             };
@@ -1140,24 +1190,23 @@ pub(crate) fn assess_station_setup_readiness_for_context(
                 issues.push(selection_readiness_issue(
                     reason,
                     StationReadinessSeverity::Blocking,
-                    &binding.binding_id,
+                    operational_asset.reference_id,
                 ));
             }
             for reason in &option.warnings {
                 issues.push(selection_readiness_issue(
                     reason,
                     StationReadinessSeverity::Warning,
-                    &binding.binding_id,
+                    operational_asset.reference_id,
                 ));
             }
         }
         let report = assess_metrology_readiness_report(
             storage_root,
             AssessReadinessInput {
-                asset_ids: definition
-                    .asset_bindings
+                asset_ids: operational_assets
                     .iter()
-                    .map(|binding| binding.asset_id.clone())
+                    .map(|asset| asset.asset_id.to_owned())
                     .collect(),
                 execution_mode: definition.execution_mode.clone(),
                 checked_on: definition.planned_use_on.clone(),
@@ -1165,88 +1214,175 @@ pub(crate) fn assess_station_setup_readiness_for_context(
             },
         )?;
         for issue in report.blocking_issues {
-            issues.push(metrology_issue(
-                &issue.code,
-                &issue.dimension,
-                StationReadinessSeverity::Blocking,
-                binding_by_asset.get(issue.asset_id.as_str()).copied(),
-            ));
+            let references = references_by_asset.get(issue.asset_id.as_str());
+            if let Some(references) = references {
+                for reference in references {
+                    issues.push(metrology_issue(
+                        &issue.code,
+                        &issue.dimension,
+                        StationReadinessSeverity::Blocking,
+                        Some(reference),
+                    ));
+                }
+            } else {
+                issues.push(metrology_issue(
+                    &issue.code,
+                    &issue.dimension,
+                    StationReadinessSeverity::Blocking,
+                    None,
+                ));
+            }
         }
         for issue in report.warnings {
-            issues.push(metrology_issue(
-                &issue.code,
-                &issue.dimension,
-                StationReadinessSeverity::Warning,
-                binding_by_asset.get(issue.asset_id.as_str()).copied(),
-            ));
+            let references = references_by_asset.get(issue.asset_id.as_str());
+            if let Some(references) = references {
+                for reference in references {
+                    issues.push(metrology_issue(
+                        &issue.code,
+                        &issue.dimension,
+                        StationReadinessSeverity::Warning,
+                        Some(reference),
+                    ));
+                }
+            } else {
+                issues.push(metrology_issue(
+                    &issue.code,
+                    &issue.dimension,
+                    StationReadinessSeverity::Warning,
+                    None,
+                ));
+            }
         }
     }
 
     let metrology = open_metrology_connection(storage_root)?;
     let equipment = open_fleet_connection(storage_root)?;
+    let categories = list_equipment_categories(&equipment, true)?;
+    let driver_identities = list_driver_profile_identities(
+        &equipment,
+        DriverProfileListFilter {
+            equipment_model_id: None,
+            status: None,
+            search: None,
+        },
+    )?;
     let mut models = BTreeMap::new();
-    for binding in &definition.asset_bindings {
-        let Some(asset) = load_physical_asset(&equipment, &binding.asset_id)? else {
+    for operational_asset in &operational_assets {
+        let Some(asset) = load_physical_asset(&equipment, operational_asset.asset_id)? else {
             issues.push(blocking_issue(
                 "station_physical_asset_missing",
                 StationReadinessDimension::AssetIdentity,
                 "L'exemplaire du parc sélectionné n'existe plus. Choisissez un matériel du parc disponible.",
-                Some(&binding.binding_id),
+                Some(operational_asset.reference_id),
                 None,
             ));
             continue;
         };
         if !asset_revision_matches(
-            &binding.asset_revision,
+            operational_asset.asset_revision,
             asset.revision,
             &asset.asset_id,
             &asset.updated_at,
-        ) || asset.equipment_model_id.as_deref() != Some(binding.equipment_model_id.as_str())
+        ) || asset.equipment_model_id.as_deref() != Some(operational_asset.equipment_model_id)
             || asset.equipment_model_revision_id.as_deref()
-                != Some(binding.equipment_model_revision_id.as_str())
+                != Some(operational_asset.equipment_model_revision_id)
             || asset.equipment_model_checksum.as_deref()
-                != Some(binding.equipment_model_checksum.as_str())
+                != Some(operational_asset.equipment_model_checksum)
         {
             issues.push(blocking_issue(
                 "station_asset_reference_changed",
                 StationReadinessDimension::AssetIdentity,
                 "Le dossier du matériel a changé. Rechargez-le avant de valider le montage.",
-                Some(&binding.binding_id),
+                Some(operational_asset.reference_id),
                 None,
             ));
             continue;
         }
         let Some(model_revision) = load_equipment_model_revision(
             &equipment,
-            &binding.equipment_model_id,
-            &binding.equipment_model_revision_id,
+            operational_asset.equipment_model_id,
+            operational_asset.equipment_model_revision_id,
         )?
         else {
             issues.push(blocking_issue(
                 "station_equipment_model_missing",
                 StationReadinessDimension::AssetIdentity,
                 "Le modèle approuvé du matériel n'est plus disponible localement.",
-                Some(&binding.binding_id),
+                Some(operational_asset.reference_id),
                 None,
             ));
             continue;
         };
         if !matches!(model_revision.status.as_str(), "approved" | "superseded")
-            || model_revision.definition_checksum != binding.equipment_model_checksum
+            || model_revision.definition_checksum != operational_asset.equipment_model_checksum
         {
             issues.push(blocking_issue(
                 "station_equipment_model_reference_mismatch",
                 StationReadinessDimension::AssetIdentity,
                 "La version du modèle ne correspond plus au matériel sélectionné.",
-                Some(&binding.binding_id),
+                Some(operational_asset.reference_id),
                 None,
             ));
             continue;
         }
         if let Some(model) =
-            validated_equipment_model(&model_revision, &mut issues, &binding.binding_id)
+            validated_equipment_model(&model_revision, &mut issues, operational_asset.reference_id)
         {
-            models.insert(binding.binding_id.as_str(), model);
+            if let Some(requirement) = operational_asset.requirement {
+                let category_ids = category_lineage_ids(&categories, &asset.category_code_snapshot);
+                let driver_actions = approved_driver_actions(
+                    &equipment,
+                    &driver_identities,
+                    operational_asset.equipment_model_id,
+                )?;
+                let compatibility = evaluate_station_material_requirement(
+                    requirement,
+                    operational_asset.asset_id,
+                    operational_asset.equipment_model_id,
+                    &category_ids,
+                    &model,
+                    &driver_actions,
+                );
+                for reason in &compatibility.reasons {
+                    issues.push(requirement_readiness_issue(
+                        reason,
+                        operational_asset.reference_id,
+                    ));
+                }
+                for logical_port in &requirement.logical_ports {
+                    let selected = operational_asset
+                        .selected_ports
+                        .iter()
+                        .find(|mapping| mapping.logical_port_id == logical_port.logical_port_id);
+                    let compatible_ports = compatibility
+                        .logical_port_candidates
+                        .get(&logical_port.logical_port_id);
+                    match selected {
+                        None => issues.push(blocking_issue(
+                            "station_material_logical_port_unassigned",
+                            StationReadinessDimension::PortCompatibility,
+                            "Un port logique du rôle matériel n'a pas de port physique affecté.",
+                            Some(operational_asset.reference_id),
+                            None,
+                        )),
+                        Some(mapping)
+                            if !compatible_ports.is_some_and(|ports| {
+                                ports.iter().any(|port| port == &mapping.actual_port_id)
+                            }) =>
+                        {
+                            issues.push(blocking_issue(
+                                "station_material_port_mapping_incompatible",
+                                StationReadinessDimension::PortCompatibility,
+                                "Le port physique affecté ne satisfait plus le port logique du rôle matériel.",
+                                Some(operational_asset.reference_id),
+                                None,
+                            ));
+                        }
+                        Some(_) => {}
+                    }
+                }
+            }
+            models.insert(operational_asset.reference_id.to_owned(), model);
         }
     }
 
@@ -1571,6 +1707,24 @@ fn selection_readiness_issue(
         dimension,
         message: format!("{} {}", reason.message, reason.next_action),
         binding_ids: vec![binding_id.to_owned()],
+        connection_ids: Vec::new(),
+    }
+}
+
+fn requirement_readiness_issue(
+    reason: &StationCompatibilityReason,
+    requirement_id: &str,
+) -> StationReadinessIssue {
+    StationReadinessIssue {
+        code: format!("station_requirement_{}", reason.code),
+        severity: StationReadinessSeverity::Blocking,
+        dimension: if reason.dimension == "port" {
+            StationReadinessDimension::PortCompatibility
+        } else {
+            StationReadinessDimension::AssetIdentity
+        },
+        message: reason.message.clone(),
+        binding_ids: vec![requirement_id.to_owned()],
         connection_ids: Vec::new(),
     }
 }
@@ -2257,7 +2411,14 @@ fn utc_timestamp() -> Result<String, AgentError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metrology_service::{
+        register_metrology_instrument, MetrologyOperationContext, RegisterInstrumentInput,
+    };
     use crate::{run_storage_action, StorageAction};
+    use emc_locus_core::{
+        EquipmentClass, FunctionalRole, PhysicalQuantity, PortFlowRole, TechnologyTag,
+        EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION,
+    };
     use rusqlite::{params, Connection};
     use serde_json::Value;
     use std::{path::PathBuf, thread, time::Duration};
@@ -2606,6 +2767,152 @@ mod tests {
         let _ = std::fs::remove_dir_all(storage_root);
     }
 
+    #[test]
+    fn v3_readiness_revalidates_physical_port_assignments() {
+        let storage_root = initialized_storage("station-v3-physical-readiness");
+        insert_location(&storage_root, "LOC-STATION-PORTS", "Labo ports");
+        let model_checksum = seed_bidirectional_test_model(&storage_root);
+        register_station_test_asset(
+            &storage_root,
+            "SA-SOURCE-001",
+            "SRC-001",
+            "LOC-STATION-PORTS",
+            &model_checksum,
+        );
+        register_station_test_asset(
+            &storage_root,
+            "SA-SINK-001",
+            "SINK-001",
+            "LOC-STATION-PORTS",
+            &model_checksum,
+        );
+        let created = json_value(
+            &create_station_setup(
+                &storage_root,
+                create_input("SETUP-V3-PORTS", "LOC-STATION-PORTS", "op-v3-ports-create"),
+            )
+            .unwrap(),
+        );
+        let draft = &created["station_setup"]["active_draft_revision"];
+        let mut definition = draft["definition"].clone();
+        definition["material_requirements"] = json!([
+            station_test_requirement("source", "Source", "SA-SOURCE-001", "output"),
+            station_test_requirement("sink", "Récepteur", "SA-SINK-001", "input")
+        ]);
+        definition["material_assignments"] = json!([
+            station_test_assignment(
+                &storage_root,
+                "source",
+                "SA-SOURCE-001",
+                "SRC-001",
+                "rf_input",
+                &model_checksum
+            ),
+            station_test_assignment(
+                &storage_root,
+                "sink",
+                "SA-SINK-001",
+                "SINK-001",
+                "rf_input",
+                &model_checksum
+            )
+        ]);
+        definition["logical_connections"] = json!([{
+            "connection_id": "rf-path",
+            "label": "Source vers récepteur",
+            "from": {"requirement_id": "source", "logical_port_id": "rf"},
+            "to": {"requirement_id": "sink", "logical_port_id": "rf"}
+        }]);
+
+        let saved = json_value(
+            &replace_station_setup_draft_definition(
+                &storage_root,
+                ReplaceStationSetupDraftInput {
+                    setup_id: "SETUP-V3-PORTS".to_owned(),
+                    revision_id: "SETUP-V3-PORTS-rev-0001".to_owned(),
+                    expected_definition_checksum: draft["definition_checksum"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                    definition_json: definition.to_string(),
+                    context: context("op-v3-ports-invalid"),
+                },
+            )
+            .unwrap(),
+        );
+        let issues = saved["station_setup"]["active_draft_revision"]["readiness"]["issues"]
+            .as_array()
+            .unwrap();
+        assert!(issues.iter().any(|issue| {
+            issue["code"] == "station_material_port_mapping_incompatible"
+                && issue["binding_ids"] == json!(["source"])
+        }));
+
+        definition["material_assignments"][0]["selected_ports"][0]["actual_port_id"] =
+            json!("rf_output");
+        let corrected = json_value(
+            &replace_station_setup_draft_definition(
+                &storage_root,
+                ReplaceStationSetupDraftInput {
+                    setup_id: "SETUP-V3-PORTS".to_owned(),
+                    revision_id: "SETUP-V3-PORTS-rev-0001".to_owned(),
+                    expected_definition_checksum: saved["station_setup"]["active_draft_revision"]
+                        ["definition_checksum"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                    definition_json: definition.to_string(),
+                    context: context("op-v3-ports-corrected"),
+                },
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            corrected["station_setup"]["active_draft_revision"]["readiness"]["ready"],
+            true
+        );
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
+    #[test]
+    fn draft_replacement_cannot_change_definition_schema() {
+        let storage_root = initialized_storage("station-schema-boundary");
+        insert_location(&storage_root, "LOC-STATION-SCHEMA", "Labo schéma");
+        let created = json_value(
+            &create_station_setup(
+                &storage_root,
+                create_input("SETUP-SCHEMA", "LOC-STATION-SCHEMA", "op-schema-create"),
+            )
+            .unwrap(),
+        );
+        let draft = &created["station_setup"]["active_draft_revision"];
+        let mut definition = draft["definition"].clone();
+        definition["definition_schema_version"] = json!(STATION_SETUP_V2_DEFINITION_SCHEMA_VERSION);
+        let before = evidence_counts(&storage_root);
+
+        let refusal = replace_station_setup_draft_definition(
+            &storage_root,
+            ReplaceStationSetupDraftInput {
+                setup_id: "SETUP-SCHEMA".to_owned(),
+                revision_id: "SETUP-SCHEMA-rev-0001".to_owned(),
+                expected_definition_checksum: draft["definition_checksum"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                definition_json: definition.to_string(),
+                context: context("op-schema-downgrade"),
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            refusal.code,
+            "station_setup_schema_change_requires_derived_revision"
+        );
+        assert_eq!(evidence_counts(&storage_root), before);
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
     fn initialized_storage(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
             "emc-locus-{name}-{}-{}",
@@ -2647,6 +2954,209 @@ mod tests {
                 params![location_id, label, status],
             )
             .unwrap();
+    }
+
+    fn seed_bidirectional_test_model(storage_root: &Path) -> String {
+        let definition = EquipmentModelDefinition {
+            definition_schema_version: EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION.to_owned(),
+            manufacturer: "Locus Instruments".to_owned(),
+            model_name: "RF-IO".to_owned(),
+            variant: None,
+            equipment_class: EquipmentClass::ManualEquipment,
+            functional_role: FunctionalRole::MeasurementInstrument,
+            category_code: "emi_receiver".to_owned(),
+            signal_domains: vec![SignalDomain::Rf],
+            technology_tags: vec![TechnologyTag::Rf50Ohm],
+            specifications: Vec::new(),
+            signal_ports: vec![
+                station_test_port(
+                    "rf_input",
+                    "Entrée RF",
+                    PortDirectionality::Input,
+                    PortFlowRole::MeasurementPort,
+                ),
+                station_test_port(
+                    "rf_output",
+                    "Sortie RF",
+                    PortDirectionality::Output,
+                    PortFlowRole::SourcePort,
+                ),
+            ],
+            signal_paths: Vec::new(),
+            communication_interfaces: Vec::new(),
+            capabilities: Vec::new(),
+            custom_field_values: BTreeMap::new(),
+            template_snapshot: None,
+            is_demo: false,
+            metadata: BTreeMap::new(),
+        };
+        let canonical = definition.canonicalize().unwrap();
+        let equipment = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        equipment
+            .execute(
+                "INSERT INTO equipment_model_identities
+                 (equipment_model_id, manufacturer, model_name, equipment_class, category_code,
+                  current_approved_revision_id, created_by, created_at, updated_at)
+                 VALUES ('EQM-RF-IO', 'Locus Instruments', 'RF-IO', 'manual_equipment',
+                         'emi_receiver', 'EQM-RF-IO-rev-0001', 'catalogue', ?1, ?1)",
+                ["2026-07-27T08:00:00Z"],
+            )
+            .unwrap();
+        equipment
+            .execute(
+                "INSERT INTO equipment_model_revisions
+                 (revision_id, equipment_model_id, revision_number, status,
+                  definition_schema_version, definition_json, definition_checksum, created_by,
+                  created_at, updated_at, submitted_at, approved_at)
+                 VALUES ('EQM-RF-IO-rev-0001', 'EQM-RF-IO', 1, 'approved', ?1, ?2, ?3,
+                         'catalogue', ?4, ?4, ?4, ?4)",
+                params![
+                    canonical.definition_schema_version,
+                    canonical.canonical_json,
+                    canonical.definition_checksum,
+                    "2026-07-27T08:00:00Z"
+                ],
+            )
+            .unwrap();
+        canonical.definition_checksum
+    }
+
+    fn station_test_port(
+        port_id: &str,
+        label: &str,
+        directionality: PortDirectionality,
+        flow_role: PortFlowRole,
+    ) -> SignalPortDefinition {
+        SignalPortDefinition {
+            port_id: port_id.to_owned(),
+            label: label.to_owned(),
+            directionality,
+            flow_role,
+            signal_domain: SignalDomain::Rf,
+            required: true,
+            connector_type: Some("N".to_owned()),
+            technology_tags: vec![TechnologyTag::Rf50Ohm],
+            quantity: PhysicalQuantity::Voltage,
+            unit: "V".to_owned(),
+            impedance: Some(50.0),
+            frequency_min: Some(150_000.0),
+            frequency_max: Some(30_000_000.0),
+            voltage_max: Some(10.0),
+            current_max: None,
+            power_max: None,
+            channel_index: None,
+            differential: false,
+            isolated: false,
+            comment: None,
+        }
+    }
+
+    fn register_station_test_asset(
+        storage_root: &Path,
+        asset_id: &str,
+        serial_number: &str,
+        location_id: &str,
+        model_checksum: &str,
+    ) {
+        register_metrology_instrument(
+            storage_root,
+            RegisterInstrumentInput {
+                asset_id: asset_id.to_owned(),
+                family: "Matériel RF".to_owned(),
+                category_code: Some("emi_receiver".to_owned()),
+                equipment_model_id: Some("EQM-RF-IO".to_owned()),
+                equipment_model_revision_id: Some("EQM-RF-IO-rev-0001".to_owned()),
+                equipment_model_checksum: Some(model_checksum.to_owned()),
+                manufacturer: "Locus Instruments".to_owned(),
+                model: "RF-IO".to_owned(),
+                serial_number: serial_number.to_owned(),
+                part_number: Some("RF-IO".to_owned()),
+                calibration_requirement: "not_required".to_owned(),
+                calibration_period_months: None,
+                calibration_due_warning_days: None,
+                serviceability_status: "usable".to_owned(),
+                serviceability_reason: "Matériel disponible".to_owned(),
+                capabilities_json: "[]".to_owned(),
+                metrology_notes: String::new(),
+                context: MetrologyOperationContext {
+                    actor: "metrologue".to_owned(),
+                    reason: "Création du matériel de test".to_owned(),
+                    operation_id: format!("op-register-{asset_id}"),
+                    correlation_id: format!("corr-register-{asset_id}"),
+                    device_id: "metrology-test".to_owned(),
+                },
+            },
+        )
+        .unwrap();
+        let equipment = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        equipment
+            .execute(
+                "UPDATE physical_assets
+                 SET laboratory_location_id = ?2,
+                     laboratory_location_label_snapshot = 'Labo ports',
+                     revision = revision + 1,
+                     updated_at = '2026-07-27T09:00:00Z'
+                 WHERE asset_id = ?1",
+                params![asset_id, location_id],
+            )
+            .unwrap();
+    }
+
+    fn station_test_requirement(
+        requirement_id: &str,
+        role_label: &str,
+        asset_id: &str,
+        directionality: &str,
+    ) -> Value {
+        json!({
+            "requirement_id": requirement_id,
+            "role_label": role_label,
+            "required": true,
+            "selection_policy": "exact_asset",
+            "assignment_stage": "setup_definition",
+            "substitution_policy": "no_substitution",
+            "calibration_requirement": "not_required",
+            "exact_asset_id": asset_id,
+            "logical_ports": [{
+                "logical_port_id": "rf",
+                "label": "Port RF",
+                "directionality": directionality,
+                "signal_domain": "rf",
+                "connector_requirement": "N",
+                "impedance_ohm": 50.0
+            }]
+        })
+    }
+
+    fn station_test_assignment(
+        storage_root: &Path,
+        requirement_id: &str,
+        asset_id: &str,
+        inventory_code: &str,
+        actual_port_id: &str,
+        model_checksum: &str,
+    ) -> Value {
+        let equipment = Connection::open(storage_root.join("equipment.sqlite")).unwrap();
+        let revision: u64 = equipment
+            .query_row(
+                "SELECT revision FROM physical_assets WHERE asset_id = ?1",
+                [asset_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        json!({
+            "requirement_id": requirement_id,
+            "asset_id": asset_id,
+            "asset_revision": revision.to_string(),
+            "inventory_code": inventory_code,
+            "serial_number": inventory_code,
+            "equipment_model_id": "EQM-RF-IO",
+            "equipment_model_revision_id": "EQM-RF-IO-rev-0001",
+            "equipment_model_checksum": model_checksum,
+            "selected_ports": [{"logical_port_id": "rf", "actual_port_id": actual_port_id}],
+            "assignment_context": "station_setup",
+            "assigned_on": "2026-07-27"
+        })
     }
 
     fn create_input(
