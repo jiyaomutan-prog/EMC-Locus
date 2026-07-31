@@ -1,4 +1,8 @@
-use crate::equipment_repository::{load_equipment_model_revision, StoredEquipmentModelRevision};
+use crate::equipment_repository::{
+    list_driver_profile_identities, list_equipment_categories,
+    load_current_approved_driver_profile_revision, load_equipment_model_revision,
+    open_equipment_connection, DriverProfileListFilter, StoredEquipmentModelRevision,
+};
 use crate::fleet_dto::{AssetSelectionReasonDto, ExecutablePhysicalAssetOptionListDto};
 use crate::fleet_repository::{load_physical_asset, open_fleet_connection};
 use crate::fleet_service::{executable_physical_asset_options, PhysicalAssetSelectionContext};
@@ -6,34 +10,44 @@ use crate::metrology_assessment::parse_checked_on;
 use crate::metrology_repository::{load_asset_characterization, open_metrology_connection};
 use crate::metrology_service::{assess_metrology_readiness_report, AssessReadinessInput};
 use crate::station_setup_dto::{
-    revision_dto_unchecked, StationSetupAggregateDto, StationSetupAuditEventDto,
-    StationSetupAuditListDto, StationSetupEnvelopeDto, StationSetupIdentityDto,
-    StationSetupListDto, StationSetupOperationResultDto, StationSetupReadinessEnvelopeDto,
-    StationSetupRevisionDto, StationSetupRevisionEnvelopeDto, StationSetupRevisionListDto,
+    revision_dto_unchecked, StationMaterialCandidateDto, StationMaterialCandidateListDto,
+    StationSetupAggregateDto, StationSetupAuditEventDto, StationSetupAuditListDto,
+    StationSetupEnvelopeDto, StationSetupIdentityDto, StationSetupListDto,
+    StationSetupOperationResultDto, StationSetupReadinessEnvelopeDto, StationSetupRevisionDto,
+    StationSetupRevisionEnvelopeDto, StationSetupRevisionListDto,
 };
 use crate::station_setup_repository::{
     insert_station_setup_audit_event, insert_station_setup_identity,
     insert_station_setup_operation, insert_station_setup_outbox, insert_station_setup_revision,
     list_station_setup_identities, load_active_station_setup_draft,
-    load_attached_laboratory_location, load_station_setup_audit_events,
-    load_station_setup_identity, load_station_setup_operation, load_station_setup_revision,
-    load_station_setup_revisions, mark_station_setup_ready, next_station_setup_revision_number,
-    open_station_connection, open_station_connection_with_sync, replace_station_setup_draft,
-    sha256_text, AttachedLaboratoryLocation, NewStationSetupIdentity, NewStationSetupRevision,
+    load_attached_laboratory_location, load_attached_physical_asset_snapshot,
+    load_station_setup_audit_events, load_station_setup_identity, load_station_setup_operation,
+    load_station_setup_revision, load_station_setup_revisions, mark_station_setup_qualified,
+    mark_station_setup_ready, next_station_setup_revision_number, open_station_connection,
+    open_station_connection_with_sync, replace_station_setup_draft, sha256_text,
+    AttachedLaboratoryLocation, NewStationSetupIdentity, NewStationSetupRevision,
     ReplaceStationSetupDraft, StationSetupAuditInput, StationSetupOperationInput,
     StationSetupOutboxInput, StoredStationSetupIdentity, StoredStationSetupOperation,
     StoredStationSetupRevision,
 };
 use crate::{render_json, AgentError};
 use emc_locus_core::{
-    AssetCharacterizationDefinition, AuditActor, AuditReason, EquipmentModelDefinition,
-    PortDirectionality, SignalDomain, SignalPortDefinition, StableId,
-    StationMeasurementSetupDefinition, StationReadinessDimension, StationReadinessIssue,
-    StationReadinessSeverity, StationSetupReadiness, STATION_SETUP_DEFINITION_SCHEMA_VERSION,
+    evaluate_station_material_requirement, station_setup_qualification_issues,
+    AssetCharacterizationDefinition, AuditActor, AuditReason, DriverProfileDefinition,
+    EquipmentModelDefinition, PortDirectionality, SignalDomain, SignalPortDefinition, StableId,
+    StationCalibrationRequirement, StationCompatibilityReason, StationCompatibilityState,
+    StationLogicalConnectionDefinition, StationLogicalPortEndpoint,
+    StationLogicalPortRequirementDefinition, StationMaterialAssignmentDefinition,
+    StationMaterialAssignmentStage, StationMaterialRequirementDefinition,
+    StationMaterialSelectionPolicy, StationMaterialSubstitutionPolicy,
+    StationMeasurementSetupDefinition, StationPhysicalPortMappingDefinition,
+    StationReadinessDimension, StationReadinessIssue, StationReadinessSeverity,
+    StationSetupReadiness, STATION_SETUP_DEFINITION_SCHEMA_VERSION,
+    STATION_SETUP_V2_DEFINITION_SCHEMA_VERSION,
 };
-use rusqlite::TransactionBehavior;
+use rusqlite::{OptionalExtension, TransactionBehavior};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
@@ -74,9 +88,18 @@ pub struct MarkStationSetupReadyInput {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MarkStationSetupQualifiedInput {
+    pub setup_id: String,
+    pub revision_id: String,
+    pub expected_definition_checksum: String,
+    pub context: StationOperationContext,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeriveStationSetupRevisionInput {
     pub setup_id: String,
     pub source_revision_id: String,
+    pub upgrade_to_v3: bool,
     pub context: StationOperationContext,
 }
 
@@ -85,6 +108,17 @@ pub struct ListStationSetupAssetOptionsInput {
     pub planned_use_on: String,
     pub execution_mode: String,
     pub laboratory_location_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListStationMaterialCandidatesInput {
+    pub setup_id: String,
+    pub revision_id: String,
+    pub requirement_id: String,
+    pub planned_use_on: String,
+    pub execution_mode: String,
+    pub laboratory_location_id: String,
+    pub excluded_schedule_item_code: Option<String>,
 }
 
 pub fn list_station_setup_asset_options_json(
@@ -132,6 +166,255 @@ pub fn list_station_setup_asset_options_json(
         laboratory_location_id: context.laboratory_location_id,
         assets,
     }))
+}
+
+pub fn list_station_material_candidates_json(
+    storage_root: &Path,
+    input: ListStationMaterialCandidatesInput,
+) -> Result<String, AgentError> {
+    safe_id(&input.setup_id, "setup_id")?;
+    safe_id(&input.revision_id, "revision_id")?;
+    safe_id(&input.requirement_id, "requirement_id")?;
+    safe_id(&input.laboratory_location_id, "laboratory_location_id")?;
+    let checked_on = parse_checked_on(input.planned_use_on.trim(), "planned_use_on")?;
+    if !matches!(
+        input.execution_mode.trim(),
+        "accredited" | "non_accredited" | "investigation"
+    ) {
+        return Err(AgentError::new(
+            "invalid_station_setup_request",
+            "execution_mode must be accredited, non_accredited or investigation",
+        ));
+    }
+    let station = open_station_connection(storage_root)?;
+    let stored = load_station_setup_revision(&station, &input.revision_id)?.ok_or_else(|| {
+        AgentError::new(
+            "station_setup_revision_not_found",
+            "the station setup revision does not exist",
+        )
+    })?;
+    if stored.setup_id != input.setup_id {
+        return Err(AgentError::new(
+            "station_setup_revision_not_found",
+            "the station setup revision does not belong to this setup",
+        ));
+    }
+    let definition = validated_stored_definition(&stored)?;
+    if definition.definition_schema_version != STATION_SETUP_DEFINITION_SCHEMA_VERSION {
+        return Err(AgentError::new(
+            "station_material_requirements_not_supported",
+            "material requirement candidates require a station v3 revision",
+        ));
+    }
+    let requirement = definition
+        .material_requirements
+        .iter()
+        .find(|candidate| candidate.requirement_id == input.requirement_id)
+        .ok_or_else(|| {
+            AgentError::new(
+                "station_material_requirement_not_found",
+                "the station material requirement does not exist",
+            )
+        })?;
+    let assessed_at = OffsetDateTime::parse(
+        &format!("{}T12:00:00Z", input.planned_use_on.trim()),
+        &Rfc3339,
+    )
+    .map_err(|error| AgentError::new("invalid_station_setup_request", error.to_string()))?;
+    let option_context = PhysicalAssetSelectionContext {
+        assessed_at,
+        checked_on,
+        execution_mode: input.execution_mode.trim().to_owned(),
+        laboratory_location_id: Some(input.laboratory_location_id.trim().to_owned()),
+        excluded_schedule_item_code: input.excluded_schedule_item_code.clone(),
+    };
+    let options = executable_physical_asset_options(storage_root, &option_context)?;
+    let equipment = open_equipment_connection(storage_root)?;
+    let categories = list_equipment_categories(&equipment, true)?;
+    let driver_identities = list_driver_profile_identities(
+        &equipment,
+        DriverProfileListFilter {
+            equipment_model_id: None,
+            status: None,
+            search: None,
+        },
+    )?;
+    let exact_asset_id = requirement.exact_asset_id.as_deref();
+    let mut candidates = Vec::new();
+    for option in options
+        .into_iter()
+        .filter(|option| exact_asset_id.is_none_or(|expected| option.asset.asset_id == expected))
+    {
+        let model_id = option.asset.equipment_model_id.as_deref();
+        let revision_id = option.asset.equipment_model_revision_id.as_deref();
+        let model = match (model_id, revision_id) {
+            (Some(model_id), Some(revision_id)) => {
+                load_equipment_model_revision(&equipment, model_id, revision_id)?.and_then(
+                    |revision| {
+                        EquipmentModelDefinition::from_json_str(&revision.definition_json).ok()
+                    },
+                )
+            }
+            _ => None,
+        };
+        let category_ids = category_lineage_ids(&categories, option.asset.category_code.as_str());
+        let driver_actions = model_id
+            .map(|model_id| approved_driver_actions(&equipment, &driver_identities, model_id))
+            .transpose()?
+            .unwrap_or_default();
+        let compatibility = model.as_ref().map_or_else(
+            || emc_locus_core::StationRequirementCompatibility {
+                state: StationCompatibilityState::Indeterminate,
+                requirement_compatible: false,
+                reasons: vec![StationCompatibilityReason {
+                    code: "model_evidence_missing".to_owned(),
+                    dimension: "model_pin".to_owned(),
+                    message: "La version exacte du modèle constructeur est indisponible."
+                        .to_owned(),
+                    next_action: Some(
+                        "Rapprocher l'exemplaire avec une version de modèle approuvée.".to_owned(),
+                    ),
+                }],
+                logical_port_candidates: BTreeMap::new(),
+            },
+            |model| {
+                evaluate_station_material_requirement(
+                    requirement,
+                    &option.asset.asset_id,
+                    model_id.unwrap_or_default(),
+                    &category_ids,
+                    model,
+                    &driver_actions,
+                )
+            },
+        );
+        let requirement_compatible = compatibility.requirement_compatible;
+        let operationally_eligible = option.eligible;
+        let mut next_actions: Vec<String> = compatibility
+            .reasons
+            .iter()
+            .filter_map(|reason| reason.next_action.clone())
+            .chain(
+                option
+                    .blocking_reasons
+                    .iter()
+                    .map(|reason| reason.next_action.clone()),
+            )
+            .collect();
+        next_actions.sort();
+        next_actions.dedup();
+        let compatibility_state = match compatibility.state {
+            StationCompatibilityState::Compatible => "compatible",
+            StationCompatibilityState::Incompatible => "incompatible",
+            StationCompatibilityState::Indeterminate => "indeterminate",
+        };
+        let capability_evidence = model
+            .as_ref()
+            .map(|model| {
+                model
+                    .capabilities
+                    .iter()
+                    .map(|capability| capability.capability_kind.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        candidates.push(StationMaterialCandidateDto {
+            category_evidence: option.asset.category_path.clone(),
+            capability_evidence,
+            technical_constraint_results: compatibility.reasons.clone(),
+            driver_evidence: driver_actions.iter().cloned().collect(),
+            logical_port_resolution_candidates: compatibility.logical_port_candidates,
+            compatibility_blockers: compatibility.reasons,
+            operational_blockers: option.blocking_reasons,
+            warnings: option.warnings,
+            next_actions,
+            exact_asset_required: requirement.selection_policy
+                == StationMaterialSelectionPolicy::ExactAsset,
+            assignable: requirement_compatible && operationally_eligible,
+            requirement_compatible,
+            compatibility_state: compatibility_state.to_owned(),
+            operationally_eligible,
+            asset: option.asset,
+        });
+    }
+    candidates.sort_by(|left, right| {
+        right
+            .exact_asset_required
+            .cmp(&left.exact_asset_required)
+            .then_with(|| right.assignable.cmp(&left.assignable))
+            .then_with(|| {
+                right
+                    .requirement_compatible
+                    .cmp(&left.requirement_compatible)
+            })
+            .then_with(|| left.asset.inventory_code.cmp(&right.asset.inventory_code))
+    });
+    let request_context_key = sha256_text(&render_json(&json!({
+        "setup_id": input.setup_id,
+        "revision_id": input.revision_id,
+        "definition_checksum": stored.definition_checksum,
+        "requirement_id": input.requirement_id,
+        "planned_use_on": input.planned_use_on,
+        "execution_mode": input.execution_mode,
+        "laboratory_location_id": input.laboratory_location_id,
+        "excluded_schedule_item_code": input.excluded_schedule_item_code,
+    })));
+    Ok(render_json(&StationMaterialCandidateListDto {
+        setup_id: input.setup_id,
+        revision_id: input.revision_id,
+        requirement_id: input.requirement_id,
+        request_context_key,
+        planned_use_on: input.planned_use_on,
+        execution_mode: input.execution_mode,
+        laboratory_location_id: input.laboratory_location_id,
+        candidates,
+    }))
+}
+
+fn category_lineage_ids(
+    categories: &[crate::equipment_repository::StoredEquipmentCategory],
+    leaf_category_id: &str,
+) -> Vec<String> {
+    let mut lineage = Vec::new();
+    let mut current = Some(leaf_category_id);
+    while let Some(category_id) = current {
+        lineage.push(category_id.to_owned());
+        current = categories
+            .iter()
+            .find(|category| category.category_id == category_id)
+            .and_then(|category| category.parent_category_id.as_deref());
+        if lineage.len() > categories.len() + 1 {
+            break;
+        }
+    }
+    lineage.reverse();
+    lineage
+}
+
+fn approved_driver_actions(
+    equipment: &rusqlite::Connection,
+    identities: &[crate::equipment_repository::StoredDriverProfileIdentity],
+    model_id: &str,
+) -> Result<BTreeSet<String>, AgentError> {
+    let mut actions = BTreeSet::new();
+    for identity in identities
+        .iter()
+        .filter(|identity| identity.equipment_model_id == model_id)
+    {
+        let Some(revision) = load_current_approved_driver_profile_revision(equipment, identity)?
+        else {
+            continue;
+        };
+        let Ok(definition) = DriverProfileDefinition::from_json_str(&revision.definition_json)
+        else {
+            continue;
+        };
+        for action in definition.actions {
+            actions.insert(action.action_id);
+            actions.insert(action.implements_capability_id);
+        }
+    }
+    Ok(actions)
 }
 
 pub fn create_station_setup(
@@ -193,6 +476,9 @@ pub fn create_station_setup(
         asset_bindings: Vec::new(),
         connections: Vec::new(),
         correction_selections: Vec::new(),
+        material_requirements: Vec::new(),
+        material_assignments: Vec::new(),
+        logical_connections: Vec::new(),
         notes: BTreeMap::new(),
     };
     let canonical = canonical_definition(&definition)?;
@@ -304,10 +590,10 @@ pub fn replace_station_setup_draft_definition(
         );
     }
     let stored = required_revision(&transaction, &input.setup_id, &input.revision_id)?;
-    if stored.status != "draft" {
+    if stored.status != "draft" || stored.qualified_at.is_some() {
         return Err(AgentError::new(
             "station_setup_revision_not_editable",
-            "a setup marked ready cannot be modified; create a new draft",
+            "a qualified or ready setup cannot be modified; create a new draft",
         ));
     }
     if stored.definition_checksum != input.expected_definition_checksum {
@@ -371,6 +657,115 @@ pub fn replace_station_setup_draft_definition(
     )
 }
 
+pub fn mark_station_setup_revision_qualified(
+    storage_root: &Path,
+    input: MarkStationSetupQualifiedInput,
+) -> Result<String, AgentError> {
+    validate_context(&input.context)?;
+    safe_id(&input.setup_id, "setup_id")?;
+    safe_id(&input.revision_id, "revision_id")?;
+    canonical_checksum(
+        &input.expected_definition_checksum,
+        "expected_definition_checksum",
+    )?;
+    let payload_json = render_json(&json!({
+        "setup_id": input.setup_id,
+        "revision_id": input.revision_id,
+        "expected_definition_checksum": input.expected_definition_checksum,
+        "reason": input.context.reason
+    }));
+    let payload_checksum = sha256_text(&payload_json);
+    let timestamp = utc_timestamp()?;
+    let mut connection = open_station_connection_with_sync(storage_root)?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| AgentError::new("transaction_begin_failed", error.to_string()))?;
+    if let Some(operation) =
+        load_station_setup_operation(&transaction, &input.context.operation_id)?
+    {
+        ensure_operation_replay(
+            &operation,
+            &input.context,
+            &input.setup_id,
+            "station_setup_qualified",
+            &payload_checksum,
+        )?;
+        drop(transaction);
+        return operation_result(
+            &connection,
+            &input.setup_id,
+            "station_setup_qualified",
+            &input.context.operation_id,
+            true,
+        );
+    }
+    let stored = required_revision(&transaction, &input.setup_id, &input.revision_id)?;
+    if stored.status != "draft" || stored.qualified_at.is_some() {
+        return Err(AgentError::new(
+            "station_setup_revision_not_editable",
+            "only an unqualified draft can be qualified",
+        ));
+    }
+    if stored.definition_checksum != input.expected_definition_checksum {
+        return Err(concurrency_error(&stored));
+    }
+    let definition = validated_stored_definition(&stored)?;
+    if definition.definition_schema_version != STATION_SETUP_DEFINITION_SCHEMA_VERSION {
+        return Err(AgentError::new(
+            "station_setup_qualification_requires_v3",
+            "logical qualification requires a station v3 definition",
+        ));
+    }
+    validate_current_station_location(&transaction, &definition)?;
+    let issues = station_setup_qualification_issues(&definition);
+    if issues
+        .iter()
+        .any(|issue| issue.severity == StationReadinessSeverity::Blocking)
+    {
+        return Err(AgentError::with_details(
+            "station_setup_not_qualified",
+            "la définition logique du montage contient encore des blocages",
+            json!({
+                "setup_id": input.setup_id,
+                "revision_id": input.revision_id,
+                "issues": issues
+            }),
+        ));
+    }
+    mark_station_setup_qualified(
+        &transaction,
+        &input.setup_id,
+        &input.revision_id,
+        &timestamp,
+    )?;
+    persist_evidence(
+        &transaction,
+        &input.context,
+        &input.setup_id,
+        Some(&input.revision_id),
+        "station_setup_qualified",
+        Some(&input.revision_id),
+        Some(&input.revision_id),
+        Some(&stored.definition_checksum),
+        Some(&stored.definition_checksum),
+        &format!("draft:{}", input.revision_id),
+        &format!("qualified:{}", input.revision_id),
+        &payload_json,
+        &payload_checksum,
+        &timestamp,
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| AgentError::new("transaction_commit_failed", error.to_string()))?;
+    operation_result(
+        &connection,
+        &input.setup_id,
+        "station_setup_qualified",
+        &input.context.operation_id,
+        false,
+    )
+}
+
 pub fn mark_station_setup_revision_ready(
     storage_root: &Path,
     input: MarkStationSetupReadyInput,
@@ -424,6 +819,14 @@ pub fn mark_station_setup_revision_ready(
         return Err(concurrency_error(&stored));
     }
     let definition = validated_stored_definition(&stored)?;
+    if definition.definition_schema_version == STATION_SETUP_DEFINITION_SCHEMA_VERSION
+        && stored.qualified_at.is_none()
+    {
+        return Err(AgentError::new(
+            "station_setup_not_qualified",
+            "qualify the logical setup definition before declaring it ready",
+        ));
+    }
     validate_current_station_location(&transaction, &definition)?;
     let readiness = assess_station_setup_readiness(storage_root, &definition)?;
     if !readiness.ready {
@@ -486,8 +889,14 @@ pub fn derive_station_setup_revision(
     let payload_json = render_json(&json!({
         "setup_id": input.setup_id,
         "source_revision_id": input.source_revision_id,
+        "upgrade_to_v3": input.upgrade_to_v3,
         "reason": input.context.reason
     }));
+    let operation_kind = if input.upgrade_to_v3 {
+        "station_setup_v2_draft_upgraded"
+    } else {
+        "station_setup_revision_derived"
+    };
     let payload_checksum = sha256_text(&payload_json);
     let timestamp = utc_timestamp()?;
     let mut connection = open_station_connection_with_sync(storage_root)?;
@@ -501,14 +910,14 @@ pub fn derive_station_setup_revision(
             &operation,
             &input.context,
             &input.setup_id,
-            "station_setup_revision_derived",
+            operation_kind,
             &payload_checksum,
         )?;
         drop(transaction);
         return operation_result(
             &connection,
             &input.setup_id,
-            "station_setup_revision_derived",
+            operation_kind,
             &input.context.operation_id,
             true,
         );
@@ -527,6 +936,15 @@ pub fn derive_station_setup_revision(
         ));
     }
     let mut definition = validated_stored_definition(&source)?;
+    if input.upgrade_to_v3 {
+        if definition.definition_schema_version != STATION_SETUP_V2_DEFINITION_SCHEMA_VERSION {
+            return Err(AgentError::new(
+                "station_setup_upgrade_source_not_v2",
+                "only a station v2 revision can be explicitly upgraded to v3",
+            ));
+        }
+        definition = upgrade_v2_station_definition(&transaction, definition)?;
+    }
     bind_current_station_location(&transaction, &mut definition)?;
     let canonical = canonical_definition(&definition)?;
     let readiness = assess_station_setup_readiness(storage_root, &definition)?;
@@ -561,7 +979,7 @@ pub fn derive_station_setup_revision(
         &input.context,
         &input.setup_id,
         Some(&revision_id),
-        "station_setup_revision_derived",
+        operation_kind,
         Some(&input.source_revision_id),
         Some(&revision_id),
         Some(&source.definition_checksum),
@@ -579,7 +997,7 @@ pub fn derive_station_setup_revision(
     operation_result(
         &connection,
         &input.setup_id,
-        "station_setup_revision_derived",
+        operation_kind,
         &input.context.operation_id,
         false,
     )
@@ -1206,6 +1624,225 @@ fn readiness_severity_order(value: StationReadinessSeverity) -> u8 {
     }
 }
 
+fn upgrade_v2_station_definition(
+    transaction: &rusqlite::Transaction<'_>,
+    mut definition: StationMeasurementSetupDefinition,
+) -> Result<StationMeasurementSetupDefinition, AgentError> {
+    let bindings = definition.asset_bindings.clone();
+    let connections = definition.connections.clone();
+    let mut material_requirements = Vec::new();
+    let mut material_assignments = Vec::new();
+    for binding in &bindings {
+        let asset = load_attached_physical_asset_snapshot(transaction, &binding.asset_id)?
+            .ok_or_else(|| {
+                AgentError::new(
+                    "station_setup_upgrade_asset_missing",
+                    format!("physical asset no longer exists: {}", binding.asset_id),
+                )
+            })?;
+        if asset.asset_id != binding.asset_id
+            || asset.revision.to_string() != binding.asset_revision
+        {
+            return Err(AgentError::with_details(
+                "station_setup_upgrade_asset_revision_stale",
+                "the physical asset changed after the v2 setup was recorded",
+                json!({
+                    "asset_id": binding.asset_id,
+                    "v2_asset_revision": binding.asset_revision,
+                    "current_asset_revision": asset.revision
+                }),
+            ));
+        }
+        let model = attached_equipment_model_definition(
+            transaction,
+            &binding.equipment_model_id,
+            &binding.equipment_model_revision_id,
+            &binding.equipment_model_checksum,
+        )?;
+        let mut logical_ports: BTreeMap<String, StationLogicalPortRequirementDefinition> =
+            BTreeMap::new();
+        for connection in &connections {
+            for (endpoint, directionality) in [
+                (&connection.from, PortDirectionality::Output),
+                (&connection.to, PortDirectionality::Input),
+            ] {
+                if endpoint.binding_id != binding.binding_id {
+                    continue;
+                }
+                let actual = model
+                    .signal_ports
+                    .iter()
+                    .find(|port| port.port_id == endpoint.port_id)
+                    .ok_or_else(|| {
+                        AgentError::with_details(
+                            "station_setup_upgrade_port_missing",
+                            "a v2 physical port no longer exists in its pinned model revision",
+                            json!({
+                                "binding_id": binding.binding_id,
+                                "port_id": endpoint.port_id,
+                                "model_revision_id": binding.equipment_model_revision_id
+                            }),
+                        )
+                    })?;
+                logical_ports
+                    .entry(endpoint.port_id.clone())
+                    .and_modify(|port| {
+                        if port.directionality != directionality {
+                            port.directionality = PortDirectionality::Bidirectional;
+                        }
+                    })
+                    .or_insert_with(|| StationLogicalPortRequirementDefinition {
+                        logical_port_id: endpoint.port_id.clone(),
+                        label: actual.label.clone(),
+                        directionality,
+                        signal_domain: actual.signal_domain,
+                        connector_requirement: actual.connector_type.clone(),
+                        impedance_ohm: actual.impedance,
+                        frequency_range: range_from_actual(
+                            actual.frequency_min,
+                            actual.frequency_max,
+                            "Hz",
+                        ),
+                        voltage_range: range_from_actual(None, actual.voltage_max, "V"),
+                        current_range: range_from_actual(None, actual.current_max, "A"),
+                        power_range: range_from_actual(None, actual.power_max, "W"),
+                    });
+            }
+        }
+        material_requirements.push(StationMaterialRequirementDefinition {
+            requirement_id: binding.binding_id.clone(),
+            role_label: binding.role_label.clone(),
+            description: "Rôle converti explicitement depuis une révision station v2.".to_owned(),
+            required: true,
+            selection_policy: StationMaterialSelectionPolicy::ExactAsset,
+            assignment_stage: StationMaterialAssignmentStage::SetupDefinition,
+            substitution_policy: StationMaterialSubstitutionPolicy::NoSubstitution,
+            calibration_requirement: StationCalibrationRequirement::IfUsed,
+            category_requirement: None,
+            capability_requirement: None,
+            exact_asset_id: Some(binding.asset_id.clone()),
+            logical_ports: logical_ports.values().cloned().collect(),
+        });
+        material_assignments.push(StationMaterialAssignmentDefinition {
+            requirement_id: binding.binding_id.clone(),
+            asset_id: binding.asset_id.clone(),
+            asset_revision: binding.asset_revision.clone(),
+            inventory_code: asset.inventory_code,
+            serial_number: asset.serial_number,
+            equipment_model_id: binding.equipment_model_id.clone(),
+            equipment_model_revision_id: binding.equipment_model_revision_id.clone(),
+            equipment_model_checksum: binding.equipment_model_checksum.clone(),
+            selected_ports: logical_ports
+                .keys()
+                .map(|port_id| StationPhysicalPortMappingDefinition {
+                    logical_port_id: port_id.clone(),
+                    actual_port_id: port_id.clone(),
+                })
+                .collect(),
+            assignment_context: "v2_upgrade".to_owned(),
+            assigned_on: definition.planned_use_on.clone(),
+        });
+    }
+    let logical_connections = connections
+        .iter()
+        .map(|connection| StationLogicalConnectionDefinition {
+            connection_id: connection.connection_id.clone(),
+            label: connection.label.clone(),
+            from: StationLogicalPortEndpoint {
+                requirement_id: connection.from.binding_id.clone(),
+                logical_port_id: connection.from.port_id.clone(),
+            },
+            to: StationLogicalPortEndpoint {
+                requirement_id: connection.to.binding_id.clone(),
+                logical_port_id: connection.to.port_id.clone(),
+            },
+        })
+        .collect();
+    if !definition.correction_selections.is_empty() {
+        definition.notes.insert(
+            "v2_correction_selections".to_owned(),
+            serde_json::to_value(&definition.correction_selections).expect("selections serialize"),
+        );
+    }
+    definition.definition_schema_version = STATION_SETUP_DEFINITION_SCHEMA_VERSION.to_owned();
+    definition.asset_bindings.clear();
+    definition.connections.clear();
+    definition.correction_selections.clear();
+    definition.material_requirements = material_requirements;
+    definition.material_assignments = material_assignments;
+    definition.logical_connections = logical_connections;
+    Ok(definition)
+}
+
+fn attached_equipment_model_definition(
+    transaction: &rusqlite::Transaction<'_>,
+    model_id: &str,
+    revision_id: &str,
+    expected_checksum: &str,
+) -> Result<EquipmentModelDefinition, AgentError> {
+    let stored = transaction
+        .query_row(
+            "SELECT definition_json, definition_checksum, status
+             FROM equipment_db.equipment_model_revisions
+             WHERE equipment_model_id = ?1 AND revision_id = ?2",
+            rusqlite::params![model_id, revision_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| AgentError::new("station_setup_query_failed", error.to_string()))?
+        .ok_or_else(|| {
+            AgentError::new(
+                "station_setup_upgrade_model_missing",
+                "the pinned equipment model revision no longer exists",
+            )
+        })?;
+    if stored.1 != expected_checksum || !matches!(stored.2.as_str(), "approved" | "superseded") {
+        return Err(AgentError::new(
+            "station_setup_upgrade_model_pin_invalid",
+            "the v2 model pin is no longer an immutable matching revision",
+        ));
+    }
+    let definition = EquipmentModelDefinition::from_json_str(&stored.0).map_err(|issue| {
+        AgentError::with_details(
+            "station_setup_upgrade_model_invalid",
+            "the pinned model definition is invalid",
+            json!({ "issue": issue }),
+        )
+    })?;
+    let canonical = definition.canonicalize().map_err(|issues| {
+        AgentError::with_details(
+            "station_setup_upgrade_model_invalid",
+            "the pinned model definition is invalid",
+            json!({ "issues": issues }),
+        )
+    })?;
+    if canonical.definition_checksum != expected_checksum {
+        return Err(AgentError::new(
+            "station_setup_upgrade_model_pin_invalid",
+            "the v2 model checksum does not match canonical content",
+        ));
+    }
+    Ok(definition)
+}
+
+fn range_from_actual(
+    minimum: Option<f64>,
+    maximum: Option<f64>,
+    unit: &str,
+) -> Option<emc_locus_core::StationRangeConstraint> {
+    (minimum.is_some() || maximum.is_some()).then(|| emc_locus_core::StationRangeConstraint {
+        minimum,
+        maximum,
+        unit: unit.to_owned(),
+    })
+}
+
 fn validated_stored_definition(
     stored: &StoredStationSetupRevision,
 ) -> Result<StationMeasurementSetupDefinition, AgentError> {
@@ -1251,8 +1888,24 @@ fn load_aggregate(
     })?;
     let active_draft_revision = revisions
         .iter()
-        .find(|revision| revision.status == "draft")
+        .find(|revision| revision.status == "draft" && revision.qualified_at.is_none())
         .map(validated_revision_dto)
+        .transpose()?;
+    let current_qualified_revision = identity
+        .current_qualified_revision_id
+        .as_deref()
+        .map(|revision_id| {
+            revisions
+                .iter()
+                .find(|revision| revision.revision_id == revision_id)
+                .ok_or_else(|| {
+                    AgentError::new(
+                        "station_setup_storage_invalid",
+                        "current qualified revision reference is missing",
+                    )
+                })
+                .and_then(validated_revision_dto)
+        })
         .transpose()?;
     let current_ready_revision = identity
         .current_ready_revision_id
@@ -1273,6 +1926,7 @@ fn load_aggregate(
     Ok(StationSetupAggregateDto {
         identity: StationSetupIdentityDto::from(identity),
         active_draft_revision,
+        current_qualified_revision,
         current_ready_revision,
         latest_revision: validated_revision_dto(latest)?,
     })
@@ -1784,6 +2438,7 @@ mod tests {
                 DeriveStationSetupRevisionInput {
                     setup_id: "SETUP-ATOMIC-C".to_owned(),
                     source_revision_id: "SETUP-ATOMIC-C-rev-0001".to_owned(),
+                    upgrade_to_v3: false,
                     context: context("op-station-derive-c"),
                 },
             )
@@ -1810,6 +2465,134 @@ mod tests {
             historical["revision"]["definition"]["laboratory_location_id"],
             "LOC-STATION-C"
         );
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
+    #[test]
+    fn exact_blocked_requirements_can_be_qualified_but_not_declared_ready() {
+        let storage_root = initialized_storage("station-v3-qualified-exact");
+        insert_location(&storage_root, "LOC-STATION-V3", "Labo CEM");
+        let created = json_value(
+            &create_station_setup(
+                &storage_root,
+                create_input("SETUP-V3-EXACT", "LOC-STATION-V3", "op-v3-create"),
+            )
+            .unwrap(),
+        );
+        let draft = &created["station_setup"]["active_draft_revision"];
+        let mut definition = draft["definition"].clone();
+        definition["material_requirements"] = json!([
+            {
+                "requirement_id": "source",
+                "role_label": "Source de vérification",
+                "required": true,
+                "selection_policy": "exact_asset",
+                "assignment_stage": "setup_definition",
+                "substitution_policy": "no_substitution",
+                "calibration_requirement": "not_required",
+                "exact_asset_id": "ES01",
+                "logical_ports": [{
+                    "logical_port_id": "rf",
+                    "label": "Sortie RF",
+                    "directionality": "output",
+                    "signal_domain": "rf"
+                }]
+            },
+            {
+                "requirement_id": "cable",
+                "role_label": "Câble RF imposé",
+                "required": true,
+                "selection_policy": "exact_asset",
+                "assignment_stage": "setup_definition",
+                "substitution_policy": "no_substitution",
+                "calibration_requirement": "required",
+                "exact_asset_id": "CA-001",
+                "logical_ports": [{
+                    "logical_port_id": "rf",
+                    "label": "Entrée RF",
+                    "directionality": "input",
+                    "signal_domain": "rf"
+                }]
+            }
+        ]);
+        definition["logical_connections"] = json!([{
+            "connection_id": "rf-path",
+            "label": "Source vers câble",
+            "from": {"requirement_id": "source", "logical_port_id": "rf"},
+            "to": {"requirement_id": "cable", "logical_port_id": "rf"}
+        }]);
+        let saved = json_value(
+            &replace_station_setup_draft_definition(
+                &storage_root,
+                ReplaceStationSetupDraftInput {
+                    setup_id: "SETUP-V3-EXACT".to_owned(),
+                    revision_id: "SETUP-V3-EXACT-rev-0001".to_owned(),
+                    expected_definition_checksum: draft["definition_checksum"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                    definition_json: definition.to_string(),
+                    context: context("op-v3-save-exact"),
+                },
+            )
+            .unwrap(),
+        );
+        assert!(
+            saved["station_setup"]["active_draft_revision"]["definition"]["material_requirements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|requirement| requirement["exact_asset_id"] == "CA-001")
+        );
+        let checksum = saved["station_setup"]["active_draft_revision"]["definition_checksum"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let qualified = json_value(
+            &mark_station_setup_revision_qualified(
+                &storage_root,
+                MarkStationSetupQualifiedInput {
+                    setup_id: "SETUP-V3-EXACT".to_owned(),
+                    revision_id: "SETUP-V3-EXACT-rev-0001".to_owned(),
+                    expected_definition_checksum: checksum.clone(),
+                    context: context("op-v3-qualified"),
+                },
+            )
+            .unwrap(),
+        );
+        assert!(qualified["station_setup"]["active_draft_revision"].is_null());
+        assert_eq!(
+            qualified["station_setup"]["current_qualified_revision"]["status"],
+            "qualified"
+        );
+
+        let before_refusal = evidence_counts(&storage_root);
+        let edit_refusal = replace_station_setup_draft_definition(
+            &storage_root,
+            ReplaceStationSetupDraftInput {
+                setup_id: "SETUP-V3-EXACT".to_owned(),
+                revision_id: "SETUP-V3-EXACT-rev-0001".to_owned(),
+                expected_definition_checksum: checksum.clone(),
+                definition_json: definition.to_string(),
+                context: context("op-v3-edit-qualified"),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(edit_refusal.code, "station_setup_revision_not_editable");
+        assert_eq!(evidence_counts(&storage_root), before_refusal);
+
+        let ready_refusal = mark_station_setup_revision_ready(
+            &storage_root,
+            MarkStationSetupReadyInput {
+                setup_id: "SETUP-V3-EXACT".to_owned(),
+                revision_id: "SETUP-V3-EXACT-rev-0001".to_owned(),
+                expected_definition_checksum: checksum,
+                context: context("op-v3-ready-refused"),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(ready_refusal.code, "station_setup_not_ready");
+        assert_eq!(evidence_counts(&storage_root), before_refusal);
         let _ = std::fs::remove_dir_all(storage_root);
     }
 

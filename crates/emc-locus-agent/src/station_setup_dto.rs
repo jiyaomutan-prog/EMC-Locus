@@ -1,14 +1,17 @@
+use crate::fleet_dto::{AssetSelectionReasonDto, PhysicalAssetDto};
 use crate::station_setup_repository::{
     StoredStationSetupAuditEvent, StoredStationSetupIdentity, StoredStationSetupRevision,
 };
 use emc_locus_core::{StationMeasurementSetupDefinition, StationSetupReadiness};
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct StationSetupIdentityDto {
     pub(crate) setup_id: String,
     pub(crate) label: String,
     pub(crate) current_ready_revision_id: Option<String>,
+    pub(crate) current_qualified_revision_id: Option<String>,
     pub(crate) created_by: String,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
@@ -29,12 +32,14 @@ pub(crate) struct StationSetupRevisionDto {
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
     pub(crate) ready_at: Option<String>,
+    pub(crate) qualified_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct StationSetupAggregateDto {
     pub(crate) identity: StationSetupIdentityDto,
     pub(crate) active_draft_revision: Option<StationSetupRevisionDto>,
+    pub(crate) current_qualified_revision: Option<StationSetupRevisionDto>,
     pub(crate) current_ready_revision: Option<StationSetupRevisionDto>,
     pub(crate) latest_revision: StationSetupRevisionDto,
 }
@@ -76,6 +81,37 @@ pub(crate) struct StationSetupReadinessEnvelopeDto {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub(crate) struct StationMaterialCandidateDto {
+    pub(crate) asset: PhysicalAssetDto,
+    pub(crate) requirement_compatible: bool,
+    pub(crate) compatibility_state: String,
+    pub(crate) operationally_eligible: bool,
+    pub(crate) assignable: bool,
+    pub(crate) exact_asset_required: bool,
+    pub(crate) category_evidence: Vec<String>,
+    pub(crate) capability_evidence: Vec<String>,
+    pub(crate) technical_constraint_results: Vec<emc_locus_core::StationCompatibilityReason>,
+    pub(crate) driver_evidence: Vec<String>,
+    pub(crate) logical_port_resolution_candidates: BTreeMap<String, Vec<String>>,
+    pub(crate) compatibility_blockers: Vec<emc_locus_core::StationCompatibilityReason>,
+    pub(crate) operational_blockers: Vec<AssetSelectionReasonDto>,
+    pub(crate) warnings: Vec<AssetSelectionReasonDto>,
+    pub(crate) next_actions: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct StationMaterialCandidateListDto {
+    pub(crate) setup_id: String,
+    pub(crate) revision_id: String,
+    pub(crate) requirement_id: String,
+    pub(crate) request_context_key: String,
+    pub(crate) planned_use_on: String,
+    pub(crate) execution_mode: String,
+    pub(crate) laboratory_location_id: String,
+    pub(crate) candidates: Vec<StationMaterialCandidateDto>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct StationSetupAuditEventDto {
     pub(crate) audit_id: u64,
     pub(crate) setup_id: String,
@@ -106,6 +142,7 @@ impl From<&StoredStationSetupIdentity> for StationSetupIdentityDto {
             setup_id: value.setup_id.clone(),
             label: value.label.clone(),
             current_ready_revision_id: value.current_ready_revision_id.clone(),
+            current_qualified_revision_id: value.current_qualified_revision_id.clone(),
             created_by: value.created_by.clone(),
             created_at: value.created_at.clone(),
             updated_at: value.updated_at.clone(),
@@ -145,7 +182,11 @@ pub(crate) fn revision_dto_unchecked(
         setup_id: stored.setup_id.clone(),
         revision_number: stored.revision_number,
         parent_revision_id: stored.parent_revision_id.clone(),
-        status: stored.status.clone(),
+        status: if stored.status == "draft" && stored.qualified_at.is_some() {
+            "qualified".to_owned()
+        } else {
+            stored.status.clone()
+        },
         definition_schema_version: stored.definition_schema_version.clone(),
         definition,
         definition_checksum: stored.definition_checksum.clone(),
@@ -154,5 +195,6 @@ pub(crate) fn revision_dto_unchecked(
         created_at: stored.created_at.clone(),
         updated_at: stored.updated_at.clone(),
         ready_at: stored.ready_at.clone(),
+        qualified_at: stored.qualified_at.clone(),
     }
 }

@@ -1363,7 +1363,6 @@ mod tests {
     };
     use emc_locus_core::{
         StationAssetBindingDefinition, StationConnectionDefinition, StationPortEndpoint,
-        STATION_SETUP_DEFINITION_SCHEMA_VERSION,
     };
     use rusqlite::{params, Connection};
     use serde_json::Value;
@@ -2322,7 +2321,8 @@ mod tests {
         source_revision: &str,
     ) {
         let definition = StationMeasurementSetupDefinition {
-            definition_schema_version: STATION_SETUP_DEFINITION_SCHEMA_VERSION.to_owned(),
+            definition_schema_version: emc_locus_core::STATION_SETUP_V2_DEFINITION_SCHEMA_VERSION
+                .to_owned(),
             setup_id: SETUP_ID.to_owned(),
             label: "Chaîne émission conduite".to_owned(),
             laboratory_location_id: Some("LAB-LOCATION-CEM-1".to_owned()),
@@ -2362,6 +2362,9 @@ mod tests {
                 },
             }],
             correction_selections: Vec::new(),
+            material_requirements: Vec::new(),
+            material_assignments: Vec::new(),
+            logical_connections: Vec::new(),
             notes: BTreeMap::new(),
         };
         let canonical = definition.canonicalize().unwrap();

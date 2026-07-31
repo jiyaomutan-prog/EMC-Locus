@@ -94,11 +94,13 @@ use crate::service_schedule_service::{
 };
 use crate::station_setup_service::{
     assess_station_setup_revision_json, create_station_setup, derive_station_setup_revision,
-    get_station_setup, get_station_setup_revision_json, list_station_setup_asset_options_json,
-    list_station_setup_audit_events_json, list_station_setup_revisions_json, list_station_setups,
+    get_station_setup, get_station_setup_revision_json, list_station_material_candidates_json,
+    list_station_setup_asset_options_json, list_station_setup_audit_events_json,
+    list_station_setup_revisions_json, list_station_setups, mark_station_setup_revision_qualified,
     mark_station_setup_revision_ready, replace_station_setup_draft_definition,
-    CreateStationSetupInput, DeriveStationSetupRevisionInput, ListStationSetupAssetOptionsInput,
-    MarkStationSetupReadyInput, ReplaceStationSetupDraftInput, StationOperationContext,
+    CreateStationSetupInput, DeriveStationSetupRevisionInput, ListStationMaterialCandidatesInput,
+    ListStationSetupAssetOptionsInput, MarkStationSetupQualifiedInput, MarkStationSetupReadyInput,
+    ReplaceStationSetupDraftInput, StationOperationContext,
 };
 use crate::test_execution_service::{
     get_simulated_test_execution, list_project_simulated_test_executions, run_simulated_emc_test,
@@ -683,6 +685,31 @@ fn route_api_request(
     {
         return get_station_setup_revision_json(&config.storage_root, parts[3], parts[5]);
     }
+    if parts.len() == 9
+        && parts[0] == "api"
+        && parts[1] == "v1"
+        && parts[2] == "station-setups"
+        && parts[4] == "revisions"
+        && parts[6] == "material-requirements"
+        && parts[8] == "candidates"
+        && method == "GET"
+    {
+        return list_station_material_candidates_json(
+            &config.storage_root,
+            ListStationMaterialCandidatesInput {
+                setup_id: parts[3].to_owned(),
+                revision_id: parts[5].to_owned(),
+                requirement_id: parts[7].to_owned(),
+                planned_use_on: required_query_value(query, "planned_use_on")?,
+                execution_mode: required_query_value(query, "execution_mode")?,
+                laboratory_location_id: required_query_value(query, "laboratory_location_id")?,
+                excluded_schedule_item_code: optional_query_value(
+                    query,
+                    "excluded_schedule_item_code",
+                ),
+            },
+        );
+    }
     if parts.len() == 7
         && parts[0] == "api"
         && parts[1] == "v1"
@@ -708,14 +735,27 @@ fn route_api_request(
         && parts[2] == "station-setups"
         && parts[4] == "revisions"
         && parts[6] == "transitions"
-        && parts[7] == "ready"
         && method == "POST"
     {
         let payload = parse_json_body(body)?;
-        return mark_station_setup_revision_ready(
-            &config.storage_root,
-            mark_station_setup_ready_input(parts[3], parts[5], &payload)?,
-        );
+        if parts[7] == "qualified" {
+            let input = mark_station_setup_ready_input(parts[3], parts[5], &payload)?;
+            return mark_station_setup_revision_qualified(
+                &config.storage_root,
+                MarkStationSetupQualifiedInput {
+                    setup_id: input.setup_id,
+                    revision_id: input.revision_id,
+                    expected_definition_checksum: input.expected_definition_checksum,
+                    context: input.context,
+                },
+            );
+        }
+        if parts[7] == "ready" {
+            return mark_station_setup_revision_ready(
+                &config.storage_root,
+                mark_station_setup_ready_input(parts[3], parts[5], &payload)?,
+            );
+        }
     }
     if parts.as_slice() == ["api", "v1", "documents"] && method == "GET" {
         return list_documents(&config.storage_root, list_documents_input(query));
@@ -2141,6 +2181,7 @@ fn derive_station_setup_revision_input(
     Ok(DeriveStationSetupRevisionInput {
         setup_id: setup_id.to_owned(),
         source_revision_id: required_string(payload, "source_revision_id")?,
+        upgrade_to_v3: optional_bool(payload, "upgrade_to_v3")?.unwrap_or(false),
         context: station_operation_context(payload)?,
     })
 }
