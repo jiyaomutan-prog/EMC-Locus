@@ -14,6 +14,7 @@ import {
   GitBranch,
   ListTree,
   Network,
+  Pencil,
   Plus,
   Redo2,
   RotateCcw,
@@ -96,6 +97,7 @@ const semanticLabels: Record<string, string> = {
 };
 
 const roleLabels: Record<string, string> = {
+  generator: "Générateur de signal",
   disturbance_generator: "Générateur de perturbation",
   amplifier: "Amplificateur RF",
   injection_device: "Dispositif d'injection",
@@ -105,7 +107,24 @@ const roleLabels: Record<string, string> = {
   measurement_receiver: "Récepteur de mesure",
   sensor: "Capteur ou sonde",
   daq: "Acquisition temporelle",
-  eut_monitor: "Surveillance de l'objet testé"
+  eut_monitor: "Surveillance de l'objet testé",
+  generic: "Fonction générique"
+};
+
+const directionLabels: Record<string, string> = {
+  input: "Entrée",
+  output: "Sortie",
+  bidirectional: "Bidirectionnel"
+};
+
+const signalDomainLabels: Record<string, string> = {
+  analog_rf: "RF analogique",
+  analog_low_frequency: "Analogique basse fréquence",
+  digital: "Numérique",
+  optical: "Optique",
+  power: "Puissance / alimentation",
+  trigger: "Déclenchement",
+  data: "Données"
 };
 
 const edgeLabels: Record<string, string> = {
@@ -266,6 +285,8 @@ function HierarchyPanel(props: {
   const [editing, setEditing] = useState<MethodHierarchyNode | "new" | null>(null);
   const [label, setLabel] = useState("");
   const [kind, setKind] = useState<MethodHierarchyNodeKind>("test_family");
+  const [parentId, setParentId] = useState("");
+  const [position, setPosition] = useState(0);
   const visible = props.nodes.filter((node) => props.includeArchived || !node.archived);
   const byParent = (parent: string | undefined) => visible.filter((node) => node.parent_node_id === parent).sort((a, b) => a.position - b.position);
   const selected = props.nodes.find((node) => node.node_id === props.selectedId);
@@ -274,19 +295,18 @@ function HierarchyPanel(props: {
   async function save() {
     if (!label.trim()) return;
     if (editing === "new") {
-      const parent = selected;
       await methodWorkflowApi.createHierarchyNode({
         node_id: id("hierarchy"),
-        parent_node_id: parent?.node_id,
+        parent_node_id: parentId || undefined,
         node_kind: kind,
         label: label.trim(),
-        position: byParent(parent?.node_id).length,
+        position,
         archived: false
       }, context);
       await props.onChanged("Élément ajouté à la hiérarchie.");
     } else if (editing) {
-      await methodWorkflowApi.updateHierarchyNode({ ...editing, label: label.trim(), node_kind: kind }, context);
-      await props.onChanged("Libellé de la hiérarchie mis à jour.");
+      await methodWorkflowApi.updateHierarchyNode({ ...editing, parent_node_id: parentId || undefined, label: label.trim(), node_kind: kind, position }, context);
+      await props.onChanged("Classement de la hiérarchie mis à jour.");
     }
     setEditing(null);
   }
@@ -314,13 +334,13 @@ function HierarchyPanel(props: {
 
   return (
     <aside className="hierarchyPanel" aria-label="Hiérarchie des méthodes">
-      <div className="panelHeading"><div><strong>Classement</strong><small>{visible.length} éléments</small></div><button className="iconButton" title="Ajouter sous la sélection" aria-label="Ajouter un élément" onClick={() => { setEditing("new"); setLabel(""); }}><Plus size={16} /></button></div>
+      <div className="panelHeading"><div><strong>Classement</strong><small>{visible.length} éléments</small></div><button className="iconButton" title="Ajouter sous la sélection" aria-label="Ajouter un élément" onClick={() => { const nextParent = selected?.node_id ?? ""; setEditing("new"); setLabel(""); setParentId(nextParent); setPosition(byParent(nextParent || undefined).length); }}><Plus size={16} /></button></div>
       <label className="workflowSearch"><Search size={15} /><input aria-label="Rechercher dans les méthodes" value={props.query} onChange={(event) => props.onQuery(event.target.value)} placeholder="Rechercher" /></label>
       <label className="compactCheck"><input type="checkbox" checked={props.includeArchived} onChange={(event) => props.onIncludeArchived(event.target.checked)} />Afficher les éléments archivés</label>
       {breadcrumbs.length > 0 && <div className="breadcrumbs" aria-label="Fil d'Ariane">{breadcrumbs.map((item, index) => <span key={item.node_id}>{index > 0 && " / "}{item.label}</span>)}</div>}
-      {props.error ? <TargetedError title="Classement indisponible" detail={props.error} /> : visible.length ? <ul className="hierarchyTree">{byParent(undefined).map((node) => renderNode(node, 0))}</ul> : <EmptyHint title="Aucun classement" detail="Créez un domaine, puis organisez les familles et procédures du laboratoire." action="Créer le premier domaine" onAction={() => { setEditing("new"); setKind("domain"); }} />}
-      {selected && <div className="hierarchyActions"><button onClick={() => { setEditing(selected); setLabel(selected.label); setKind(selected.node_kind); }}>Renommer</button><button onClick={() => void methodWorkflowApi.updateHierarchyNode({ ...selected, archived: !selected.archived }, context).then(() => props.onChanged(selected.archived ? "Élément restauré." : "Élément archivé."))}><Archive size={14} />{selected.archived ? "Restaurer" : "Archiver"}</button></div>}
-      {editing && <div className="inlineEditor"><strong>{editing === "new" ? "Nouvel élément" : "Modifier l'élément"}</strong><label>Libellé<input autoFocus value={label} onChange={(event) => setLabel(event.target.value)} /></label><label>Type<select value={kind} onChange={(event) => setKind(event.target.value as MethodHierarchyNodeKind)}>{Object.entries(hierarchyLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label><div><button onClick={() => setEditing(null)}>Annuler</button><button className="primaryButton" disabled={!label.trim()} onClick={() => void save()}>Enregistrer</button></div></div>}
+      {props.error ? <TargetedError title="Classement indisponible" detail={props.error} /> : visible.length ? <ul className="hierarchyTree">{byParent(undefined).map((node) => renderNode(node, 0))}</ul> : <EmptyHint title="Aucun classement" detail="Créez un domaine, puis organisez les familles et procédures du laboratoire." action="Créer le premier domaine" onAction={() => { setEditing("new"); setKind("domain"); setParentId(""); setPosition(0); }} />}
+      {selected && <div className="hierarchyActions"><button onClick={() => { setEditing(selected); setLabel(selected.label); setKind(selected.node_kind); setParentId(selected.parent_node_id ?? ""); setPosition(selected.position); }}><Pencil size={14} />Modifier</button><button onClick={() => void methodWorkflowApi.updateHierarchyNode({ ...selected, archived: !selected.archived }, context).then(() => props.onChanged(selected.archived ? "Élément restauré." : "Élément archivé."))}><Archive size={14} />{selected.archived ? "Restaurer" : "Archiver"}</button></div>}
+      {editing && <div className="inlineEditor"><strong>{editing === "new" ? "Nouvel élément" : "Modifier le classement"}</strong><label>Libellé *<input autoFocus value={label} onChange={(event) => setLabel(event.target.value)} /></label><label>Type<select value={kind} onChange={(event) => setKind(event.target.value as MethodHierarchyNodeKind)}>{Object.entries(hierarchyLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label><label>Parent<select aria-label="Parent dans la hiérarchie" value={parentId} onChange={(event) => setParentId(event.target.value)}><option value="">Racine</option>{props.nodes.filter((node) => node.node_id !== (editing === "new" ? "" : editing.node_id) && !node.archived).map((node) => <option key={node.node_id} value={node.node_id}>{node.label}</option>)}</select></label><label>Position<input aria-label="Position dans le parent" type="number" min="0" value={position} onChange={(event) => setPosition(Number(event.target.value))} /><small>Un nombre plus petit place l'élément plus haut.</small></label><div><button onClick={() => setEditing(null)}>Annuler</button><button className="primaryButton" disabled={!label.trim()} onClick={() => void save()}>Enregistrer</button></div></div>}
     </aside>
   );
 }
@@ -582,11 +602,25 @@ function TopologyEditor(props: { definition: MeasurementSystemDefinition; onChan
   const [layer, setLayer] = useState<TopologyLayer>("all");
   const [zoom, setZoom] = useState(1);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [connectionOpen, setConnectionOpen] = useState(false);
+  const [connectionKind, setConnectionKind] = useState("physical_signal");
+  const [connectionFrom, setConnectionFrom] = useState("");
+  const [connectionTo, setConnectionTo] = useState("");
   const d = props.definition;
   const visibleEdges = d.edges.filter((edge) => layer === "all" || edgeLayer(edge.edge_kind) === layer);
+  const inspectedNode = d.nodes.find((node) => node.node_id === selectedNode);
+  const outputPorts = d.nodes.flatMap((node) => node.ports.filter((port) => port.directionality !== "input").map((port) => ({ node, port })));
+  const inputPorts = d.nodes.flatMap((node) => node.ports.filter((port) => port.directionality !== "output").map((port) => ({ node, port })));
   function addNode() { const number = d.nodes.length + 1; const node: TopologyNode = { node_id: `node-${number}`, label: `Fonction ${number}`, role_type: "generic", ports: [{ port_id: "input", label: "Entrée", directionality: "input", signal_domain: "analog_rf" }, { port_id: "output", label: "Sortie", directionality: "output", signal_domain: "analog_rf" }], notes: "" }; props.onChange({ ...d, nodes: [...d.nodes, node] }); setSelectedNode(node.node_id); }
-  function addConnection() { if (d.nodes.length < 2) return; const from = d.nodes[d.nodes.length - 2]; const to = d.nodes[d.nodes.length - 1]; const edge: TopologyEdge = { edge_id: id("edge"), label: `${from.label} vers ${to.label}`, edge_kind: "physical_signal", from: { node_id: from.node_id, port_id: from.ports.at(-1)?.port_id ?? "output" }, to: { node_id: to.node_id, port_id: to.ports[0]?.port_id ?? "input" } }; props.onChange({ ...d, edges: [...d.edges, edge] }); }
-  return <div className="topologyEditor"><div className="topologyControls"><button disabled={props.readOnly} onClick={addNode}><Plus size={15} />Fonction</button><button disabled={props.readOnly || d.nodes.length < 2} title={d.nodes.length < 2 ? "Ajoutez au moins deux fonctions" : "Relier les deux dernières fonctions"} onClick={addConnection}><GitBranch size={15} />Connexion</button><div className="segmented compact" aria-label="Couches de la topologie">{(["physical", "regulation", "control", "all"] as const).map((value) => <button className={layer === value ? "active" : ""} key={value} onClick={() => setLayer(value)}>{value === "physical" ? "Signaux physiques" : value === "regulation" ? "Régulation" : value === "control" ? "Pilotage et données" : "Toutes"}</button>)}</div><button className="iconButton" title="Réduire" aria-label="Réduire" onClick={() => setZoom((value) => Math.max(.65, value - .1))}><ZoomOut size={15} /></button><button className="iconButton" title="Agrandir" aria-label="Agrandir" onClick={() => setZoom((value) => Math.min(1.4, value + .1))}><ZoomIn size={15} /></button><button className="iconButton" title="Ajuster" aria-label="Ajuster la topologie" onClick={() => setZoom(1)}><Focus size={15} /></button></div><div className="topologyCanvas" aria-label="Vue visuelle de la topologie"><svg className="topologyEdges" viewBox={`0 0 ${Math.max(760, d.nodes.length * 190)} 260`} aria-hidden="true">{visibleEdges.map((edge) => { const fromIndex = d.nodes.findIndex((node) => node.node_id === edge.from.node_id); const toIndex = d.nodes.findIndex((node) => node.node_id === edge.to.node_id); return <path key={edge.edge_id} className={`topologyEdge ${edgeLayer(edge.edge_kind)}`} d={`M ${95 + fromIndex * 180} 118 C ${130 + fromIndex * 180} 80, ${60 + toIndex * 180} 80, ${95 + toIndex * 180} 118`}><title>{edgeLabels[edge.edge_kind] ?? edge.edge_kind}: {edge.label}</title></path>; })}</svg><div className="topologyNodes" style={{ transform: `scale(${zoom})` }}>{d.nodes.map((node) => <button key={node.node_id} className={selectedNode === node.node_id ? "selected" : ""} onClick={() => setSelectedNode(node.node_id)} onKeyDown={(event) => { if (event.key === "ArrowRight" || event.key === "ArrowLeft") { const index = d.nodes.findIndex((item) => item.node_id === node.node_id); const delta = event.key === "ArrowRight" ? 1 : -1; (event.currentTarget.parentElement?.children[Math.max(0, Math.min(d.nodes.length - 1, index + delta))] as HTMLElement | undefined)?.focus(); } }}><InstrumentIcon roleType={node.role_type} label={node.label} /><span><strong>{node.label}</strong><small>{roleLabels[node.role_type] ?? node.role_type}</small></span></button>)}</div></div><div className="topologyFallback"><div className="sectionCommand"><div><h4>Liste structurée équivalente</h4><p>Cette table expose les mêmes connexions que la vue graphique.</p></div></div>{visibleEdges.length ? <div className="structuredTable" role="table" aria-label="Connexions logiques">{visibleEdges.map((edge) => <div className="structuredRow topologyConnection" role="row" key={edge.edge_id}><span><strong>{edgeLabels[edge.edge_kind] ?? edge.edge_kind}</strong><small>{edge.label}</small></span><span>{nodeLabel(d.nodes, edge.from.node_id)} · {edge.from.port_id}</span><ArrowRight size={15} /><span>{nodeLabel(d.nodes, edge.to.node_id)} · {edge.to.port_id}</span><button className="iconButton" aria-label={`Supprimer ${edge.label}`} disabled={props.readOnly} onClick={() => props.onChange({ ...d, edges: d.edges.filter((item) => item.edge_id !== edge.edge_id) })}><Trash2 size={14} /></button></div>)}</div> : <EmptyHint title="Aucune connexion" detail="Reliez les ports pour rendre explicites les chemins de signal, de commande et de retour." />}</div></div>;
+  function updateNode(next: TopologyNode) { props.onChange({ ...d, nodes: d.nodes.map((node) => node.node_id === next.node_id ? next : node) }); }
+  function beginConnection() { const from = outputPorts[0]; const to = inputPorts.find((candidate) => candidate.node.node_id !== from?.node.node_id) ?? inputPorts[0]; setConnectionFrom(from ? portKey(from.node.node_id, from.port.port_id) : ""); setConnectionTo(to ? portKey(to.node.node_id, to.port.port_id) : ""); setConnectionOpen(true); }
+  function addConnection() { const from = parsePortKey(connectionFrom); const to = parsePortKey(connectionTo); if (!from || !to) return; const fromNode = d.nodes.find((node) => node.node_id === from.node_id); const toNode = d.nodes.find((node) => node.node_id === to.node_id); if (!fromNode || !toNode) return; const edge: TopologyEdge = { edge_id: id("edge"), label: `${fromNode.label} vers ${toNode.label}`, edge_kind: connectionKind, from, to }; props.onChange({ ...d, edges: [...d.edges, edge] }); setConnectionOpen(false); }
+  return <div className="topologyEditor"><div className="topologyControls"><button disabled={props.readOnly} onClick={addNode}><Plus size={15} />Fonction</button><button disabled={props.readOnly || !outputPorts.length || !inputPorts.length} title={!outputPorts.length || !inputPorts.length ? "Ajoutez des ports de sortie et d'entrée" : "Choisir les ports et la nature de la liaison"} onClick={beginConnection}><GitBranch size={15} />Connexion</button><div className="segmented compact" aria-label="Couches de la topologie">{(["physical", "regulation", "control", "all"] as const).map((value) => <button className={layer === value ? "active" : ""} key={value} onClick={() => setLayer(value)}>{value === "physical" ? "Signaux physiques" : value === "regulation" ? "Régulation" : value === "control" ? "Pilotage et données" : "Toutes"}</button>)}</div><button className="iconButton" title="Réduire" aria-label="Réduire" onClick={() => setZoom((value) => Math.max(.65, value - .1))}><ZoomOut size={15} /></button><button className="iconButton" title="Agrandir" aria-label="Agrandir" onClick={() => setZoom((value) => Math.min(1.4, value + .1))}><ZoomIn size={15} /></button><button className="iconButton" title="Ajuster" aria-label="Ajuster la topologie" onClick={() => setZoom(1)}><Focus size={15} /></button></div>{connectionOpen && <div className="connectionEditor" role="dialog" aria-label="Nouvelle connexion"><label>Nature de la liaison<select aria-label="Nature de la liaison" value={connectionKind} onChange={(event) => setConnectionKind(event.target.value)}>{Object.entries(edgeLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label><label>Port source<select aria-label="Port source" value={connectionFrom} onChange={(event) => setConnectionFrom(event.target.value)}>{outputPorts.map(({ node, port }) => <option key={portKey(node.node_id, port.port_id)} value={portKey(node.node_id, port.port_id)}>{node.label} · {port.label} · {signalDomainLabels[port.signal_domain] ?? port.signal_domain}</option>)}</select></label><ArrowRight size={16} /><label>Port destination<select aria-label="Port destination" value={connectionTo} onChange={(event) => setConnectionTo(event.target.value)}>{inputPorts.map(({ node, port }) => <option key={portKey(node.node_id, port.port_id)} value={portKey(node.node_id, port.port_id)}>{node.label} · {port.label} · {signalDomainLabels[port.signal_domain] ?? port.signal_domain}</option>)}</select></label><div><button onClick={() => setConnectionOpen(false)}>Annuler</button><button className="primaryButton" disabled={!connectionFrom || !connectionTo || connectionFrom.split("::")[0] === connectionTo.split("::")[0]} title={connectionFrom.split("::")[0] === connectionTo.split("::")[0] ? "La source et la destination doivent être deux fonctions distinctes" : "La compatibilité finale sera contrôlée par l'agent Rust"} onClick={addConnection}>Ajouter</button></div></div>}<div className="topologyCanvas" aria-label="Vue visuelle de la topologie"><svg className="topologyEdges" viewBox={`0 0 ${Math.max(760, d.nodes.length * 190)} 260`} aria-hidden="true">{visibleEdges.map((edge) => { const fromIndex = d.nodes.findIndex((node) => node.node_id === edge.from.node_id); const toIndex = d.nodes.findIndex((node) => node.node_id === edge.to.node_id); return <path key={edge.edge_id} className={`topologyEdge ${edgeLayer(edge.edge_kind)}`} d={`M ${95 + fromIndex * 180} 118 C ${130 + fromIndex * 180} 80, ${60 + toIndex * 180} 80, ${95 + toIndex * 180} 118`}><title>{edgeLabels[edge.edge_kind] ?? edge.edge_kind}: {edge.label}</title></path>; })}</svg><div className="topologyNodes" style={{ transform: `scale(${zoom})` }}>{d.nodes.map((node) => <button key={node.node_id} className={selectedNode === node.node_id ? "selected" : ""} onClick={() => setSelectedNode(node.node_id)} onKeyDown={(event) => { if (event.key === "ArrowRight" || event.key === "ArrowLeft") { const index = d.nodes.findIndex((item) => item.node_id === node.node_id); const delta = event.key === "ArrowRight" ? 1 : -1; (event.currentTarget.parentElement?.children[Math.max(0, Math.min(d.nodes.length - 1, index + delta))] as HTMLElement | undefined)?.focus(); } }}><InstrumentIcon roleType={node.role_type} label={node.label} /><span><strong>{node.label}</strong><small>{roleLabels[node.role_type] ?? node.role_type}</small></span></button>)}</div></div>{inspectedNode && <NodeInspector node={inspectedNode} readOnly={props.readOnly} onChange={updateNode} onRemove={() => { props.onChange({ ...d, nodes: d.nodes.filter((node) => node.node_id !== inspectedNode.node_id), edges: d.edges.filter((edge) => edge.from.node_id !== inspectedNode.node_id && edge.to.node_id !== inspectedNode.node_id), correction_points: d.correction_points.filter((point) => point.node_id !== inspectedNode.node_id), regulation_loops: d.regulation_loops.filter((loop) => loop.actuator_node_id !== inspectedNode.node_id && loop.feedback_node_id !== inspectedNode.node_id && !loop.monitoring_node_ids.includes(inspectedNode.node_id)) }); setSelectedNode(null); }} />}<div className="topologyFallback"><div className="sectionCommand"><div><h4>Liste structurée équivalente</h4><p>Cette table expose les mêmes connexions que la vue graphique.</p></div></div>{visibleEdges.length ? <div className="structuredTable" role="table" aria-label="Connexions logiques">{visibleEdges.map((edge) => <div className="structuredRow topologyConnection" role="row" key={edge.edge_id}><span><strong>{edgeLabels[edge.edge_kind] ?? edge.edge_kind}</strong><small>{edge.label}</small></span><span>{nodeLabel(d.nodes, edge.from.node_id)} · {edge.from.port_id}</span><ArrowRight size={15} /><span>{nodeLabel(d.nodes, edge.to.node_id)} · {edge.to.port_id}</span><button className="iconButton" aria-label={`Supprimer ${edge.label}`} disabled={props.readOnly} onClick={() => props.onChange({ ...d, edges: d.edges.filter((item) => item.edge_id !== edge.edge_id) })}><Trash2 size={14} /></button></div>)}</div> : <EmptyHint title="Aucune connexion" detail="Reliez les ports pour rendre explicites les chemins de signal, de commande et de retour." />}</div></div>;
+}
+
+function NodeInspector(props: { node: TopologyNode; readOnly: boolean; onChange: (node: TopologyNode) => void; onRemove: () => void }) {
+  const updatePort = (portId: string, patch: Partial<TopologyNode["ports"][number]>) => props.onChange({ ...props.node, ports: props.node.ports.map((port) => port.port_id === portId ? { ...port, ...patch } : port) });
+  return <section className="nodeInspector" aria-label={`Fonction ${props.node.label}`}><div className="sectionCommand"><div><h4>Fonction sélectionnée</h4><p>Décrivez son rôle logique et les interfaces disponibles. Aucun matériel réel n'est affecté ici.</p></div><button className="iconButton" aria-label={`Supprimer la fonction ${props.node.label}`} disabled={props.readOnly} onClick={props.onRemove}><Trash2 size={15} /></button></div><div className="nodeFields"><Field label="Nom de la fonction" value={props.node.label} disabled={props.readOnly} required onChange={(label) => props.onChange({ ...props.node, label })} /><label className="workflowField"><span>Rôle logique</span><select disabled={props.readOnly} value={props.node.role_type} onChange={(event) => props.onChange({ ...props.node, role_type: event.target.value })}>{Object.entries(roleLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label></div><div className="portList"><div className="sectionCommand"><div><h4>Ports logiques</h4><p>Les liaisons utilisent ces ports nommés et leur domaine de signal.</p></div><button disabled={props.readOnly} onClick={() => props.onChange({ ...props.node, ports: [...props.node.ports, { port_id: id("port"), label: "Nouveau port", directionality: "input", signal_domain: "analog_rf" }] })}><Plus size={14} />Port</button></div>{props.node.ports.map((port) => <div className="portRow" key={port.port_id}><input aria-label={`Nom du port ${port.port_id}`} disabled={props.readOnly} value={port.label} onChange={(event) => updatePort(port.port_id, { label: event.target.value })} /><select aria-label={`Direction du port ${port.label}`} disabled={props.readOnly} value={port.directionality} onChange={(event) => updatePort(port.port_id, { directionality: event.target.value })}>{Object.entries(directionLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select><select aria-label={`Domaine du port ${port.label}`} disabled={props.readOnly} value={port.signal_domain} onChange={(event) => updatePort(port.port_id, { signal_domain: event.target.value })}>{Object.entries(signalDomainLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select><button className="iconButton" aria-label={`Supprimer le port ${port.label}`} disabled={props.readOnly} onClick={() => props.onChange({ ...props.node, ports: props.node.ports.filter((item) => item.port_id !== port.port_id) })}><Trash2 size={14} /></button></div>)}</div></section>;
 }
 
 function RegulationWorkspace(props: { profiles: WorkflowAggregate<RegulationProfileDefinition>[]; methods: MethodWorkflowAggregate[]; selectedId: string | null; error?: string; onSelect: (id: string | null) => void; onChanged: (notice: string) => Promise<void> }) {
@@ -618,6 +652,8 @@ function hierarchyBreadcrumbs(nodes: MethodHierarchyNode[], selected: MethodHier
 function methodStepCompletion(d: TestMethodDefinitionV2) { return [Boolean(d.title && d.classification_path.length), Boolean(d.objective && d.scope), d.variables.length > 0, d.functional_roles.length > 0, d.measurement_system_templates.length > 0, d.procedure.length > 0 && d.sub_ranges.length > 0, d.regulation_profiles.length > 0, d.limits.length > 0, d.post_processing.length > 0 && d.expected_output_variables.length > 0, false]; }
 function edgeLayer(kind: string): TopologyLayer { if (["physical_signal", "excitation_or_power", "monitoring", "eut_state"].includes(kind)) return "physical"; if (kind === "feedback_measurement") return "regulation"; return "control"; }
 function nodeLabel(nodes: TopologyNode[], idValue: string) { return nodes.find((node) => node.node_id === idValue)?.label ?? idValue; }
+function portKey(nodeId: string, portId: string) { return `${nodeId}::${portId}`; }
+function parsePortKey(value: string) { const separator = value.indexOf("::"); return separator < 1 ? null : { node_id: value.slice(0, separator), port_id: value.slice(separator + 2) }; }
 function controlModeLabel(value?: string) { return value === "closed_loop" ? "Boucle fermée" : value === "monitor_only" ? "Surveillance seule" : "Boucle ouverte"; }
 function firstMethodV2(methods: MethodWorkflowAggregate[]) { for (const method of methods) { const revision = selectedMethodRevision(method); if (isMethodV2(revision?.definition)) return revision.definition; } return undefined; }
 

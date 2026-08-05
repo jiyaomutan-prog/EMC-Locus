@@ -68,6 +68,29 @@ describe("workflow méthodes 0.22.2", () => {
     expect(screen.getByRole("table", { name: "Connexions logiques" })).toHaveTextContent("Signal physique");
     expect(screen.getByRole("button", { name: "Ajuster la topologie" })).toBeInTheDocument();
   });
+
+  test("édite les ports et demande une liaison explicite", async () => {
+    mockWorkflowApi({});
+    const user = userEvent.setup();
+    render(<MethodWorkflowWorkspace />);
+
+    await user.click(await screen.findByRole("button", { name: /Systèmes de mesure/ }));
+    await user.click(screen.getByRole("button", { name: /Chaîne conduite/ }));
+    await user.click(screen.getByRole("button", { name: /Générateur/ }));
+    expect(screen.getByRole("region", { name: "Fonction Générateur" })).toHaveTextContent(
+      "Aucun matériel réel n'est affecté ici"
+    );
+
+    await user.click(screen.getByRole("button", { name: "Connexion" }));
+    expect(screen.getByRole("dialog", { name: "Nouvelle connexion" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Port source")).toHaveTextContent("Générateur · Sortie RF");
+    expect(screen.getByLabelText("Port destination")).toHaveTextContent("Amplificateur · Entrée RF");
+    await user.selectOptions(screen.getByLabelText("Nature de la liaison"), "feedback_measurement");
+    await user.click(screen.getByRole("button", { name: "Ajouter" }));
+    expect(screen.getByRole("table", { name: "Connexions logiques" })).toHaveTextContent(
+      "Retour de régulation"
+    );
+  });
 });
 
 function mockWorkflowApi(options: { hierarchyFails?: boolean; legacy?: boolean }) {

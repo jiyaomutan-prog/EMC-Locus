@@ -1155,6 +1155,11 @@ button.planningSlot-cancelled {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
+.inlineEditor label small {
+  color: #68776f;
+  font-size: 10px;
+}
+
 .inlineEditor label,
 .compactDialog label,
 .regulationTable label {
@@ -1168,6 +1173,71 @@ button.planningSlot-cancelled {
 .regulationEditor {
   min-width: 0;
   padding: 18px;
+}
+
+.connectionEditor {
+  align-items: end;
+  background: #eef4f1;
+  border-bottom: 1px solid #cbd8d1;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(150px, .8fr) minmax(190px, 1fr) auto minmax(190px, 1fr) auto;
+  padding: 12px 16px;
+}
+
+.connectionEditor label,
+.nodeFields label {
+  display: grid;
+  font-size: 11px;
+  gap: 4px;
+}
+
+.connectionEditor > div {
+  display: flex;
+  gap: 6px;
+}
+
+.nodeInspector {
+  background: #fff;
+  border: 1px solid #d5ded9;
+  margin-top: 12px;
+  padding: 14px;
+}
+
+.nodeFields {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 12px;
+}
+
+.portList {
+  border-top: 1px solid #e1e7e4;
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.portRow {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(140px, 1fr) minmax(125px, .7fr) minmax(170px, 1fr) 34px;
+  margin-top: 7px;
+}
+
+@media (max-width: 1050px) {
+  .connectionEditor {
+    align-items: stretch;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .connectionEditor > svg {
+    display: none;
+  }
+
+  .nodeFields,
+  .portRow {
+    grid-template-columns: 1fr;
+  }
 }
 
 .libraryHeading {
