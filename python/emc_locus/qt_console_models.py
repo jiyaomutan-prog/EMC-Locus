@@ -139,6 +139,180 @@ class StatusMetric:
     tone: str
 
 
+def build_method_workflow_tables(
+    methods_response: dict[str, Any],
+    systems_response: dict[str, Any],
+    profiles_response: dict[str, Any],
+) -> tuple[TableViewModel, ...]:
+    """Project 0.22.2 definitions without revalidating their business rules."""
+
+    method_rows: list[tuple[str, ...]] = []
+    for aggregate in _mapping_list(methods_response.get("test_templates")):
+        identity = _mapping(aggregate.get("identity"))
+        revision = _current_revision(aggregate)
+        definition = _mapping(revision.get("definition"))
+        method_rows.append(
+            (
+                _text(identity.get("template_id")),
+                _text(identity.get("title")),
+                _schema_label(revision.get("definition_schema_version")),
+                _revision_label(revision),
+                _text(revision.get("status")),
+                str(len(_list(definition.get("functional_roles")))),
+                str(len(_list(definition.get("sub_ranges")))),
+            )
+        )
+
+    system_rows: list[tuple[str, ...]] = []
+    for aggregate in _mapping_list(systems_response.get("definitions")):
+        identity = _mapping(aggregate.get("identity"))
+        revision = _current_revision(aggregate)
+        definition = _mapping(revision.get("definition"))
+        system_rows.append(
+            (
+                _text(identity.get("entity_id")),
+                _text(identity.get("label")),
+                _text(identity.get("classification")),
+                _revision_label(revision),
+                _text(revision.get("status")),
+                str(len(_list(definition.get("nodes")))),
+                str(len(_list(definition.get("edges")))),
+                str(len(_list(definition.get("regulation_loops")))),
+            )
+        )
+
+    profile_rows: list[tuple[str, ...]] = []
+    for aggregate in _mapping_list(profiles_response.get("definitions")):
+        identity = _mapping(aggregate.get("identity"))
+        revision = _current_revision(aggregate)
+        definition = _mapping(revision.get("definition"))
+        profile_rows.append(
+            (
+                _text(identity.get("entity_id")),
+                _text(identity.get("label")),
+                _control_mode_label(definition.get("control_mode")),
+                _text(definition.get("regulated_quantity")),
+                _text(definition.get("regulated_unit")),
+                _revision_label(revision),
+                _text(revision.get("status")),
+            )
+        )
+
+    return (
+        TableViewModel(
+            tab_label="Méthodes",
+            title="Révisions de méthode",
+            columns=(
+                "Identité",
+                "Méthode",
+                "Contrat",
+                "Révision",
+                "État",
+                "Fonctions",
+                "Sous-plages",
+            ),
+            rows=tuple(method_rows),
+        ),
+        TableViewModel(
+            tab_label="Systèmes",
+            title="Systèmes de mesure réutilisables",
+            columns=(
+                "Identité",
+                "Système",
+                "Classement",
+                "Révision",
+                "État",
+                "Fonctions",
+                "Connexions",
+                "Boucles",
+            ),
+            rows=tuple(system_rows),
+        ),
+        TableViewModel(
+            tab_label="Régulation",
+            title="Profils de régulation",
+            columns=(
+                "Identité",
+                "Profil",
+                "Mode",
+                "Grandeur",
+                "Unité",
+                "Révision",
+                "État",
+            ),
+            rows=tuple(profile_rows),
+        ),
+    )
+
+
+def build_execution_plan_table(response: dict[str, Any]) -> TableViewModel:
+    """Present the Local Agent execution-plan projection as operator rows."""
+
+    preview = _mapping(response.get("preview"))
+    rows: list[tuple[str, ...]] = []
+    for phase in _mapping_list(preview.get("ordered_phases")):
+        rows.append(
+            (
+                "Phase",
+                _text(phase.get("label")),
+                _operator_token(phase.get("node_kind")),
+                f"Niveau {_text(phase.get('depth'))}",
+                (
+                    f"Maximum {_text(phase.get('maximum_iterations'))} itérations"
+                    if phase.get("maximum_iterations") is not None
+                    else ""
+                ),
+            )
+        )
+    for blocker in _mapping_list(preview.get("blockers")):
+        rows.append(
+            (
+                "Blocage",
+                _text(blocker.get("message")),
+                "",
+                "",
+                _text(blocker.get("next_action")),
+            )
+        )
+    for warning in _mapping_list(preview.get("warnings")):
+        rows.append(
+            (
+                "Avertissement",
+                _text(warning.get("message")),
+                "",
+                "",
+                _text(warning.get("next_action")),
+            )
+        )
+    return TableViewModel(
+        tab_label="Déroulement",
+        title="Aperçu compilé par l'agent local",
+        columns=("Nature", "Étape ou constat", "Type", "Niveau", "Action"),
+        rows=tuple(rows),
+    )
+
+
+def build_station_mapping_table(response: dict[str, Any]) -> TableViewModel:
+    """Present exact dated assignments already validated by the Local Agent."""
+
+    definition = _mapping(response.get("definition"))
+    rows = tuple(
+        (
+            _text(assignment.get("role_id")),
+            _text(assignment.get("requirement_id")),
+            _text(assignment.get("asset_id")),
+            _text(assignment.get("equipment_model_revision_id")),
+        )
+        for assignment in _mapping_list(definition.get("assignments"))
+    )
+    return TableViewModel(
+        tab_label="Affectations datées",
+        title="Affectations issues de la préparation du poste",
+        columns=("Fonction", "Exigence", "Exemplaire", "Révision modèle"),
+        rows=rows,
+    )
+
+
 def build_console_view_model(bootstrap: dict[str, Any]) -> ConsoleViewModel:
     """Convert bootstrap data into explicit Qt-facing table models."""
 
@@ -903,3 +1077,56 @@ def _positive_int(value: str) -> int:
     except ValueError:
         return 0
     return max(parsed, 0)
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _mapping_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _text(value: Any) -> str:
+    return "" if value is None else str(value)
+
+
+def _current_revision(aggregate: dict[str, Any]) -> dict[str, Any]:
+    for key in ("active_draft_revision", "current_approved_revision", "latest_revision"):
+        revision = aggregate.get(key)
+        if isinstance(revision, dict):
+            return revision
+    revisions = _mapping_list(aggregate.get("revisions"))
+    return revisions[0] if revisions else {}
+
+
+def _revision_label(revision: dict[str, Any]) -> str:
+    number = revision.get("revision_number")
+    return f"r{number}" if number is not None else ""
+
+
+def _schema_label(value: Any) -> str:
+    schema = _text(value)
+    if schema == "emc-locus.test-method-definition.v2":
+        return "Workflow 0.22.2"
+    if schema == "emc-locus.test-template-definition.v1":
+        return "Historique (lecture seule)"
+    return schema
+
+
+def _operator_token(value: Any) -> str:
+    return _text(value).replace("_", " ").capitalize()
+
+
+def _control_mode_label(value: Any) -> str:
+    return {
+        "open_loop": "Boucle ouverte",
+        "closed_loop": "Boucle fermée",
+        "monitor_only": "Surveillance seule",
+    }.get(_text(value), _operator_token(value))

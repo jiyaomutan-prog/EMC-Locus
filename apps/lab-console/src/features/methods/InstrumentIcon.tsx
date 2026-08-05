@@ -46,4 +46,3 @@ export function InstrumentIcon(props: { roleType: string; label: string; size?: 
     </svg>
   );
 }
-

@@ -231,6 +231,77 @@ class LocalAgentClient:
             f"/api/v1/test-templates/{quote(template_id)}/audit-events",
         )
 
+    def list_method_hierarchy(self) -> dict[str, Any]:
+        """Read the authoritative method-library hierarchy."""
+
+        return self.request_json("GET", "/api/v1/method-hierarchy")
+
+    def list_measurement_system_templates(self) -> dict[str, Any]:
+        """Read reusable logical measurement-system definitions."""
+
+        return self.request_json("GET", "/api/v1/measurement-system-templates")
+
+    def get_measurement_system_template(self, template_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/measurement-system-templates/{quote(template_id)}",
+        )
+
+    def list_regulation_profiles(self) -> dict[str, Any]:
+        """Read versioned laboratory regulation strategies."""
+
+        return self.request_json("GET", "/api/v1/regulation-profiles")
+
+    def get_regulation_profile(self, profile_id: str) -> dict[str, Any]:
+        return self.request_json(
+            "GET",
+            f"/api/v1/regulation-profiles/{quote(profile_id)}",
+        )
+
+    def get_execution_configuration(self, configuration_id: str) -> dict[str, Any]:
+        """Read one dated execution configuration and its readiness projection."""
+
+        return self.request_json(
+            "GET",
+            f"/api/v1/execution-configurations/{quote(configuration_id)}",
+        )
+
+    def preview_execution_plan(
+        self,
+        *,
+        method_template_id: str,
+        method_revision_id: str,
+        method_definition: dict[str, Any],
+        system_definition: dict[str, Any],
+        regulation_profiles: list[dict[str, Any]] | None = None,
+        execution_configuration: dict[str, Any] | None = None,
+        actor: str = "qt.operator",
+        reason: str = "preview execution plan in TEST CONSOLE",
+        operation_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Ask Rust to compile an explainable, non-executing plan."""
+
+        operation_id = operation_id or generate_operation_id(
+            "execution-plan-preview",
+            method_template_id,
+            method_revision_id,
+        )
+        payload: dict[str, Any] = {
+            "method_template_id": method_template_id,
+            "method_revision_id": method_revision_id,
+            "method_definition": method_definition,
+            "system_definition": system_definition,
+            "regulation_profiles": regulation_profiles or [],
+            "actor": actor,
+            "reason": reason,
+            "operation_id": operation_id,
+            "correlation_id": operation_id,
+            "device_id": "qt-console",
+        }
+        if execution_configuration is not None:
+            payload["execution_configuration"] = execution_configuration
+        return self.request_json("POST", "/api/v1/execution-plans/preview", payload)
+
     def list_equipment_models(
         self,
         *,
