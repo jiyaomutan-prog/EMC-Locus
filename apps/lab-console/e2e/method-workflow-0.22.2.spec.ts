@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
@@ -15,6 +15,12 @@ const context = {
   device_id: "playwright-0222",
   correlation_id: "corr-method-workflow-0222"
 };
+const fixtureSuffix = "0222";
+const preparationMethodId = `METHOD-DEMO-RF-PREP-${fixtureSuffix}`;
+const preparationSetupId = `SETUP-DEMO-RF-PREP-${fixtureSuffix}`;
+const preparationProjectCode = `CEM-DEMO-PREP-${fixtureSuffix}`;
+const preparationScheduleCode = `PLAN-DEMO-PREP-${fixtureSuffix}`;
+const preparationPowerMeterId = `PM-DEMO-RF-${fixtureSuffix}`;
 
 let methodRevision: Record<string, unknown>;
 let methodDefinition: Record<string, unknown>;
@@ -29,7 +35,13 @@ test.describe.serial("0.22.2 method workflow and control UX", () => {
   test("onboards an empty database without hiding prerequisites", async ({ page, request }) => {
     const methods = await request.get("/api/v1/test-templates");
     expect(methods.ok(), await methods.text()).toBeTruthy();
-    expect((await methods.json()).test_templates).toHaveLength(0);
+    const existingMethods = (await methods.json()).test_templates as unknown[];
+    if (existingMethods.length > 0) {
+      await page.route("**/api/v1/test-templates", (route) => route.fulfill({ status: 200, contentType: "application/json; charset=utf-8", body: JSON.stringify({ test_templates: [] }) }));
+      await page.route("**/api/v1/method-hierarchy", (route) => route.fulfill({ status: 200, contentType: "application/json; charset=utf-8", body: JSON.stringify({ nodes: [] }) }));
+      await page.route("**/api/v1/measurement-system-templates", (route) => route.fulfill({ status: 200, contentType: "application/json; charset=utf-8", body: JSON.stringify({ definitions: [] }) }));
+      await page.route("**/api/v1/regulation-profiles", (route) => route.fulfill({ status: 200, contentType: "application/json; charset=utf-8", body: JSON.stringify({ definitions: [] }) }));
+    }
 
     await openMethodWorkflow(page);
     await expect(page.getByText("Aucune méthode")).toBeVisible();
@@ -52,16 +64,16 @@ test.describe.serial("0.22.2 method workflow and control UX", () => {
     });
     expect(moved.operation).toBe("hierarchy_node_changed");
 
-    const before = await getOk(request, "/api/v1/test-templates/METHOD-DEMO-RF-PREP");
+    const before = await getOk(request, `/api/v1/test-templates/${preparationMethodId}`);
     const source = before.test_template.current_approved_revision;
     const successor = await postOk(
       request,
-      "/api/v1/test-templates/METHOD-DEMO-RF-PREP/revisions/successor-0.22.2",
+      `/api/v1/test-templates/${preparationMethodId}/revisions/successor-0.22.2`,
       { source_revision_id: source.revision_id, ...context, operation_id: "op-0222-legacy-successor" }
     );
     legacySuccessor = successor.revision;
     expect(legacySuccessor.definition_schema_version).toBe("emc-locus.test-method-definition.v2");
-    const history = await getOk(request, "/api/v1/test-templates/METHOD-DEMO-RF-PREP/revisions");
+    const history = await getOk(request, `/api/v1/test-templates/${preparationMethodId}/revisions`);
     expect(history.revisions.map((revision: { definition_schema_version: string }) => revision.definition_schema_version)).toEqual(
       expect.arrayContaining(["emc-locus.test-template-definition.v1", "emc-locus.test-method-definition.v2"])
     );
@@ -204,20 +216,20 @@ test.describe.serial("0.22.2 method workflow and control UX", () => {
     const datedSystem = (await createSystem(request, datedSystemDefinition, legacyMethod, [], "op-0222-system-dated")).revision;
     await transitionWorkflow(request, "measurement-system-templates", "SYS-DATED-0222", datedSystem, "validate", { method_definition: legacyMethod });
 
-    const schedule = await getOk(request, "/api/v1/projects/CEM-DEMO-PREP-001/schedule-items");
-    const item = schedule.schedule_items.find((candidate: { item_code: string }) => candidate.item_code === "PLAN-DEMO-PREP-001");
-    const setupResult = await getOk(request, "/api/v1/station-setups/SETUP-DEMO-RF-PREP");
+    const schedule = await getOk(request, `/api/v1/projects/${preparationProjectCode}/schedule-items`);
+    const item = schedule.schedule_items.find((candidate: { item_code: string }) => candidate.item_code === preparationScheduleCode);
+    const setupResult = await getOk(request, `/api/v1/station-setups/${preparationSetupId}`);
     const setupRevision = setupResult.station_setup.current_ready_revision;
     const exactRequirement = setupRevision.definition.material_requirements.find((requirement: { requirement_id: string }) => requirement.requirement_id === "power_meter");
     expect(exactRequirement.selection_policy).toBe("exact_asset");
-    expect(exactRequirement.exact_asset_id).toBe("PM-DEMO-RF-001");
+    expect(exactRequirement.exact_asset_id).toBe(preparationPowerMeterId);
 
-    const assessment = await postOk(request, "/api/v1/projects/CEM-DEMO-PREP-001/schedule-items/PLAN-DEMO-PREP-001/preparation/assessments", {
+    const assessment = await postOk(request, `/api/v1/projects/${preparationProjectCode}/schedule-items/${preparationScheduleCode}/preparation/assessments`, {
       expected_schedule_revision: item.revision,
       expected_current_revision_id: null,
-      method_template_id: "METHOD-DEMO-RF-PREP",
+      method_template_id: preparationMethodId,
       method_revision_id: legacySuccessor.revision_id,
-      station_setup_id: "SETUP-DEMO-RF-PREP",
+      station_setup_id: preparationSetupId,
       station_setup_revision_id: setupRevision.revision_id,
       assignments: [{ slot_id: "measurement_receiver", binding_id: "power_meter" }],
       station_material_assignments: setupRevision.definition.material_assignments.map((assignment: { requirement_id: string; asset_id: string; selected_ports?: unknown[] }) => ({
@@ -234,13 +246,13 @@ test.describe.serial("0.22.2 method workflow and control UX", () => {
     const preparedAssignment = preparationRevision.definition.station_material_assignments.find((assignment: { requirement_id: string }) => assignment.requirement_id === "power_meter");
     const physical = station.assets.find((asset: { asset_id: string }) => asset.asset_id === preparedAssignment.asset_id);
 
-    const derived = await postOk(request, "/api/v1/projects/CEM-DEMO-PREP-001/schedule-items/PLAN-DEMO-PREP-001/execution-configuration", {
+    const derived = await postOk(request, `/api/v1/projects/${preparationProjectCode}/schedule-items/${preparationScheduleCode}/execution-configuration`, {
       planned_preparation_revision_id: preparationRevision.revision_id,
       expected_current_revision_id: null,
       definition: {
         definition_schema_version: "emc-locus.execution-configuration.v1",
         configuration_id: "EXEC-CEM-0222",
-        method_revision: revisionReference("METHOD-DEMO-RF-PREP", legacySuccessor),
+        method_revision: revisionReference(preparationMethodId, legacySuccessor),
         measurement_system_template_revision: revisionReference("SYS-DATED-0222", datedSystem),
         parameter_profile_id: "default",
         parameter_values: { frequency_hz: 1_000_000 },
@@ -249,7 +261,7 @@ test.describe.serial("0.22.2 method workflow and control UX", () => {
         planned_use_on: "2026-07-16",
         eut_context: "Convertisseur Horizon HCU-4",
         station_setup_revision: {
-          identity_id: "SETUP-DEMO-RF-PREP",
+          identity_id: preparationSetupId,
           revision_id: setupRevision.revision_id,
           definition_checksum: setupRevision.definition_checksum
         },
@@ -377,7 +389,9 @@ async function capture(page: Page, filename: string, width: number, height: numb
 function seedPreparationDemo() {
   const agentUrl = process.env.LAB_CONSOLE_E2E_BASE_URL ?? "http://127.0.0.1:8765";
   for (const script of ["seed-equipment-demo.ps1", "seed-planned-test-preparation-demo.ps1"]) {
-    execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(repoRoot, "scripts", script), "-AgentUrl", agentUrl], { cwd: repoRoot, encoding: "utf8", stdio: "pipe" });
+    const args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(repoRoot, "scripts", script), "-AgentUrl", agentUrl];
+    if (script === "seed-planned-test-preparation-demo.ps1") args.push("-FixtureSuffix", fixtureSuffix);
+    execFileSync("powershell.exe", args, { cwd: repoRoot, encoding: "utf8", stdio: "pipe" });
   }
 }
 
@@ -515,15 +529,16 @@ function conductedEmissionSystem() {
 }
 
 async function restartAgent(request: APIRequestContext) {
-  const currentPid = Number(process.env.LAB_CONSOLE_E2E_AGENT_PID);
   const executable = process.env.LAB_CONSOLE_E2E_AGENT_EXECUTABLE;
   const storageRelative = process.env.LAB_CONSOLE_E2E_STORAGE_RELATIVE;
   const bind = process.env.LAB_CONSOLE_E2E_AGENT_BIND;
   const pidFile = process.env.LAB_CONSOLE_E2E_RESTARTED_AGENT_PID_FILE;
-  if (!currentPid || !executable || !storageRelative || !bind || !pidFile) throw new Error("Missing isolated restart metadata");
-  process.kill(currentPid);
+  if (!executable || !storageRelative || !bind || !pidFile) throw new Error("Missing isolated restart metadata");
+  const currentPid = readTrackedAgentPid(pidFile) || Number(process.env.LAB_CONSOLE_E2E_AGENT_PID);
+  if (!currentPid) throw new Error("Missing isolated agent process identifier");
+  stopTrackedAgent(currentPid);
   await new Promise((resolve) => setTimeout(resolve, 350));
-  const restarted = spawn(executable, ["serve", "--storage-root", storageRelative, "--migrations-root", "storage/sqlite", "--bind", bind, "--lab-console-dist", "apps/lab-console/dist"], { cwd: repoRoot, windowsHide: true, stdio: "ignore" });
+  const restarted = spawn(executable, ["serve", "--storage-root", storageRelative, "--migrations-root", "storage/sqlite", "--bind", bind, "--lab-console-dist", "apps/lab-console/dist"], { cwd: repoRoot, detached: true, windowsHide: true, stdio: "ignore" });
   if (!restarted.pid) throw new Error("Restarted Local Agent has no PID");
   writeFileSync(pidFile, String(restarted.pid), "utf8");
   restarted.unref();
@@ -532,4 +547,20 @@ async function restartAgent(request: APIRequestContext) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error("Restarted Local Agent did not become ready");
+}
+
+function readTrackedAgentPid(pidFile: string) {
+  try {
+    return Number(readFileSync(pidFile, "utf8").trim());
+  } catch {
+    return 0;
+  }
+}
+
+function stopTrackedAgent(pid: number) {
+  try {
+    process.kill(pid);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
 }

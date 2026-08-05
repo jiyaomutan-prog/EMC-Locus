@@ -631,8 +631,8 @@ test.describe.serial("0.22.0 equipment fleet", () => {
   test("reviews the operator workflow without rewriting 0.22.0 evidence", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/lab/");
-    await expect(page.getByText("LAB CONSOLE 0.22.1", { exact: true })).toBeVisible();
-    await expect(page.locator(".connectionStatus")).toContainText("Agent local0.22.1");
+    await expect(page.getByText("LAB CONSOLE 0.22.2", { exact: true })).toBeVisible();
+    await expect(page.locator(".connectionStatus")).toContainText("Agent local0.22.2");
     await page.getByRole("button", { name: "Catalogue des modèles" }).click();
     await showDemoModels(page);
     await expect(page.getByText("Ressources techniques", { exact: true })).toBeVisible();
@@ -968,16 +968,18 @@ metrology.close()
 }
 
 async function restartAgent(request: APIRequestContext) {
-  const currentPid = Number(process.env.LAB_CONSOLE_E2E_AGENT_PID);
   const executable = process.env.LAB_CONSOLE_E2E_AGENT_EXECUTABLE;
   const storageRelative = process.env.LAB_CONSOLE_E2E_STORAGE_RELATIVE;
   const bind = process.env.LAB_CONSOLE_E2E_AGENT_BIND;
   const pidFile = process.env.LAB_CONSOLE_E2E_RESTARTED_AGENT_PID_FILE;
-  if (!currentPid || !executable || !storageRelative || !bind || !pidFile) {
+  if (!executable || !storageRelative || !bind || !pidFile) {
     throw new Error("The isolated E2E runner did not expose restart metadata");
   }
+  const trackedPid = readTrackedAgentPid(pidFile);
+  const currentPid = trackedPid || Number(process.env.LAB_CONSOLE_E2E_AGENT_PID);
+  if (!currentPid) throw new Error("The isolated E2E runner did not expose an agent process identifier");
 
-  process.kill(currentPid);
+  stopTrackedAgent(currentPid);
   await new Promise((resolve) => setTimeout(resolve, 350));
   const restarted = spawn(executable, [
     "serve",
@@ -987,6 +989,7 @@ async function restartAgent(request: APIRequestContext) {
     "--lab-console-dist", "apps/lab-console/dist"
   ], {
     cwd: repoRoot,
+    detached: true,
     windowsHide: true,
     stdio: "ignore"
   });
@@ -1004,6 +1007,22 @@ async function restartAgent(request: APIRequestContext) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error("The restarted Local Agent did not become ready");
+}
+
+function readTrackedAgentPid(pidFile: string) {
+  try {
+    return Number(readFileSync(pidFile, "utf8").trim());
+  } catch {
+    return 0;
+  }
+}
+
+function stopTrackedAgent(pid: number) {
+  try {
+    process.kill(pid);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
 }
 
 function historicalScreenshotHashes() {

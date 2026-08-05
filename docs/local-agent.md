@@ -588,3 +588,31 @@ agent, waits for `/api/v1/health` and `/lab/`, then opens the browser unless
 `-NoBrowser` is passed. `scripts/seed-lab-demo.ps1` creates demonstration
 templates through the public API only. `scripts/start-full-demo.ps1` opens LAB
 CONSOLE and starts TEST CONSOLE Qt against the same `data\local-agent` storage.
+
+## Release 0.22.2 Method Workflow
+
+The Local Agent is authoritative for method v2 validation, editable hierarchy,
+measurement-system and regulation-profile revision services, sub-range preview,
+execution-plan compilation and dated execution-configuration derivation.
+
+New route groups are:
+
+```text
+/api/v1/method-hierarchy
+/api/v1/measurement-system-templates
+/api/v1/regulation-profiles
+/api/v1/sub-ranges/preview
+/api/v1/execution-plans/preview
+/api/v1/projects/{project}/schedule-items/{item}/execution-configuration
+/api/v1/execution-configurations/{configuration_id}
+```
+
+Workflow mutations run in immediate SQLite transactions, use operation
+idempotency and checksum/revision compare-and-swap, and commit audit plus outbox
+with the domain write. Preview routes are read-only and return explainable
+blockers, warnings and unsupported runtime operations.
+
+Python, Qt and LAB CONSOLE call these routes. They may format labels and tables
+but do not duplicate graph, expression, unit, compatibility or assignment
+logic. The agent still does not control instruments or execute the compiled
+plan.

@@ -1,8 +1,27 @@
 param(
-    [string]$AgentUrl = "http://127.0.0.1:8765"
+    [string]$AgentUrl = "http://127.0.0.1:8765",
+    [ValidatePattern("^[A-Za-z0-9-]*$")]
+    [string]$FixtureSuffix = ""
 )
 
 $ErrorActionPreference = "Stop"
+$IdentitySuffix = if ($FixtureSuffix) { "-$FixtureSuffix" } else { "" }
+$MethodId = "METHOD-DEMO-RF-PREP$IdentitySuffix"
+$SetupId = "SETUP-DEMO-RF-PREP$IdentitySuffix"
+$ProjectCode = if ($FixtureSuffix) { "CEM-DEMO-PREP-$FixtureSuffix" } else { "CEM-DEMO-PREP-001" }
+$ScheduleItemCode = if ($FixtureSuffix) { "PLAN-DEMO-PREP-$FixtureSuffix" } else { "PLAN-DEMO-PREP-001" }
+$GeneratorAssetId = if ($FixtureSuffix) { "GEN-DEMO-RF-$FixtureSuffix" } else { "GEN-DEMO-RF-001" }
+$PowerMeterAssetId = if ($FixtureSuffix) { "PM-DEMO-RF-$FixtureSuffix" } else { "PM-DEMO-RF-001" }
+$LocationLabel = if ($FixtureSuffix) { "Poste CEM 1 - $FixtureSuffix" } else { "Poste CEM 1" }
+$AssignedOperator = if ($FixtureSuffix) { "Alice Martin - $FixtureSuffix" } else { "Alice Martin" }
+
+function Get-OperationId {
+    param([string]$BaseId)
+    if ($FixtureSuffix) {
+        return "$BaseId-$FixtureSuffix"
+    }
+    return $BaseId
+}
 
 function Invoke-EmcApi {
     param(
@@ -59,12 +78,12 @@ function Ensure-LaboratoryLocation {
         description = "Lieu de demonstration pour la preparation des essais"
         actor = "demo.laboratory.manager"
         reason = "Creer le lieu stable de la demonstration"
-        operation_id = "seed-planned-preparation-location-create"
+        operation_id = Get-OperationId "seed-planned-preparation-location-create"
     })).location
 }
 
 function Ensure-ApprovedMethod {
-    $templateId = "METHOD-DEMO-RF-PREP"
+    $templateId = $script:MethodId
     $templates = (Invoke-EmcApi -Method GET -Path "/api/v1/test-templates").test_templates
     $template = $templates | Where-Object { $_.identity.template_id -eq $templateId } | Select-Object -First 1
     if ($template -and $template.current_approved_revision) {
@@ -136,18 +155,18 @@ function Ensure-ApprovedMethod {
         definition = $definition
         actor = "demo.method.author"
         reason = "Creer la methode de demonstration de preparation"
-        operation_id = "seed-planned-preparation-method-create"
+        operation_id = Get-OperationId "seed-planned-preparation-method-create"
     })
     $revisionId = $created.revision.revision_id
     Invoke-EmcApi -Method POST -Path "/api/v1/test-templates/$templateId/revisions/$revisionId/transitions/submit-for-review" -Body ([ordered]@{
         actor = "demo.method.reviewer"
         reason = "Verifier la methode de demonstration"
-        operation_id = "seed-planned-preparation-method-submit"
+        operation_id = Get-OperationId "seed-planned-preparation-method-submit"
     }) | Out-Null
     Invoke-EmcApi -Method POST -Path "/api/v1/test-templates/$templateId/revisions/$revisionId/transitions/approve" -Body ([ordered]@{
         actor = "demo.method.approver"
         reason = "Approuver la methode de demonstration"
-        operation_id = "seed-planned-preparation-method-approve"
+        operation_id = Get-OperationId "seed-planned-preparation-method-approve"
     }) | Out-Null
     return (Invoke-EmcApi -Method GET -Path "/api/v1/test-templates/$templateId").test_template
 }
@@ -184,7 +203,7 @@ function Ensure-Instrument {
             metrology_notes = "Jeu de demonstration du controle de preparation planifiee."
             actor = "demo.metrology"
             reason = "Enregistrer le materiel de demonstration"
-            operation_id = "seed-planned-preparation-register-$AssetId"
+            operation_id = Get-OperationId "seed-planned-preparation-register-$AssetId"
         }) | Out-Null
     }
 
@@ -195,7 +214,7 @@ function Ensure-Instrument {
             destination_location_id = $Location.location_id
             actor = "demo.metrology"
             reason = "Affecter le materiel de demonstration au poste CEM"
-            operation_id = "seed-planned-preparation-move-$AssetId"
+            operation_id = Get-OperationId "seed-planned-preparation-move-$AssetId"
         })
         $asset = $moved.asset
     }
@@ -270,7 +289,7 @@ function Ensure-ReadyStation {
         [object]$Location
     )
 
-    $setupId = "SETUP-DEMO-RF-PREP"
+    $setupId = $script:SetupId
     $setups = (Invoke-EmcApi -Method GET -Path "/api/v1/station-setups").station_setups
     $setup = $setups | Where-Object { $_.identity.setup_id -eq $setupId } | Select-Object -First 1
     if (-not $setup) {
@@ -283,7 +302,7 @@ function Ensure-ReadyStation {
             execution_mode = "investigation"
             actor = "demo.technician"
             reason = "Creer le montage de demonstration"
-            operation_id = "seed-planned-preparation-station-create"
+            operation_id = Get-OperationId "seed-planned-preparation-station-create"
         })
         $setup = $created.station_setup
     }
@@ -329,7 +348,7 @@ function Ensure-ReadyStation {
         definition = $definition
         actor = "demo.technician"
         reason = "Affecter les materiels et raccorder la chaine RF"
-        operation_id = "seed-planned-preparation-station-save"
+        operation_id = Get-OperationId "seed-planned-preparation-station-save"
     })
     $savedDraft = $saved.station_setup.active_draft_revision
     $readiness = Invoke-EmcApi -Method GET -Path "/api/v1/station-setups/$setupId/revisions/$($savedDraft.revision_id)/readiness"
@@ -340,21 +359,21 @@ function Ensure-ReadyStation {
         expected_definition_checksum = $savedDraft.definition_checksum
         actor = "demo.technician"
         reason = "Valider la definition logique de demonstration"
-        operation_id = "seed-planned-preparation-station-qualified"
+        operation_id = Get-OperationId "seed-planned-preparation-station-qualified"
     }) | Out-Null
     Invoke-EmcApi -Method POST -Path "/api/v1/station-setups/$setupId/revisions/$($savedDraft.revision_id)/transitions/ready" -Body ([ordered]@{
         expected_definition_checksum = $savedDraft.definition_checksum
         actor = "demo.technician"
         reason = "Valider la chaine physique de demonstration"
-        operation_id = "seed-planned-preparation-station-ready"
+        operation_id = Get-OperationId "seed-planned-preparation-station-ready"
     }) | Out-Null
     return (Invoke-EmcApi -Method GET -Path "/api/v1/station-setups/$setupId").station_setup
 }
 
 function Ensure-ProjectAndSchedule {
     param([object]$Location)
-    $projectCode = "CEM-DEMO-PREP-001"
-    $itemCode = "PLAN-DEMO-PREP-001"
+    $projectCode = $script:ProjectCode
+    $itemCode = $script:ScheduleItemCode
     $projects = (Invoke-EmcApi -Method GET -Path "/api/v1/projects").projects
     $project = $projects | Where-Object { $_.code -eq $projectCode } | Select-Object -First 1
     if (-not $project) {
@@ -364,7 +383,7 @@ function Ensure-ProjectAndSchedule {
             execution_mode = "investigation"
             actor = "demo.project.lead"
             reason = "Creer le dossier de demonstration de preparation"
-            operation_id = "seed-planned-preparation-project-create"
+            operation_id = Get-OperationId "seed-planned-preparation-project-create"
         })
         $project = $created.project
     }
@@ -375,14 +394,14 @@ function Ensure-ProjectAndSchedule {
                 Invoke-EmcApi -Method POST -Path "/api/v1/projects/$projectCode/contract-review/items/$item/complete" -Body ([ordered]@{
                     actor = "demo.project.lead"
                     comment = "Point verifie pour la demonstration"
-                    operation_id = "seed-planned-preparation-review-$item"
+                    operation_id = Get-OperationId "seed-planned-preparation-review-$item"
                 }) | Out-Null
             }
         }
         Invoke-EmcApi -Method POST -Path "/api/v1/projects/$projectCode/transitions/to-test-planning" -Body ([ordered]@{
             actor = "demo.project.lead"
             reason = "Revue terminee pour planifier la demonstration"
-            operation_id = "seed-planned-preparation-project-plan"
+            operation_id = Get-OperationId "seed-planned-preparation-project-plan"
         }) | Out-Null
     }
 
@@ -394,14 +413,14 @@ function Ensure-ProjectAndSchedule {
             title = "Verification RF du convertisseur Horizon"
             planned_start_at = "2026-07-16T09:00"
             planned_end_at = "2026-07-16T12:00"
-            assigned_operator = "Alice Martin"
+            assigned_operator = $script:AssignedOperator
             laboratory_location_id = $Location.location_id
             laboratory_location_label = $Location.label
             equipment_under_test = "Convertisseur Horizon HCU-4"
             notes = "Preparation metrologique requise avant demarrage."
             actor = "demo.project.lead"
             reason = "Planifier la verification RF de demonstration"
-            operation_id = "seed-planned-preparation-schedule-create"
+            operation_id = Get-OperationId "seed-planned-preparation-schedule-create"
         })
         $item = $created.schedule_item
     }
@@ -410,7 +429,7 @@ function Ensure-ProjectAndSchedule {
             expected_revision = $item.revision
             actor = "demo.project.lead"
             reason = "Confirmer l'operateur et le poste CEM"
-            operation_id = "seed-planned-preparation-schedule-confirm"
+            operation_id = Get-OperationId "seed-planned-preparation-schedule-confirm"
         }) | Out-Null
     }
 }
@@ -419,18 +438,18 @@ Invoke-EmcApi -Method GET -Path "/api/v1/health" | Out-Null
 $method = Ensure-ApprovedMethod
 $generatorModel = Get-ApprovedEquipmentModel -ModelId "EQM-PRESET-RF-GENERATOR"
 $powerMeterModel = Get-ApprovedEquipmentModel -ModelId "EQM-DEMO-NRP6AN-FWD"
-$location = Ensure-LaboratoryLocation -Label "Poste CEM 1"
-$generator = Ensure-Instrument -AssetId "GEN-DEMO-RF-001" -Family "Generateur RF" -CategoryCode "rf_signal_generator" -SerialNumber "GEN-RF-2026-001" -Model $generatorModel -Location $location
-$powerMeter = Ensure-Instrument -AssetId "PM-DEMO-RF-001" -Family "Wattmetre RF" -CategoryCode "rf_power_meter" -SerialNumber "PM-RF-2026-001" -Model $powerMeterModel -Location $location
+$location = Ensure-LaboratoryLocation -Label $LocationLabel
+$generator = Ensure-Instrument -AssetId $GeneratorAssetId -Family "Generateur RF" -CategoryCode "rf_signal_generator" -SerialNumber "GEN-RF-2026$IdentitySuffix" -Model $generatorModel -Location $location
+$powerMeter = Ensure-Instrument -AssetId $PowerMeterAssetId -Family "Wattmetre RF" -CategoryCode "rf_power_meter" -SerialNumber "PM-RF-2026$IdentitySuffix" -Model $powerMeterModel -Location $location
 $station = Ensure-ReadyStation -Generator $generator -PowerMeter $powerMeter -GeneratorModel $generatorModel -PowerMeterModel $powerMeterModel -Location $location
 Ensure-ProjectAndSchedule -Location $location
-$schedule = (Invoke-EmcApi -Method GET -Path "/api/v1/projects/CEM-DEMO-PREP-001/schedule-items").schedule_items |
-    Where-Object { $_.item_code -eq "PLAN-DEMO-PREP-001" } |
+$schedule = (Invoke-EmcApi -Method GET -Path "/api/v1/projects/$ProjectCode/schedule-items").schedule_items |
+    Where-Object { $_.item_code -eq $ScheduleItemCode } |
     Select-Object -First 1
-$preparation = (Invoke-EmcApi -Method GET -Path "/api/v1/projects/CEM-DEMO-PREP-001/schedule-items/PLAN-DEMO-PREP-001/preparation").preparation
+$preparation = (Invoke-EmcApi -Method GET -Path "/api/v1/projects/$ProjectCode/schedule-items/$ScheduleItemCode/preparation").preparation
 
 Write-Host "Planned test preparation demo is ready via API at $AgentUrl"
 Write-Host "  Method: $($method.identity.title)"
 Write-Host "  Station: $($station.identity.label)"
-Write-Host "  Project: CEM-DEMO-PREP-001"
-Write-Host "  Slot: PLAN-DEMO-PREP-001 ($($schedule.status), preparation $($preparation.current_state))"
+Write-Host "  Project: $ProjectCode"
+Write-Host "  Slot: $ScheduleItemCode ($($schedule.status), preparation $($preparation.current_state))"

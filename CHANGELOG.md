@@ -8,6 +8,41 @@ change should remain traceable through Git history, session logs, and this file.
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-08-05
+
+### Added
+
+- Added test-method definition v2 with typed variables, deterministic
+  expressions, functional roles, bounded procedure, sub-ranges, modulation,
+  classified limits and typed post-processing contracts.
+- Added revisioned measurement-system templates and regulation profiles with
+  accessible signal, command, monitoring and feedback topology.
+- Added an explainable execution-plan preview and immutable dated execution
+  configurations derived from planned-test preparation.
+- Added an editable method hierarchy, guarded UX screenshots and a dedicated
+  eight-scenario real-agent acceptance suite.
+
+### Changed
+
+- Replaced the schema-tab method authoring model with a guided operator flow in
+  LAB CONSOLE and added read projections in Python/Qt.
+- Consolidated receiver and spectrum-analyzer operator categories through
+  aliases without rewriting immutable historical model revisions.
+- Kept physical assignment, reservations and metrology readiness in the
+  existing station/preparation engine.
+
+### Fixed
+
+- Made closed-loop feedback paths, finite loops, exact revision pins and
+  unsupported runtime operations explicit and machine validated.
+- Isolated hierarchy and other secondary-source failures from readable primary
+  method content.
+
+### Migrations
+
+- Added test-definitions migration 0006, projects migration 0009 and equipment
+  migration 0010.
+
 ## [0.22.1] - 2026-07-31
 
 ### Added

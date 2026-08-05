@@ -86,7 +86,8 @@ try {
     $env:LAB_CONSOLE_E2E_AGENT_BIND = "127.0.0.1:$Port"
     $env:LAB_CONSOLE_E2E_RESTARTED_AGENT_PID_FILE = $RestartedAgentPidFile
     $env:LAB_CONSOLE_E2E_ALLOW_AGENT_RESTART = if (
-        ($PlaywrightArguments -join " ") -match "equipment-fleet-0\.22\.spec\.ts|station-material-calibration-0\.22\.1\.spec\.ts|method-workflow-0\.22\.2\.spec\.ts"
+        ($PlaywrightArguments.Count -eq 1 -and $PlaywrightArguments[0] -eq "test") -or
+        (($PlaywrightArguments -join " ") -match "equipment-fleet-0\.22\.spec\.ts|station-material-calibration-0\.22\.1\.spec\.ts|method-workflow-0\.22\.2\.spec\.ts")
     ) { "1" } else { "0" }
     Push-Location $LabRoot
     try {
