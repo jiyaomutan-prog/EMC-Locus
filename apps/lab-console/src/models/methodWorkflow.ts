@@ -189,7 +189,7 @@ export interface ProcedureNode {
   timeout_seconds?: number;
   failure_policy: string;
   maximum_iterations?: number;
-  children: ProcedureNode[];
+  children?: ProcedureNode[];
   audit_notes: string;
 }
 

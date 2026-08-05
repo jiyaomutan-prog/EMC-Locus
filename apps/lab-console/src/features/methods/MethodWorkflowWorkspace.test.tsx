@@ -145,7 +145,7 @@ function methodDefinition(): TestMethodDefinitionV2 {
       calibration_policy: "required",
       substitution_policy: "same_capabilities",
       assignment_stage: "planned_test_preparation",
-      logical_ports: [{ port_id: "rf", label: "Entrée RF", directionality: "input", signal_domain: "analog_rf" }],
+      logical_ports: [{ port_id: "rf", label: "Entrée RF", directionality: "input", signal_domain: "rf" }],
       consumes_variables: [],
       produces_variables: ["level"]
     }],
@@ -204,8 +204,8 @@ function systemAggregate(): WorkflowAggregate<MeasurementSystemDefinition> {
     label: "Chaîne conduite",
     classification: "immunity",
     nodes: [
-      { node_id: "gen", label: "Générateur", role_type: "generator", ports: [{ port_id: "out", label: "Sortie RF", directionality: "output", signal_domain: "analog_rf" }], notes: "" },
-      { node_id: "amp", label: "Amplificateur", role_type: "amplifier", ports: [{ port_id: "in", label: "Entrée RF", directionality: "input", signal_domain: "analog_rf" }], notes: "" }
+      { node_id: "gen", label: "Générateur", role_type: "generator", ports: [{ port_id: "out", label: "Sortie RF", directionality: "output", signal_domain: "rf" }], notes: "" },
+      { node_id: "amp", label: "Amplificateur", role_type: "amplifier", ports: [{ port_id: "in", label: "Entrée RF", directionality: "input", signal_domain: "rf" }], notes: "" }
     ],
     edges: [{ edge_id: "rf-path", label: "Liaison RF", edge_kind: "physical_signal", from: { node_id: "gen", port_id: "out" }, to: { node_id: "amp", port_id: "in" } }],
     correction_points: [],

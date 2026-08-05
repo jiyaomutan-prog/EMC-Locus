@@ -480,7 +480,7 @@ export const methodWorkflowApi = {
     validation: { method_definition?: TestMethodDefinitionV2; regulation_profiles?: RegulationProfileDefinition[] },
     context: OperationContext
   ) =>
-    put<{ revision: WorkflowRevision<T> }>(
+    put<{ operation: string; replayed: boolean; revision_id: string; definition_checksum: string }>(
       `/api/v1/${collection}/${encodeURIComponent(entityId)}/revisions/${encodeURIComponent(revisionId)}/definition`,
       {
         expected_definition_checksum: expectedChecksum,
@@ -489,7 +489,7 @@ export const methodWorkflowApi = {
         ...workflowContext("workflow-save", `${collection}-${entityId}-${revisionId}`, context)
       }
     ),
-  transitionWorkflow: <T extends WorkflowDefinition>(
+  transitionWorkflow: (
     collection: "measurement-system-templates" | "regulation-profiles",
     entityId: string,
     revisionId: string,
@@ -497,7 +497,7 @@ export const methodWorkflowApi = {
     validation: { method_definition?: TestMethodDefinitionV2; regulation_profiles?: RegulationProfileDefinition[] },
     context: OperationContext
   ) =>
-    post<{ revision: WorkflowRevision<T> }>(
+    post<{ operation: string; replayed: boolean; revision_id: string; status: string; definition_checksum: string }>(
       `/api/v1/${collection}/${encodeURIComponent(entityId)}/revisions/${encodeURIComponent(revisionId)}/transitions/${transition}`,
       {
         ...validation,
