@@ -7,6 +7,13 @@ pub const EQUIPMENT_MODEL_DEFINITION_SCHEMA_VERSION: &str =
     "emc-locus.equipment-model-definition.v2";
 pub const DRIVER_PROFILE_DEFINITION_SCHEMA_VERSION: &str = "emc-locus.driver-profile-definition.v1";
 
+pub fn canonical_equipment_category_code(category_code: &str) -> &str {
+    match category_code.trim() {
+        "emc_receiver" | "spectrum_analyzer" => "frequency_selective_measurement_instruments",
+        canonical => canonical,
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EquipmentRevisionStatus {
@@ -3584,6 +3591,22 @@ fn truthy(value: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn receiver_and_analyzer_categories_share_one_canonical_operator_category() {
+        assert_eq!(
+            canonical_equipment_category_code("emc_receiver"),
+            "frequency_selective_measurement_instruments"
+        );
+        assert_eq!(
+            canonical_equipment_category_code("spectrum_analyzer"),
+            "frequency_selective_measurement_instruments"
+        );
+        assert_eq!(
+            canonical_equipment_category_code("oscilloscope"),
+            "oscilloscope"
+        );
+    }
 
     #[test]
     fn validates_quantity_unit_compatibility() {

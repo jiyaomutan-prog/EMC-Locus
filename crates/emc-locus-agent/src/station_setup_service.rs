@@ -40,17 +40,18 @@ use crate::station_setup_repository::{
 };
 use crate::{render_json, AgentError};
 use emc_locus_core::{
-    evaluate_station_material_requirement, station_setup_qualification_issues,
-    AssetCharacterizationDefinition, AuditActor, AuditReason, DriverProfileDefinition,
-    EquipmentModelDefinition, MetrologyAssessmentStatus, MetrologyDate, PortDirectionality,
-    SignalDomain, SignalPortDefinition, StableId, StationCalibrationRequirement,
-    StationCompatibilityReason, StationCompatibilityState, StationLogicalConnectionDefinition,
-    StationLogicalPortEndpoint, StationLogicalPortRequirementDefinition,
-    StationMaterialAssignmentDefinition, StationMaterialAssignmentStage,
-    StationMaterialRequirementDefinition, StationMaterialSelectionPolicy,
-    StationMaterialSubstitutionPolicy, StationMeasurementSetupDefinition,
-    StationPhysicalPortMappingDefinition, StationReadinessDimension, StationReadinessIssue,
-    StationReadinessSeverity, StationSetupReadiness, STATION_SETUP_DEFINITION_SCHEMA_VERSION,
+    canonical_equipment_category_code, evaluate_station_material_requirement,
+    station_setup_qualification_issues, AssetCharacterizationDefinition, AuditActor, AuditReason,
+    DriverProfileDefinition, EquipmentModelDefinition, MetrologyAssessmentStatus, MetrologyDate,
+    PortDirectionality, SignalDomain, SignalPortDefinition, StableId,
+    StationCalibrationRequirement, StationCompatibilityReason, StationCompatibilityState,
+    StationLogicalConnectionDefinition, StationLogicalPortEndpoint,
+    StationLogicalPortRequirementDefinition, StationMaterialAssignmentDefinition,
+    StationMaterialAssignmentStage, StationMaterialRequirementDefinition,
+    StationMaterialSelectionPolicy, StationMaterialSubstitutionPolicy,
+    StationMeasurementSetupDefinition, StationPhysicalPortMappingDefinition,
+    StationReadinessDimension, StationReadinessIssue, StationReadinessSeverity,
+    StationSetupReadiness, STATION_SETUP_DEFINITION_SCHEMA_VERSION,
     STATION_SETUP_V2_DEFINITION_SCHEMA_VERSION,
 };
 use rusqlite::{OptionalExtension, TransactionBehavior};
@@ -438,7 +439,7 @@ fn category_lineage_ids(
     categories: &[crate::equipment_repository::StoredEquipmentCategory],
     leaf_category_id: &str,
 ) -> Vec<String> {
-    let mut lineage = Vec::new();
+    let mut lineage = vec![canonical_equipment_category_code(leaf_category_id).to_owned()];
     let mut current = Some(leaf_category_id);
     while let Some(category_id) = current {
         lineage.push(category_id.to_owned());

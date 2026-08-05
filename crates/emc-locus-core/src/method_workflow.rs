@@ -1,5 +1,7 @@
 use crate::test_definitions::{
-    TestTemplateDefinition, VariableDefaultValue, VariableLockPolicy, VariableValueType,
+    CalibrationRequirement, ExecutionStepKind, InstrumentSubstitutionPolicy,
+    PostProcessingOperationType, TestTemplateDefinition, VariableDefaultValue, VariableLockPolicy,
+    VariableValueType,
 };
 use crate::{PortDirectionality, SignalDomain};
 use serde::{Deserialize, Serialize};
@@ -768,6 +770,222 @@ impl VersionedMethodDefinition {
     }
 }
 
+pub fn derive_method_v2_successor(
+    source: &TestTemplateDefinition,
+) -> Result<TestMethodDefinitionV2, MethodWorkflowValidationIssue> {
+    source
+        .canonicalize()
+        .map_err(|error| MethodWorkflowValidationIssue::new(error.code, "$", error.message))?;
+
+    let mut migration_evidence = vec![
+        "Converted explicitly from a test-template v1 revision; topology remains to be reviewed."
+            .to_owned(),
+    ];
+    if !source.limits.is_empty() {
+        migration_evidence.push(format!(
+            "{} legacy limit definition(s) retained in the immutable source revision and require classified v2 rules.",
+            source.limits.len()
+        ));
+    }
+    if !source.post_processing.is_empty() {
+        let kinds = source
+            .post_processing
+            .iter()
+            .map(|operation| legacy_post_processing_kind(&operation.operation_type))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join(", ");
+        migration_evidence.push(format!(
+            "Legacy post-processing contracts ({kinds}) require explicit signal ownership review."
+        ));
+    }
+    if source.sequence.iter().any(|step| !step.branches.is_empty()) {
+        migration_evidence.push(
+            "Legacy branch conditions remain in the immutable source revision and require deterministic expression review."
+                .to_owned(),
+        );
+    }
+
+    let variables = source
+        .variables
+        .iter()
+        .map(|variable| {
+            let (dimension, unit) = migrated_dimension(
+                variable.constraints.dimensionless,
+                variable.constraints.unit.as_deref(),
+            );
+            MethodVariableDefinition {
+                variable_id: variable.variable_id.clone(),
+                label: variable.label.clone(),
+                description: variable
+                    .description
+                    .clone()
+                    .unwrap_or_else(|| "Parametre migre depuis la definition v1.".to_owned()),
+                semantic: MethodVariableSemantic::MethodParameter,
+                value_type: variable.value_type.clone(),
+                dimension,
+                unit,
+                default_value: variable.default_value.clone(),
+                minimum: variable.constraints.minimum,
+                maximum: variable.constraints.maximum,
+                enum_values: variable.constraints.enum_values.clone(),
+                required: variable.constraints.required,
+                source: "legacy_method_v1".to_owned(),
+                availability_phase: AvailabilityPhase::Definition,
+                expression: None,
+                consumers: Vec::new(),
+            }
+        })
+        .collect();
+    let functional_roles = source
+        .instrumentation_chain
+        .iter()
+        .map(|slot| MethodFunctionalRole {
+            role_id: slot.slot_id.clone(),
+            label: slot.label.clone(),
+            purpose: format!(
+                "Besoin fonctionnel migre depuis l'emplacement {} de la definition v1.",
+                slot.slot_id
+            ),
+            required: slot.required,
+            functional_category: slot
+                .required_category
+                .clone()
+                .unwrap_or_else(|| "review_required".to_owned()),
+            capabilities: vec![MethodCapabilityRequirement {
+                capability_kind: slot
+                    .required_capability
+                    .clone()
+                    .unwrap_or_else(|| "legacy_category_membership".to_owned()),
+                frequency_range: None,
+                voltage_range: None,
+                current_range: None,
+                power_range: None,
+                operating_modes: Vec::new(),
+                required_driver_action: None,
+            }],
+            calibration_policy: match slot.calibration_requirement {
+                CalibrationRequirement::Required => MethodCalibrationPolicy::Required,
+                CalibrationRequirement::IfUsed => MethodCalibrationPolicy::IfUsed,
+                CalibrationRequirement::NotRequired => MethodCalibrationPolicy::NotRequired,
+            },
+            substitution_policy: match slot.substitution_policy {
+                InstrumentSubstitutionPolicy::NoSubstitution => {
+                    MethodSubstitutionPolicy::NoSubstitution
+                }
+                InstrumentSubstitutionPolicy::SameCategory => {
+                    MethodSubstitutionPolicy::SameCategory
+                }
+                InstrumentSubstitutionPolicy::SameCapability => {
+                    MethodSubstitutionPolicy::SameCapabilities
+                }
+                InstrumentSubstitutionPolicy::ApprovedEquivalent => {
+                    MethodSubstitutionPolicy::ApprovedEquivalent
+                }
+            },
+            assignment_stage: RoleAssignmentStage::PlannedTestPreparation,
+            logical_ports: Vec::new(),
+            consumes_variables: Vec::new(),
+            produces_variables: Vec::new(),
+        })
+        .collect();
+    let procedure = source
+        .sequence
+        .iter()
+        .map(|step| ProcedureNode {
+            node_id: step.step_id.clone(),
+            label: step.label.clone(),
+            purpose: step
+                .instruction
+                .clone()
+                .unwrap_or_else(|| "Etape migree depuis la definition v1.".to_owned()),
+            node_kind: match step.kind {
+                ExecutionStepKind::Prepare => ProcedureNodeKind::Preparation,
+                ExecutionStepKind::ConfigureInstrument => ProcedureNodeKind::Verification,
+                ExecutionStepKind::Acquire => ProcedureNodeKind::Acquire,
+                ExecutionStepKind::OperatorDecision => ProcedureNodeKind::OperatorAction,
+                ExecutionStepKind::PostProcess => ProcedureNodeKind::Phase,
+                ExecutionStepKind::Verify => ProcedureNodeKind::Verification,
+                ExecutionStepKind::Finish => ProcedureNodeKind::Finalize,
+            },
+            enabled_condition: None,
+            input_variables: Vec::new(),
+            output_variables: Vec::new(),
+            timeout_seconds: None,
+            failure_policy: ProcedureFailurePolicy::Stop,
+            maximum_iterations: None,
+            children: Vec::new(),
+            audit_notes: if step.branches.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "{} branche(s) legacy a revoir dans le workflow hierarchique.",
+                    step.branches.len()
+                )
+            },
+        })
+        .collect();
+
+    let definition = TestMethodDefinitionV2 {
+        definition_schema_version: TEST_METHOD_DEFINITION_SCHEMA_VERSION.to_owned(),
+        title: source.title.clone(),
+        objective: source.description.clone(),
+        scope: format!(
+            "Successor workflow for {:?} measurements.",
+            source.measurement_axis
+        ),
+        classification_path: vec![source
+            .method_code
+            .clone()
+            .unwrap_or_else(|| "legacy_method".to_owned())],
+        standard_references: source.standard_references.clone(),
+        variables,
+        lock_policy: source.lock_policy.clone(),
+        parameter_profiles: Vec::new(),
+        functional_roles,
+        measurement_system_templates: Vec::new(),
+        regulation_profiles: Vec::new(),
+        modulation_profiles: Vec::new(),
+        sub_ranges: Vec::new(),
+        procedure,
+        limits: Vec::new(),
+        post_processing: Vec::new(),
+        expected_output_variables: Vec::new(),
+        migration_evidence,
+    };
+    if let Some(issue) = definition.validate().into_iter().next() {
+        return Err(issue);
+    }
+    Ok(definition)
+}
+
+fn migrated_dimension(
+    dimensionless: bool,
+    unit: Option<&str>,
+) -> (QuantityDimension, Option<String>) {
+    if dimensionless {
+        return (QuantityDimension::Dimensionless, None);
+    }
+    unit.and_then(unit_dimension)
+        .map(|dimension| (dimension, unit.map(str::to_owned)))
+        .unwrap_or((QuantityDimension::Dimensionless, None))
+}
+
+fn legacy_post_processing_kind(kind: &PostProcessingOperationType) -> &'static str {
+    match kind {
+        PostProcessingOperationType::Correction => "correction",
+        PostProcessingOperationType::Fft => "fft",
+        PostProcessingOperationType::Windowing => "windowing",
+        PostProcessingOperationType::Resampling => "resampling",
+        PostProcessingOperationType::HarmonicCalculation => "harmonic_calculation",
+        PostProcessingOperationType::EventCounting => "event_counting",
+        PostProcessingOperationType::ChannelMath => "channel_math",
+        PostProcessingOperationType::Peak => "peak",
+        PostProcessingOperationType::Custom => "custom",
+    }
+}
+
 impl TestMethodDefinitionV2 {
     pub fn validate(&self) -> Vec<MethodWorkflowValidationIssue> {
         validate_test_method_v2(self)
@@ -820,6 +1038,143 @@ impl RegulationProfileDefinition {
     ) -> Result<CanonicalMethodDefinition, MethodWorkflowValidationIssue> {
         let issues = self.validate(variables, roles);
         if let Some(issue) = issues.into_iter().next() {
+            return Err(issue);
+        }
+        canonicalize(self, &self.definition_schema_version)
+    }
+}
+
+impl ExecutionConfigurationDefinition {
+    pub fn validate(
+        &self,
+        method: &TestMethodDefinitionV2,
+        system: &MeasurementSystemTemplateDefinition,
+    ) -> Vec<MethodWorkflowValidationIssue> {
+        let mut issues = Vec::new();
+        if self.definition_schema_version != EXECUTION_CONFIGURATION_SCHEMA_VERSION {
+            issues.push(MethodWorkflowValidationIssue::new(
+                "unsupported_execution_configuration_schema",
+                "definition_schema_version",
+                "execution configuration must use v1",
+            ));
+        }
+        for (value, path) in [
+            (&self.configuration_id, "configuration_id"),
+            (&self.parameter_profile_id, "parameter_profile_id"),
+            (&self.laboratory_location_id, "laboratory_location_id"),
+            (&self.planned_use_on, "planned_use_on"),
+            (&self.eut_context, "eut_context"),
+        ] {
+            require_text(&mut issues, value, path);
+        }
+        if !valid_iso_date(&self.planned_use_on) {
+            issues.push(MethodWorkflowValidationIssue::new(
+                "invalid_execution_planned_date",
+                "planned_use_on",
+                "planned_use_on must be an ISO civil date",
+            ));
+        }
+        validate_revision_references(
+            &[
+                self.method_revision.clone(),
+                self.measurement_system_template_revision.clone(),
+                self.station_setup_revision.clone(),
+            ],
+            "execution_configuration.revision_references",
+            &mut issues,
+        );
+        if self.measurement_system_template_revision.identity_id != system.template_id {
+            issues.push(MethodWorkflowValidationIssue::new(
+                "execution_system_identity_mismatch",
+                "measurement_system_template_revision.identity_id",
+                "the pinned system identity does not match the selected topology",
+            ));
+        }
+        let sub_range_ids: BTreeSet<_> = method
+            .sub_ranges
+            .iter()
+            .map(|range| range.sub_range_id.as_str())
+            .collect();
+        for sub_range_id in &self.selected_sub_range_ids {
+            if !sub_range_ids.contains(sub_range_id.as_str()) {
+                issues.push(MethodWorkflowValidationIssue::new(
+                    "unknown_execution_sub_range",
+                    "selected_sub_range_ids",
+                    format!("selected sub-range {sub_range_id} does not exist in the method"),
+                ));
+            }
+        }
+        let profile = method
+            .parameter_profiles
+            .iter()
+            .find(|profile| profile.profile_id == self.parameter_profile_id);
+        if !method.parameter_profiles.is_empty() && profile.is_none() {
+            issues.push(MethodWorkflowValidationIssue::new(
+                "unknown_execution_parameter_profile",
+                "parameter_profile_id",
+                "the selected parameter profile does not exist in the method",
+            ));
+        }
+        let variable_ids: BTreeSet<_> = method
+            .variables
+            .iter()
+            .map(|variable| variable.variable_id.as_str())
+            .collect();
+        for variable_id in self.parameter_values.keys() {
+            if !variable_ids.contains(variable_id.as_str()) {
+                issues.push(MethodWorkflowValidationIssue::new(
+                    "unknown_execution_parameter",
+                    "parameter_values",
+                    format!("execution parameter {variable_id} does not exist in the method"),
+                ));
+            }
+        }
+        let role_ids: BTreeSet<_> = method
+            .functional_roles
+            .iter()
+            .map(|role| role.role_id.as_str())
+            .collect();
+        let mut assigned_roles = BTreeSet::new();
+        let mut assigned_assets = BTreeSet::new();
+        for assignment in &self.assignments {
+            if !role_ids.contains(assignment.role_id.as_str()) {
+                issues.push(MethodWorkflowValidationIssue::new(
+                    "unknown_execution_role_assignment",
+                    "assignments[].role_id",
+                    format!("assignment references unknown role {}", assignment.role_id),
+                ));
+            }
+            if !assigned_roles.insert(assignment.role_id.as_str()) {
+                issues.push(MethodWorkflowValidationIssue::new(
+                    "duplicate_execution_role_assignment",
+                    "assignments",
+                    format!("role {} is assigned more than once", assignment.role_id),
+                ));
+            }
+            if !assigned_assets.insert(assignment.asset_id.as_str()) {
+                issues.push(MethodWorkflowValidationIssue::new(
+                    "duplicate_execution_asset_assignment",
+                    "assignments",
+                    format!("asset {} is assigned more than once", assignment.asset_id),
+                ));
+            }
+            if !valid_checksum(&assignment.equipment_model_checksum) {
+                issues.push(MethodWorkflowValidationIssue::new(
+                    "invalid_execution_model_checksum",
+                    "assignments[].equipment_model_checksum",
+                    "assignment model snapshots require canonical SHA-256 checksums",
+                ));
+            }
+        }
+        issues
+    }
+
+    pub fn canonicalize(
+        &self,
+        method: &TestMethodDefinitionV2,
+        system: &MeasurementSystemTemplateDefinition,
+    ) -> Result<CanonicalMethodDefinition, MethodWorkflowValidationIssue> {
+        if let Some(issue) = self.validate(method, system).into_iter().next() {
             return Err(issue);
         }
         canonicalize(self, &self.definition_schema_version)
@@ -2384,6 +2739,18 @@ fn valid_checksum(value: &str) -> bool {
             .all(|character| character.is_ascii_digit() || matches!(character, 'a'..='f'))
 }
 
+fn valid_iso_date(value: &str) -> bool {
+    if !value.is_ascii() || value.len() != 10 || &value[4..5] != "-" || &value[7..8] != "-" {
+        return false;
+    }
+    let year = value[0..4].parse::<u32>().ok();
+    let month = value[5..7].parse::<u32>().ok();
+    let day = value[8..10].parse::<u32>().ok();
+    year.is_some_and(|year| year >= 2000)
+        && month.is_some_and(|month| (1..=12).contains(&month))
+        && day.is_some_and(|day| (1..=31).contains(&day))
+}
+
 fn canonicalize<T: Serialize>(
     value: &T,
     schema: &str,
@@ -2781,6 +3148,20 @@ mod tests {
     }
 
     #[test]
+    fn legacy_successor_maps_roles_without_guessing_topology() {
+        let legacy = crate::test_definitions::tests::fixture_definition();
+        let successor = derive_method_v2_successor(&legacy).unwrap();
+        assert_eq!(successor.functional_roles.len(), 2);
+        assert!(successor.measurement_system_templates.is_empty());
+        assert!(successor.limits.is_empty());
+        assert!(successor
+            .migration_evidence
+            .iter()
+            .any(|evidence| evidence.contains("topology")));
+        successor.canonicalize().unwrap();
+    }
+
+    #[test]
     fn variables_reject_dependency_cycles_and_unsafe_division() {
         let mut method = method();
         let mut left = variable("left", MethodVariableSemantic::DerivedValue, "MHz");
@@ -2955,6 +3336,36 @@ mod tests {
             .blockers
             .iter()
             .any(|issue| issue.code == "unresolved_execution_role"));
+    }
+
+    #[test]
+    fn execution_configuration_pins_exact_revisions_and_rejects_unknown_ranges() {
+        let method = method();
+        let profile = regulation();
+        let system = system(&profile);
+        let mut configuration = ExecutionConfigurationDefinition {
+            definition_schema_version: EXECUTION_CONFIGURATION_SCHEMA_VERSION.to_owned(),
+            configuration_id: "execution_002".to_owned(),
+            method_revision: reference("method"),
+            measurement_system_template_revision: reference(&system.template_id),
+            parameter_profile_id: "default".to_owned(),
+            parameter_values: BTreeMap::new(),
+            selected_sub_range_ids: vec!["band_150_230".to_owned()],
+            laboratory_location_id: "lab_1".to_owned(),
+            planned_use_on: "2026-08-05".to_owned(),
+            eut_context: "Prototype client".to_owned(),
+            station_setup_revision: reference("station"),
+            assignments: Vec::new(),
+        };
+        assert!(configuration.validate(&method, &system).is_empty());
+        configuration.canonicalize(&method, &system).unwrap();
+        configuration
+            .selected_sub_range_ids
+            .push("missing_band".to_owned());
+        assert!(configuration
+            .validate(&method, &system)
+            .iter()
+            .any(|issue| issue.code == "unknown_execution_sub_range"));
     }
 
     fn reference(id: &str) -> RevisionReference {

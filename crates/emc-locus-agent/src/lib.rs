@@ -6,6 +6,7 @@ mod document_service;
 mod equipment_dto;
 mod equipment_repository;
 mod equipment_service;
+mod execution_configuration_service;
 mod file_store;
 mod fleet_dto;
 mod fleet_migration;
@@ -16,6 +17,7 @@ mod local_api;
 mod measurement_engineering_dto;
 mod measurement_engineering_repository;
 mod measurement_engineering_service;
+mod method_workflow_service;
 mod metrology_agent;
 mod metrology_assessment;
 mod metrology_dto;
@@ -960,7 +962,7 @@ mod tests {
                 .find(|domain| domain.domain == "projects")
                 .unwrap()
                 .schema_version,
-            Some(8)
+            Some(9)
         );
         assert_eq!(
             second_report
@@ -987,7 +989,7 @@ mod tests {
                 .find(|domain| domain.domain == "equipment")
                 .unwrap()
                 .schema_version,
-            Some(9)
+            Some(10)
         );
         assert_eq!(
             second_report
@@ -996,7 +998,7 @@ mod tests {
                 .find(|domain| domain.domain == "test_definitions")
                 .unwrap()
                 .schema_version,
-            Some(5)
+            Some(6)
         );
         assert_eq!(
             second_report
@@ -1085,7 +1087,7 @@ mod tests {
                 .find(|domain| domain.domain == "projects")
                 .unwrap()
                 .schema_version,
-            Some(8)
+            Some(9)
         );
         assert_eq!(
             migrated,

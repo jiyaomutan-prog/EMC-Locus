@@ -43,18 +43,22 @@ use crate::test_template_repository::{
     TestTemplateListFilter,
 };
 use crate::{render_json, AgentError};
-use emc_locus_core::test_definitions::{TemplateRevisionStatus, TestTemplateDefinition};
+use emc_locus_core::test_definitions::{
+    CalibrationRequirement, InstrumentSubstitutionPolicy, InstrumentationChainSlot,
+    MeasurementAxis, TemplateRevisionStatus,
+};
 use emc_locus_core::{
     assess_planned_test_material_compatibility, assess_planned_test_preparation, AuditActor,
-    AuditReason, EquipmentModelDefinition, PlannedTestInstrumentAssignment,
-    PlannedTestMaterialCompatibility, PlannedTestPreparationAssessmentInput,
-    PlannedTestPreparationDefinition, PlannedTestPreparationState, PlannedTestScheduleSnapshot,
-    PlannedTestStationMaterialAssignment, PreparedEquipmentCapabilitySnapshot,
-    PreparedStationAssetSnapshot, PreparedStationCorrectionSnapshot, PreparedStationSetupSnapshot,
-    PreparedTestMethodSnapshot, ServiceScheduleStatus, StableId,
-    StationMaterialAssignmentDefinition, StationMeasurementSetupDefinition,
-    StationReadinessDimension, StationReadinessIssue, StationReadinessSeverity,
-    StationSetupReadiness, StationSetupRevisionStatus,
+    AuditReason, EquipmentModelDefinition, MethodCalibrationPolicy, MethodSubstitutionPolicy,
+    PlannedTestInstrumentAssignment, PlannedTestMaterialCompatibility,
+    PlannedTestPreparationAssessmentInput, PlannedTestPreparationDefinition,
+    PlannedTestPreparationState, PlannedTestScheduleSnapshot, PlannedTestStationMaterialAssignment,
+    PreparedEquipmentCapabilitySnapshot, PreparedStationAssetSnapshot,
+    PreparedStationCorrectionSnapshot, PreparedStationSetupSnapshot, PreparedTestMethodSnapshot,
+    ServiceScheduleStatus, StableId, StationMaterialAssignmentDefinition,
+    StationMeasurementSetupDefinition, StationReadinessDimension, StationReadinessIssue,
+    StationReadinessSeverity, StationSetupReadiness, StationSetupRevisionStatus,
+    TestMethodDefinitionV2, VersionedMethodDefinition,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -1040,18 +1044,18 @@ fn method_snapshot(
         ));
     }
     let definition =
-        TestTemplateDefinition::from_json_str(&revision.definition_json).map_err(|error| {
+        VersionedMethodDefinition::from_json_str(&revision.definition_json).map_err(|error| {
             AgentError::with_details(
                 "planned_test_method_storage_invalid",
                 "the stored test method definition is invalid",
-                json!({ "code": error.code, "message": error.message }),
+                json!({ "code": error.code, "path": error.path, "message": error.message }),
             )
         })?;
     let canonical = definition.canonicalize().map_err(|error| {
         AgentError::with_details(
             "planned_test_method_storage_invalid",
             "the stored test method definition is invalid",
-            json!({ "code": error.code, "message": error.message }),
+            json!({ "code": error.code, "path": error.path, "message": error.message }),
         )
     })?;
     if canonical.definition_checksum != revision.definition_checksum
@@ -1062,19 +1066,105 @@ fn method_snapshot(
             "the stored test method checksum does not match its content",
         ));
     }
+    let (
+        title,
+        measurement_axis,
+        method_code,
+        method_revision,
+        standard_references,
+        instrumentation_chain,
+    ) = match definition {
+        VersionedMethodDefinition::V1(definition) => (
+            definition.title,
+            definition.measurement_axis,
+            definition.method_code,
+            definition.method_revision,
+            definition.standard_references,
+            definition.instrumentation_chain,
+        ),
+        VersionedMethodDefinition::V2(definition) => method_v2_preparation_projection(definition),
+    };
     Ok(PreparedTestMethodSnapshot {
         template_id: revision.template_id.clone(),
         revision_id: revision.revision_id.clone(),
         revision_number: revision.revision_number,
         revision_status: status,
         definition_checksum: revision.definition_checksum.clone(),
-        title: definition.title,
-        measurement_axis: definition.measurement_axis,
-        method_code: definition.method_code,
-        method_revision: definition.method_revision,
-        standard_references: definition.standard_references,
-        instrumentation_chain: definition.instrumentation_chain,
+        title,
+        measurement_axis,
+        method_code,
+        method_revision,
+        standard_references,
+        instrumentation_chain,
     })
+}
+
+fn method_v2_preparation_projection(
+    definition: TestMethodDefinitionV2,
+) -> (
+    String,
+    MeasurementAxis,
+    Option<String>,
+    Option<String>,
+    Vec<String>,
+    Vec<InstrumentationChainSlot>,
+) {
+    let measurement_axis = if !definition.sub_ranges.is_empty() {
+        MeasurementAxis::FrequencySweep
+    } else if definition.post_processing.iter().any(|node| {
+        matches!(
+            node.node_kind,
+            emc_locus_core::PostProcessingNodeKind::FftRequest
+        )
+    }) {
+        MeasurementAxis::MixedTimeFrequency
+    } else {
+        MeasurementAxis::TimeSeries
+    };
+    let instrumentation_chain = definition
+        .functional_roles
+        .into_iter()
+        .map(|role| InstrumentationChainSlot {
+            slot_id: role.role_id,
+            label: role.label,
+            required_category: Some(role.functional_category),
+            required_capability: role
+                .capabilities
+                .first()
+                .filter(|capability| capability.capability_kind != "legacy_category_membership")
+                .map(|capability| capability.capability_kind.clone()),
+            required: role.required,
+            calibration_requirement: match role.calibration_policy {
+                MethodCalibrationPolicy::Required => CalibrationRequirement::Required,
+                MethodCalibrationPolicy::IfUsed => CalibrationRequirement::IfUsed,
+                MethodCalibrationPolicy::NotRequired => CalibrationRequirement::NotRequired,
+            },
+            substitution_policy: match role.substitution_policy {
+                MethodSubstitutionPolicy::NoSubstitution
+                | MethodSubstitutionPolicy::SameExactModel => {
+                    InstrumentSubstitutionPolicy::NoSubstitution
+                }
+                MethodSubstitutionPolicy::SameCategory => {
+                    InstrumentSubstitutionPolicy::SameCategory
+                }
+                MethodSubstitutionPolicy::SameCapabilities => {
+                    InstrumentSubstitutionPolicy::SameCapability
+                }
+                MethodSubstitutionPolicy::ApprovedEquivalent => {
+                    InstrumentSubstitutionPolicy::ApprovedEquivalent
+                }
+            },
+            depends_on_slots: Vec::new(),
+        })
+        .collect();
+    (
+        definition.title,
+        measurement_axis,
+        None,
+        None,
+        definition.standard_references,
+        instrumentation_chain,
+    )
 }
 
 fn load_selected_station(
@@ -1696,8 +1786,9 @@ mod tests {
     use emc_locus_core::test_definitions::{
         CalibrationRequirement, ExecutionSequenceStep, ExecutionStepKind,
         InstrumentSubstitutionPolicy, InstrumentationChainSlot, MeasurementAxis,
-        VariableConstraints, VariableDefaultValue, VariableDefinition, VariableLockPolicy,
-        VariableLockPolicyKind, VariableValueType, TEST_TEMPLATE_DEFINITION_SCHEMA_VERSION,
+        TestTemplateDefinition, VariableConstraints, VariableDefaultValue, VariableDefinition,
+        VariableLockPolicy, VariableLockPolicyKind, VariableValueType,
+        TEST_TEMPLATE_DEFINITION_SCHEMA_VERSION,
     };
     use emc_locus_core::{
         PlannedTestStationMaterialAssignment, StationAssetBindingDefinition,

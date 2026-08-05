@@ -45,6 +45,10 @@ use crate::equipment_service::{
     TransitionEquipmentModelRevisionInput, UpdateEquipmentCategoryInput,
     UpsertEquipmentFieldDefinitionInput,
 };
+use crate::execution_configuration_service::{
+    derive_execution_configuration, get_execution_configuration, DeriveExecutionConfigurationInput,
+    ExecutionConfigurationOperationContext,
+};
 use crate::fleet_service::{
     archive_laboratory_location_json, create_laboratory_location, create_physical_asset,
     get_physical_asset_json, list_laboratory_location_audit_json, list_laboratory_locations_json,
@@ -70,6 +74,16 @@ use crate::measurement_engineering_service::{
     CloneMeasurementEngineeringInput, CreateMeasurementEngineeringInput,
     CreateMeasurementEngineeringRevisionInput, EvaluateEngineeringCurveInput,
     ReplaceMeasurementEngineeringDefinitionInput, TransitionMeasurementEngineeringRevisionInput,
+};
+use crate::method_workflow_service::{
+    compile_method_execution_plan, create_method_hierarchy_node, create_workflow_definition,
+    create_workflow_revision, get_workflow_definition, get_workflow_revision,
+    list_method_hierarchy, list_workflow_audit_events, list_workflow_definitions,
+    preview_method_sub_range, replace_workflow_definition, transition_workflow_revision,
+    update_method_hierarchy_node, CompileExecutionPlanInput, CreateHierarchyNodeInput,
+    CreateWorkflowDefinitionInput, CreateWorkflowRevisionInput, ReplaceWorkflowDefinitionInput,
+    TransitionWorkflowRevisionInput, UpdateHierarchyNodeInput, WorkflowAggregateKind,
+    WorkflowOperationContext, WorkflowValidationContext,
 };
 use crate::metrology_service::{
     store_metrology_file, AssessReadinessInput, MetrologyOperationContext,
@@ -107,9 +121,9 @@ use crate::test_execution_service::{
     RunSimulatedEmcTestInput,
 };
 use crate::test_template_service::{
-    clone_test_template, create_test_template, create_test_template_revision,
-    get_test_template_definition, get_test_template_revision, list_test_template_audit_events,
-    list_test_template_definitions, list_test_template_revisions,
+    clone_test_template, create_test_method_successor, create_test_template,
+    create_test_template_revision, get_test_template_definition, get_test_template_revision,
+    list_test_template_audit_events, list_test_template_definitions, list_test_template_revisions,
     replace_test_template_revision_definition, transition_test_template_revision,
     validate_test_template_definition_json, CloneTestTemplateInput, CreateTestTemplateInput,
     CreateTestTemplateRevisionInput, ListTestTemplatesInput, ReplaceTestTemplateDefinitionInput,
@@ -121,7 +135,7 @@ use emc_locus_core::{
         MeasurementEngineeringAggregateKind, MeasurementEngineeringRevisionStatus,
     },
     test_definitions::TemplateRevisionStatus,
-    PlannedTestInstrumentAssignment, PlannedTestStationMaterialAssignment,
+    MethodHierarchyNode, PlannedTestInstrumentAssignment, PlannedTestStationMaterialAssignment,
     StationPhysicalPortMappingDefinition,
 };
 use serde_json::{json, Value};
@@ -1073,6 +1087,18 @@ fn route_api_request(
                 planned_test_preparation_input(code, item_code, &payload)?,
             )
         }
+        ["api", "v1", "projects", code, "schedule-items", item_code, "execution-configuration"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            derive_execution_configuration(
+                &config.storage_root,
+                derive_execution_configuration_input(code, item_code, &payload)?,
+            )
+        }
+        ["api", "v1", "execution-configurations", configuration_id] if method == "GET" => {
+            get_execution_configuration(&config.storage_root, configuration_id)
+        }
         ["api", "v1", "projects", code, "schedule-items", item_code, "reschedule"]
             if method == "POST" =>
         {
@@ -1395,6 +1421,135 @@ fn route_api_request(
                 entity_id,
             )
         }
+        ["api", "v1", "method-hierarchy"] if method == "GET" => {
+            list_method_hierarchy(&config.storage_root)
+        }
+        ["api", "v1", "sub-ranges", "preview"] if method == "POST" => {
+            let payload = parse_json_body(body)?;
+            let definition = required_json_or_string(&payload, "sub_range", "sub_range_json")?;
+            let maximum_points = payload
+                .get("maximum_points")
+                .and_then(Value::as_u64)
+                .unwrap_or(10_000);
+            preview_method_sub_range(&definition, maximum_points)
+        }
+        ["api", "v1", "execution-plans", "preview"] if method == "POST" => {
+            let payload = parse_json_body(body)?;
+            compile_method_execution_plan(
+                &config.storage_root,
+                compile_execution_plan_input(&payload)?,
+            )
+        }
+        ["api", "v1", "method-hierarchy"] if method == "POST" => {
+            let payload = parse_json_body(body)?;
+            create_method_hierarchy_node(
+                &config.storage_root,
+                create_hierarchy_node_input(&payload)?,
+            )
+        }
+        ["api", "v1", "method-hierarchy", node_id] if method == "PUT" => {
+            let payload = parse_json_body(body)?;
+            update_method_hierarchy_node(
+                &config.storage_root,
+                update_hierarchy_node_input(node_id, &payload)?,
+            )
+        }
+        ["api", "v1", collection]
+            if method == "GET" && WorkflowAggregateKind::from_collection(collection).is_some() =>
+        {
+            list_workflow_definitions(
+                &config.storage_root,
+                WorkflowAggregateKind::from_collection(collection).unwrap(),
+            )
+        }
+        ["api", "v1", collection]
+            if method == "POST" && WorkflowAggregateKind::from_collection(collection).is_some() =>
+        {
+            let payload = parse_json_body(body)?;
+            create_workflow_definition(
+                &config.storage_root,
+                create_workflow_definition_input(
+                    WorkflowAggregateKind::from_collection(collection).unwrap(),
+                    &payload,
+                )?,
+            )
+        }
+        ["api", "v1", collection, entity_id]
+            if method == "GET" && WorkflowAggregateKind::from_collection(collection).is_some() =>
+        {
+            get_workflow_definition(
+                &config.storage_root,
+                WorkflowAggregateKind::from_collection(collection).unwrap(),
+                entity_id,
+            )
+        }
+        ["api", "v1", collection, entity_id, "audit-events"]
+            if method == "GET" && WorkflowAggregateKind::from_collection(collection).is_some() =>
+        {
+            list_workflow_audit_events(
+                &config.storage_root,
+                WorkflowAggregateKind::from_collection(collection).unwrap(),
+                entity_id,
+            )
+        }
+        ["api", "v1", collection, entity_id, "revisions"]
+            if method == "POST" && WorkflowAggregateKind::from_collection(collection).is_some() =>
+        {
+            let payload = parse_json_body(body)?;
+            create_workflow_revision(
+                &config.storage_root,
+                create_workflow_revision_input(
+                    WorkflowAggregateKind::from_collection(collection).unwrap(),
+                    entity_id,
+                    &payload,
+                )?,
+            )
+        }
+        ["api", "v1", collection, entity_id, "revisions", revision_id]
+            if method == "GET" && WorkflowAggregateKind::from_collection(collection).is_some() =>
+        {
+            get_workflow_revision(
+                &config.storage_root,
+                WorkflowAggregateKind::from_collection(collection).unwrap(),
+                entity_id,
+                revision_id,
+            )
+        }
+        ["api", "v1", collection, entity_id, "revisions", revision_id, "definition"]
+            if method == "PUT" && WorkflowAggregateKind::from_collection(collection).is_some() =>
+        {
+            let payload = parse_json_body(body)?;
+            replace_workflow_definition(
+                &config.storage_root,
+                replace_workflow_definition_input(
+                    WorkflowAggregateKind::from_collection(collection).unwrap(),
+                    entity_id,
+                    revision_id,
+                    &payload,
+                )?,
+            )
+        }
+        ["api", "v1", collection, entity_id, "revisions", revision_id, "transitions", target]
+            if method == "POST"
+                && WorkflowAggregateKind::from_collection(collection).is_some()
+                && matches!(*target, "validate" | "approve") =>
+        {
+            let payload = parse_json_body(body)?;
+            transition_workflow_revision(
+                &config.storage_root,
+                transition_workflow_revision_input(
+                    WorkflowAggregateKind::from_collection(collection).unwrap(),
+                    entity_id,
+                    revision_id,
+                    if *target == "validate" {
+                        "validated"
+                    } else {
+                        "approved"
+                    },
+                    &payload,
+                )?,
+            )
+        }
         ["api", "v1", "test-templates", template_id] if method == "GET" => {
             get_test_template_definition(&config.storage_root, template_id)
         }
@@ -1411,6 +1566,15 @@ fn route_api_request(
         ["api", "v1", "test-templates", template_id, "revisions"] if method == "POST" => {
             let payload = parse_json_body(body)?;
             create_test_template_revision(
+                &config.storage_root,
+                create_test_template_revision_input(template_id, &payload)?,
+            )
+        }
+        ["api", "v1", "test-templates", template_id, "revisions", "successor-0.22.2"]
+            if method == "POST" =>
+        {
+            let payload = parse_json_body(body)?;
+            create_test_method_successor(
                 &config.storage_root,
                 create_test_template_revision_input(template_id, &payload)?,
             )
@@ -1867,6 +2031,39 @@ fn planned_test_preparation_input(
         station_material_assignments,
         assignments,
         context: PlannedTestPreparationOperationContext {
+            actor: required_string(payload, "actor")?,
+            reason: required_string(payload, "reason")?,
+            correlation_id: optional_string(payload, "correlation_id")
+                .unwrap_or_else(|| operation_id.clone()),
+            device_id: optional_string(payload, "device_id")
+                .unwrap_or_else(|| "local-agent".to_owned()),
+            operation_id,
+        },
+    })
+}
+
+fn derive_execution_configuration_input(
+    project_code: &str,
+    item_code: &str,
+    payload: &Value,
+) -> Result<DeriveExecutionConfigurationInput, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    let regulation_profiles_json = payload
+        .get("regulation_profiles")
+        .and_then(Value::as_array)
+        .map(|profiles| profiles.iter().map(render_json).collect())
+        .unwrap_or_default();
+    Ok(DeriveExecutionConfigurationInput {
+        project_code: project_code.to_owned(),
+        schedule_item_code: item_code.to_owned(),
+        planned_preparation_revision_id: required_string(
+            payload,
+            "planned_preparation_revision_id",
+        )?,
+        expected_current_revision_id: optional_string(payload, "expected_current_revision_id"),
+        definition_json: required_json_or_string(payload, "definition", "definition_json")?,
+        regulation_profiles_json,
+        context: ExecutionConfigurationOperationContext {
             actor: required_string(payload, "actor")?,
             reason: required_string(payload, "reason")?,
             correlation_id: optional_string(payload, "correlation_id")
@@ -3025,6 +3222,173 @@ fn create_test_template_input(payload: &Value) -> Result<CreateTestTemplateInput
         device_id: optional_string(payload, "device_id")
             .unwrap_or_else(|| "local-agent".to_owned()),
         operation_id,
+    })
+}
+
+fn workflow_operation_context(payload: &Value) -> Result<WorkflowOperationContext, AgentError> {
+    let operation_id = required_string(payload, "operation_id")?;
+    Ok(WorkflowOperationContext {
+        actor: required_string(payload, "actor")?,
+        reason: required_string(payload, "reason")?,
+        correlation_id: optional_string(payload, "correlation_id")
+            .unwrap_or_else(|| operation_id.clone()),
+        device_id: optional_string(payload, "device_id")
+            .unwrap_or_else(|| "local-agent".to_owned()),
+        operation_id,
+    })
+}
+
+fn workflow_validation_context(payload: &Value) -> Result<WorkflowValidationContext, AgentError> {
+    let method_definition_json = payload
+        .get("method_definition")
+        .map(render_json)
+        .or_else(|| optional_string(payload, "method_definition_json"));
+    let regulation_profiles_json = payload
+        .get("regulation_profiles")
+        .map(|value| {
+            value
+                .as_array()
+                .ok_or_else(|| {
+                    AgentError::with_details(
+                        "invalid_json_field",
+                        "regulation_profiles must be an array",
+                        json!({ "field": "regulation_profiles" }),
+                    )
+                })
+                .map(|profiles| profiles.iter().map(render_json).collect())
+        })
+        .transpose()?
+        .unwrap_or_default();
+    Ok(WorkflowValidationContext {
+        method_definition_json,
+        regulation_profiles_json,
+    })
+}
+
+fn compile_execution_plan_input(payload: &Value) -> Result<CompileExecutionPlanInput, AgentError> {
+    let regulation_profiles_json = payload
+        .get("regulation_profiles")
+        .and_then(Value::as_array)
+        .map(|profiles| profiles.iter().map(render_json).collect())
+        .unwrap_or_default();
+    Ok(CompileExecutionPlanInput {
+        method_template_id: required_string(payload, "method_template_id")?,
+        method_revision_id: required_string(payload, "method_revision_id")?,
+        method_definition_json: required_json_or_string(
+            payload,
+            "method_definition",
+            "method_definition_json",
+        )?,
+        system_definition_json: required_json_or_string(
+            payload,
+            "system_definition",
+            "system_definition_json",
+        )?,
+        regulation_profiles_json,
+        execution_configuration_json: payload
+            .get("execution_configuration")
+            .map(render_json)
+            .or_else(|| optional_string(payload, "execution_configuration_json")),
+        context: workflow_operation_context(payload)?,
+    })
+}
+
+fn create_hierarchy_node_input(payload: &Value) -> Result<CreateHierarchyNodeInput, AgentError> {
+    let node_value = payload.get("node").unwrap_or(payload).clone();
+    let node: MethodHierarchyNode = serde_json::from_value(node_value)
+        .map_err(|error| AgentError::new("invalid_method_hierarchy_node", error.to_string()))?;
+    Ok(CreateHierarchyNodeInput {
+        node,
+        context: workflow_operation_context(payload)?,
+    })
+}
+
+fn update_hierarchy_node_input(
+    node_id: &str,
+    payload: &Value,
+) -> Result<UpdateHierarchyNodeInput, AgentError> {
+    let node_value = payload.get("node").unwrap_or(payload).clone();
+    let node: MethodHierarchyNode = serde_json::from_value(node_value)
+        .map_err(|error| AgentError::new("invalid_method_hierarchy_node", error.to_string()))?;
+    if node.node_id != node_id {
+        return Err(AgentError::new(
+            "method_hierarchy_node_id_mismatch",
+            "node_id in the definition must match the route",
+        ));
+    }
+    let expected_revision =
+        u32::try_from(required_u64(payload, "expected_revision")?).map_err(|_| {
+            AgentError::new(
+                "invalid_method_hierarchy_revision",
+                "expected_revision is too large",
+            )
+        })?;
+    Ok(UpdateHierarchyNodeInput {
+        node,
+        expected_revision,
+        context: workflow_operation_context(payload)?,
+    })
+}
+
+fn create_workflow_definition_input(
+    kind: WorkflowAggregateKind,
+    payload: &Value,
+) -> Result<CreateWorkflowDefinitionInput, AgentError> {
+    Ok(CreateWorkflowDefinitionInput {
+        kind,
+        entity_id: required_string(payload, "entity_id")?,
+        label: required_string(payload, "label")?,
+        classification: required_string(payload, "classification")?,
+        definition_json: required_json_or_string(payload, "definition", "definition_json")?,
+        validation: workflow_validation_context(payload)?,
+        context: workflow_operation_context(payload)?,
+    })
+}
+
+fn replace_workflow_definition_input(
+    kind: WorkflowAggregateKind,
+    entity_id: &str,
+    revision_id: &str,
+    payload: &Value,
+) -> Result<ReplaceWorkflowDefinitionInput, AgentError> {
+    Ok(ReplaceWorkflowDefinitionInput {
+        kind,
+        entity_id: entity_id.to_owned(),
+        revision_id: revision_id.to_owned(),
+        expected_definition_checksum: required_string(payload, "expected_definition_checksum")?,
+        definition_json: required_json_or_string(payload, "definition", "definition_json")?,
+        validation: workflow_validation_context(payload)?,
+        context: workflow_operation_context(payload)?,
+    })
+}
+
+fn create_workflow_revision_input(
+    kind: WorkflowAggregateKind,
+    entity_id: &str,
+    payload: &Value,
+) -> Result<CreateWorkflowRevisionInput, AgentError> {
+    Ok(CreateWorkflowRevisionInput {
+        kind,
+        entity_id: entity_id.to_owned(),
+        source_revision_id: required_string(payload, "source_revision_id")?,
+        context: workflow_operation_context(payload)?,
+    })
+}
+
+fn transition_workflow_revision_input(
+    kind: WorkflowAggregateKind,
+    entity_id: &str,
+    revision_id: &str,
+    target_status: &str,
+    payload: &Value,
+) -> Result<TransitionWorkflowRevisionInput, AgentError> {
+    Ok(TransitionWorkflowRevisionInput {
+        kind,
+        entity_id: entity_id.to_owned(),
+        revision_id: revision_id.to_owned(),
+        target_status: target_status.to_owned(),
+        validation: workflow_validation_context(payload)?,
+        context: workflow_operation_context(payload)?,
     })
 }
 
@@ -10434,6 +10798,342 @@ mod tests {
             "validation_rules": ["sample_rate_within_daq_profile", "range_within_daq_profile"],
             "metadata": { "demo": true }
         })
+    }
+
+    #[test]
+    fn local_api_converts_methods_and_persists_workflow_aggregates() {
+        let storage_root = temporary_storage_root("agent-api-method-workflow-0222");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: None,
+        };
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+
+        let created = handle_api_request(
+            "POST",
+            "/api/v1/test-templates",
+            &create_template_body(
+                "TT-WORKFLOW-0222",
+                "op-workflow-method-create",
+                &template_definition(100_000, None),
+            ),
+            &config,
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        for (action, operation_id) in [
+            ("submit-for-review", "op-workflow-method-submit"),
+            ("approve", "op-workflow-method-approve"),
+        ] {
+            let response = handle_api_request(
+                "POST",
+                &format!(
+                    "/api/v1/test-templates/TT-WORKFLOW-0222/revisions/TT-WORKFLOW-0222-rev-0001/transitions/{action}"
+                ),
+                &render_json(&json!({
+                    "actor": "quality.lead",
+                    "reason": "approve legacy source for explicit conversion",
+                    "operation_id": operation_id,
+                })),
+                &config,
+            );
+            assert_eq!(response.status, 200, "{}", response.body);
+        }
+        let successor = handle_api_request(
+            "POST",
+            "/api/v1/test-templates/TT-WORKFLOW-0222/revisions/successor-0.22.2",
+            &render_json(&json!({
+                "source_revision_id": "TT-WORKFLOW-0222-rev-0001",
+                "actor": "lab.engineer",
+                "reason": "Creer une nouvelle version avec le workflow 0.22.2",
+                "operation_id": "op-workflow-method-successor",
+            })),
+            &config,
+        );
+        assert_eq!(successor.status, 200, "{}", successor.body);
+        assert!(successor
+            .body
+            .contains("emc-locus.test-method-definition.v2"));
+        assert!(successor.body.contains("topology remains to be reviewed"));
+
+        let hierarchy = handle_api_request(
+            "POST",
+            "/api/v1/method-hierarchy",
+            &render_json(&json!({
+                "node": {
+                    "node_id": "immunity",
+                    "parent_node_id": null,
+                    "node_kind": "domain",
+                    "label": "Immunite",
+                    "position": 10,
+                    "archived": false
+                },
+                "actor": "lab.engineer",
+                "reason": "create laboratory method domain",
+                "operation_id": "op-workflow-hierarchy-create"
+            })),
+            &config,
+        );
+        assert_eq!(hierarchy.status, 200, "{}", hierarchy.body);
+        let hierarchy_list = handle_api_request("GET", "/api/v1/method-hierarchy", "", &config);
+        assert_eq!(hierarchy_list.status, 200);
+        assert!(hierarchy_list.body.contains("\"revision\":1"));
+
+        let system_definition = json!({
+            "definition_schema_version": "emc-locus.measurement-system-template-definition.v1",
+            "template_id": "SYS-CONDUCTED-0222",
+            "label": "Chaine conduite demonstrative",
+            "classification": "immunity_conducted",
+            "nodes": [],
+            "edges": [],
+            "correction_points": [],
+            "regulation_loops": [],
+            "notes": "No physical asset, date or location."
+        });
+        let system = handle_api_request(
+            "POST",
+            "/api/v1/measurement-system-templates",
+            &render_json(&json!({
+                "entity_id": "SYS-CONDUCTED-0222",
+                "label": "Chaine conduite demonstrative",
+                "classification": "immunity_conducted",
+                "definition": system_definition,
+                "actor": "lab.engineer",
+                "reason": "create reusable logical topology",
+                "operation_id": "op-workflow-system-create"
+            })),
+            &config,
+        );
+        assert_eq!(system.status, 200, "{}", system.body);
+        let system_detail = handle_api_request(
+            "GET",
+            "/api/v1/measurement-system-templates/SYS-CONDUCTED-0222",
+            "",
+            &config,
+        );
+        assert_eq!(system_detail.status, 200, "{}", system_detail.body);
+        assert!(system_detail
+            .body
+            .contains("emc-locus.measurement-system-template-definition.v1"));
+
+        let range = handle_api_request(
+            "POST",
+            "/api/v1/sub-ranges/preview",
+            &render_json(&json!({
+                "maximum_points": 100,
+                "sub_range": {
+                    "sub_range_id": "band-a",
+                    "label": "Bande A",
+                    "start_frequency": { "value": 1.0, "unit": "MHz" },
+                    "stop_frequency": { "value": 2.0, "unit": "MHz" },
+                    "include_start": true,
+                    "include_stop": true,
+                    "progression": { "kind": "fixed_step", "step": { "value": 0.1, "unit": "MHz" } },
+                    "direction": "increasing",
+                    "sweep_mode": "stepped",
+                    "dwell_seconds": 0.1,
+                    "comments": ""
+                }
+            })),
+            &config,
+        );
+        assert_eq!(range.status, 200, "{}", range.body);
+        assert!(range.body.contains("\"point_count\":11"));
+
+        let outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
+        assert!(outbox.body.contains("test_method_successor_draft_created"));
+        assert!(outbox.body.contains("workflow_definition_created"));
+        remove_temporary_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn local_api_derives_dated_execution_from_authoritative_preparation() {
+        let storage_root = temporary_storage_root("agent-api-execution-configuration-0222");
+        let config = ApiServerConfig {
+            bind: "127.0.0.1:0".to_owned(),
+            storage_root: storage_root.clone(),
+            migrations_root: repo_root().join("storage/sqlite"),
+            lab_console_dist: repo_root().join("apps/lab-console/dist"),
+            max_requests: None,
+        };
+        assert_eq!(
+            handle_api_request("POST", "/api/v1/storage/initialize", "", &config).status,
+            200
+        );
+        seed_planned_test_preparation_http_fixture(&config);
+
+        let successor = handle_api_request(
+            "POST",
+            "/api/v1/test-templates/METHOD-PREP-HTTP/revisions/successor-0.22.2",
+            &json!({
+                "source_revision_id": "METHOD-PREP-HTTP-rev-0001",
+                "actor": "method.author",
+                "reason": "create explicit 0.22.2 successor",
+                "operation_id": "op-execution-method-successor"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(successor.status, 200, "{}", successor.body);
+        let successor_json: Value = serde_json::from_str(&successor.body).unwrap();
+        let method_checksum = successor_json["revision"]["definition_checksum"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        for (action, operation_id) in [
+            ("submit-for-review", "op-execution-method-submit"),
+            ("approve", "op-execution-method-approve"),
+        ] {
+            let response = handle_api_request(
+                "POST",
+                &format!(
+                    "/api/v1/test-templates/METHOD-PREP-HTTP/revisions/METHOD-PREP-HTTP-rev-0002/transitions/{action}"
+                ),
+                &transition_body("quality.lead", "approve 0.22.2 method", operation_id),
+                &config,
+            );
+            assert_eq!(response.status, 200, "{}", response.body);
+        }
+
+        let system_definition = json!({
+            "definition_schema_version": "emc-locus.measurement-system-template-definition.v1",
+            "template_id": "SYS-PREP-HTTP",
+            "label": "Systeme logique de preparation",
+            "classification": "emission_conducted",
+            "nodes": [], "edges": [], "correction_points": [], "regulation_loops": [],
+            "notes": "Reusable logical topology without physical assets."
+        });
+        let system = handle_api_request(
+            "POST",
+            "/api/v1/measurement-system-templates",
+            &json!({
+                "entity_id": "SYS-PREP-HTTP",
+                "label": "Systeme logique de preparation",
+                "classification": "emission_conducted",
+                "definition": system_definition,
+                "actor": "method.author",
+                "reason": "create reusable system",
+                "operation_id": "op-execution-system-create"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(system.status, 200, "{}", system.body);
+        let system_json: Value = serde_json::from_str(&system.body).unwrap();
+        let system_checksum = system_json["revision"]["definition_checksum"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let validated = handle_api_request(
+            "POST",
+            "/api/v1/measurement-system-templates/SYS-PREP-HTTP/revisions/SYS-PREP-HTTP-rev-0001/transitions/validate",
+            &transition_body(
+                "method.reviewer",
+                "validate reusable system",
+                "op-execution-system-validate",
+            ),
+            &config,
+        );
+        assert_eq!(validated.status, 200, "{}", validated.body);
+
+        let ready = handle_api_request(
+            "POST",
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/preparation/assessments",
+            &json!({
+                "expected_schedule_revision": 2,
+                "expected_current_revision_id": null,
+                "method_template_id": "METHOD-PREP-HTTP",
+                "method_revision_id": "METHOD-PREP-HTTP-rev-0002",
+                "station_setup_id": "SETUP-PREP-HTTP",
+                "station_setup_revision_id": "SETUP-PREP-HTTP-rev-0001",
+                "assignments": [{"slot_id": "receiver", "binding_id": "receiver"}],
+                "actor": "operator.http",
+                "reason": "prepare exact 0.22.2 execution",
+                "operation_id": "op-execution-preparation-ready"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(ready.status, 200, "{}", ready.body);
+        let ready_json: Value = serde_json::from_str(&ready.body).unwrap();
+        assert_eq!(ready_json["preparation"]["current_state"], "ready");
+        let preparation = &ready_json["preparation"]["current_revision"];
+        let preparation_revision_id = preparation["revision_id"].as_str().unwrap();
+        let station = &preparation["definition"]["station_setup"];
+        let asset = station["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|asset| asset["binding_id"] == "receiver")
+            .unwrap();
+        let execution_definition = json!({
+            "definition_schema_version": "emc-locus.execution-configuration.v1",
+            "configuration_id": "EXEC-PREP-HTTP",
+            "method_revision": {
+                "identity_id": "METHOD-PREP-HTTP",
+                "revision_id": "METHOD-PREP-HTTP-rev-0002",
+                "definition_checksum": method_checksum
+            },
+            "measurement_system_template_revision": {
+                "identity_id": "SYS-PREP-HTTP",
+                "revision_id": "SYS-PREP-HTTP-rev-0001",
+                "definition_checksum": system_checksum
+            },
+            "parameter_profile_id": "default",
+            "parameter_values": {},
+            "selected_sub_range_ids": [],
+            "laboratory_location_id": station["laboratory_location_id"],
+            "planned_use_on": "2026-07-15",
+            "eut_context": "HTTP EUT",
+            "station_setup_revision": {
+                "identity_id": "SETUP-PREP-HTTP",
+                "revision_id": "SETUP-PREP-HTTP-rev-0001",
+                "definition_checksum": station["definition_checksum"]
+            },
+            "assignments": [{
+                "role_id": "receiver",
+                "requirement_id": "receiver",
+                "asset_id": asset["asset_id"],
+                "asset_revision": asset["asset_revision"],
+                "equipment_model_revision_id": asset["equipment_model_revision_id"],
+                "equipment_model_checksum": asset["equipment_model_checksum"]
+            }]
+        });
+        let derived = handle_api_request(
+            "POST",
+            "/api/v1/projects/CEM-PREP-HTTP/schedule-items/PLAN-PREP-HTTP/execution-configuration",
+            &json!({
+                "planned_preparation_revision_id": preparation_revision_id,
+                "expected_current_revision_id": null,
+                "definition": execution_definition,
+                "regulation_profiles": [],
+                "actor": "operator.http",
+                "reason": "derive dated execution from approved pins",
+                "operation_id": "op-execution-configuration-derive"
+            })
+            .to_string(),
+            &config,
+        );
+        assert_eq!(derived.status, 200, "{}", derived.body);
+        assert!(derived
+            .body
+            .contains("\"configuration_id\":\"EXEC-PREP-HTTP\""));
+        assert!(derived.body.contains("\"ready\":true"));
+        let reloaded = handle_api_request(
+            "GET",
+            "/api/v1/execution-configurations/EXEC-PREP-HTTP",
+            "",
+            &config,
+        );
+        assert_eq!(reloaded.status, 200, "{}", reloaded.body);
+        let outbox = handle_api_request("GET", "/api/v1/sync/outbox", "", &config);
+        assert!(outbox.body.contains("execution_configuration_derived"));
+        remove_temporary_storage_root(&storage_root);
     }
 
     fn create_template_body(

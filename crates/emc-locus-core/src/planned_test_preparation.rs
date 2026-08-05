@@ -1,3 +1,4 @@
+use crate::equipment::canonical_equipment_category_code;
 use crate::metrology::MetrologyAssessment;
 use crate::service_planning::ServiceScheduleStatus;
 use crate::station_setup::{
@@ -430,10 +431,8 @@ fn material_incompatibility(
     station_readiness: &StationSetupReadiness,
 ) -> Option<(String, String)> {
     if let Some(required_category) = slot.required_category.as_deref() {
-        if !asset
-            .category_code
-            .trim()
-            .eq_ignore_ascii_case(required_category.trim())
+        if !canonical_equipment_category_code(&asset.category_code)
+            .eq_ignore_ascii_case(canonical_equipment_category_code(required_category))
         {
             return Some((
                 substitution_mismatch_reason(slot, asset, "catégorie"),

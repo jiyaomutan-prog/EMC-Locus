@@ -29,10 +29,11 @@ use crate::{
     AgentError,
 };
 use emc_locus_core::{
-    test_definitions::{
-        CanonicalTestTemplateDefinition, TemplateRevisionStatus, TestTemplateDefinition,
-        TestTemplateValidationError,
+    method_workflow::{
+        derive_method_v2_successor, CanonicalMethodDefinition, MethodWorkflowValidationIssue,
+        VersionedMethodDefinition,
     },
+    test_definitions::TemplateRevisionStatus,
     AuditActor, AuditReason, DomainError, StableId,
 };
 use serde_json::{json, Value};
@@ -108,7 +109,7 @@ pub struct TransitionTestTemplateRevisionInput {
 }
 
 pub fn validate_test_template_definition_json(definition_json: &str) -> Result<String, AgentError> {
-    match TestTemplateDefinition::from_json_str(definition_json) {
+    match VersionedMethodDefinition::from_json_str(definition_json) {
         Ok(definition) => match definition.canonicalize() {
             Ok(canonical) => Ok(render_json(&TestTemplateDefinitionValidationDto {
                 valid: true,
@@ -446,8 +447,28 @@ pub fn create_test_template_revision(
     storage_root: &Path,
     input: CreateTestTemplateRevisionInput,
 ) -> Result<String, AgentError> {
+    create_test_template_revision_internal(storage_root, input, false)
+}
+
+pub fn create_test_method_successor(
+    storage_root: &Path,
+    input: CreateTestTemplateRevisionInput,
+) -> Result<String, AgentError> {
+    create_test_template_revision_internal(storage_root, input, true)
+}
+
+fn create_test_template_revision_internal(
+    storage_root: &Path,
+    input: CreateTestTemplateRevisionInput,
+    convert_to_workflow_v2: bool,
+) -> Result<String, AgentError> {
     validate_create_revision_input(&input)?;
     let payload_json = create_revision_payload_json(&input);
+    let action = if convert_to_workflow_v2 {
+        "test_method_successor_draft_created"
+    } else {
+        "test_template_revision_created"
+    };
     let mut connection = open_test_template_connection_with_sync(storage_root)?;
     let identity =
         load_test_template_identity(&connection, &input.template_id)?.ok_or_else(|| {
@@ -466,6 +487,40 @@ pub fn create_test_template_revision(
             }),
         ));
     }
+    let successor_definition = if convert_to_workflow_v2 {
+        match VersionedMethodDefinition::from_json_str(&source.definition_json)
+            .map_err(validation_error)?
+        {
+            VersionedMethodDefinition::V1(legacy) => Some(
+                derive_method_v2_successor(&legacy)
+                    .and_then(|definition| definition.canonicalize())
+                    .map_err(validation_error)?,
+            ),
+            VersionedMethodDefinition::V2(_) => {
+                return Err(AgentError::new(
+                    "test_method_successor_not_required",
+                    "the source revision already uses the 0.22.2 method workflow",
+                ));
+            }
+        }
+    } else {
+        None
+    };
+    let target_schema = successor_definition
+        .as_ref()
+        .map_or(source.definition_schema_version.as_str(), |definition| {
+            definition.definition_schema_version.as_str()
+        });
+    let target_json = successor_definition
+        .as_ref()
+        .map_or(source.definition_json.as_str(), |definition| {
+            definition.canonical_json.as_str()
+        });
+    let target_checksum = successor_definition
+        .as_ref()
+        .map_or(source.definition_checksum.as_str(), |definition| {
+            definition.definition_checksum.as_str()
+        });
 
     if let Some(operation) = existing_test_template_operation(&connection, &input.operation_id)? {
         let replay_revision_id = operation.revision_id.as_deref().ok_or_else(|| {
@@ -481,14 +536,14 @@ pub fn create_test_template_revision(
                 entity_type: "test_template_revision",
                 template_id: &input.template_id,
                 revision_id: Some(replay_revision_id),
-                action: "test_template_revision_created",
+                action,
                 actor: &input.actor,
                 device_id: &input.device_id,
                 correlation_id: &input.correlation_id,
                 old_revision_id: Some(&input.source_revision_id),
                 new_revision_id: Some(replay_revision_id),
                 old_definition_checksum: Some(&source.definition_checksum),
-                new_definition_checksum: Some(&source.definition_checksum),
+                new_definition_checksum: Some(target_checksum),
                 payload_json: &payload_json,
             },
         )?;
@@ -523,9 +578,9 @@ pub fn create_test_template_revision(
             revision_number,
             parent_revision_id: Some(&input.source_revision_id),
             status: revision_status_text(&TemplateRevisionStatus::Draft),
-            definition_schema_version: &source.definition_schema_version,
-            definition_json: &source.definition_json,
-            definition_checksum: &source.definition_checksum,
+            definition_schema_version: target_schema,
+            definition_json: target_json,
+            definition_checksum: target_checksum,
             created_by: &input.actor,
             timestamp: &now,
         },
@@ -536,7 +591,7 @@ pub fn create_test_template_revision(
         TestTemplateAuditEventInput {
             template_id: &input.template_id,
             revision_id: Some(&revision_id),
-            action: "test_template_revision_created",
+            action,
             actor: &input.actor,
             reason: &input.reason,
             operation_id: &input.operation_id,
@@ -545,7 +600,7 @@ pub fn create_test_template_revision(
             old_revision_id: Some(&input.source_revision_id),
             new_revision_id: Some(&revision_id),
             old_definition_checksum: Some(&source.definition_checksum),
-            new_definition_checksum: Some(&source.definition_checksum),
+            new_definition_checksum: Some(target_checksum),
             payload_json: &payload_json,
             timestamp: &now,
         },
@@ -556,7 +611,7 @@ pub fn create_test_template_revision(
             operation_id: &input.operation_id,
             entity_type: "test_template_revision",
             entity_id: &revision_id,
-            operation_kind: "test_template_revision_created",
+            operation_kind: action,
             base_revision: &input.source_revision_id,
             resulting_revision: &revision_id,
             actor_id: &input.actor,
@@ -572,7 +627,7 @@ pub fn create_test_template_revision(
 
     operation_result_for_revision(
         &connection,
-        "test_template_revision_created",
+        action,
         &input.operation_id,
         false,
         &input.template_id,
@@ -626,10 +681,10 @@ pub fn clone_test_template(
         .category_code
         .as_deref()
         .unwrap_or(&source_identity.category_code);
-    let mut cloned_definition =
-        TestTemplateDefinition::from_json_str(&source_revision.definition_json)
-            .map_err(validation_error)?;
-    cloned_definition.title = input.title.trim().to_owned();
+    let cloned_definition =
+        VersionedMethodDefinition::from_json_str(&source_revision.definition_json)
+            .map_err(validation_error)?
+            .with_title(input.title.trim().to_owned());
     let definition = cloned_definition.canonicalize().map_err(validation_error)?;
     let payload_json = clone_payload_json(&input, category_code, &source_revision, &definition);
     let revision_id = revision_id_for(&input.new_template_id, 1);
@@ -1091,18 +1146,16 @@ fn validate_non_empty(value: &str, field: &'static str) -> Result<(), AgentError
     Ok(())
 }
 
-fn canonical_definition(
-    definition_json: &str,
-) -> Result<CanonicalTestTemplateDefinition, AgentError> {
+fn canonical_definition(definition_json: &str) -> Result<CanonicalMethodDefinition, AgentError> {
     let definition =
-        TestTemplateDefinition::from_json_str(definition_json).map_err(validation_error)?;
+        VersionedMethodDefinition::from_json_str(definition_json).map_err(validation_error)?;
     definition.canonicalize().map_err(validation_error)
 }
 
 fn ensure_category_and_method(
     connection: &rusqlite::Connection,
     category_code: &str,
-    definition: &CanonicalTestTemplateDefinition,
+    definition: &CanonicalMethodDefinition,
 ) -> Result<(), AgentError> {
     if !test_category_exists(connection, category_code)? {
         return Err(AgentError::new(
@@ -1130,21 +1183,25 @@ fn ensure_category_and_method(
     Ok(())
 }
 
-fn validation_error(error: TestTemplateValidationError) -> AgentError {
+fn validation_error(error: MethodWorkflowValidationIssue) -> AgentError {
     AgentError::with_details(
         "invalid_test_template_definition",
         error.message,
-        json!({ "validation_code": error.code }),
+        json!({ "validation_code": error.code, "path": error.path }),
     )
 }
 
-fn render_validation_error(error: TestTemplateValidationError) -> String {
+fn render_validation_error(error: MethodWorkflowValidationIssue) -> String {
     render_json(&TestTemplateDefinitionValidationDto {
         valid: false,
         issues: vec![TestTemplateDefinitionValidationIssueDto {
             severity: "error".to_owned(),
-            code: error.code.to_owned(),
-            path: validation_path_for_code(error.code).to_owned(),
+            code: error.code.clone(),
+            path: if error.path == "$" {
+                validation_path_for_code(&error.code).to_owned()
+            } else {
+                error.path
+            },
             message: error.message,
         }],
         definition_schema_version: None,
@@ -1402,7 +1459,7 @@ fn revision_dto(revision: &StoredTestTemplateRevision) -> TestTemplateRevisionDt
 
 fn create_payload_json(
     input: &CreateTestTemplateInput,
-    definition: &CanonicalTestTemplateDefinition,
+    definition: &CanonicalMethodDefinition,
 ) -> String {
     render_json(&json!({
         "template_id": input.template_id,
@@ -1416,7 +1473,7 @@ fn create_payload_json(
 
 fn replace_definition_payload_json(
     input: &ReplaceTestTemplateDefinitionInput,
-    definition: &CanonicalTestTemplateDefinition,
+    definition: &CanonicalMethodDefinition,
 ) -> String {
     render_json(&json!({
         "template_id": input.template_id,
@@ -1439,7 +1496,7 @@ fn clone_payload_json(
     input: &CloneTestTemplateInput,
     category_code: &str,
     source_revision: &StoredTestTemplateRevision,
-    definition: &CanonicalTestTemplateDefinition,
+    definition: &CanonicalMethodDefinition,
 ) -> String {
     render_json(&json!({
         "source_template_id": input.source_template_id,
@@ -1475,7 +1532,7 @@ fn supersede_payload_json(
     }))
 }
 
-fn definition_value(definition: &CanonicalTestTemplateDefinition) -> Result<Value, AgentError> {
+fn definition_value(definition: &CanonicalMethodDefinition) -> Result<Value, AgentError> {
     serde_json::from_str(&definition.canonical_json).map_err(|error| {
         AgentError::new("test_template_definition_decode_failed", error.to_string())
     })
