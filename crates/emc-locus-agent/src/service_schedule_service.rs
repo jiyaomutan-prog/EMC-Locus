@@ -2301,7 +2301,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .unwrap();
-        assert_eq!(migrated, (8, None, "Ancien poste CEM".to_owned()));
+        assert_eq!(migrated, (9, None, "Ancien poste CEM".to_owned()));
     }
 
     fn seed_test_locations(storage_root: &Path) {

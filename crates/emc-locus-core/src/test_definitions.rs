@@ -918,7 +918,7 @@ fn is_false(value: &bool) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]

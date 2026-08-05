@@ -4,5 +4,6 @@ apps/lab-console/**/*.html text eol=lf
 apps/lab-console/**/*.css text eol=lf
 apps/lab-console/**/*.js text eol=lf
 apps/lab-console/**/*.json text eol=lf
+apps/lab-console/**/*.svg text eol=lf
 apps/lab-console/**/*.ts text eol=lf
 apps/lab-console/**/*.tsx text eol=lf

@@ -938,3 +938,35 @@ remains the authoritative global calibration history, while
 `asset_characterizations` and reviewed correction assignments remain separate
 evidence. Uploaded certificate bytes are content-addressed and referenced by a
 manifest; they are not embedded in station definitions.
+
+## 0.22.2 Method Workflow And Execution Additions
+
+Migration `test_definitions/0006_method_workflow_v2.sql` adds:
+
+- `method_hierarchy_nodes` with stable IDs, parent links, ordering, archive
+  state and optimistic revision;
+- `method_workflow_identities` for measurement-system templates and regulation
+  profiles;
+- `method_workflow_revisions` with deterministic numbers, canonical JSON,
+  SHA-256 checksum and draft/validated/approved lifecycle;
+- `method_workflow_audit_events` and `method_workflow_operations` for atomic
+  traceability and idempotent replay.
+
+Method v2 continues to use `test_template_identities` and
+`test_template_revisions`; historical v1 rows are not rewritten.
+
+Migration `projects/0009_execution_configurations.sql` adds
+`execution_configuration_identities` and immutable
+`execution_configuration_revisions`. Each revision pins method, reusable
+system, station and planned-preparation evidence and stores canonical
+definition plus readiness JSON. There is no physical-assignment table here:
+assignments remain owned by station/preparation.
+
+Migration `equipment/0010_frequency_selective_category_alias.sql` adds
+`equipment_category_aliases`, the canonical
+`frequency_selective_measurement_instruments` category and aliases for
+`emc_receiver` and `spectrum_analyzer`. Old category values remain present in
+immutable revisions; query and matching projections resolve aliases.
+
+All three migrations are additive, replay-safe through `schema_migrations` and
+leave published migrations and historical checksums unchanged.

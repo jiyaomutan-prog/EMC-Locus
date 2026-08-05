@@ -16,6 +16,13 @@ Execution always happens against a campaign test instance that preserves its
 source template revision and its local parameter values at the time the package
 was frozen.
 
+> **0.22.2 successor note:** the active test-method contract is now
+> `emc-locus.test-method-definition.v2`. Reusable logical connections belong to
+> a separate measurement-system-template revision, and physical assignments
+> belong to dated station/preparation evidence. The older sections below remain
+> architectural history; they must not be used to put dated assets into a
+> method or to use a station revision as a reusable topology.
+
 ## Object Definitions
 
 ### Project Template

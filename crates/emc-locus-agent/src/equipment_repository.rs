@@ -1256,6 +1256,11 @@ pub(crate) fn list_equipment_model_identities(
                AND (
                     ?3 IS NULL
                     OR i.category_code = ?3
+                    OR EXISTS (
+                        SELECT 1 FROM equipment_category_aliases alias
+                        WHERE alias.canonical_category_id = ?3
+                          AND alias.alias_code = i.category_code
+                    )
                     OR i.category_code IN (
                         WITH RECURSIVE category_descendants(category_id) AS (
                             SELECT category_id

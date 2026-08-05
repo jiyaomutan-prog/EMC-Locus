@@ -84,7 +84,16 @@ This repository is in active pre-production development. The current focus is
 closing complete laboratory workflows across the Rust agent, local storage and
 operator interfaces while keeping each domain traceable and offline-capable.
 
-Current software version: `0.22.1`.
+Current software version: `0.22.2`.
+
+Version `0.22.2` connects a typed, revisioned test method to a reusable logical
+measurement-system topology and to an immutable dated execution configuration.
+LAB CONSOLE guides variables, functional roles, signal and feedback paths,
+bounded procedure, sub-ranges, regulation, limits, post-processing and an
+explainable dry-run plan. Real equipment remains resolved by the authoritative
+0.22.1 station/preparation engine, with exact revision and checksum pins. This
+release defines, validates and previews an execution contract; it does not
+control instruments, acquire data, execute FFT or apply runtime corrections.
 
 Version `0.22.1` separates what a measurement setup requires from the exact
 physical assets assigned for a dated use. Category, stable-capability and exact

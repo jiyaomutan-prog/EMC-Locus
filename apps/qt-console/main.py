@@ -58,7 +58,10 @@ from emc_locus.qt_console_models import (
     OperatorFormSpec,
     TableViewModel,
     build_console_view_model,
+    build_execution_plan_table,
+    build_method_workflow_tables,
     build_operator_form_specs,
+    build_station_mapping_table,
 )
 
 
@@ -334,6 +337,10 @@ def _populate_tabs(
         tabs.addTab(
             _station_setup_tab(qt, args, on_completed),
             "Préparation du poste",
+        )
+        tabs.addTab(
+            _method_workflow_tab(qt, args),
+            "Méthodes et déroulement",
         )
         return
     form_specs = build_operator_form_specs(bootstrap, _writable_repositories(args))
@@ -1111,6 +1118,208 @@ def _station_setup_tab(
     derive_button.clicked.connect(derive_revision)
 
     refresh_all()
+    return root
+
+
+def _method_workflow_tab(qt: QtBindings, args: argparse.Namespace) -> Any:
+    """Read authoritative method contracts and request a Rust plan preview."""
+
+    client = LocalAgentClient(args.agent_url.strip())
+    state: dict[str, Any] = {
+        "methods": {"test_templates": []},
+        "systems": {"definitions": []},
+        "profiles": {"definitions": []},
+        "plan": None,
+        "mapping": None,
+    }
+
+    root = qt.QWidget()
+    layout = qt.QVBoxLayout(root)
+    layout.setContentsMargins(12, 12, 12, 12)
+    layout.setSpacing(10)
+
+    introduction = qt.QLabel(
+        "Définitions réutilisables et aperçu non exécutant. "
+        "Les règles de graphe, d’unités et d’affectation restent dans l’agent Rust."
+    )
+    introduction.setWordWrap(True)
+    introduction.setObjectName("StationSummary")
+    layout.addWidget(introduction)
+
+    commands = qt.QHBoxLayout()
+    method_selector = qt.QComboBox()
+    method_selector.setMinimumWidth(280)
+    system_selector = qt.QComboBox()
+    system_selector.setMinimumWidth(260)
+    preview_button = qt.QPushButton("Prévisualiser le déroulement")
+    preview_button.setObjectName("PrimaryButton")
+    refresh_button = qt.QPushButton("Rafraîchir")
+    refresh_button.setObjectName("SecondaryButton")
+    commands.addWidget(qt.QLabel("Méthode"))
+    commands.addWidget(method_selector, 1)
+    commands.addWidget(qt.QLabel("Système"))
+    commands.addWidget(system_selector, 1)
+    commands.addWidget(preview_button)
+    commands.addWidget(refresh_button)
+    layout.addLayout(commands)
+
+    configuration_bar = qt.QHBoxLayout()
+    configuration_id = qt.QLineEdit()
+    configuration_id.setPlaceholderText("Identifiant de configuration datée, ex. EXEC-2026-001")
+    load_mapping_button = qt.QPushButton("Lire les affectations datées")
+    load_mapping_button.setObjectName("SecondaryButton")
+    configuration_bar.addWidget(qt.QLabel("Réalisation datée"))
+    configuration_bar.addWidget(configuration_id, 1)
+    configuration_bar.addWidget(load_mapping_button)
+    layout.addLayout(configuration_bar)
+
+    status = qt.QLabel()
+    status.setWordWrap(True)
+    layout.addWidget(status)
+    views = qt.QTabWidget()
+    layout.addWidget(views, 1)
+
+    def current_revision(aggregate: dict[str, Any]) -> dict[str, Any]:
+        for key in ("active_draft_revision", "current_approved_revision", "latest_revision"):
+            value = aggregate.get(key)
+            if isinstance(value, dict):
+                return value
+        revisions = aggregate.get("revisions")
+        if isinstance(revisions, list) and revisions and isinstance(revisions[0], dict):
+            return revisions[0]
+        return {}
+
+    def refresh_views() -> None:
+        views.clear()
+        for model in build_method_workflow_tables(
+            state["methods"],
+            state["systems"],
+            state["profiles"],
+        ):
+            views.addTab(_table(qt, model), model.tab_label)
+        if state["plan"] is not None:
+            model = build_execution_plan_table(state["plan"])
+            views.addTab(_table(qt, model), model.tab_label)
+        if state["mapping"] is not None:
+            model = build_station_mapping_table(state["mapping"])
+            views.addTab(_table(qt, model), model.tab_label)
+
+    def refresh() -> None:
+        failures: list[str] = []
+        for key, loader in (
+            ("methods", client.list_test_templates),
+            ("systems", client.list_measurement_system_templates),
+            ("profiles", client.list_regulation_profiles),
+        ):
+            try:
+                state[key] = loader()
+            except LocalAgentError as error:
+                failures.append(f"{key}: {error.message}")
+
+        selected_method = method_selector.currentData()
+        selected_system = system_selector.currentData()
+        method_selector.blockSignals(True)
+        method_selector.clear()
+        for aggregate in state["methods"].get("test_templates", []):
+            if not isinstance(aggregate, dict):
+                continue
+            identity = aggregate.get("identity", {})
+            revision = current_revision(aggregate)
+            label = str(identity.get("title") or identity.get("template_id") or "Méthode")
+            method_selector.addItem(f"{label} · r{revision.get('revision_number', '?')}", aggregate)
+        method_selector.blockSignals(False)
+        if selected_method:
+            index = method_selector.findData(selected_method)
+            if index >= 0:
+                method_selector.setCurrentIndex(index)
+
+        system_selector.blockSignals(True)
+        system_selector.clear()
+        for aggregate in state["systems"].get("definitions", []):
+            if not isinstance(aggregate, dict):
+                continue
+            identity = aggregate.get("identity", {})
+            revision = current_revision(aggregate)
+            label = str(identity.get("label") or identity.get("entity_id") or "Système")
+            system_selector.addItem(f"{label} · r{revision.get('revision_number', '?')}", aggregate)
+        system_selector.blockSignals(False)
+        if selected_system:
+            index = system_selector.findData(selected_system)
+            if index >= 0:
+                system_selector.setCurrentIndex(index)
+
+        refresh_views()
+        update_preview_availability()
+        status.setText(
+            "Sources partielles : " + " ; ".join(failures)
+            if failures
+            else "Référentiel chargé depuis l’agent local."
+        )
+
+    def update_preview_availability() -> None:
+        aggregate = method_selector.currentData()
+        revision = current_revision(aggregate) if isinstance(aggregate, dict) else {}
+        method_v2 = revision.get("definition_schema_version") == "emc-locus.test-method-definition.v2"
+        enabled = method_v2 and system_selector.currentData() is not None
+        preview_button.setEnabled(enabled)
+        if not method_v2:
+            preview_button.setToolTip(
+                "Sélectionner une méthode 0.22.2. Les méthodes historiques restent en lecture seule."
+            )
+        elif system_selector.currentData() is None:
+            preview_button.setToolTip("Sélectionner un système de mesure réutilisable.")
+        else:
+            preview_button.setToolTip("Compiler un aperçu explicable sans commander d’instrument.")
+
+    def preview_plan() -> None:
+        method_aggregate = method_selector.currentData()
+        system_aggregate = system_selector.currentData()
+        if not isinstance(method_aggregate, dict) or not isinstance(system_aggregate, dict):
+            return
+        method_revision = current_revision(method_aggregate)
+        system_revision = current_revision(system_aggregate)
+        identity = method_aggregate.get("identity", {})
+        profiles = [
+            current_revision(profile).get("definition", {})
+            for profile in state["profiles"].get("definitions", [])
+            if isinstance(profile, dict)
+        ]
+        try:
+            state["plan"] = client.preview_execution_plan(
+                method_template_id=str(identity.get("template_id", "")),
+                method_revision_id=str(method_revision.get("revision_id", "")),
+                method_definition=method_revision.get("definition", {}),
+                system_definition=system_revision.get("definition", {}),
+                regulation_profiles=profiles,
+            )
+        except LocalAgentError as error:
+            status.setText(f"Aperçu refusé : {error.message} ({error.code})")
+            return
+        refresh_views()
+        views.setCurrentIndex(views.count() - (2 if state["mapping"] is not None else 1))
+        status.setText("Aperçu compilé par l’agent local ; aucune commande instrument n’a été envoyée.")
+
+    def load_mapping() -> None:
+        identifier = configuration_id.text().strip()
+        if not identifier:
+            status.setText("Saisir l’identifiant exact d’une configuration datée.")
+            configuration_id.setFocus()
+            return
+        try:
+            state["mapping"] = client.get_execution_configuration(identifier)
+        except LocalAgentError as error:
+            status.setText(f"Configuration indisponible : {error.message} ({error.code})")
+            return
+        refresh_views()
+        views.setCurrentIndex(views.count() - 1)
+        status.setText("Affectations datées lues depuis la préparation autoritaire du poste.")
+
+    method_selector.currentIndexChanged.connect(lambda _index: update_preview_availability())
+    system_selector.currentIndexChanged.connect(lambda _index: update_preview_availability())
+    preview_button.clicked.connect(lambda _checked=False: preview_plan())
+    refresh_button.clicked.connect(lambda _checked=False: refresh())
+    load_mapping_button.clicked.connect(lambda _checked=False: load_mapping())
+    refresh()
     return root
 
 

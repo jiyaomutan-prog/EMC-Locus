@@ -3,6 +3,24 @@
 Version `0.22.1` adds the typed v3 requirement/assignment contract described
 below. Historical v1/v2 sections remain as compatibility documentation.
 
+Version `0.22.2` keeps this API as the sole physical-assignment and operational
+readiness authority. Reusable logical topology now lives in
+`emc-locus.measurement-system-template-definition.v1`; it does not replace
+station v3. A dated execution configuration pins an approved/validated system
+template and the exact station/preparation revision that resolved its roles.
+The derivation route is:
+
+```text
+POST /api/v1/projects/{project_code}/schedule-items/{item_code}/execution-configuration
+GET  /api/v1/execution-configurations/{configuration_id}
+```
+
+The POST requires `planned_preparation_revision_id`, exact method/system/station
+revision checksums, parameter values and the normal operation context. The
+agent rejects assignments that did not come from the pinned preparation. It
+does not silently substitute an asset or weaken service, reservation,
+metrology, location, driver, port or correction blockers.
+
 Version `0.17.0` exposes one local-agent workflow for preparing a real
 measurement setup. The API is revisioned and local-first. It prepares the
 physical chain; it does not control instruments or process measurement data.

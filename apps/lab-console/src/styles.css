@@ -887,6 +887,1273 @@ button.planningSlot-cancelled {
   }
 }
 
+/* 0.22.2 method, measurement-system and regulation workflow. */
+.methodWorkflow {
+  background: #f4f6f5;
+  min-height: calc(100vh - 78px);
+}
+
+.methodWorkflowBar,
+.editorHeader,
+.editorMode,
+.topologyToolbar,
+.topologyControls {
+  align-items: center;
+  background: #fff;
+  border-bottom: 1px solid #d7dfdb;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 10px 16px;
+}
+
+.segmented {
+  align-items: stretch;
+  background: #e9efec;
+  border: 1px solid #d2dbd6;
+  border-radius: 6px;
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.segmented button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: #526159;
+  display: flex;
+  gap: 7px;
+  min-height: 32px;
+  padding: 6px 11px;
+}
+
+.segmented button.active {
+  background: #fff;
+  box-shadow: 0 1px 2px #14251c20;
+  color: #0b6253;
+  font-weight: 700;
+}
+
+.segmented.compact button {
+  font-size: 11px;
+  min-height: 28px;
+  padding: 4px 8px;
+}
+
+.workflowNotice {
+  align-items: center;
+  background: #e9f6ef;
+  border-bottom: 1px solid #a6cfb8;
+  color: #20583d;
+  display: flex;
+  gap: 8px;
+  padding: 9px 16px;
+}
+
+.workflowNotice button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  margin-left: auto;
+  padding: 3px;
+}
+
+.workflowLoading {
+  color: #596960;
+  padding: 48px;
+  text-align: center;
+}
+
+.methodWorkflowLayout,
+.systemWorkspace,
+.regulationWorkspace {
+  display: grid;
+  grid-template-columns: 290px minmax(0, 1fr);
+  min-height: calc(100vh - 174px);
+}
+
+.hierarchyPanel,
+.systemList {
+  background: #f8faf9;
+  border-right: 1px solid #d7dfdb;
+  min-width: 0;
+  padding: 12px;
+}
+
+.panelHeading,
+.libraryHeading,
+.sectionCommand,
+.dialogTitle,
+.stepTitle {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.panelHeading > div,
+.panelHeading > div > small,
+.libraryHeading > div,
+.sectionCommand > div,
+.dialogTitle > div {
+  display: grid;
+  gap: 3px;
+}
+
+.panelHeading small,
+.methodRow small,
+.systemList small,
+.workflowEmpty small,
+.targetedError small,
+.structuredRow small,
+.procedureTree small,
+.planVerdict small,
+.validationSummary small {
+  color: #66766d;
+  display: block;
+  font-size: 11px;
+}
+
+.workflowSearch {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #cbd6d0;
+  border-radius: 4px;
+  display: flex;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 0 9px;
+}
+
+.workflowSearch input {
+  border: 0;
+  min-height: 34px;
+  min-width: 0;
+  outline: 0;
+  width: 100%;
+}
+
+.compactCheck {
+  align-items: center;
+  color: #5b6962;
+  display: flex;
+  font-size: 11px;
+  gap: 7px;
+  margin: 10px 2px;
+}
+
+.breadcrumbs {
+  color: #4d6257;
+  font-size: 11px;
+  overflow: hidden;
+  padding: 7px 2px 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hierarchyTree,
+.hierarchyTree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.hierarchyRow {
+  align-items: center;
+  border-radius: 4px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  margin-block: 1px;
+  min-height: 40px;
+}
+
+.hierarchyRow:hover {
+  background: #edf2ef;
+}
+
+.hierarchyRow.selected {
+  background: #dfeee8;
+  box-shadow: inset 3px 0 #117462;
+}
+
+.treeToggle,
+.treeLabel {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  min-width: 0;
+}
+
+.treeToggle {
+  padding: 4px;
+}
+
+.treeToggle:disabled {
+  opacity: .35;
+}
+
+.treeLabel {
+  display: grid;
+  gap: 1px;
+  padding: 5px 3px;
+  text-align: left;
+}
+
+.treeLabel span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.treeLabel small {
+  color: #738078;
+  font-size: 9px;
+}
+
+.countBadge {
+  background: #e5ebe8;
+  border-radius: 8px;
+  color: #5c6a62;
+  font-size: 10px;
+  margin-right: 5px;
+  min-width: 18px;
+  padding: 2px 5px;
+  text-align: center;
+}
+
+.hierarchyActions {
+  border-top: 1px solid #dce3df;
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.hierarchyActions button {
+  align-items: center;
+  display: flex;
+  font-size: 11px;
+  gap: 5px;
+  padding: 5px 7px;
+}
+
+.inlineEditor {
+  background: #fff;
+  border: 1px solid #cbd7d1;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px #23352c1a;
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+}
+
+.inlineEditor.horizontal {
+  align-items: end;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.inlineEditor label small {
+  color: #68776f;
+  font-size: 10px;
+}
+
+.inlineEditor label,
+.compactDialog label,
+.regulationTable label {
+  display: grid;
+  font-size: 11px;
+  gap: 4px;
+}
+
+.methodLibraryPanel,
+.topologyWorkspace,
+.regulationEditor {
+  min-width: 0;
+  padding: 18px;
+}
+
+.connectionEditor {
+  align-items: end;
+  background: #eef4f1;
+  border-bottom: 1px solid #cbd8d1;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(150px, .8fr) minmax(190px, 1fr) auto minmax(190px, 1fr) auto;
+  padding: 12px 16px;
+}
+
+.connectionEditor label,
+.nodeFields label {
+  display: grid;
+  font-size: 11px;
+  gap: 4px;
+}
+
+.connectionEditor > div {
+  display: flex;
+  gap: 6px;
+}
+
+.nodeInspector {
+  background: #fff;
+  border: 1px solid #d5ded9;
+  margin-top: 12px;
+  padding: 14px;
+}
+
+.nodeFields {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 12px;
+}
+
+.portList {
+  border-top: 1px solid #e1e7e4;
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.portRow {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(140px, 1fr) minmax(125px, .7fr) minmax(170px, 1fr) 34px;
+  margin-top: 7px;
+}
+
+@media (max-width: 1050px) {
+  .connectionEditor {
+    align-items: stretch;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .connectionEditor > svg {
+    display: none;
+  }
+
+  .nodeFields,
+  .portRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+.libraryHeading {
+  border-bottom: 1px solid #d9e0dc;
+  padding-bottom: 15px;
+}
+
+.libraryHeading h2,
+.methodEditor h2,
+.legacyMethodPanel h2,
+.stepTitle h3 {
+  letter-spacing: 0;
+  margin: 2px 0 4px;
+}
+
+.libraryHeading p,
+.sectionCommand p {
+  color: #627168;
+  margin: 3px 0 0;
+}
+
+.methodRows {
+  background: #fff;
+  border: 1px solid #d7dfdb;
+  margin-top: 14px;
+}
+
+.methodRow {
+  align-items: center;
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid #e2e7e4;
+  color: #1c2922;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 34px minmax(180px, 1fr) auto auto 18px;
+  min-height: 64px;
+  padding: 9px 13px;
+  text-align: left;
+  width: 100%;
+}
+
+.methodRow:last-child {
+  border-bottom: 0;
+}
+
+.methodRow:hover {
+  background: #f3f8f5;
+}
+
+.methodRowIcon {
+  align-items: center;
+  background: #e4f0eb;
+  border-radius: 5px;
+  color: #126854;
+  display: flex;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.statusBadge,
+.legacyBadge,
+.warningBadge {
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 7px;
+  white-space: nowrap;
+}
+
+.statusBadge.approved,
+.statusBadge.validated {
+  background: #dff1e7;
+  color: #1e6345;
+}
+
+.statusBadge.draft,
+.statusBadge.under_review {
+  background: #f5edcf;
+  color: #6e5815;
+}
+
+.legacyBadge,
+.warningBadge {
+  background: #edf0ee;
+  color: #57645d;
+}
+
+.dialogBackdrop {
+  align-items: center;
+  background: #10201970;
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 60;
+}
+
+.compactDialog {
+  background: #fff;
+  border-radius: 7px;
+  box-shadow: 0 16px 45px #10201955;
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  width: min(500px, calc(100vw - 30px));
+}
+
+.compactDialog h2 {
+  margin: 0;
+}
+
+.dialogTitle button {
+  background: transparent;
+  border: 0;
+}
+
+.dialogActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.workflowEmpty,
+.targetedError,
+.legacyMethodMessage,
+.validationSummary {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #d8e0dc;
+  display: grid;
+  gap: 11px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin-top: 14px;
+  padding: 14px;
+}
+
+.workflowEmpty > span,
+.targetedError > span,
+.validationSummary > span {
+  display: grid;
+  gap: 3px;
+}
+
+.targetedError {
+  background: #fff2ef;
+  border-color: #dfaca3;
+  color: #812f25;
+}
+
+.legacyMethodPanel {
+  padding: 18px;
+}
+
+.legacyMethodMessage {
+  align-items: start;
+  grid-template-columns: auto minmax(0, 720px);
+  padding: 24px;
+}
+
+.legacyMethodMessage p {
+  color: #5d6c64;
+  line-height: 1.55;
+}
+
+.backButton {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #315a4b;
+  display: inline-flex;
+  gap: 6px;
+  padding: 5px 0;
+}
+
+.editorHeader {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) auto auto auto;
+  position: sticky;
+  top: 0;
+  z-index: 15;
+}
+
+.editorHeader .backButton {
+  padding-right: 12px;
+}
+
+.saveIndicator {
+  color: #567067;
+  font-size: 11px;
+}
+
+.saveIndicator.dirty {
+  color: #8a4c18;
+  font-weight: 700;
+}
+
+.editorMode {
+  background: #f6f8f7;
+  padding-block: 8px;
+}
+
+.editorMode > span {
+  color: #627168;
+  font-size: 11px;
+}
+
+.methodEditorBody {
+  display: grid;
+  grid-template-columns: 245px minmax(0, 1fr);
+}
+
+.methodEditorBody.outline {
+  grid-template-columns: 290px minmax(0, 1fr);
+}
+
+.methodStepRail {
+  background: #eef2f0;
+  border-right: 1px solid #d6ded9;
+  min-height: calc(100vh - 238px);
+  padding: 12px 8px;
+}
+
+.methodStepRail button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: #43534a;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  min-height: 44px;
+  padding: 6px 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.methodStepRail button > span {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #c8d2cc;
+  border-radius: 50%;
+  display: flex;
+  font-size: 10px;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.methodStepRail button.active {
+  background: #fff;
+  color: #0c6654;
+  box-shadow: inset 3px 0 #0d7660;
+}
+
+.methodStepRail button.complete > span {
+  background: #dcefe6;
+  border-color: #8fc3aa;
+  color: #17613f;
+}
+
+.methodStepContent {
+  min-width: 0;
+  padding: 18px 22px 30px;
+}
+
+.stepTitle {
+  border-bottom: 1px solid #dce3df;
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+}
+
+.formGrid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.workflowField {
+  display: grid;
+  font-size: 12px;
+  gap: 5px;
+}
+
+.workflowField.full {
+  grid-column: 1 / -1;
+}
+
+.workflowField b {
+  color: #a43e30;
+}
+
+.workflowField small {
+  color: #637169;
+}
+
+.workflowField input,
+.workflowField textarea,
+.inlineEditor input,
+.inlineEditor select,
+.compactDialog input,
+.regulationTable input,
+.titleInput {
+  background: #fff;
+  border: 1px solid #bccbc4;
+  border-radius: 4px;
+  color: #17211c;
+  min-height: 36px;
+  padding: 7px 9px;
+}
+
+.workflowField textarea {
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.sectionCommand {
+  margin-bottom: 12px;
+}
+
+.sectionCommand h4 {
+  margin: 0;
+}
+
+.structuredTable {
+  background: #fff;
+  border: 1px solid #d6dfda;
+}
+
+.structuredRow {
+  align-items: center;
+  border-bottom: 1px solid #e1e7e4;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(160px, 1.4fr) minmax(130px, 1fr) minmax(80px, .6fr) minmax(90px, .7fr) 32px;
+  min-height: 50px;
+  padding: 7px 10px;
+}
+
+.structuredRow:last-child {
+  border-bottom: 0;
+}
+
+.roleGrid {
+  display: grid;
+  gap: 8px;
+}
+
+.roleTile {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #d5ded9;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 40px minmax(0, 1fr) 32px;
+  padding: 11px;
+}
+
+.roleTile p {
+  color: #5f6d65;
+  margin: 3px 0;
+}
+
+.instrumentIcon {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.referenceChoices {
+  display: grid;
+  gap: 8px;
+}
+
+.referenceChoices label {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #d4ddd8;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto 24px minmax(0, 1fr);
+  padding: 12px;
+}
+
+.referenceChoices label.selected {
+  background: #edf7f2;
+  border-color: #72aa90;
+}
+
+.referenceChoices span {
+  display: grid;
+  gap: 2px;
+}
+
+.referenceChoices small {
+  color: #637269;
+}
+
+.procedureLayout,
+.reviewLayout {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, .9fr);
+}
+
+.procedureTree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.procedureTree li {
+  align-items: center;
+  border-left: 2px solid #9cbbae;
+  display: grid;
+  gap: 3px 9px;
+  grid-template-columns: 100px minmax(0, 1fr);
+  margin-block: 5px;
+  padding: 8px 10px;
+}
+
+.procedureTree li > ol {
+  grid-column: 1 / -1;
+}
+
+.procedureKind {
+  color: #17634f;
+  font-size: 10px;
+  text-transform: capitalize;
+}
+
+.subRangeEditor {
+  display: grid;
+  gap: 10px;
+}
+
+.rangePreview {
+  background: #eaf5ef;
+  border-left: 3px solid #258563;
+  display: grid;
+  gap: 2px;
+  padding: 9px 11px;
+}
+
+.rangePreview small {
+  color: #53675d;
+}
+
+.reviewChecklist {
+  display: grid;
+  gap: 4px;
+}
+
+.reviewChecklist > div {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #dae2de;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: 20px 1fr;
+  padding: 8px 10px;
+}
+
+.reviewChecklist > div.done {
+  color: #226143;
+}
+
+.reviewChecklist > div.missing {
+  color: #805023;
+}
+
+.reviewChecklist span {
+  display: grid;
+  gap: 1px;
+}
+
+.reviewChecklist small {
+  color: inherit;
+  font-size: 10px;
+}
+
+.planVerdict {
+  align-items: center;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: auto 1fr;
+  padding: 11px;
+}
+
+.planVerdict.ready {
+  background: #e5f4eb;
+  color: #1e623f;
+}
+
+.planVerdict.blocked {
+  background: #fff0eb;
+  color: #823627;
+}
+
+.planPreview ol {
+  background: #fff;
+  border: 1px solid #d9e1dd;
+  list-style: none;
+  margin: 8px 0;
+  padding: 8px;
+}
+
+.planPreview li {
+  border-left: 2px solid #87af9d;
+  display: grid;
+  gap: 1px;
+  margin: 4px;
+  padding: 5px 8px;
+}
+
+.planPreview li small {
+  color: #68766e;
+}
+
+.planBlocker {
+  border-left: 3px solid #bf5a49;
+  display: grid;
+  gap: 2px;
+  margin-top: 6px;
+  padding: 7px 10px;
+}
+
+.planBlocker span,
+.runtimeBoundary {
+  color: #6c5b54;
+  font-size: 11px;
+}
+
+.stepFooter {
+  align-items: center;
+  border-top: 1px solid #d9e1dd;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 22px;
+  padding-top: 12px;
+}
+
+.stepFooter button:first-child {
+  margin-right: auto;
+}
+
+.technicalDetails {
+  border-top: 1px solid #dce3df;
+  margin-top: 20px;
+  padding-top: 10px;
+}
+
+.technicalDetails summary {
+  align-items: center;
+  color: #536159;
+  cursor: pointer;
+  display: flex;
+  font-size: 11px;
+  gap: 6px;
+}
+
+.technicalDetails pre {
+  background: #1e2a24;
+  color: #dce9e2;
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+}
+
+.validationPanel {
+  border: 1px solid #d4ddd8;
+  margin-top: 16px;
+  padding: 10px;
+}
+
+.validationPanel > div {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.validationPanel.valid {
+  background: #eaf6ef;
+  color: #235e41;
+}
+
+.validationPanel.invalid {
+  background: #fff2ee;
+  color: #80372b;
+}
+
+.validationPanel p {
+  display: grid;
+  font-size: 11px;
+  gap: 2px;
+  grid-template-columns: minmax(120px, auto) 1fr;
+  margin: 8px 0 0;
+}
+
+.systemList {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+}
+
+.systemList > button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  padding: 9px;
+  text-align: left;
+  width: 100%;
+}
+
+.systemList > button:hover,
+.systemList > button.selected {
+  background: #fff;
+  border-color: #cbd8d1;
+}
+
+.systemList > button.selected {
+  box-shadow: inset 3px 0 #12725e;
+}
+
+.systemList > button span:nth-child(2) {
+  display: grid;
+  gap: 2px;
+}
+
+.topologyToolbar {
+  border: 1px solid #d6dfda;
+  padding: 10px 12px;
+}
+
+.topologyToolbar > div:first-child {
+  min-width: 0;
+}
+
+.topologyToolbar > div:last-child {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+}
+
+.titleInput {
+  font-size: 17px;
+  font-weight: 700;
+  width: min(460px, 100%);
+}
+
+.topologyControls {
+  border: 1px solid #d6dfda;
+  border-top: 0;
+  justify-content: flex-start;
+  padding: 7px 9px;
+}
+
+.topologyControls .segmented {
+  margin-left: auto;
+}
+
+.topologyCanvas {
+  background-color: #fbfcfb;
+  background-image: radial-gradient(#c9d5cf 0.7px, transparent 0.7px);
+  background-size: 16px 16px;
+  border: 1px solid #d6dfda;
+  border-top: 0;
+  height: 300px;
+  overflow: auto;
+  position: relative;
+}
+
+.topologyEdges {
+  height: 260px;
+  left: 0;
+  min-width: 100%;
+  position: absolute;
+  top: 0;
+}
+
+.topologyEdge {
+  fill: none;
+  stroke: #2d7762;
+  stroke-width: 2;
+}
+
+.topologyEdge.regulation {
+  stroke: #b45a40;
+  stroke-dasharray: 7 4;
+}
+
+.topologyEdge.control {
+  stroke: #556f92;
+  stroke-dasharray: 3 4;
+}
+
+.topologyNodes {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  left: 24px;
+  position: absolute;
+  right: 24px;
+  top: 96px;
+  transform-origin: left top;
+}
+
+.topologyNodes button {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #aebdb5;
+  box-shadow: 0 3px 9px #26382f20;
+  color: #27372e;
+  display: grid;
+  flex: 1 1 0;
+  gap: 3px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 26px auto;
+  justify-items: center;
+  max-width: 138px;
+  min-width: 0;
+  min-height: 100px;
+  padding: 8px;
+  text-align: center;
+}
+
+.topologyNodes button.selected,
+.topologyNodes button:focus-visible {
+  border-color: #0f765f;
+  box-shadow: 0 0 0 3px #92c9b554;
+  outline: 0;
+}
+
+.topologyNodes span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  width: 100%;
+}
+
+.topologyNodes strong,
+.topologyNodes small {
+  overflow-wrap: break-word;
+}
+
+.topologyNodes strong {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.topologyNodes small {
+  color: #68766e;
+  font-size: 9px;
+}
+
+.topologyFallback {
+  margin-top: 16px;
+}
+
+.structuredRow.topologyConnection {
+  grid-template-columns: minmax(150px, 1.2fr) minmax(120px, 1fr) 18px minmax(120px, 1fr) 30px;
+}
+
+.regulationPreview {
+  background: #fff;
+  border: 1px solid #d6dfda;
+  margin: 0;
+  padding: 12px;
+}
+
+.regulationPreview svg {
+  max-height: 245px;
+  width: 100%;
+}
+
+.regulationPreview line {
+  stroke: #7a8981;
+  stroke-width: 1;
+}
+
+.regulationPreview text {
+  fill: #59685f;
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.regulationPreview .toleranceBand {
+  fill: #dff0e7;
+  stroke: none;
+}
+
+.regulationPreview .targetLine {
+  stroke: #197057;
+  stroke-dasharray: 4 4;
+  stroke-width: 2;
+}
+
+.regulationPreview .regulationPath {
+  fill: none;
+  stroke: #bd6045;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.regulationTable {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  margin-top: 12px;
+}
+
+.numberWithUnit {
+  align-items: center;
+  display: grid;
+  grid-template-columns: 1fr auto;
+}
+
+.numberWithUnit small {
+  background: #e8eeeb;
+  border: 1px solid #bccbc4;
+  border-left: 0;
+  min-height: 36px;
+  padding: 9px 8px;
+}
+
+.regulationSummary {
+  background: #edf3f0;
+  border-left: 3px solid #527c69;
+  margin-top: 14px;
+  padding: 12px;
+}
+
+.regulationSummary p {
+  color: #44564c;
+  line-height: 1.5;
+  margin: 5px 0 0;
+}
+
+.validationSummary {
+  margin-top: 10px;
+}
+
+@media (max-width: 1280px) {
+  .methodWorkflowLayout,
+  .systemWorkspace,
+  .regulationWorkspace {
+    grid-template-columns: 250px minmax(0, 1fr);
+  }
+
+  .methodEditorBody {
+    grid-template-columns: 215px minmax(0, 1fr);
+  }
+
+  .methodStepContent,
+  .methodLibraryPanel,
+  .topologyWorkspace,
+  .regulationEditor {
+    padding-inline: 14px;
+  }
+
+  .regulationTable {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .methodWorkflowLayout,
+  .systemWorkspace,
+  .regulationWorkspace,
+  .methodEditorBody,
+  .methodEditorBody.outline {
+    grid-template-columns: 1fr;
+  }
+
+  .hierarchyPanel,
+  .systemList,
+  .methodStepRail {
+    border-bottom: 1px solid #d7dfdb;
+    border-right: 0;
+    max-height: 330px;
+    min-height: auto;
+    overflow: auto;
+  }
+
+  .methodStepRail {
+    display: flex;
+  }
+
+  .methodStepRail button {
+    flex: 0 0 190px;
+  }
+
+  .procedureLayout,
+  .reviewLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .editorHeader {
+    grid-template-columns: auto minmax(150px, 1fr) auto;
+  }
+
+  .editorHeader .statusBadge,
+  .editorHeader .saveIndicator {
+    display: none;
+  }
+}
+
 /* 0.22.0 - explicit model, fleet and laboratory-location workspaces. */
 .resourcePageHeader {
   align-items: flex-start;

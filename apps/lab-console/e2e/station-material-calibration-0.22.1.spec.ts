@@ -1,11 +1,11 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const plannedDate = "2026-07-31";
+const plannedDate = new Date().toISOString().slice(0, 10);
 const stationLabel = "Chaîne CEM CA-001";
 const screenshotRoot = path.resolve(process.cwd(), "../../docs/ux/0.22.1/screenshots");
 
@@ -565,15 +565,16 @@ async function capture(
 }
 
 async function restartAgent(request: APIRequestContext) {
-  const currentPid = Number(process.env.LAB_CONSOLE_E2E_AGENT_PID);
   const executable = process.env.LAB_CONSOLE_E2E_AGENT_EXECUTABLE;
   const storageRelative = process.env.LAB_CONSOLE_E2E_STORAGE_RELATIVE;
   const bind = process.env.LAB_CONSOLE_E2E_AGENT_BIND;
   const pidFile = process.env.LAB_CONSOLE_E2E_RESTARTED_AGENT_PID_FILE;
-  if (!currentPid || !executable || !storageRelative || !bind || !pidFile) {
+  if (!executable || !storageRelative || !bind || !pidFile) {
     throw new Error("The isolated E2E runner did not expose restart metadata");
   }
-  process.kill(currentPid);
+  const currentPid = readTrackedAgentPid(pidFile) || Number(process.env.LAB_CONSOLE_E2E_AGENT_PID);
+  if (!currentPid) throw new Error("The isolated E2E runner did not expose an agent process identifier");
+  stopTrackedAgent(currentPid);
   await new Promise((resolve) => setTimeout(resolve, 350));
   const restarted = spawn(executable, [
     "serve",
@@ -581,7 +582,7 @@ async function restartAgent(request: APIRequestContext) {
     "--migrations-root", "storage/sqlite",
     "--bind", bind,
     "--lab-console-dist", "apps/lab-console/dist"
-  ], { cwd: path.resolve(process.cwd(), "../.."), windowsHide: true, stdio: "ignore" });
+  ], { cwd: path.resolve(process.cwd(), "../.."), detached: true, windowsHide: true, stdio: "ignore" });
   if (!restarted.pid) throw new Error("The restarted Local Agent has no process identifier");
   writeFileSync(pidFile, String(restarted.pid), "utf8");
   restarted.unref();
@@ -595,6 +596,22 @@ async function restartAgent(request: APIRequestContext) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error("The restarted Local Agent did not become ready");
+}
+
+function readTrackedAgentPid(pidFile: string) {
+  try {
+    return Number(readFileSync(pidFile, "utf8").trim());
+  } catch {
+    return 0;
+  }
+}
+
+function stopTrackedAgent(pid: number) {
+  try {
+    process.kill(pid);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
 }
 
 function cableModelDefinition() {

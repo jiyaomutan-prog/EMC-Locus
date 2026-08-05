@@ -32,7 +32,10 @@ from .qt_console_models import (
     StatusMetric,
     TableViewModel,
     build_console_view_model,
+    build_execution_plan_table,
+    build_method_workflow_tables,
     build_operator_form_specs,
+    build_station_mapping_table,
 )
 from .session_plan import SessionPlan, Workstream, default_backlog
 from .sqlite_repositories import (
@@ -71,8 +74,11 @@ __all__ = [
     "build_bootstrap",
     "build_console_bootstrap_from_repositories",
     "build_console_view_model",
+    "build_execution_plan_table",
     "build_fixture_bootstrap",
+    "build_method_workflow_tables",
     "build_operator_form_specs",
+    "build_station_mapping_table",
     "complete_contract_review_item_action",
     "create_project_record",
     "create_test_category",

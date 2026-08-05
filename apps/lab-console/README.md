@@ -10,6 +10,16 @@ administration, revisioned equipment models, driver profiles,
 communication-provider status, and signal and correction editors remain
 available.
 
+## Scope In 0.22.2
+
+`Méthodes d'essai` now joins reusable method intent, measurement-system
+topology and regulation in one guided workspace. Functional roles and logical
+ports are defined without physical assets; the dated handoff reuses the 0.22.1
+station/preparation engine. The graph has typed layers and an equivalent
+structured table, while execution preview clearly reports unsupported runtime
+operations. This release compiles a dry-run contract and does not command
+instruments or process acquired data.
+
 The Equipment workspace uses signal-facing language: time-domain sample
 conversion, frequency response, sensor power/conditioning, equipment ports, and
 signal paths. `Matériels réels` also opens the selected asset's metrology dossier

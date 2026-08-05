@@ -159,3 +159,20 @@ et tous les contrôles opérationnels.
 
 Les anciennes révisions v2 restent lisibles et immuables. Leur évolution passe
 par la création explicite d'un nouveau brouillon v3 audité.
+
+## Évolution 0.22.2 : topologie réutilisable et configuration datée
+
+La révision station v3 reste propriétaire des exigences matérielles, des
+affectations d'exemplaires, des ports physiques et de l'aptitude opérationnelle
+pour une date et un lieu. Elle n'est pas renommée en modèle réutilisable.
+
+Le nouveau modèle de système de mesure décrit uniquement les fonctions, ports
+logiques, chemins de signal, commandes, retours de régulation, synchronisation
+et points de correction. La configuration d'exécution datée référence ensuite
+la méthode, ce modèle logique et la station v3 par leurs révisions et empreintes
+exactes. Les affectations sont reprises de la préparation d'essai 0.22.1 ;
+aucun second moteur de choix de matériel n'est créé.
+
+Ainsi, une même topologie peut être réutilisée, tandis que chaque réalisation
+conserve son lieu, sa date, son objet soumis à l'essai, ses numéros de série et
+ses preuves métrologiques propres.
