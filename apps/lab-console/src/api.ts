@@ -84,6 +84,20 @@ import type {
   ServiceScheduleItem,
   ServiceScheduleOperationResult
 } from "./models/projects";
+import type {
+  ExecutionPlanPreview,
+  MeasurementSystemDefinition,
+  MethodHierarchyNode,
+  MethodWorkflowAggregate,
+  MethodWorkflowOperationResult,
+  MethodWorkflowRevision,
+  RegulationProfileDefinition,
+  SubRangeDefinition,
+  SubRangePreview,
+  TestMethodDefinitionV2,
+  WorkflowAggregate,
+  WorkflowRevision
+} from "./models/methodWorkflow";
 
 export class ApiError extends Error {
   readonly code: string;
@@ -336,6 +350,181 @@ export const api = {
         operation_id: operationId("template-derive", `${templateId}-${sourceRevisionId}`)
       }
     ).then(normalizeOperationResult)
+};
+
+type WorkflowDefinition = MeasurementSystemDefinition | RegulationProfileDefinition;
+
+function workflowContext(prefix: string, key: string, context: OperationContext) {
+  const id = operationId(prefix, key);
+  return {
+    ...context,
+    operation_id: id,
+    correlation_id: id,
+    device_id: "lab-console"
+  };
+}
+
+export const methodWorkflowApi = {
+  listHierarchy: () => request<{ nodes: MethodHierarchyNode[] }>("/api/v1/method-hierarchy"),
+  createHierarchyNode: (node: Omit<MethodHierarchyNode, "revision">, context: OperationContext) =>
+    post<{ node: MethodHierarchyNode; revision: number }>("/api/v1/method-hierarchy", {
+      node,
+      ...workflowContext("method-hierarchy-create", node.node_id, context)
+    }),
+  updateHierarchyNode: (node: MethodHierarchyNode, context: OperationContext) =>
+    put<{ node: MethodHierarchyNode; revision: number }>(
+      `/api/v1/method-hierarchy/${encodeURIComponent(node.node_id)}`,
+      {
+        node: {
+          node_id: node.node_id,
+          parent_node_id: node.parent_node_id,
+          node_kind: node.node_kind,
+          label: node.label,
+          position: node.position,
+          archived: node.archived
+        },
+        expected_revision: node.revision,
+        ...workflowContext("method-hierarchy-update", `${node.node_id}-${node.revision}`, context)
+      }
+    ),
+  listMethods: () =>
+    request<{ test_templates: MethodWorkflowAggregate[] }>("/api/v1/test-templates"),
+  getMethodRevision: (templateId: string, revisionId: string) =>
+    request<{ revision: MethodWorkflowRevision }>(
+      `/api/v1/test-templates/${encodeURIComponent(templateId)}/revisions/${encodeURIComponent(revisionId)}`
+    ),
+  createMethodSuccessor: (
+    templateId: string,
+    sourceRevisionId: string,
+    context: OperationContext
+  ) =>
+    post<MethodWorkflowOperationResult>(
+      `/api/v1/test-templates/${encodeURIComponent(templateId)}/revisions/successor-0.22.2`,
+      {
+        source_revision_id: sourceRevisionId,
+        ...workflowContext("method-successor-0222", `${templateId}-${sourceRevisionId}`, context)
+      }
+    ),
+  createMethodV2: (
+    templateId: string,
+    title: string,
+    categoryCode: string,
+    definition: TestMethodDefinitionV2,
+    context: OperationContext
+  ) =>
+    post<MethodWorkflowOperationResult>("/api/v1/test-templates", {
+      template_id: templateId,
+      title,
+      category_code: categoryCode,
+      definition,
+      ...workflowContext("method-v2-create", templateId, context)
+    }),
+  saveMethodDraft: (
+    templateId: string,
+    revisionId: string,
+    expectedChecksum: string,
+    definition: TestMethodDefinitionV2,
+    context: OperationContext
+  ) =>
+    put<MethodWorkflowOperationResult>(
+      `/api/v1/test-templates/${encodeURIComponent(templateId)}/revisions/${encodeURIComponent(revisionId)}/definition`,
+      {
+        expected_definition_checksum: expectedChecksum,
+        definition,
+        ...workflowContext("method-v2-save", `${templateId}-${revisionId}`, context)
+      }
+    ),
+  transitionMethod: (
+    templateId: string,
+    revisionId: string,
+    transition: "submit-for-review" | "approve",
+    context: OperationContext
+  ) =>
+    post<MethodWorkflowOperationResult>(
+      `/api/v1/test-templates/${encodeURIComponent(templateId)}/revisions/${encodeURIComponent(revisionId)}/transitions/${transition}`,
+      workflowContext("method-v2-transition", `${templateId}-${revisionId}-${transition}`, context)
+    ),
+  validateMethod: (definition: TestMethodDefinitionV2) =>
+    post<ValidationResult>("/api/v1/test-template-definitions/validate", { definition }),
+  listSystems: () =>
+    request<{ definitions: WorkflowAggregate<MeasurementSystemDefinition>[] }>(
+      "/api/v1/measurement-system-templates"
+    ),
+  listRegulationProfiles: () =>
+    request<{ definitions: WorkflowAggregate<RegulationProfileDefinition>[] }>(
+      "/api/v1/regulation-profiles"
+    ),
+  createWorkflowDefinition: <T extends WorkflowDefinition>(
+    collection: "measurement-system-templates" | "regulation-profiles",
+    entityId: string,
+    label: string,
+    classification: string,
+    definition: T,
+    validation: { method_definition?: TestMethodDefinitionV2; regulation_profiles?: RegulationProfileDefinition[] },
+    context: OperationContext
+  ) =>
+    post<{ revision: WorkflowRevision<T> }>(`/api/v1/${collection}`, {
+      entity_id: entityId,
+      label,
+      classification,
+      definition,
+      ...validation,
+      ...workflowContext("workflow-create", `${collection}-${entityId}`, context)
+    }),
+  saveWorkflowDraft: <T extends WorkflowDefinition>(
+    collection: "measurement-system-templates" | "regulation-profiles",
+    entityId: string,
+    revisionId: string,
+    expectedChecksum: string,
+    definition: T,
+    validation: { method_definition?: TestMethodDefinitionV2; regulation_profiles?: RegulationProfileDefinition[] },
+    context: OperationContext
+  ) =>
+    put<{ revision: WorkflowRevision<T> }>(
+      `/api/v1/${collection}/${encodeURIComponent(entityId)}/revisions/${encodeURIComponent(revisionId)}/definition`,
+      {
+        expected_definition_checksum: expectedChecksum,
+        definition,
+        ...validation,
+        ...workflowContext("workflow-save", `${collection}-${entityId}-${revisionId}`, context)
+      }
+    ),
+  transitionWorkflow: <T extends WorkflowDefinition>(
+    collection: "measurement-system-templates" | "regulation-profiles",
+    entityId: string,
+    revisionId: string,
+    transition: "validate" | "approve",
+    validation: { method_definition?: TestMethodDefinitionV2; regulation_profiles?: RegulationProfileDefinition[] },
+    context: OperationContext
+  ) =>
+    post<{ revision: WorkflowRevision<T> }>(
+      `/api/v1/${collection}/${encodeURIComponent(entityId)}/revisions/${encodeURIComponent(revisionId)}/transitions/${transition}`,
+      {
+        ...validation,
+        ...workflowContext("workflow-transition", `${entityId}-${revisionId}-${transition}`, context)
+      }
+    ),
+  previewSubRange: (subRange: SubRangeDefinition, maximumPoints = 200) =>
+    post<{ preview: SubRangePreview }>("/api/v1/sub-ranges/preview", {
+      sub_range: subRange,
+      maximum_points: maximumPoints
+    }),
+  previewExecutionPlan: (
+    templateId: string,
+    revisionId: string,
+    methodDefinition: TestMethodDefinitionV2,
+    systemDefinition: MeasurementSystemDefinition,
+    regulationProfiles: RegulationProfileDefinition[],
+    context: OperationContext
+  ) =>
+    post<{ preview: ExecutionPlanPreview }>("/api/v1/execution-plans/preview", {
+      method_template_id: templateId,
+      method_revision_id: revisionId,
+      method_definition: methodDefinition,
+      system_definition: systemDefinition,
+      regulation_profiles: regulationProfiles,
+      ...workflowContext("execution-preview", `${templateId}-${revisionId}`, context)
+    })
 };
 
 export const equipmentApi = {

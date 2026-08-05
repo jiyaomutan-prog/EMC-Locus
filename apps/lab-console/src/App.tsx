@@ -24,7 +24,7 @@ import {
   Wrench
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { ApiError, api, type OperationContext } from "./api";
 import { defaultTemplateDefinition } from "./defaultDefinition";
 import { EquipmentWorkspace, type EquipmentSpace } from "./features/equipment/EquipmentWorkspace";
@@ -48,7 +48,13 @@ import type {
   VariableLockPolicy
 } from "./types";
 
-type ActiveView = "projects" | "planning" | "library" | "studio" | "equipment" | "system";
+type ActiveView = "projects" | "planning" | "library" | "studio" | "method-workflow" | "equipment" | "system";
+
+const MethodWorkflowWorkspace = lazy(() =>
+  import("./features/methods/MethodWorkflowWorkspace").then((module) => ({
+    default: module.MethodWorkflowWorkspace
+  }))
+);
 type StudioSection =
   | "general"
   | "variables"
@@ -190,6 +196,8 @@ export function App() {
         ? "Dossiers d'essai"
       : activeView === "system"
         ? "Système local"
+        : activeView === "method-workflow"
+          ? "Conception des essais"
         : activeView === "studio"
           ? "Éditeur de méthode"
           : "Méthodes d'essai";
@@ -499,8 +507,8 @@ export function App() {
         <nav className="primaryNav technicalNav" aria-label="Ressources techniques">
           <p className="navLabel">Ressources techniques</p>
           <button
-            className={activeView === "library" || activeView === "studio" ? "active" : ""}
-            onClick={() => setActiveView("library")}
+            className={activeView === "library" || activeView === "studio" || activeView === "method-workflow" ? "active" : ""}
+            onClick={() => setActiveView("method-workflow")}
             title="Méthodes d'essai"
           >
             <BookOpenText size={18} />
@@ -546,6 +554,8 @@ export function App() {
                   ? "Du besoin client au créneau d'essai"
                 : activeView === "system"
                   ? "Diagnostic local"
+                : activeView === "method-workflow"
+                  ? "Méthodes, topologies et préparation"
                   : "Référentiel des méthodes"}
             </p>
             <h1>
@@ -559,6 +569,8 @@ export function App() {
                     ? "Dossiers d'essai"
                   : activeView === "system"
                     ? "Système local"
+                  : activeView === "method-workflow"
+                    ? "Conception des essais"
                     : "Méthodes d'essai"}
             </h1>
           </div>
@@ -590,6 +602,11 @@ export function App() {
           />
         )}
         {activeView === "equipment" && <EquipmentWorkspace initialSpace={equipmentSpace} onSpaceChange={setEquipmentSpace} />}
+        {activeView === "method-workflow" && (
+          <Suspense fallback={<div className="workflowLoading">Ouverture de l'espace de conception…</div>}>
+            <MethodWorkflowWorkspace onOpenPlanning={() => setActiveView("planning")} />
+          </Suspense>
+        )}
         {activeView === "library" && (
           <LibraryView
             templates={filteredTemplates}
